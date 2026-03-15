@@ -11,7 +11,8 @@ A Post-Quantum Cryptography (PQC) Certificate Authority system built on Elixir/E
 
 ### 1.1 Goals (v1)
 
-- Issue KAZ-SIGN, ML-DSA, SLH-DSA certificates (PQC-first)
+- Issue KAZ-SIGN, ML-DSA certificates (per product spec goals)
+- Issue SLH-DSA certificates (added beyond product spec — already supported by `ap_java_crypto`, low incremental cost)
 - Issue RSA & ECC certificates (classical compatibility)
 - Key ceremony with threshold scheme (Shamir Secret Sharing)
 - Synchronous ceremony (root CA) and asynchronous ceremony (sub-CA)
@@ -85,7 +86,7 @@ Independent repos, each producing its own Erlang node release.
 | `pki_ca_engine` | Process | Core CA — signing, key ceremony, key management |
 | `pki_ra_portal` | Web Portal | Phoenix LiveView — RA admin GUI |
 | `pki_ra_engine` | Process + Library | RA — CSR processing, cert profiles, service config |
-| `pki_validation` | New | OCSP responder, CRL publisher, LDAP directory |
+| `pki_validation` | Process (New) | OCSP responder, CRL publisher, LDAP directory |
 
 #### External Dependency — SSDID
 
@@ -128,8 +129,25 @@ External Clients (Browser, AI Agents, CMP Clients, OCSP Clients)
 
 ### 2.3 Inter-Node Communication
 
-- **Internal (cluster):** Erlang Distribution with SSDID mutual authentication. Each node bootstraps with its own DID identity. `strap_proc_reg` handles service discovery, group routing, and load balancing.
-- **External (clients):** REST API (custom JSON/HTTPS) and CMP (RFC 4210) for certificate enrollment. OCSP (RFC 6960) and CRL (RFC 5280) for certificate validation.
+- **Internal (cluster):** Erlang Distribution with TLS encryption via `inet_tls_dist` (OTP built-in). All inter-node traffic encrypted and mutually authenticated at the transport layer. On top of TLS, SSDID provides application-layer mutual authentication — each node bootstraps with its own DID identity and verifies peers via challenge-response before accepting requests. `strap_proc_reg` handles service discovery, group routing, and load balancing.
+- **External (clients):** REST API (custom JSON/HTTPS) and CMP (RFC 4210) for certificate enrollment. OCSP (RFC 6960) and CRL (RFC 5280) for certificate validation. All external endpoints terminate TLS at the API gateway or directly.
+
+### 2.4 Process Pooling & High Availability
+
+Per the product spec NFRs on scalability and availability:
+
+**Process pooling:** Each service can run multiple instances registered to a `strap_proc_reg` group. New instances can be added to the pool dynamically — on the same hardware, different hardware, or different locations. `strap_proc_reg` group selectors (random, sequential) handle routing across pool members.
+
+**Critical process availability:** The following processes are classified as critical and must maintain >1 instance registered to a group:
+
+| Process | Min Instances | Failover Strategy |
+|---------|--------------|-------------------|
+| pki_ca_engine | 2 (primary + standby) | Mnesia replicates activation state metadata (handle refs, session config). On primary DOWN, standby is available but signing keys require custodian re-activation (K-of-N shares). For HSM-backed keys, standby can resume immediately if HSM is network-accessible. |
+| pki_ra_engine | 2+ | Stateless request routing via `strap_proc_reg`. Any instance handles any request. |
+| pki_validation | 2+ | Fully stateless (Mnesia cache). Load balanced. Any instance serves any query. |
+| SSDID Registry | 2+ | Mnesia cluster replication. Any node resolves DIDs. |
+
+**Supervision strategy:** Each service uses OTP supervision trees with `:one_for_one` strategy for independent processes and `:rest_for_one` for dependent process chains (e.g., CA engine depends on keystore provider). Supervisors restart failed processes automatically. Node-level failure detected via Erlang node monitoring (nodeup/nodedown events from `strap_proc_reg`).
 
 ## 3. Service Details
 
@@ -144,6 +162,8 @@ Phoenix LiveView application. CA admin GUI.
 - Key ceremony UI (real-time participant tracking, share distribution)
 - Audit log viewer
 - CA engine management (start/stop, status monitoring)
+
+**First-run bootstrap:** If the system is not yet initialized (no CA instance exists), the portal immediately redirects to a root CA admin initialization wizard. The first CA Admin is bootstrapped by providing a DID credential — this initial admin must be pre-registered in the SSDID Registry before first login. The bootstrap flow creates the first `ca_instance` and `ca_user` (CA Admin role).
 
 **No own database.** Reads/writes through `pki_ca_engine` via SSDID-authenticated RPC.
 
@@ -195,7 +215,7 @@ Registration Authority engine. CSR processing, policy enforcement, service confi
 
 | Module | Spec Type | Responsibility |
 |--------|-----------|----------------|
-| RA User Management | Process | Local users per RA. Roles: RA Admin, RA Officer, Auditor. CRUD by RA Admin. |
+| RA User Management | Process | Local users per RA. Roles: RA Admin, RA Officer. CRUD by RA Admin. Note: Auditor CRUD is managed by CA Admin (per product spec), not RA Admin — requires cross-service RPC from CA engine. |
 | CSR Validation Module | Process | View, verify, approve, reject CSRs. Core RA workflow. |
 
 **Library modules (per spec):**
@@ -266,10 +286,11 @@ Tamper-evident audit logging. Consumed by all services.
 
 | Table | Key Fields | Purpose |
 |-------|------------|---------|
-| `cert_profiles` | id, name, subject_dn_policy (jsonb), issuer_key_ref, key_usage, ext_key_usage, validity_period, hash_algo, crl_dist_point, ocsp_url, issuer_url, ca_repository_url, timestamping_url, renewal_policy (jsonb), notification_profile (jsonb), cert_publish_policy (jsonb) | Full cert profile per spec |
+| `cert_profiles` | id, name, subject_dn_policy (jsonb: mandatory_fields), issuer_policy (jsonb: issuer_key_ref, issuer_public_url, key_rotation_policy), key_usage, ext_key_usage, digest_algo, validity_policy (jsonb: validity_period, validity_start, validity_end), timestamping_policy (jsonb: timestamping_url, timestamping_server, sync_period), crl_policy (jsonb: crl_update_period, crl_dist_point, crl_publishing_config, issuer_policy), ocsp_policy (jsonb: ocsp_url, issuer_policy), ca_repository_url, issuer_url, included_extensions (jsonb), renewal_policy (jsonb: key_reuse, csr_reuse, allowed_renewal_lead_time), notification_profile (jsonb: notification_type, notification_config, notification_frequency, notification_start — stored for future use, delivery mechanism out of scope v1), cert_publish_policy (jsonb: cert_repos_config, ca_repository_url) | Full cert profile per spec — all fields from product spec represented |
 | `csr_requests` | id, csr_der, csr_pem, subject_dn, cert_profile_id, status (pending/verified/approved/rejected/issued), submitted_at, reviewed_by, reviewed_at, rejection_reason, issued_cert_serial | CSR lifecycle tracking |
 | `ra_users` | id, did, display_name, role (ra_admin/ra_officer/auditor), status, created_at | RA-local users. Separate from CA users per spec. |
 | `service_configs` | id, service_type (csr_web/crl/ldap/ocsp), port, url, rate_limit, ip_whitelist (jsonb), ip_blacklist (jsonb), connection_security, credentials (encrypted), ca_engine_ref | Unified config for all RA library service types |
+| `ra_api_keys` | id, hashed_key, ra_user_id, label, expiry, rate_limit, status (active/revoked), created_at, revoked_at | API keys for external REST client authentication. Keys hashed with SHA3-256. Managed by RA Admin via portal. |
 
 #### Audit database (shared)
 
@@ -317,7 +338,11 @@ Custodians join independently within a time window.
 2. **Share collection** — each custodian logs in independently, authenticates via SSDID, enters personal password. Share encrypted and stored. LiveView shows progress ("3 of 5 custodians completed"). Private key material held encrypted in CA engine memory.
 3. **Completion** — all N custodians complete → certificate generated (Path A or B). Key material wiped. OR window expires → ceremony fails, key material destroyed.
 
-**Security:** During async ceremony, private key material is held encrypted in CA engine memory (never in DB). If CA node crashes during window, ceremony must be restarted.
+**Security:** During async ceremony, private key material is held encrypted in CA engine memory (never in DB). The in-memory key material is sealed with an AES-256-GCM session key derived from partial shares collected so far — as each custodian provides their share, the session key is re-derived. This means even a memory dump cannot recover the private key without the custodian passwords.
+
+- **Crash:** Ceremony must be restarted from scratch. No key material persists — the encrypted in-memory state is lost with the process.
+- **Graceful shutdown:** If the CA node is intentionally stopped during an async ceremony window, the ceremony is marked as failed, key material is explicitly zeroed, and all collected encrypted shares are retained in `threshold_shares` for a new ceremony attempt.
+- **Window expiry:** Timer fires, key material destroyed, ceremony marked failed. Custodians must re-initiate.
 
 ### 5.3 Day-to-Day Key Activation
 
@@ -325,7 +350,7 @@ Custodians join independently within a time window.
 2. Threshold met → secret reconstructed (software: private key via KeyX; HSM: activation password)
 3. Key loaded into provider GenServer state. Available for RA signing requests.
 4. Configurable session timeout. Key wiped on timeout or explicit deactivation.
-5. Replicated via Mnesia to standby CA node for fault tolerance.
+5. Key activation state (handle reference, session metadata, timeout config) replicated via Mnesia to standby CA node. **Note:** Raw private key material is NOT replicated — the standby node must independently activate the key by collecting K shares from custodians if the primary fails. For HSM-backed keys, only the HSM slot reference is replicated since the HSM itself handles key persistence.
 
 ## 6. Certificate Issuance Flow
 
@@ -408,6 +433,7 @@ Adding new algorithms = new provider implementation, no CA/RA code changes.
 - **Docker Images:** One image per service. Compose file for minimal setup.
 - **Kubernetes:** Helm chart for production SaaS deployment.
 - **Configuration:** Runtime config via env vars (`config/runtime.exs`). Deployment mode (saas/onprem), cluster topology, Postgres URLs, HSM config, SSDID registry URL.
+- **Release signing:** All release artifacts (tarballs, Docker images) are digitally signed. Tarballs signed with GPG. Docker images signed via cosign. Helm charts include provenance metadata. Per product spec NFR: "Mission critical but difficult to deploy encryption must be digitally signed."
 
 ## 9. External Protocol Support
 
@@ -428,7 +454,35 @@ Adding new algorithms = new provider implementation, no CA/RA code changes.
 | EST | RFC 7030 | Medium — modern SCEP replacement |
 | SCEP | Draft | Low — legacy device enrollment |
 
-## 10. Security Model
+## 10. External API Authentication
+
+External clients (non-BEAM, non-cluster) authenticate to `pki_ra_engine` REST and CMP endpoints via:
+
+- **SSDID Verifiable Credential:** Preferred method. Client presents a VC issued during SSDID registration. RA engine verifies the VC proof via `ssdid_verifier`. Supports PQC signature algorithms.
+- **API Key:** For legacy/simple integrations. API keys are issued by RA Admin via the RA Portal, stored as hashed values in `ra_api_keys` table (added to RA database), with configurable expiry and rate limits. Keys can be rotated and revoked.
+- **CMP shared secret:** For CMP protocol specifically, per RFC 4210 Section 4.4. Used for initial registration; subsequent requests use signature-based authentication.
+
+## 11. Error Handling & Failure Recovery
+
+### 11.1 Supervision Strategy
+
+See Section 2.4 for supervision tree design and process pooling configuration.
+
+### 11.2 Critical Failure Modes
+
+| Failure | Impact | Recovery |
+|---------|--------|----------|
+| CA engine unreachable during signing | RA receives `{:error, :ca_unavailable}` | CSR remains in `csr_requests` with status `approved`. RA engine runs a periodic retry process that re-attempts signing for all approved-but-unissued CSRs. `strap_proc_reg` detects DOWN, routes to standby if available. |
+| Mnesia replication lag | Validation nodes serve stale OCSP/CRL data | Acceptable for short periods (OCSP responses have TTL). Mnesia anti-entropy syncs on reconnect. |
+| Ceremony partially completes, custodian unavailable | Async: ceremony continues within window. Sync: ceremony fails. | Async: remaining custodians complete within window. If window expires, ceremony fails and must restart. |
+| Postgres unreachable | Writes fail, reads fall back to Mnesia cache | Mnesia audit buffer holds events. Services continue operating from Mnesia state. Postgres writes retry on reconnect. |
+| Node crash during key activation | Active key lost from GenServer state | Standby CA node notified via nodedown. Custodians must re-activate on standby (or primary when it recovers). HSM keys persist in hardware. |
+
+### 11.3 Circuit Breakers
+
+Inter-node RPC calls use circuit breaker pattern: if a target node fails N consecutive requests, the circuit opens and requests fail fast for a cooldown period before retrying. Prevents cascade failures across the cluster.
+
+## 12. Security Model
 
 - **Private keys** never leave `pki_ca_engine` node (or HSM). No other node has signing key access.
 - **Threshold activation** required for all signing keys. No single person can activate.
@@ -439,8 +493,10 @@ Adding new algorithms = new provider implementation, no CA/RA code changes.
 - **Network segmentation** supported — CA zone, RA zone, DMZ for validation.
 - **All API calls authenticated** — external via API key or SSDID credential, internal via SSDID.
 - **Sensitive data encrypted** — keystore configs, credentials, threshold shares encrypted at rest.
+- **Inter-node encryption** — Erlang Distribution uses TLS via `inet_tls_dist`. All inter-process communication authenticated and encrypted per product spec NFR.
+- **Release artifact signing** — all deployment artifacts digitally signed per product spec NFR.
 
-## 11. References
+## 13. References
 
 - Product Specification: `docs/Product.Spec-PQC.CA.System-v1.0.docx`
 - SSDID System: `~/Workspace/SSDID/` (Self-Sovereign Distributed Identity)
