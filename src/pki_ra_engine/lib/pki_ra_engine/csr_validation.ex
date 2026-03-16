@@ -107,6 +107,24 @@ defmodule PkiRaEngine.CsrValidation do
     |> Repo.all()
   end
 
+  @doc "Forward an approved CSR to the CA engine for signing."
+  @spec forward_to_ca(integer()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  def forward_to_ca(csr_id) do
+    ca_module =
+      Application.get_env(:pki_ra_engine, :ca_engine_module, __MODULE__.DefaultCaClient)
+
+    with {:ok, csr} <- get_csr(csr_id),
+         :ok <- check_transition(csr.status, "issued") do
+      case ca_module.sign_certificate(csr.csr_pem, %{id: csr.cert_profile_id}) do
+        {:ok, cert_data} ->
+          mark_issued(csr_id, cert_data.serial_number)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
   @doc "Mark an approved CSR as issued with the certificate serial."
   @spec mark_issued(integer(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def mark_issued(csr_id, cert_serial) do
