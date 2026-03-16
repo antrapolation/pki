@@ -1,0 +1,161 @@
+# PQC Certificate Authority System — Podman Compose
+# Usage: podman-compose up -d
+# Requires: podman, podman-compose
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: pki-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pki-postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── SSDID Registry ─────────────────────────────────────────────────
+  # DID Document storage and resolution service
+  # Source: ~/Workspace/SSDID
+  ssdid-registry:
+    build:
+      context: ../SSDID
+      dockerfile: src/ssdid_registry/Containerfile
+    container_name: pki-ssdid-registry
+    environment:
+      PORT: "4000"
+      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      PHX_HOST: "localhost"
+      MNESIA_DIR: /app/data/mnesia
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: ssdid_registry@ssdid-registry
+    ports:
+      - "4000:4000"
+    volumes:
+      - ssdid-registry-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:4000/api/registry/info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PKI CA Engine ──────────────────────────────────────────────────
+  # Core CA — signing keys, key ceremonies, certificate issuance
+  pki-ca-engine:
+    build:
+      context: .
+      dockerfile: src/pki_ca_engine/Containerfile
+    container_name: pki-ca-engine
+    environment:
+      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ca_engine"
+      PORT: "4001"
+      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
+      SSDID_IDENTITY_PASSWORD: "dev_ca_engine_pass"
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: pki_ca_engine@pki-ca-engine
+    ports:
+      - "4001:4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ssdid-registry:
+        condition: service_healthy
+
+  # ── PKI RA Engine ──────────────────────────────────────────────────
+  # Registration Authority — CSR processing, REST API, CMP
+  pki-ra-engine:
+    build:
+      context: .
+      dockerfile: src/pki_ra_engine/Containerfile
+    container_name: pki-ra-engine
+    environment:
+      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ra_engine"
+      PORT: "4003"
+      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
+      SSDID_IDENTITY_PASSWORD: "dev_ra_engine_pass"
+      CA_ENGINE_URL: "http://pki-ca-engine:4001"
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: pki_ra_engine@pki-ra-engine
+    ports:
+      - "4003:4003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ssdid-registry:
+        condition: service_healthy
+
+  # ── PKI CA Portal ──────────────────────────────────────────────────
+  # CA Admin GUI — Phoenix LiveView
+  pki-ca-portal:
+    build:
+      context: .
+      dockerfile: src/pki_ca_portal/Containerfile
+    container_name: pki-ca-portal
+    environment:
+      PORT: "4002"
+      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      PHX_HOST: "localhost"
+      CA_ENGINE_URL: "http://pki-ca-engine:4001"
+      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
+      SSDID_IDENTITY_PASSWORD: "dev_ca_portal_pass"
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: pki_ca_portal@pki-ca-portal
+    ports:
+      - "4002:4002"
+    depends_on:
+      - pki-ca-engine
+      - ssdid-registry
+
+  # ── PKI RA Portal ──────────────────────────────────────────────────
+  # RA Admin GUI — Phoenix LiveView
+  pki-ra-portal:
+    build:
+      context: .
+      dockerfile: src/pki_ra_portal/Containerfile
+    container_name: pki-ra-portal
+    environment:
+      PORT: "4004"
+      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      PHX_HOST: "localhost"
+      RA_ENGINE_URL: "http://pki-ra-engine:4003"
+      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
+      SSDID_IDENTITY_PASSWORD: "dev_ra_portal_pass"
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: pki_ra_portal@pki-ra-portal
+    ports:
+      - "4004:4004"
+    depends_on:
+      - pki-ra-engine
+      - ssdid-registry
+
+  # ── PKI Validation ─────────────────────────────────────────────────
+  # OCSP responder + CRL publisher
+  pki-validation:
+    build:
+      context: .
+      dockerfile: src/pki_validation/Containerfile
+    container_name: pki-validation
+    environment:
+      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_validation"
+      PORT: "4005"
+      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: pki_validation@pki-validation
+    ports:
+      - "4005:4005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pki-postgres-data:
+  ssdid-registry-data:
