@@ -1,0 +1,10 @@
+import Config
+
+config :pki_ra_engine, PkiRaEngine.Repo,
+  database: "pki_ra_engine_test#{System.get_env("MIX_TEST_PARTITION")}",
+  pool: Ecto.Adapters.SQL.Sandbox,
+  pool_size: 10
+
+config :logger, level: :warning
+
+config :pki_ra_engine, start_http: false

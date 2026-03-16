@@ -1,0 +1,24 @@
+# Dependencies
+deps/
+_build/
+.elixir_ls/
+
+# Generated
+*.beam
+*.ez
+
+# Mnesia
+Mnesia.*
+
+# OS
+.DS_Store
+
+# Temp
+docs/~$*
+
+# Superpowers brainstorm sessions
+.superpowers/
+
+# Editor
+.vscode/
+.idea/

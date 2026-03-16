@@ -1,0 +1,42 @@
+defmodule PkiCaPortalWeb.Router do
+  use PkiCaPortalWeb, :router
+
+  pipeline :browser do
+    plug :accepts, ["html"]
+    plug :fetch_session
+    plug :fetch_live_flash
+    plug :put_root_layout, html: {PkiCaPortalWeb.Layouts, :root}
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers
+  end
+
+  pipeline :require_auth do
+    plug PkiCaPortalWeb.Plugs.RequireAuth
+  end
+
+  pipeline :api do
+    plug :accepts, ["json"]
+  end
+
+  # Public routes (no auth required)
+  scope "/", PkiCaPortalWeb do
+    pipe_through :browser
+
+    get "/login", SessionController, :new
+    post "/login", SessionController, :create
+    delete "/logout", SessionController, :delete
+  end
+
+  # Protected routes (auth required)
+  scope "/", PkiCaPortalWeb do
+    pipe_through [:browser, :require_auth]
+
+    live_session :authenticated, on_mount: PkiCaPortalWeb.Live.AuthHook do
+      live "/", DashboardLive
+      live "/users", UsersLive
+      live "/keystores", KeystoresLive
+      live "/ceremony", CeremonyLive
+      live "/audit-log", AuditLogLive
+    end
+  end
+end
