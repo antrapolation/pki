@@ -18,7 +18,60 @@ defmodule PkiCaEngine.UserManagement do
   }
 
   @doc """
-  Creates a user for the given CA instance.
+  Registers a new user with username and password.
+  Used for bootstrap setup and admin-created users.
+  """
+  @spec register_user(integer(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
+  def register_user(ca_instance_id, attrs) do
+    attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
+
+    Repo.transaction(fn ->
+      # Re-check inside transaction to prevent TOCTOU race
+      count = Repo.one(from u in CaUser, where: u.ca_instance_id == ^ca_instance_id, select: count(u.id))
+
+      if count > 0 do
+        Repo.rollback(:setup_already_complete)
+      else
+        case %CaUser{} |> CaUser.registration_changeset(attrs) |> Repo.insert() do
+          {:ok, user} -> user
+          {:error, changeset} -> Repo.rollback(changeset)
+        end
+      end
+    end)
+  end
+
+  @doc """
+  Authenticates a user by username and password.
+  Returns the user if credentials are valid.
+  """
+  @spec authenticate(String.t(), String.t()) :: {:ok, CaUser.t()} | {:error, :invalid_credentials}
+  def authenticate(username, password) do
+    case Repo.one(from u in CaUser, where: u.username == ^username and u.status == "active") do
+      nil ->
+        Argon2.no_user_verify()
+        {:error, :invalid_credentials}
+
+      user ->
+        if Argon2.verify_pass(password, user.password_hash) do
+          {:ok, user}
+        else
+          {:error, :invalid_credentials}
+        end
+    end
+  end
+
+  @doc """
+  Returns true if no users exist for the given CA instance.
+  Used to determine if bootstrap setup is needed.
+  """
+  @spec needs_setup?(integer()) :: boolean()
+  def needs_setup?(ca_instance_id) do
+    count = Repo.one(from u in CaUser, where: u.ca_instance_id == ^ca_instance_id, select: count(u.id))
+    count == 0
+  end
+
+  @doc """
+  Creates a user for the given CA instance (without password, legacy).
   """
   @spec create_user(integer(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t()}
   def create_user(ca_instance_id, attrs) do

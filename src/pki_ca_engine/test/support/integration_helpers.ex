@@ -8,7 +8,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
 
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore}
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, TestCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.{SyncCeremony, DefaultCryptoAdapter}
   alias PkiCaEngine.KeyActivation
 
   @doc """
@@ -75,14 +75,13 @@ defmodule PkiCaEngine.IntegrationHelpers do
       key_managers: key_managers,
       auditor: auditor,
       keystore: keystore,
-      adapter: %TestCryptoAdapter{}
+      adapter: %DefaultCryptoAdapter{}
     }
   end
 
   @doc """
   Runs a full synchronous key ceremony: initiate, generate keypair,
-  distribute shares, complete as root. Returns ceremony, issuer_key, and
-  custodian passwords list.
+  distribute shares, complete as root with a real self-signed certificate.
 
   `setup` is the map returned by `create_full_ca_setup!/0`.
   `opts` allows overriding `:threshold_k` (default 2), `:threshold_n` (default 3).
@@ -116,9 +115,8 @@ defmodule PkiCaEngine.IntegrationHelpers do
         setup.adapter
       )
 
-    # Complete as root CA with placeholder certificate
-    cert_der = "ROOT_CERT_DER_PLACEHOLDER"
-    cert_pem = "ROOT_CERT_PEM_PLACEHOLDER"
+    # Generate a real self-signed root CA certificate
+    {cert_der, cert_pem} = generate_self_signed_root_cert(keypair.private_key)
     {:ok, completed_ceremony} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
 
     %{
@@ -153,5 +151,47 @@ defmodule PkiCaEngine.IntegrationHelpers do
     end)
 
     :ok
+  end
+
+  @doc """
+  Generates a real self-signed root CA certificate from a DER-encoded private key.
+  Returns `{cert_der_binary, cert_pem_string}`.
+  """
+  def generate_self_signed_root_cert(private_key_der) do
+    # Decode the DER-encoded private key (try RSA first, then EC)
+    native_key = decode_private_key(private_key_der)
+
+    # Create self-signed root CA certificate
+    root_cert =
+      X509.Certificate.self_signed(native_key, "/CN=Test Root CA/O=IntegTest",
+        template: :root_ca,
+        hash: :sha256,
+        serial: {:random, 8},
+        validity: 365 * 25
+      )
+
+    cert_der = X509.Certificate.to_der(root_cert)
+    cert_pem = X509.Certificate.to_pem(root_cert)
+
+    {cert_der, cert_pem}
+  end
+
+  @doc """
+  Generates a real CSR PEM for testing, signed by a fresh RSA-2048 keypair.
+  Returns `{csr_pem, subject_dn}`.
+  """
+  def generate_test_csr(subject \\ "/CN=test.example.com/O=TestOrg") do
+    key = X509.PrivateKey.new_rsa(2048)
+    csr = X509.CSR.new(key, subject)
+    csr_pem = X509.CSR.to_pem(csr)
+    {csr_pem, subject}
+  end
+
+  defp decode_private_key(der) do
+    try do
+      :public_key.der_decode(:RSAPrivateKey, der)
+    rescue
+      _ -> :public_key.der_decode(:ECPrivateKey, der)
+    end
   end
 end

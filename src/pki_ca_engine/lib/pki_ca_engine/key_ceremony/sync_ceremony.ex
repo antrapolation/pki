@@ -7,7 +7,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   2. `generate_keypair/2` - generates keypair via CryptoAdapter protocol
   3. `distribute_shares/4` - splits private key, encrypts shares, stores in DB
   4. `complete_as_root/3` - for independent root CA (activates key with cert)
-  5. `complete_as_sub_ca/1` - for sub-CA (key stays pending, returns CSR placeholder)
+  5. `complete_as_sub_ca/3` - for sub-CA (key stays pending, generates real PKCS#10 CSR)
 
   Private key material is NEVER persisted to DB -- only encrypted shares are stored.
   """
@@ -168,23 +168,43 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   Completes a ceremony for a sub-CA.
 
   Marks the ceremony completed but the issuer key stays "pending" (awaiting external CA signing).
-  Returns a CSR placeholder that will be replaced with real CSR generation once crypto deps are added.
+  Generates a PKCS#10 CSR signed by the ceremony's private key, to be sent to the parent CA.
+
+  ## Parameters
+    - `ceremony` - the KeyCeremony record (must have domain_info with subject DN)
+    - `private_key` - the raw private key (Erlang key term or binary); must be the key
+      generated during the ceremony's `generate_keypair` step. The caller is responsible
+      for passing this in-memory value since private keys are never persisted.
+    - `opts` - optional keyword list:
+      - `:subject` - subject DN string (e.g., "/CN=Sub-CA/O=Org"); defaults to
+        `ceremony.domain_info["subject_dn"]` or a generated default
 
   ## Returns
-    - `{:ok, {updated_ceremony, csr_binary}}` on success
+    - `{:ok, {updated_ceremony, csr_pem}}` on success
+    - `{:error, term()}` on failure
   """
-  @spec complete_as_sub_ca(KeyCeremony.t()) :: {:ok, {KeyCeremony.t(), binary()}} | {:error, term()}
-  def complete_as_sub_ca(ceremony) do
+  @spec complete_as_sub_ca(KeyCeremony.t(), term(), keyword()) ::
+          {:ok, {KeyCeremony.t(), String.t()}} | {:error, term()}
+  def complete_as_sub_ca(ceremony, private_key, opts \\ []) do
+    subject =
+      Keyword.get(opts, :subject) ||
+        get_in(ceremony.domain_info, ["subject_dn"]) ||
+        "/CN=Sub-CA-#{ceremony.ca_instance_id}"
+
     Repo.transaction(fn ->
       {:ok, updated} =
         ceremony
         |> Ecto.Changeset.change(status: "completed")
         |> Repo.update()
 
-      # CSR generation is a placeholder -- will use real crypto in integration
-      csr_placeholder = "CSR_PLACEHOLDER"
-      {updated, csr_placeholder}
+      csr_pem = generate_csr(private_key, subject)
+      {updated, csr_pem}
     end)
+  end
+
+  defp generate_csr(private_key, subject) do
+    csr = X509.CSR.new(private_key, subject)
+    X509.CSR.to_pem(csr)
   end
 
   defp validate_threshold(k, n) when is_integer(k) and is_integer(n) and k >= 2 and k <= n,

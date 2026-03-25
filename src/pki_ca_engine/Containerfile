@@ -8,14 +8,22 @@ ENV MIX_ENV=prod
 
 RUN mix local.hex --force && mix local.rebar --force
 
-# Copy mix files for dependency resolution
+# Copy mix files for dependency resolution (including path deps)
 COPY src/pki_ca_engine/mix.exs src/pki_ca_engine/
 COPY src/pki_audit_trail/mix.exs src/pki_audit_trail/
+COPY src/keyx/mix.exs src/keyx/
+COPY src/x509/mix.exs src/x509/
+COPY src/ex_ccrypto/mix.exs src/ex_ccrypto/
+
+# Copy path dep source (needed before deps.get for path resolution)
+COPY src/keyx/lib src/keyx/lib
+COPY src/x509/lib src/x509/lib
+COPY src/ex_ccrypto/lib src/ex_ccrypto/lib
 
 # Fetch deps
-RUN cd src/pki_ca_engine && mix deps.get --only prod
+RUN cd src/pki_ca_engine && mix deps.get
 
-# Copy source
+# Copy main service source
 COPY src/pki_ca_engine/lib src/pki_ca_engine/lib
 COPY src/pki_ca_engine/config src/pki_ca_engine/config
 COPY src/pki_ca_engine/priv src/pki_ca_engine/priv
@@ -24,7 +32,7 @@ COPY src/pki_audit_trail/config src/pki_audit_trail/config
 COPY src/pki_audit_trail/priv src/pki_audit_trail/priv
 
 # Compile and build release
-RUN cd src/pki_ca_engine && mix compile && mix release
+RUN cd src/pki_ca_engine && mix deps.compile && mix compile && mix release
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────
 FROM docker.io/debian:trixie-20260223-slim

@@ -3,7 +3,7 @@ defmodule PkiCaEngine.EngineTest do
 
   alias PkiCaEngine.Engine
   alias PkiCaEngine.KeyActivation
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, TestCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.{SyncCeremony, DefaultCryptoAdapter}
   alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore}
 
   setup do
@@ -120,7 +120,7 @@ defmodule PkiCaEngine.EngineTest do
           user
         end
 
-      adapter = %TestCryptoAdapter{}
+      adapter = %DefaultCryptoAdapter{}
 
       {:ok, {ceremony, issuer_key}} =
         SyncCeremony.initiate(ctx.ca.id, %{
@@ -138,6 +138,11 @@ defmodule PkiCaEngine.EngineTest do
 
       {:ok, 3} =
         SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords, adapter)
+
+      # Complete ceremony as root with real self-signed certificate
+      {cert_der, cert_pem} =
+        PkiCaEngine.IntegrationHelpers.generate_self_signed_root_cert(keypair.private_key)
+      {:ok, _completed} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
 
       # Start KeyActivation and activate key
       activation_name = :"test_engine_activation_#{System.unique_integer([:positive])}"
@@ -158,11 +163,12 @@ defmodule PkiCaEngine.EngineTest do
         Engine.stop_engine(ctx.ca.id)
       end)
 
+      issuer_key = Repo.get!(PkiCaEngine.Schema.IssuerKey, issuer_key.id)
       %{issuer_key: issuer_key, activation_server: activation_name}
     end
 
     test "delegates certificate signing through the engine", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      {csr_data, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr()
       cert_profile = %{validity_days: 365, subject_dn: "CN=engine.example.com,O=Test"}
 
       assert {:ok, cert} =

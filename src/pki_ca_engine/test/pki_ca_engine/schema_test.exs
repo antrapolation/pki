@@ -62,7 +62,7 @@ defmodule PkiCaEngine.SchemaTest do
       changeset = CaUser.changeset(%CaUser{}, %{})
       refute changeset.valid?
       errors = errors_on(changeset)
-      assert %{did: ["can't be blank"], role: ["can't be blank"], ca_instance_id: ["can't be blank"]} = errors
+      assert %{role: ["can't be blank"], ca_instance_id: ["can't be blank"]} = errors
     end
 
     test "invalid role rejected", %{ca: ca} do

@@ -33,7 +33,7 @@ defmodule PkiCaEngine.UserManagementTest do
     test "rejects missing required fields", %{ca: ca} do
       assert {:error, changeset} = UserManagement.create_user(ca.id, %{})
       errors = errors_on(changeset)
-      assert %{did: ["can't be blank"], role: ["can't be blank"]} = errors
+      assert %{role: ["can't be blank"]} = errors
     end
 
     for role <- ~w(ca_admin key_manager ra_admin auditor) do

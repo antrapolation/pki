@@ -27,7 +27,14 @@ defmodule PkiCaEngine.MixProject do
     [
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.18"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:plug, "~> 1.16"},
+      {:plug_cowboy, "~> 2.7"},
+      {:keyx, path: "../keyx"},
+      {:x509, path: "../x509"},
+      {:ex_ccrypto, path: "../ex_ccrypto"},
+      {:pki_audit_trail, path: "../pki_audit_trail", runtime: false},
+      {:req, "~> 0.5"}
     ]
   end
 

@@ -19,7 +19,7 @@ defmodule PkiCaEngine.IntegrationTest do
     UserManagement
   }
 
-  alias PkiCaEngine.KeyCeremony.{AsyncCeremony, SyncCeremony, TestCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.{AsyncCeremony, SyncCeremony, DefaultCryptoAdapter}
   alias PkiCaEngine.Schema.{KeyCeremony, ThresholdShare}
 
   import PkiCaEngine.IntegrationHelpers
@@ -67,8 +67,8 @@ defmodule PkiCaEngine.IntegrationTest do
       assert KeypairAccessControl.has_access?(issuer_key.id, km2.id)
       assert KeypairAccessControl.has_access?(issuer_key.id, km3.id)
 
-      # 6. Generate keypair via TestCryptoAdapter
-      adapter = %TestCryptoAdapter{}
+      # 6. Generate real keypair via DefaultCryptoAdapter
+      adapter = %DefaultCryptoAdapter{}
       {:ok, keypair} = SyncCeremony.generate_keypair(adapter, "RSA-4096")
       assert is_binary(keypair.public_key)
       assert is_binary(keypair.private_key)
@@ -93,9 +93,9 @@ defmodule PkiCaEngine.IntegrationTest do
 
       assert length(shares) == 3
 
-      # 8. Complete ceremony as root (with placeholder cert)
-      cert_der = "ROOT_CERT_DER"
-      cert_pem = "ROOT_CERT_PEM"
+      # 8. Complete ceremony as root with real self-signed certificate
+      {cert_der, cert_pem} =
+        PkiCaEngine.IntegrationHelpers.generate_self_signed_root_cert(keypair.private_key)
       {:ok, completed_ceremony} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
 
       # 9. Verify: issuer key status is "active", ceremony status is "completed"
@@ -122,7 +122,7 @@ defmodule PkiCaEngine.IntegrationTest do
       assert KeyActivation.is_active?(activation_name, issuer_key.id)
 
       # 12. Sign a certificate (placeholder CSR + cert profile)
-      csr_data = "CSR_BINARY_DATA"
+      {csr_data, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr()
       cert_profile = %{validity_days: 365, subject_dn: "CN=test.example.com,O=IntegTest"}
 
       {:ok, cert} =
