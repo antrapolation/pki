@@ -40,7 +40,10 @@ defmodule PkiRaEngine.MixProject do
       {:postgrex, "~> 0.18"},
       {:jason, "~> 1.4"},
       {:plug, "~> 1.16"},
-      {:plug_cowboy, "~> 2.7"}
+      {:plug_cowboy, "~> 2.7"},
+      {:req, "~> 0.5"},
+      {:x509, path: "../x509"},
+      {:ex_ccrypto, path: "../ex_ccrypto"}
     ]
   end
 end

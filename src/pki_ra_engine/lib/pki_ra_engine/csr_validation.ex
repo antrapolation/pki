@@ -10,6 +10,7 @@ defmodule PkiRaEngine.CsrValidation do
     approved -> issued   (after CA signs)
   """
 
+  require Logger
   import PkiRaEngine.QueryHelpers
 
   alias PkiRaEngine.Repo
@@ -184,14 +185,62 @@ defmodule PkiRaEngine.CsrValidation do
     end
   end
 
-  defp extract_subject_dn(csr_pem) do
-    # Placeholder — real extraction requires ASN.1 parsing of the CSR
-    # For now, return a generic DN
-    if csr_pem && csr_pem != "" do
-      "CN=pending_extraction"
-    else
-      "CN=unknown"
+  defp extract_subject_dn(csr_pem) when is_binary(csr_pem) and byte_size(csr_pem) > 0 do
+    # Try X509 library PEM parsing first
+    case X509.CSR.from_pem(csr_pem) do
+      {:ok, csr} ->
+        subject = X509.CSR.subject(csr)
+        dn = X509.RDNSequence.to_string(subject)
+
+        if dn == "" do
+          Logger.warning("CSR parsed successfully but subject DN is empty")
+          "CN=unknown"
+        else
+          dn
+        end
+
+      {:error, :not_found} ->
+        # PEM block not found — try DER decoding in case raw binary was passed
+        try_der_decode(csr_pem)
+
+      {:error, :malformed} ->
+        Logger.warning("CSR PEM is malformed, could not parse subject DN")
+        "CN=unknown"
     end
+  rescue
+    e ->
+      Logger.warning("CSR subject DN extraction failed: #{Exception.message(e)}")
+      "CN=unknown"
+  end
+
+  defp extract_subject_dn(nil) do
+    Logger.warning("CSR PEM is nil, cannot extract subject DN")
+    "CN=unknown"
+  end
+
+  defp extract_subject_dn(_) do
+    Logger.warning("CSR PEM is not a valid binary, cannot extract subject DN")
+    "CN=unknown"
+  end
+
+  defp try_der_decode(der_data) do
+    case X509.CSR.from_der(der_data) do
+      {:ok, csr} ->
+        subject = X509.CSR.subject(csr)
+        dn = X509.RDNSequence.to_string(subject)
+        if dn == "", do: "CN=unknown", else: dn
+
+      {:error, _} ->
+        Logger.warning(
+          "CSR could not be parsed as PEM or DER, falling back to CN=unknown"
+        )
+
+        "CN=unknown"
+    end
+  rescue
+    _ ->
+      Logger.warning("CSR DER decode failed, falling back to CN=unknown")
+      "CN=unknown"
   end
 
 end

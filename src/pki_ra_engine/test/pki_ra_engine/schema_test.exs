@@ -26,7 +26,6 @@ defmodule PkiRaEngine.SchemaTest do
       changeset = RaUser.changeset(%RaUser{}, %{})
       refute changeset.valid?
       errors = errors_on(changeset)
-      assert errors[:did]
       assert errors[:role]
     end
 

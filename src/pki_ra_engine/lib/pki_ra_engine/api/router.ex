@@ -13,6 +13,20 @@ defmodule PkiRaEngine.Api.Router do
     send_resp(conn, 200, Jason.encode!(%{status: "ok"}))
   end
 
+  # Auth endpoints (no token required)
+  post "/api/v1/auth/login" do
+    PkiRaEngine.Api.AuthController.login(conn)
+  end
+
+  post "/api/v1/auth/register" do
+    PkiRaEngine.Api.AuthController.register(conn)
+  end
+
+  get "/api/v1/auth/needs-setup" do
+    PkiRaEngine.Api.AuthController.needs_setup(conn)
+  end
+
+  # Everything else under /api/v1 requires authentication
   forward "/api/v1", to: PkiRaEngine.Api.AuthenticatedRouter
 
   match _ do

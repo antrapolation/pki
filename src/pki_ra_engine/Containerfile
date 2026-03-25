@@ -8,14 +8,26 @@ ENV MIX_ENV=prod
 
 RUN mix local.hex --force && mix local.rebar --force
 
+# Copy mix files for dependency resolution (including path deps)
 COPY src/pki_ra_engine/mix.exs src/pki_ra_engine/
+COPY src/keyx/mix.exs src/keyx/
+COPY src/x509/mix.exs src/x509/
+COPY src/ex_ccrypto/mix.exs src/ex_ccrypto/
 
+# Copy path dep source (needed before deps.get for path resolution)
+COPY src/keyx/lib src/keyx/lib
+COPY src/x509/lib src/x509/lib
+COPY src/ex_ccrypto/lib src/ex_ccrypto/lib
+
+# Fetch deps
 RUN cd src/pki_ra_engine && mix deps.get --only prod
 
+# Copy main service source
 COPY src/pki_ra_engine/lib src/pki_ra_engine/lib
 COPY src/pki_ra_engine/config src/pki_ra_engine/config
 COPY src/pki_ra_engine/priv src/pki_ra_engine/priv
 
+# Compile and build release
 RUN cd src/pki_ra_engine && mix compile && mix release
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────
