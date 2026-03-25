@@ -242,4 +242,97 @@ defmodule PkiCaEngine.KeyActivationTest do
                KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "wrong-password")
     end
   end
+
+  # ── UC-CA-30 edge cases ────────────────────────────────────────
+
+  describe "submit_share/4 with non-existent issuer key" do
+    test "returns {:error, :share_not_found} when no share exists for given key and custodian",
+         ctx do
+      name = :"test_activation_#{System.unique_integer([:positive])}"
+
+      start_supervised!(
+        {KeyActivation,
+         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+        restart: :temporary
+      )
+
+      [c1 | _] = ctx.custodians
+      non_existent_key_id = -1
+
+      assert {:error, :share_not_found} =
+               KeyActivation.submit_share(name, non_existent_key_id, c1.id, "password-#{c1.id}")
+    end
+  end
+
+  describe "get_active_key/2" do
+    test "returns {:ok, secret} for activated key", ctx do
+      name = :"test_activation_#{System.unique_integer([:positive])}"
+
+      start_supervised!(
+        {KeyActivation,
+         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+        restart: :temporary
+      )
+
+      [c1, c2 | _] = ctx.custodians
+      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+
+      assert {:ok, secret} = KeyActivation.get_active_key(name, ctx.issuer_key.id)
+      assert is_binary(secret)
+    end
+
+    test "returns {:error, :not_active} for non-activated key", ctx do
+      name = :"test_activation_#{System.unique_integer([:positive])}"
+
+      start_supervised!(
+        {KeyActivation,
+         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+        restart: :temporary
+      )
+
+      assert {:error, :not_active} =
+               KeyActivation.get_active_key(name, ctx.issuer_key.id)
+    end
+
+    test "returns {:error, :not_active} after deactivation", ctx do
+      name = :"test_activation_#{System.unique_integer([:positive])}"
+
+      start_supervised!(
+        {KeyActivation,
+         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+        restart: :temporary
+      )
+
+      [c1, c2 | _] = ctx.custodians
+      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+
+      assert {:ok, _} = KeyActivation.get_active_key(name, ctx.issuer_key.id)
+
+      :ok = KeyActivation.deactivate(name, ctx.issuer_key.id)
+
+      assert {:error, :not_active} =
+               KeyActivation.get_active_key(name, ctx.issuer_key.id)
+    end
+  end
+
+  describe "deactivate/2 double deactivation" do
+    test "deactivating an already-deactivated key returns {:error, :not_active}", ctx do
+      name = :"test_activation_#{System.unique_integer([:positive])}"
+
+      start_supervised!(
+        {KeyActivation,
+         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+        restart: :temporary
+      )
+
+      [c1, c2 | _] = ctx.custodians
+      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+
+      assert :ok = KeyActivation.deactivate(name, ctx.issuer_key.id)
+      assert {:error, :not_active} = KeyActivation.deactivate(name, ctx.issuer_key.id)
+    end
+  end
 end

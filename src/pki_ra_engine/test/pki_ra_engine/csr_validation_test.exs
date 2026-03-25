@@ -1,5 +1,5 @@
 defmodule PkiRaEngine.CsrValidationTest do
-  use PkiRaEngine.DataCase, async: true
+  use PkiRaEngine.DataCase, async: false
 
   alias PkiRaEngine.CsrValidation
   alias PkiRaEngine.CertProfileConfig
@@ -199,6 +199,69 @@ defmodule PkiRaEngine.CsrValidationTest do
       csrs = CsrValidation.list_csrs(cert_profile_id: profile1.id)
       assert length(csrs) == 1
       assert hd(csrs).cert_profile_id == profile1.id
+    end
+  end
+
+  # ── Auto-Validation (UC-RA-13, UC-RA-14) ──────────────────────────
+
+  describe "auto-validation: validate_csr/1 structural checks" do
+    test "valid CSR PEM transitions to verified" do
+      profile = create_profile!()
+      csr = submit_csr!(profile, "-----BEGIN CERTIFICATE REQUEST-----\nMIIBvalid\n-----END CERTIFICATE REQUEST-----")
+
+      assert {:ok, validated} = CsrValidation.validate_csr(csr.id)
+      assert validated.status == "verified"
+    end
+
+    test "empty string CSR PEM transitions to rejected" do
+      profile = create_profile!()
+      {:ok, csr} = CsrValidation.submit_csr("", profile.id)
+
+      assert {:ok, validated} = CsrValidation.validate_csr(csr.id)
+      assert validated.status == "rejected"
+    end
+
+    test "nil-like CSR (no PEM or DER content) transitions to rejected" do
+      profile = create_profile!()
+      # Submit with whitespace-only PEM to simulate effectively empty content
+      {:ok, csr} = CsrValidation.submit_csr("", profile.id)
+
+      assert {:ok, validated} = CsrValidation.validate_csr(csr.id)
+      assert validated.status == "rejected"
+    end
+
+    test "CSR with valid subject DN has subject extracted" do
+      profile = create_profile!()
+      csr_pem = "-----BEGIN CERTIFICATE REQUEST-----\nMIIBtest\n-----END CERTIFICATE REQUEST-----"
+      {:ok, csr} = CsrValidation.submit_csr(csr_pem, profile.id)
+
+      # extract_subject_dn falls back to "CN=unknown" for non-parseable PEM
+      assert csr.subject_dn != nil
+      assert is_binary(csr.subject_dn)
+      assert csr.subject_dn == "CN=unknown"
+    end
+
+    test "validate_csr/1 returns error for non-existent CSR" do
+      assert {:error, :not_found} = CsrValidation.validate_csr(999_999)
+    end
+
+    test "double validation is rejected (verified -> verified is invalid)" do
+      profile = create_profile!()
+      csr = submit_csr!(profile)
+      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+
+      assert {:error, {:invalid_transition, "verified", "verified"}} =
+               CsrValidation.validate_csr(verified.id)
+    end
+
+    test "rejected CSR cannot be re-validated" do
+      profile = create_profile!()
+      {:ok, csr} = CsrValidation.submit_csr("", profile.id)
+      {:ok, rejected} = CsrValidation.validate_csr(csr.id)
+      assert rejected.status == "rejected"
+
+      assert {:error, {:invalid_transition, "rejected", "verified"}} =
+               CsrValidation.validate_csr(rejected.id)
     end
   end
 

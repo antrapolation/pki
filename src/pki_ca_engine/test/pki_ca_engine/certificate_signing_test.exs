@@ -3,7 +3,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
   alias PkiCaEngine.CertificateSigning
   alias PkiCaEngine.KeyActivation
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, TestCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.{SyncCeremony, DefaultCryptoAdapter}
   alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore}
 
   setup do
@@ -43,7 +43,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
         user
       end
 
-    adapter = %TestCryptoAdapter{}
+    adapter = %DefaultCryptoAdapter{}
 
     {:ok, {ceremony, issuer_key}} =
       SyncCeremony.initiate(ca.id, %{
@@ -62,6 +62,11 @@ defmodule PkiCaEngine.CertificateSigningTest do
     {:ok, 3} =
       SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords, adapter)
 
+    # Complete ceremony as root with a real self-signed certificate
+    {cert_der, cert_pem} =
+      PkiCaEngine.IntegrationHelpers.generate_self_signed_root_cert(keypair.private_key)
+    {:ok, _completed} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
+
     # Start a KeyActivation server and activate the key
     activation_name = :"test_signing_activation_#{System.unique_integer([:positive])}"
 
@@ -75,17 +80,24 @@ defmodule PkiCaEngine.CertificateSigningTest do
     {:ok, :share_accepted} = KeyActivation.submit_share(activation_name, issuer_key.id, c1.id, "password-#{c1.id}")
     {:ok, :key_activated} = KeyActivation.submit_share(activation_name, issuer_key.id, c2.id, "password-#{c2.id}")
 
+    # Reload issuer_key after ceremony completion (now has cert)
+    issuer_key = Repo.get!(PkiCaEngine.Schema.IssuerKey, issuer_key.id)
+
+    # Generate a real CSR for tests
+    {csr_pem, _subject} = PkiCaEngine.IntegrationHelpers.generate_test_csr()
+
     %{
       ca: ca,
       issuer_key: issuer_key,
       activation_server: activation_name,
-      adapter: adapter
+      adapter: adapter,
+      csr_pem: csr_pem
     }
   end
 
   describe "sign_certificate/4" do
     test "signs a certificate when key is active", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
       cert_profile = %{validity_days: 365, subject_dn: "CN=test.example.com,O=Test"}
 
       assert {:ok, cert} =
@@ -110,7 +122,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
       # Deactivate the key first
       :ok = KeyActivation.deactivate(ctx.activation_server, ctx.issuer_key.id)
 
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
       cert_profile = %{validity_days: 365, subject_dn: "CN=test.example.com,O=Test"}
 
       assert {:error, :key_not_active} =
@@ -123,7 +135,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
     end
 
     test "generates unique serial numbers for each certificate", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
       cert_profile = %{validity_days: 365, subject_dn: "CN=test.example.com,O=Test"}
 
       {:ok, cert1} =
@@ -142,7 +154,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
     end
 
     test "uses default subject_dn from CSR when not in profile", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
       cert_profile = %{validity_days: 365}
 
       {:ok, cert} =
@@ -157,7 +169,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
   describe "revoke_certificate/2" do
     test "revokes an active certificate", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
       cert_profile = %{validity_days: 365, subject_dn: "CN=revoke.example.com,O=Test"}
 
       {:ok, cert} =
@@ -179,7 +191,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
   describe "get_certificate/1" do
     test "retrieves certificate by serial number", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
       cert_profile = %{validity_days: 365, subject_dn: "CN=get.example.com,O=Test"}
 
       {:ok, cert} =
@@ -200,7 +212,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
   describe "list_certificates/2" do
     test "lists certificates by issuer_key_id", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
 
       {:ok, _cert1} =
         CertificateSigning.sign_certificate(
@@ -221,7 +233,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
     end
 
     test "filters certificates by status", ctx do
-      csr_data = "CSR_BINARY_DATA"
+      csr_data = ctx.csr_pem
 
       # This cert has DN "active" but will be revoked below
       {:ok, cert_to_revoke} =

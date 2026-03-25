@@ -63,6 +63,37 @@ defmodule PkiCaEngine.KeyCeremony.ShareEncryptionTest do
     end
   end
 
+  describe "password isolation" do
+    test "different passwords produce different ciphertext for same plaintext" do
+      share = "same-share-data-for-comparison"
+      password_a = "password-alpha"
+      password_b = "password-beta"
+
+      {:ok, encrypted_a} = ShareEncryption.encrypt_share(share, password_a)
+      {:ok, encrypted_b} = ShareEncryption.encrypt_share(share, password_b)
+
+      # Ciphertexts must differ (different derived keys even ignoring random salt/iv)
+      refute encrypted_a == encrypted_b
+
+      # Each decrypts only with its own password
+      assert {:ok, ^share} = ShareEncryption.decrypt_share(encrypted_a, password_a)
+      assert {:error, :decryption_failed} = ShareEncryption.decrypt_share(encrypted_a, password_b)
+      assert {:ok, ^share} = ShareEncryption.decrypt_share(encrypted_b, password_b)
+      assert {:error, :decryption_failed} = ShareEncryption.decrypt_share(encrypted_b, password_a)
+    end
+  end
+
+  describe "large data encryption" do
+    test "encrypt then decrypt works with large binary (1 MB)" do
+      share = :crypto.strong_rand_bytes(1_000_000)
+      password = "large-data-password"
+
+      {:ok, encrypted} = ShareEncryption.encrypt_share(share, password)
+      assert {:ok, decrypted} = ShareEncryption.decrypt_share(encrypted, password)
+      assert decrypted == share
+    end
+  end
+
   describe "round-trip" do
     test "encrypt then decrypt recovers original binary for various sizes" do
       password = "round-trip-password"

@@ -255,10 +255,61 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
     end
   end
 
-  # ── complete_as_sub_ca/1 ───────────────────────────────────────
+  # ── complete_as_sub_ca/3 ───────────────────────────────────────
 
-  describe "complete_as_sub_ca/1" do
+  describe "complete_as_sub_ca/3" do
     setup ctx do
+      params = %{
+        algorithm: "RSA-4096",
+        keystore_id: ctx.keystore.id,
+        threshold_k: 2,
+        threshold_n: 3,
+        initiated_by: ctx.initiator.id,
+        is_root: false,
+        domain_info: %{"subject_dn" => "/CN=Test-Sub-CA/O=Test Corp"}
+      }
+
+      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(ctx.ca.id, params)
+
+      # Generate a real RSA key for CSR generation
+      private_key = X509.PrivateKey.new_rsa(2048)
+
+      Map.merge(ctx, %{ceremony: ceremony, private_key: private_key})
+    end
+
+    test "marks ceremony completed and generates valid PEM CSR", ctx do
+      assert {:ok, {updated_ceremony, csr_pem}} =
+               SyncCeremony.complete_as_sub_ca(ctx.ceremony, ctx.private_key)
+
+      assert updated_ceremony.status == "completed"
+      assert is_binary(csr_pem)
+      assert String.contains?(csr_pem, "-----BEGIN CERTIFICATE REQUEST-----")
+      assert String.contains?(csr_pem, "-----END CERTIFICATE REQUEST-----")
+
+      # The CSR should be parseable
+      assert {:ok, csr} = X509.CSR.from_pem(csr_pem)
+      assert X509.CSR.valid?(csr)
+
+      # Issuer key should still be pending (awaiting external CA signing)
+      {:ok, key} = PkiCaEngine.IssuerKeyManagement.get_issuer_key(ctx.ceremony.issuer_key_id)
+      assert key.status == "pending"
+    end
+
+    test "uses custom subject from opts", ctx do
+      assert {:ok, {_ceremony, csr_pem}} =
+               SyncCeremony.complete_as_sub_ca(
+                 ctx.ceremony,
+                 ctx.private_key,
+                 subject: "/CN=Custom-Sub-CA/O=Custom Org"
+               )
+
+      {:ok, csr} = X509.CSR.from_pem(csr_pem)
+      subject_str = X509.RDNSequence.to_string(X509.CSR.subject(csr))
+      assert subject_str =~ "Custom-Sub-CA"
+    end
+
+    test "falls back to default subject when domain_info has no subject_dn", ctx do
+      # Create ceremony without subject_dn in domain_info
       params = %{
         algorithm: "RSA-4096",
         keystore_id: ctx.keystore.id,
@@ -268,20 +319,12 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         is_root: false
       }
 
-      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(ctx.ca.id, params)
+      {:ok, {ceremony, _}} = SyncCeremony.initiate(ctx.ca.id, params)
 
-      Map.put(ctx, :ceremony, ceremony)
-    end
+      assert {:ok, {_updated, csr_pem}} =
+               SyncCeremony.complete_as_sub_ca(ceremony, ctx.private_key)
 
-    test "marks ceremony completed but key stays pending", ctx do
-      assert {:ok, {updated_ceremony, csr}} = SyncCeremony.complete_as_sub_ca(ctx.ceremony)
-
-      assert updated_ceremony.status == "completed"
-      assert is_binary(csr)
-
-      # Issuer key should still be pending (awaiting external CA signing)
-      {:ok, key} = PkiCaEngine.IssuerKeyManagement.get_issuer_key(ctx.ceremony.issuer_key_id)
-      assert key.status == "pending"
+      assert String.contains?(csr_pem, "-----BEGIN CERTIFICATE REQUEST-----")
     end
   end
 end
