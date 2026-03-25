@@ -3,7 +3,7 @@ defmodule PkiRaPortalWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  @user %{did: "did:ssdid:raadmin1", role: "ra_admin"}
+  @user %{id: 1, username: "raadmin1", role: "ra_admin"}
 
   describe "authenticated" do
     setup %{conn: conn} do

@@ -16,7 +16,7 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
     end
 
     test "assigns current_user when present in session", %{conn: conn} do
-      user = %{did: "did:ssdid:raadmin1", role: "ra_admin"}
+      user = %{id: 1, username: "raadmin1", role: "ra_admin"}
 
       conn =
         conn

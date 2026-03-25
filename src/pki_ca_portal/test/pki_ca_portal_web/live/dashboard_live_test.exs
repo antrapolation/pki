@@ -3,7 +3,7 @@ defmodule PkiCaPortalWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  @user %{did: "did:ssdid:admin1", role: "ca_admin", ca_instance_id: 1}
+  @user %{id: 1, username: "admin1", role: "ca_admin", ca_instance_id: 1}
 
   describe "authenticated" do
     setup %{conn: conn} do

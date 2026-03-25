@@ -8,7 +8,7 @@ defmodule PkiRaPortalWeb.E2ETest do
   import Phoenix.LiveViewTest
 
   describe "RA admin full journey" do
-    @admin %{did: "did:ssdid:raadmin1", role: "ra_admin"}
+    @admin %{id: 1, username: "raadmin1", role: "ra_admin"}
 
     setup %{conn: conn} do
       conn = init_test_session(conn, %{current_user: @admin})
@@ -78,7 +78,7 @@ defmodule PkiRaPortalWeb.E2ETest do
   end
 
   describe "RA officer CSR workflow" do
-    @officer %{did: "did:ssdid:raofficer1", role: "ra_officer"}
+    @officer %{id: 2, username: "raofficer1", role: "ra_officer"}
 
     setup %{conn: conn} do
       conn = init_test_session(conn, %{current_user: @officer})

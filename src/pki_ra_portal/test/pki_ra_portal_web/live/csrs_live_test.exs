@@ -3,7 +3,7 @@ defmodule PkiRaPortalWeb.CsrsLiveTest do
 
   import Phoenix.LiveViewTest
 
-  @user %{did: "did:ssdid:raofficer1", role: "ra_officer"}
+  @user %{id: 2, username: "raofficer1", role: "ra_officer"}
 
   setup %{conn: conn} do
     conn = init_test_session(conn, %{current_user: @user})

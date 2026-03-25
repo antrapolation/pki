@@ -17,7 +17,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
 
   alias PkiCaPortal.CaEngineClient.StatefulMock
 
-  @user %{"did" => "did:ssdid:admin1", "role" => "ca_admin", "ca_instance_id" => 1}
+  @user %{"id" => 1, "username" => "admin1", "role" => "ca_admin", "ca_instance_id" => 1}
 
   setup %{conn: conn} do
     # Start the StatefulMock Agent and configure it as the client

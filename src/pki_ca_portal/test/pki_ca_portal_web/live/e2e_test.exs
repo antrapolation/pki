@@ -8,7 +8,7 @@ defmodule PkiCaPortalWeb.E2ETest do
   import Phoenix.LiveViewTest
 
   describe "CA admin full journey" do
-    @admin %{did: "did:ssdid:admin1", role: "ca_admin", ca_instance_id: 1}
+    @admin %{id: 1, username: "admin1", role: "ca_admin", display_name: "Admin One", ca_instance_id: 1}
 
     setup %{conn: conn} do
       conn = init_test_session(conn, %{current_user: @admin})
@@ -131,8 +131,8 @@ defmodule PkiCaPortalWeb.E2ETest do
       conn =
         post(conn, ~p"/login", %{
           "session" => %{
-            "did" => "did:ssdid:e2e_admin",
-            "role" => "ca_admin",
+            "username" => "e2e_admin",
+            "password" => "password123",
             "ca_instance_id" => "1"
           }
         })

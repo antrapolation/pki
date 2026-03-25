@@ -16,7 +16,7 @@ defmodule PkiCaPortalWeb.Plugs.RequireAuthTest do
     end
 
     test "assigns current_user when present in session", %{conn: conn} do
-      user = %{did: "did:ssdid:admin1", role: "ca_admin", ca_instance_id: 1}
+      user = %{id: 1, username: "admin1", role: "ca_admin", ca_instance_id: 1}
 
       conn =
         conn

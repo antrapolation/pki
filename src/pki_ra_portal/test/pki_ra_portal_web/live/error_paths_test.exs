@@ -10,7 +10,7 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
 
   import Phoenix.LiveViewTest
 
-  @user %{did: "did:ssdid:raadmin1", role: "ra_admin"}
+  @user %{id: 1, username: "raadmin1", role: "ra_admin"}
 
   setup %{conn: conn} do
     conn = init_test_session(conn, %{current_user: @user})
