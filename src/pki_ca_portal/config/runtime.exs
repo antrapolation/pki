@@ -24,6 +24,31 @@ config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  # CA Engine HTTP client configuration
+  ca_engine_url =
+    System.get_env("CA_ENGINE_URL") ||
+      raise """
+      environment variable CA_ENGINE_URL is missing.
+      Set it to the base URL of the CA Engine API, e.g. http://pki-ca-engine:4001
+      """
+
+  internal_api_secret =
+    System.get_env("INTERNAL_API_SECRET") ||
+      raise """
+      environment variable INTERNAL_API_SECRET is missing.
+      This secret is used to authenticate API calls to the CA Engine.
+      """
+
+  client_module =
+    if System.get_env("ENGINE_CLIENT_MODE") == "mock",
+      do: PkiCaPortal.CaEngineClient.Mock,
+      else: PkiCaPortal.CaEngineClient.Http
+
+  config :pki_ca_portal,
+    ca_engine_client: client_module,
+    ca_engine_url: ca_engine_url,
+    internal_api_secret: internal_api_secret
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want

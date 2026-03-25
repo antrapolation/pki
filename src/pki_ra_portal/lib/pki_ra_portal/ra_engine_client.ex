@@ -24,6 +24,9 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback list_api_keys(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback create_api_key(map()) :: {:ok, map()} | {:error, term()}
   @callback revoke_api_key(integer()) :: {:ok, map()} | {:error, term()}
+  @callback authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
+  @callback register_user(map()) :: {:ok, map()} | {:error, term()}
+  @callback needs_setup?() :: boolean()
 
   defp impl,
     do: Application.get_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.Mock)
@@ -44,4 +47,7 @@ defmodule PkiRaPortal.RaEngineClient do
   def list_api_keys(filters \\ []), do: impl().list_api_keys(filters)
   def create_api_key(attrs), do: impl().create_api_key(attrs)
   def revoke_api_key(id), do: impl().revoke_api_key(id)
+  def authenticate(username, password), do: impl().authenticate(username, password)
+  def register_user(attrs), do: impl().register_user(attrs)
+  def needs_setup?, do: impl().needs_setup?()
 end

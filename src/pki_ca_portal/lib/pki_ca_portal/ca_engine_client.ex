@@ -19,6 +19,9 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback initiate_ceremony(integer(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_ceremonies(integer()) :: {:ok, [map()]} | {:error, term()}
   @callback query_audit_log(keyword()) :: {:ok, [map()]} | {:error, term()}
+  @callback authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
+  @callback register_user(integer(), map()) :: {:ok, map()} | {:error, term()}
+  @callback needs_setup?(integer()) :: boolean()
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -34,4 +37,7 @@ defmodule PkiCaPortal.CaEngineClient do
   def initiate_ceremony(ca_instance_id, params), do: impl().initiate_ceremony(ca_instance_id, params)
   def list_ceremonies(ca_instance_id), do: impl().list_ceremonies(ca_instance_id)
   def query_audit_log(filters), do: impl().query_audit_log(filters)
+  def authenticate(username, password), do: impl().authenticate(username, password)
+  def register_user(ca_instance_id, attrs), do: impl().register_user(ca_instance_id, attrs)
+  def needs_setup?(ca_instance_id), do: impl().needs_setup?(ca_instance_id)
 end

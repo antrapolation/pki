@@ -1,33 +1,35 @@
 <div class="mx-auto max-w-sm mt-20">
-  <h1 class="text-2xl font-bold text-center mb-8">RA Admin Portal Login</h1>
-  <p class="text-center text-sm text-gray-500 mb-6">
-    Development login — select a role to enter the portal.
-  </p>
+  <h1 class="text-2xl font-bold text-center mb-8">RA Admin Portal</h1>
+
+  <%= if @error do %>
+    <div class="mb-4 rounded bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+      <%= @error %>
+    </div>
+  <% end %>
 
   <.form for={%{}} action={~p"/login"} method="post" class="space-y-4">
     <div>
-      <label for="session_did" class="block text-sm font-medium mb-1">DID</label>
+      <label for="session_username" class="block text-sm font-medium mb-1">Username</label>
       <input
         type="text"
-        name="session[did]"
-        id="session_did"
-        value="did:ssdid:raadmin1"
+        name="session[username]"
+        id="session_username"
         required
+        autocomplete="username"
         class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
       />
     </div>
 
     <div>
-      <label for="session_role" class="block text-sm font-medium mb-1">Role</label>
-      <select
-        name="session[role]"
-        id="session_role"
+      <label for="session_password" class="block text-sm font-medium mb-1">Password</label>
+      <input
+        type="password"
+        name="session[password]"
+        id="session_password"
+        required
+        autocomplete="current-password"
         class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-      >
-        <option value="ra_admin">RA Admin</option>
-        <option value="ra_officer">RA Officer</option>
-        <option value="auditor">Auditor</option>
-      </select>
+      />
     </div>
 
     <button

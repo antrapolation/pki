@@ -1,0 +1,74 @@
+<div class="mx-auto max-w-sm mt-20">
+  <h1 class="text-2xl font-bold text-center mb-4">CA Portal Setup</h1>
+  <p class="text-center text-sm text-gray-500 mb-6">
+    Create the first admin account to get started.
+  </p>
+
+  <%= if @error do %>
+    <div class="mb-4 rounded bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+      <%= @error %>
+    </div>
+  <% end %>
+
+  <.form for={%{}} action={~p"/setup"} method="post" class="space-y-4">
+    <div>
+      <label for="setup_username" class="block text-sm font-medium mb-1">Username</label>
+      <input
+        type="text"
+        name="setup[username]"
+        id="setup_username"
+        required
+        minlength="3"
+        autocomplete="username"
+        class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+      />
+    </div>
+
+    <div>
+      <label for="setup_display_name" class="block text-sm font-medium mb-1">Display Name</label>
+      <input
+        type="text"
+        name="setup[display_name]"
+        id="setup_display_name"
+        class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+      />
+    </div>
+
+    <div>
+      <label for="setup_password" class="block text-sm font-medium mb-1">Password</label>
+      <input
+        type="password"
+        name="setup[password]"
+        id="setup_password"
+        required
+        minlength="8"
+        autocomplete="new-password"
+        class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+      />
+    </div>
+
+    <div>
+      <label for="setup_password_confirmation" class="block text-sm font-medium mb-1">Confirm Password</label>
+      <input
+        type="password"
+        name="setup[password_confirmation]"
+        id="setup_password_confirmation"
+        required
+        minlength="8"
+        autocomplete="new-password"
+        class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+      />
+    </div>
+
+    <button
+      type="submit"
+      class="w-full rounded bg-blue-600 px-4 py-2 text-white font-medium hover:bg-blue-700"
+    >
+      Create Admin Account
+    </button>
+  </.form>
+
+  <p class="text-center text-xs text-gray-400 mt-6">
+    This page is only available on first run (no users in the system).
+  </p>
+</div>

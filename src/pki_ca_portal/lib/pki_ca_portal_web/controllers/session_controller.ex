@@ -2,21 +2,31 @@ defmodule PkiCaPortalWeb.SessionController do
   use PkiCaPortalWeb, :controller
   import Plug.Conn
 
+  alias PkiCaPortal.CaEngineClient
+
   def new(conn, _params) do
-    render(conn, :login, layout: false)
+    render(conn, :login, layout: false, error: nil)
   end
 
-  def create(conn, %{"session" => session_params}) do
-    user = %{
-      did: session_params["did"],
-      role: session_params["role"],
-      ca_instance_id: parse_instance_id(session_params["ca_instance_id"])
-    }
+  def create(conn, %{"session" => %{"username" => username, "password" => password} = params}) do
+    ca_instance_id = parse_instance_id(params["ca_instance_id"])
 
-    conn
-    |> configure_session(renew: true)
-    |> put_session(:current_user, user)
-    |> redirect(to: "/")
+    case CaEngineClient.authenticate(username, password) do
+      {:ok, user} ->
+        conn
+        |> configure_session(renew: true)
+        |> put_session(:current_user, %{
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          display_name: user.display_name,
+          ca_instance_id: ca_instance_id
+        })
+        |> redirect(to: "/")
+
+      {:error, :invalid_credentials} ->
+        render(conn, :login, layout: false, error: "Invalid username or password")
+    end
   end
 
   def delete(conn, _params) do

@@ -7,11 +7,12 @@ services:
   postgres:
     image: docker.io/library/postgres:16-alpine
     container_name: pki-postgres
+    env_file: .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - pki-postgres-data:/var/lib/postgresql/data
       - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
@@ -21,33 +22,31 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── SSDID Registry ─────────────────────────────────────────────────
-  # DID Document storage and resolution service
-  # Source: ~/Workspace/SSDID
-  ssdid-registry:
+  # ── SoftHSM2 ───────────────────────────────────────────────────────
+  # PKCS#11 HSM simulator — owns the library and token storage.
+  # CA engine mounts both via shared volumes.
+  # Swap to real HSM by changing PKCS11_LIB_PATH on CA engine.
+  softhsm2:
     build:
-      context: ../SSDID
-      dockerfile: src/ssdid_registry/Containerfile
-    container_name: pki-ssdid-registry
+      context: ./softhsm2
+    container_name: pki-softhsm2
+    env_file: .env
     environment:
-      PORT: "4000"
-      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
-      PHX_HOST: "localhost"
-      MNESIA_DIR: /app/data/mnesia
-      RELEASE_DISTRIBUTION: name
-      RELEASE_NODE: ssdid_registry@ssdid-registry
-    ports:
-      - "4000:4000"
+      SOFTHSM_TOKEN_LABEL: ${SOFTHSM_TOKEN_LABEL}
+      SOFTHSM_SO_PIN: ${SOFTHSM_SO_PIN}
+      SOFTHSM_USER_PIN: ${SOFTHSM_USER_PIN}
     volumes:
-      - ssdid-registry-data:/app/data
+      - softhsm-tokens:/var/lib/softhsm/tokens
+      - softhsm-lib:/shared/lib
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:4000/api/registry/info || exit 1"]
+      test: ["CMD-SHELL", "softhsm2-util --show-slots | grep -q 'Slot'"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 3
 
   # ── PKI CA Engine ──────────────────────────────────────────────────
   # Core CA — signing keys, key ceremonies, certificate issuance
+  # Mounts SoftHSM2 library + tokens for PKCS#11 operations
   pki-ca-engine:
     build:
       context: .
@@ -56,17 +55,27 @@ services:
     environment:
       DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ca_engine"
       PORT: "4001"
-      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
-      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
-      SSDID_IDENTITY_PASSWORD: "dev_ca_engine_pass"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ca_engine@pki-ca-engine
+      # HSM configuration — change these to swap to a real HSM
+      PKCS11_LIB_PATH: "/hsm/lib/libsofthsm2.so"
+      HSM_SLOT: "0"
+      HSM_PIN: ${SOFTHSM_USER_PIN}
+      HSM_TOKEN_LABEL: "PkiCA"
+      SOFTHSM2_CONF: "/hsm/softhsm2.conf"
+      VALIDATION_URL: "http://pki-validation:4005"
     ports:
       - "4001:4001"
+    volumes:
+      - softhsm-tokens:/hsm/tokens:ro
+      - softhsm-lib:/hsm/lib:ro
+      - ./softhsm2/softhsm2-client.conf:/hsm/softhsm2.conf:ro
     depends_on:
       postgres:
         condition: service_healthy
-      ssdid-registry:
+      softhsm2:
         condition: service_healthy
 
   # ── PKI RA Engine ──────────────────────────────────────────────────
@@ -79,9 +88,8 @@ services:
     environment:
       DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ra_engine"
       PORT: "4003"
-      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
-      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
-      SSDID_IDENTITY_PASSWORD: "dev_ra_engine_pass"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       CA_ENGINE_URL: "http://pki-ca-engine:4001"
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ra_engine@pki-ra-engine
@@ -89,8 +97,6 @@ services:
       - "4003:4003"
     depends_on:
       postgres:
-        condition: service_healthy
-      ssdid-registry:
         condition: service_healthy
 
   # ── PKI CA Portal ──────────────────────────────────────────────────
@@ -102,18 +108,18 @@ services:
     container_name: pki-ca-portal
     environment:
       PORT: "4002"
-      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       PHX_HOST: "localhost"
+      PHX_SERVER: "true"
       CA_ENGINE_URL: "http://pki-ca-engine:4001"
-      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
-      SSDID_IDENTITY_PASSWORD: "dev_ca_portal_pass"
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      ENGINE_CLIENT_MODE: ${ENGINE_CLIENT_MODE:-}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ca_portal@pki-ca-portal
     ports:
       - "4002:4002"
     depends_on:
       - pki-ca-engine
-      - ssdid-registry
 
   # ── PKI RA Portal ──────────────────────────────────────────────────
   # RA Admin GUI — Phoenix LiveView
@@ -124,18 +130,18 @@ services:
     container_name: pki-ra-portal
     environment:
       PORT: "4004"
-      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       PHX_HOST: "localhost"
+      PHX_SERVER: "true"
       RA_ENGINE_URL: "http://pki-ra-engine:4003"
-      SSDID_REGISTRY_URL: "http://ssdid-registry:4000"
-      SSDID_IDENTITY_PASSWORD: "dev_ra_portal_pass"
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      ENGINE_CLIENT_MODE: ${ENGINE_CLIENT_MODE:-}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ra_portal@pki-ra-portal
     ports:
       - "4004:4004"
     depends_on:
       - pki-ra-engine
-      - ssdid-registry
 
   # ── PKI Validation ─────────────────────────────────────────────────
   # OCSP responder + CRL publisher
@@ -147,9 +153,10 @@ services:
     environment:
       DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_validation"
       PORT: "4005"
-      SECRET_KEY_BASE: "dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_validation@pki-validation
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
     ports:
       - "4005:4005"
     depends_on:
@@ -158,4 +165,5 @@ services:
 
 volumes:
   pki-postgres-data:
-  ssdid-registry-data:
+  softhsm-tokens:
+  softhsm-lib:

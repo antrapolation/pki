@@ -24,6 +24,31 @@ config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  # RA Engine HTTP client configuration
+  ra_engine_url =
+    System.get_env("RA_ENGINE_URL") ||
+      raise """
+      environment variable RA_ENGINE_URL is missing.
+      Set it to the base URL of the RA Engine API, e.g. http://pki-ra-engine:4003
+      """
+
+  internal_api_secret =
+    System.get_env("INTERNAL_API_SECRET") ||
+      raise """
+      environment variable INTERNAL_API_SECRET is missing.
+      This secret is used to authenticate API calls to the RA Engine.
+      """
+
+  client_module =
+    if System.get_env("ENGINE_CLIENT_MODE") == "mock",
+      do: PkiRaPortal.RaEngineClient.Mock,
+      else: PkiRaPortal.RaEngineClient.Http
+
+  config :pki_ra_portal,
+    ra_engine_client: client_module,
+    ra_engine_url: ra_engine_url,
+    internal_api_secret: internal_api_secret
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want

@@ -8,6 +8,7 @@ defmodule PkiCaPortalWeb.Endpoint do
     store: :cookie,
     key: "_pki_ca_portal_key",
     signing_salt: "4NBE6/4H",
+    encryption_salt: "pki_ca_enc",
     same_site: "Strict",
     secure: true,
     http_only: true

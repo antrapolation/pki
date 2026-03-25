@@ -1,0 +1,36 @@
+# SoftHSM2 — PKCS#11 HSM simulator for development/testing
+#
+# This container owns:
+#   /usr/lib/softhsm/libsofthsm2.so  → shared to CA engine via volume
+#   /var/lib/softhsm/tokens/          → persistent token storage via volume
+#
+# On first start, initializes a default token if none exists.
+# Stays running for admin commands via: podman exec softhsm2 softhsm2-util ...
+
+FROM docker.io/debian:trixie-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends softhsm2 opensc && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /var/lib/softhsm/tokens && \
+    mkdir -p /shared/lib
+
+# Copy the PKCS#11 library to a shared location that CA engine will mount
+RUN cp /usr/lib/softhsm/libsofthsm2.so /shared/lib/libsofthsm2.so && \
+    # Also copy any transitive shared libs softhsm needs
+    ldd /usr/lib/softhsm/libsofthsm2.so | grep "=> /" | awk '{print $3}' | \
+    xargs -I{} cp -n {} /shared/lib/ 2>/dev/null || true
+
+# SoftHSM2 config pointing to shared token directory
+RUN echo "directories.tokendir = /var/lib/softhsm/tokens\n\
+objectstore.backend = file\n\
+log.level = INFO" > /etc/softhsm2.conf
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV SOFTHSM2_CONF=/etc/softhsm2.conf
+
+VOLUME ["/var/lib/softhsm/tokens", "/shared/lib"]
+
+ENTRYPOINT ["/entrypoint.sh"]

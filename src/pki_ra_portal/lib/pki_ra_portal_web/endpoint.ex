@@ -8,6 +8,7 @@ defmodule PkiRaPortalWeb.Endpoint do
     store: :cookie,
     key: "_pki_ra_portal_key",
     signing_salt: "j2RIRQGu",
+    encryption_salt: "pki_ra_enc",
     same_site: "Strict",
     secure: true,
     http_only: true
