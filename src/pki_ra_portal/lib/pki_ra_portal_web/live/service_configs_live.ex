@@ -27,7 +27,11 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
     case RaEngineClient.configure_service(attrs) do
       {:ok, config} ->
-        configs = socket.assigns.configs ++ [config]
+        configs =
+          case Enum.find_index(socket.assigns.configs, &(&1.service_type == config.service_type)) do
+            nil -> socket.assigns.configs ++ [config]
+            idx -> List.replace_at(socket.assigns.configs, idx, Map.merge(Enum.at(socket.assigns.configs, idx), config))
+          end
 
         {:noreply,
          socket

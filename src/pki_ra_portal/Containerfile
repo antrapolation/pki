@@ -10,15 +10,18 @@ RUN mix local.hex --force && mix local.rebar --force
 
 COPY src/pki_ra_portal/mix.exs src/pki_ra_portal/mix.lock src/pki_ra_portal/
 
-RUN cd src/pki_ra_portal && mix deps.get --only prod
+RUN cd src/pki_ra_portal && mix deps.get
 
 COPY src/pki_ra_portal/lib src/pki_ra_portal/lib
 COPY src/pki_ra_portal/config src/pki_ra_portal/config
 COPY src/pki_ra_portal/priv src/pki_ra_portal/priv
 COPY src/pki_ra_portal/assets src/pki_ra_portal/assets
 
-RUN cd src/pki_ra_portal && mix assets.deploy 2>/dev/null || true
-RUN cd src/pki_ra_portal && mix compile && mix release
+# Compile first (generates phoenix-colocated hooks module needed by esbuild)
+RUN cd src/pki_ra_portal && mix compile
+# Build assets (esbuild + tailwind are dev deps, need full deps for this step)
+RUN cd src/pki_ra_portal && mix assets.deploy
+RUN cd src/pki_ra_portal && mix release
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────
 FROM docker.io/debian:trixie-20260223-slim

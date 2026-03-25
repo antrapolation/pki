@@ -32,6 +32,8 @@ defmodule PkiCaPortalWeb.ConnCase do
   end
 
   setup _tags do
+    # Reset stateful mock to initial state before each test
+    PkiCaPortal.CaEngineClient.Mock.reset!()
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end

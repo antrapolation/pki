@@ -32,6 +32,8 @@ defmodule PkiRaPortalWeb.ConnCase do
   end
 
   setup _tags do
+    # Reset stateful mock to initial state before each test
+    PkiRaPortal.RaEngineClient.Mock.reset!()
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end
