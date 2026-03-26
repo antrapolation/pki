@@ -72,17 +72,33 @@ defmodule PkiCaEngine.KeypairACL do
       end
 
       # Create ACL signing credential
-      {:ok, signing_cred} =
-        generate_and_store_credential("signing", signing_algo, acl_derived_key, acl_salt)
+      signing_cred =
+        case generate_and_store_credential("signing", signing_algo, acl_derived_key, acl_salt) do
+          {:ok, cred} -> cred
+          {:error, reason} -> Repo.rollback({:signing_credential_failed, reason})
+        end
 
       # Create ACL KEM credential
-      {:ok, kem_cred} =
-        generate_and_store_credential("kem", kem_algo, acl_derived_key, acl_salt)
+      kem_cred =
+        case generate_and_store_credential("kem", kem_algo, acl_derived_key, acl_salt) do
+          {:ok, cred} -> cred
+          {:error, reason} -> Repo.rollback({:kem_credential_failed, reason})
+        end
 
       # Encrypt the ACL password with admin's KEM public key
       kem_struct = Registry.get(kem_algo)
-      {:ok, {shared_secret, ciphertext}} = Algorithm.kem_encapsulate(kem_struct, admin_kem_public_key)
-      {:ok, encrypted_acl_password} = Symmetric.encrypt(acl_password, shared_secret)
+
+      {shared_secret, ciphertext} =
+        case Algorithm.kem_encapsulate(kem_struct, admin_kem_public_key) do
+          {:ok, result} -> result
+          {:error, reason} -> Repo.rollback({:kem_encapsulate_failed, reason})
+        end
+
+      encrypted_acl_password =
+        case Symmetric.encrypt(acl_password, shared_secret) do
+          {:ok, enc} -> enc
+          {:error, reason} -> Repo.rollback({:encrypt_password_failed, reason})
+        end
 
       %{
         acl_signing: signing_cred,
@@ -107,13 +123,12 @@ defmodule PkiCaEngine.KeypairACL do
          {:ok, acl_derived_key} <- Kdf.derive_key(acl_password, acl_salt, iterations: 1) do
       # Decrypt ACL signing key
       signing_cred = get_acl_credential("signing")
-      {:ok, signing_key} = Symmetric.decrypt(signing_cred.encrypted_private_key, acl_derived_key)
-
-      # Decrypt ACL KEM key
       kem_cred = get_acl_credential("kem")
-      {:ok, kem_key} = Symmetric.decrypt(kem_cred.encrypted_private_key, acl_derived_key)
 
-      {:ok, %{signing_key: signing_key, kem_key: kem_key}}
+      with {:ok, signing_key} <- Symmetric.decrypt(signing_cred.encrypted_private_key, acl_derived_key),
+           {:ok, kem_key} <- Symmetric.decrypt(kem_cred.encrypted_private_key, acl_derived_key) do
+        {:ok, %{signing_key: signing_key, kem_key: kem_key}}
+      end
     end
   end
 
@@ -151,20 +166,21 @@ defmodule PkiCaEngine.KeypairACL do
 
   defp generate_and_store_credential(type, algorithm, derived_key, salt) do
     algo = Registry.get(algorithm)
-    {:ok, %{public_key: pub, private_key: priv}} = Algorithm.generate_keypair(algo)
-    {:ok, encrypted_priv} = Symmetric.encrypt(priv, derived_key)
 
-    %Credential{}
-    |> Credential.changeset(%{
-      user_id: @acl_user_id,
-      credential_type: type,
-      algorithm: algorithm,
-      public_key: pub,
-      encrypted_private_key: encrypted_priv,
-      salt: salt,
-      status: "active"
-    })
-    |> Repo.insert()
+    with {:ok, %{public_key: pub, private_key: priv}} <- Algorithm.generate_keypair(algo),
+         {:ok, encrypted_priv} <- Symmetric.encrypt(priv, derived_key) do
+      %Credential{}
+      |> Credential.changeset(%{
+        user_id: @acl_user_id,
+        credential_type: type,
+        algorithm: algorithm,
+        public_key: pub,
+        encrypted_private_key: encrypted_priv,
+        salt: salt,
+        status: "active"
+      })
+      |> Repo.insert()
+    end
   end
 
   defp get_acl_credential(type) do

@@ -296,37 +296,35 @@ defmodule PkiCaEngine.KeyCeremonyManager do
   # ── Private ───────────────────────────────────────────────────
 
   defp do_generate_keypair(ca_instance_id, algorithm, :credential_own, _k, _n) do
-    # For credential_own, use register_keypair with a dummy KEM key
-    # We generate the keypair ourselves and store via a split_auth with k=1, n=1
-    # to keep it simple — or we can use the KeyVault directly
+    # For credential_own, encrypt the random password with ACL's KEM public key
     algo = PkiCrypto.Registry.get(algorithm)
 
-    case PkiCrypto.Algorithm.generate_keypair(algo) do
-      {:ok, %{public_key: pub, private_key: priv}} ->
-        random_password = :crypto.strong_rand_bytes(32)
-        {:ok, encrypted_priv} = PkiCrypto.Symmetric.encrypt(priv, random_password)
+    with {:ok, %{public_key: pub, private_key: priv}} <- PkiCrypto.Algorithm.generate_keypair(algo),
+         random_password = :crypto.strong_rand_bytes(32),
+         {:ok, encrypted_priv} <- PkiCrypto.Symmetric.encrypt(priv, random_password),
+         {:ok, acl_pks} <- PkiCaEngine.KeypairACL.get_public_keys(),
+         kem_algo = PkiCrypto.Registry.get("ECDH-P256"),
+         {:ok, {shared_secret, kem_ciphertext}} <- PkiCrypto.Algorithm.kem_encapsulate(kem_algo, acl_pks.kem_public_key),
+         {:ok, encrypted_password} <- PkiCrypto.Symmetric.encrypt(random_password, shared_secret) do
+      result =
+        %PkiCaEngine.KeyVault.ManagedKeypair{}
+        |> PkiCaEngine.KeyVault.ManagedKeypair.changeset(%{
+          ca_instance_id: ca_instance_id,
+          name: "ceremony-#{System.unique_integer([:positive])}",
+          algorithm: algorithm,
+          protection_mode: "credential_own",
+          public_key: pub,
+          encrypted_private_key: encrypted_priv,
+          encrypted_password: encrypted_password,
+          acl_kem_ciphertext: kem_ciphertext,
+          status: "pending"
+        })
+        |> PkiCaEngine.Repo.insert()
 
-        result =
-          %PkiCaEngine.KeyVault.ManagedKeypair{}
-          |> PkiCaEngine.KeyVault.ManagedKeypair.changeset(%{
-            ca_instance_id: ca_instance_id,
-            name: "ceremony-#{System.unique_integer([:positive])}",
-            algorithm: algorithm,
-            protection_mode: "credential_own",
-            public_key: pub,
-            encrypted_private_key: encrypted_priv,
-            encrypted_password: random_password,
-            status: "pending"
-          })
-          |> PkiCaEngine.Repo.insert()
-
-        case result do
-          {:ok, keypair} -> {:ok, keypair, priv, nil}
-          {:error, reason} -> {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+      case result do
+        {:ok, keypair} -> {:ok, keypair, priv, nil}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -342,21 +340,20 @@ defmodule PkiCaEngine.KeyCeremonyManager do
       {:ok, keypair, shares} ->
         # We need the raw private key for cert/CSR generation
         # Recover it from the shares right away (it's in memory anyway)
-        {:ok, recovered} = PkiCrypto.Shamir.recover(shares)
-
-        private_key =
+        with {:ok, recovered} <- PkiCrypto.Shamir.recover(shares) do
           case protection_mode do
             :split_auth_token ->
               # recovered is the password; decrypt the private key
-              {:ok, priv} = PkiCrypto.Symmetric.decrypt(keypair.encrypted_private_key, recovered)
-              priv
+              case PkiCrypto.Symmetric.decrypt(keypair.encrypted_private_key, recovered) do
+                {:ok, priv} -> {:ok, keypair, priv, shares}
+                {:error, reason} -> {:error, {:decrypt_private_key_failed, reason}}
+              end
 
             :split_key ->
               # recovered IS the private key
-              recovered
+              {:ok, keypair, recovered, shares}
           end
-
-        {:ok, keypair, private_key, shares}
+        end
 
       {:error, reason} ->
         {:error, reason}

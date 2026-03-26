@@ -44,5 +44,17 @@ defmodule PkiCrypto.SymmetricTest do
       assert {:error, :invalid_key_size} = Symmetric.encrypt("hello", :crypto.strong_rand_bytes(16))
       assert {:error, :invalid_key_size} = Symmetric.encrypt("hello", :crypto.strong_rand_bytes(24))
     end
+
+    test "decrypt with tampered GCM tag fails" do
+      key = :crypto.strong_rand_bytes(32)
+      {:ok, <<iv::binary-12, tag::binary-16, body::binary>>} = Symmetric.encrypt("data", key)
+      tampered_tag = :crypto.exor(tag, :crypto.strong_rand_bytes(16))
+      assert {:error, :decryption_failed} = Symmetric.decrypt(iv <> tampered_tag <> body, key)
+    end
+
+    test "decrypt with truncated ciphertext fails" do
+      key = :crypto.strong_rand_bytes(32)
+      assert {:error, :decryption_failed} = Symmetric.decrypt(<<1, 2, 3>>, key)
+    end
   end
 end

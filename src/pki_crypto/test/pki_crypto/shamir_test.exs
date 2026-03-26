@@ -65,5 +65,16 @@ defmodule PkiCrypto.ShamirTest do
         {:ok, recovered} -> refute recovered == secret
       end
     end
+
+    test "recovering with tampered share does not return original secret" do
+      secret = :crypto.strong_rand_bytes(32)
+      {:ok, [s1, s2, _s3]} = PkiCrypto.Shamir.split(secret, 2, 3)
+      tampered = :crypto.exor(s1, :crypto.strong_rand_bytes(byte_size(s1)))
+
+      case PkiCrypto.Shamir.recover([tampered, s2]) do
+        {:error, _} -> :ok
+        {:ok, recovered} -> refute recovered == secret
+      end
+    end
   end
 end

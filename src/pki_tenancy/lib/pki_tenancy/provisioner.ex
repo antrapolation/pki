@@ -72,6 +72,14 @@ defmodule PkiTenancy.Provisioner do
 
   # --- Private ---
 
+  defp validate_db_name!(db_name) do
+    unless db_name =~ ~r/\Apki_tenant_[0-9a-f]{32}\z/ do
+      raise ArgumentError, "Invalid database name: #{inspect(db_name)}"
+    end
+
+    db_name
+  end
+
   # Uses a direct Postgrex connection to the "postgres" maintenance database
   # because CREATE/DROP DATABASE cannot run inside a transaction block
   # (which Ecto.Adapters.SQL.Sandbox uses).
@@ -95,8 +103,10 @@ defmodule PkiTenancy.Provisioner do
   end
 
   defp create_database(db_name) do
+    safe = validate_db_name!(db_name)
+
     with_admin_conn(fn conn ->
-      case Postgrex.query(conn, "CREATE DATABASE #{db_name}", []) do
+      case Postgrex.query(conn, "CREATE DATABASE \"#{safe}\"", []) do
         {:ok, _} -> :ok
         {:error, %{postgres: %{code: :duplicate_database}}} -> :ok
         {:error, reason} -> {:error, {:create_database_failed, reason}}
@@ -105,10 +115,11 @@ defmodule PkiTenancy.Provisioner do
   end
 
   defp create_schemas(db_name) do
+    safe = validate_db_name!(db_name)
     schemas = ["ca", "ra", "validation", "audit"]
 
     Enum.each(schemas, fn schema ->
-      TenantRepo.execute_sql(db_name, "public", "CREATE SCHEMA IF NOT EXISTS #{schema}", [])
+      TenantRepo.execute_sql(safe, "public", "CREATE SCHEMA IF NOT EXISTS #{schema}", [])
     end)
 
     :ok
@@ -117,9 +128,11 @@ defmodule PkiTenancy.Provisioner do
   end
 
   defp drop_database(db_name) do
+    safe = validate_db_name!(db_name)
+
     with_admin_conn(fn conn ->
       # Use WITH (FORCE) to terminate connections and drop in one step (PG >= 13)
-      Postgrex.query(conn, "DROP DATABASE IF EXISTS #{db_name} WITH (FORCE)", [])
+      Postgrex.query(conn, "DROP DATABASE IF EXISTS \"#{safe}\" WITH (FORCE)", [])
       :ok
     end)
   rescue

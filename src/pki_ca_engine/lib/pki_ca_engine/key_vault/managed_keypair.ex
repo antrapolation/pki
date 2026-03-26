@@ -15,6 +15,7 @@ defmodule PkiCaEngine.KeyVault.ManagedKeypair do
     field :public_key, :binary
     field :encrypted_private_key, :binary
     field :encrypted_password, :binary
+    field :acl_kem_ciphertext, :binary
     field :threshold_k, :integer
     field :threshold_n, :integer
     field :status, :string, default: "pending"
@@ -36,6 +37,7 @@ defmodule PkiCaEngine.KeyVault.ManagedKeypair do
       :public_key,
       :encrypted_private_key,
       :encrypted_password,
+      :acl_kem_ciphertext,
       :threshold_k,
       :threshold_n,
       :status,

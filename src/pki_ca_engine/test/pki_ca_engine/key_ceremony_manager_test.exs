@@ -2,6 +2,8 @@ defmodule PkiCaEngine.KeyCeremonyManagerTest do
   use PkiCaEngine.DataCase, async: false
 
   alias PkiCaEngine.KeyCeremonyManager
+  alias PkiCaEngine.KeypairACL
+  alias PkiCaEngine.CredentialManager
   alias PkiCaEngine.Schema.{CaInstance, CaUser}
 
   @password "ceremony-test-pw-123"
@@ -14,6 +16,19 @@ defmodule PkiCaEngine.KeyCeremonyManagerTest do
           created_by: "admin"
         })
       )
+
+    # Create an admin user with credentials so we can initialize the ACL
+    {:ok, admin_user} =
+      CredentialManager.create_user_with_credentials(
+        ca.id,
+        %{username: "acl-admin-#{System.unique_integer([:positive])}", display_name: "ACL Admin", role: "ca_admin"},
+        @password
+      )
+
+    admin_kem_cred = CredentialManager.get_kem_credential(admin_user.id)
+
+    # Initialize the ACL (required for credential_own protection mode)
+    {:ok, _acl_result} = KeypairACL.initialize(ca.id, admin_kem_cred.public_key)
 
     # Create key_manager users
     {:ok, km1} = create_user(ca.id, "key_manager", "keyadmin1")
