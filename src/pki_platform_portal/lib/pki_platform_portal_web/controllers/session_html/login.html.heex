@@ -1,58 +1,57 @@
-<div class="min-h-screen flex items-center justify-center bg-base-200">
-  <div class="card bg-base-100 shadow-xl w-full max-w-md">
+<div class="flex items-center justify-center min-h-screen bg-base-200">
+  <div class="card w-full max-w-sm bg-base-100 shadow-lg border border-base-300">
     <div class="card-body">
       <div class="text-center mb-6">
-        <div class="flex items-center justify-center w-14 h-14 rounded-xl mx-auto mb-3"
+        <div class="flex items-center justify-center w-12 h-12 rounded-xl mx-auto mb-3"
              style="background-color: oklch(55% 0.2 280);">
-          <span class="hero-server-stack size-7 text-white" />
+          <span class="hero-server-stack text-white text-xl" />
         </div>
-        <h2 class="text-2xl font-bold">Platform Admin</h2>
-        <p class="text-base-content/60 text-sm">Sign in to manage tenants</p>
+        <h1 class="text-xl font-bold text-base-content">Platform Admin</h1>
+        <p class="text-sm text-base-content/50 mt-1">Sign in to manage tenants</p>
       </div>
 
       <%= if @error do %>
-        <div class="alert alert-error mb-4">
-          <span class="hero-exclamation-circle size-5" />
+        <div class="alert alert-error text-sm mb-4">
+          <span class="hero-exclamation-circle text-lg" />
           <span><%= @error %></span>
         </div>
       <% end %>
 
-      <form action="/login" method="post">
-        <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
-
-        <div class="fieldset mb-3">
-          <label for="username">
-            <span class="label mb-1">Username</span>
-            <input
-              type="text"
-              id="username"
-              name="username"
-              class="w-full input"
-              placeholder="Enter your username"
-              required
-              autofocus
-            />
-          </label>
+      <.form for={%{}} action={~p"/login"} method="post" class="space-y-4">
+        <div>
+          <label for="session_username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
+          <input
+            type="text"
+            name="session[username]"
+            id="session_username"
+            required
+            autocomplete="username"
+            class="input input-bordered input-sm w-full"
+            placeholder="Enter username"
+            autofocus
+          />
         </div>
 
-        <div class="fieldset mb-4">
-          <label for="password">
-            <span class="label mb-1">Password</span>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              class="w-full input"
-              placeholder="Enter your password"
-              required
-            />
-          </label>
+        <div>
+          <label for="session_password" class="block text-xs font-medium text-base-content/60 mb-1">Password</label>
+          <input
+            type="password"
+            name="session[password]"
+            id="session_password"
+            required
+            autocomplete="current-password"
+            class="input input-bordered input-sm w-full"
+            placeholder="Enter password"
+          />
         </div>
 
-        <button type="submit" class="btn btn-primary w-full">
+        <button
+          type="submit"
+          class="btn btn-primary btn-sm w-full mt-2"
+        >
           Sign In
         </button>
-      </form>
+      </.form>
     </div>
   </div>
 </div>

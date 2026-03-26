@@ -1,18 +1,28 @@
 defmodule PkiPlatformPortalWeb.SessionController do
   use PkiPlatformPortalWeb, :controller
+  import Plug.Conn
 
   def new(conn, _params) do
     render(conn, :login, layout: false, error: nil)
   end
 
-  def create(conn, %{"username" => username, "password" => password}) do
-    # TODO: Implement real authentication against platform admin users
-    if username == "admin" && password == "admin" do
+  def create(conn, %{"session" => %{"username" => username, "password" => password}}) do
+    expected_user = Application.get_env(:pki_platform_portal, :admin_username, "admin")
+    expected_pass = Application.get_env(:pki_platform_portal, :admin_password, "admin")
+
+    if Plug.Crypto.secure_compare(username, expected_user) and
+         Plug.Crypto.secure_compare(password, expected_pass) do
       conn
-      |> put_session(:current_user, %{"username" => username, "display_name" => "Platform Admin"})
+      |> configure_session(renew: true)
+      |> put_session(:current_user, %{
+        "username" => username,
+        "display_name" => "Platform Admin",
+        "role" => "platform_admin"
+      })
+      |> put_session(:platform_admin, true)
       |> redirect(to: "/")
     else
-      render(conn, :login, layout: false, error: "Invalid username or password")
+      render(conn, :login, layout: false, error: "Invalid credentials")
     end
   end
 
