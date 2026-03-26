@@ -52,14 +52,21 @@ defmodule PkiCaEngine.KeypairACL do
   encrypted_acl_password: binary, kem_ciphertext: binary, acl_salt: binary}}`
   """
   def initialize(ca_instance_id, admin_kem_public_key, opts \\ []) do
-    signing_algo = Keyword.get(opts, :signing_algorithm, "ECC-P256")
-    kem_algo = Keyword.get(opts, :kem_algorithm, "ECDH-P256")
-
     # Generate a random password for the ACL
     acl_password = :crypto.strong_rand_bytes(32)
     acl_salt = Kdf.generate_salt()
     # Low iterations — password is random high-entropy
-    {:ok, acl_derived_key} = Kdf.derive_key(acl_password, acl_salt, iterations: 1)
+    case Kdf.derive_key(acl_password, acl_salt, iterations: 1) do
+      {:ok, acl_derived_key} ->
+        do_initialize(ca_instance_id, admin_kem_public_key, acl_password, acl_salt, acl_derived_key, opts)
+      {:error, reason} ->
+        {:error, {:kdf_failed, reason}}
+    end
+  end
+
+  defp do_initialize(ca_instance_id, admin_kem_public_key, acl_password, acl_salt, acl_derived_key, opts) do
+    signing_algo = Keyword.get(opts, :signing_algorithm, "ECC-P256")
+    kem_algo = Keyword.get(opts, :kem_algorithm, "ECDH-P256")
 
     Repo.transaction(fn ->
       # Ensure the virtual system user exists

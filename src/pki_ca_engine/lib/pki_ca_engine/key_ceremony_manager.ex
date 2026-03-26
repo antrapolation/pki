@@ -399,14 +399,24 @@ defmodule PkiCaEngine.KeyCeremonyManager do
   end
 
   defp do_assign_custodians(shares, custodians, _threshold_k, _n) do
-    encrypted =
-      Enum.zip(shares, custodians)
-      |> Enum.map(fn {share, %{password: password}} ->
-        {:ok, enc} = ShareEncryption.encrypt_share(share, password)
-        enc
-      end)
+    if length(shares) != length(custodians) do
+      {:error, :share_custodian_mismatch}
+    else
+      results =
+        Enum.zip(shares, custodians)
+        |> Enum.map(fn {share, %{password: password}} ->
+          ShareEncryption.encrypt_share(share, password)
+        end)
 
-    {:ok, encrypted}
+      errors = Enum.filter(results, &match?({:error, _}, &1))
+
+      if errors == [] do
+        encrypted = Enum.map(results, fn {:ok, enc} -> enc end)
+        {:ok, encrypted}
+      else
+        {:error, {:encryption_failed, hd(errors)}}
+      end
+    end
   end
 
   defp do_finalize(state, auditor_session) do

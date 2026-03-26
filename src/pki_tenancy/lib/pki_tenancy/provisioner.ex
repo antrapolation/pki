@@ -118,8 +118,14 @@ defmodule PkiTenancy.Provisioner do
     safe = validate_db_name!(db_name)
     schemas = ["ca", "ra", "validation", "audit"]
 
+    valid_schemas = MapSet.new(["ca", "ra", "validation", "audit"])
+
     Enum.each(schemas, fn schema ->
-      TenantRepo.execute_sql(safe, "public", "CREATE SCHEMA IF NOT EXISTS #{schema}", [])
+      unless MapSet.member?(valid_schemas, schema) do
+        raise ArgumentError, "Invalid schema name: #{inspect(schema)}"
+      end
+
+      TenantRepo.execute_sql(safe, "public", ~s|CREATE SCHEMA IF NOT EXISTS "#{schema}"|, [])
     end)
 
     :ok

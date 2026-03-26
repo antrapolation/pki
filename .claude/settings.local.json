@@ -109,7 +109,13 @@
       "Bash(sed -i '' 's/keys = socket.assigns.api_keys ++ \\\\[Map.drop\\(key, \\\\[:raw_key\\\\]\\)\\\\]/keys = [Map.drop\\(key, [:raw_key]\\) | socket.assigns.api_keys]/' /Users/amirrudinyahaya/Workspace/pki/src/pki_ra_portal/lib/pki_ra_portal_web/live/api_keys_live.ex)",
       "Bash(MIX_ENV=prod mix compile)",
       "Bash(curl -s http://localhost:4004/assets/js/app.js)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(MIX_ENV=test mix test test/pki_crypto/signing/rsa4096_test.exs)",
+      "Bash(erl:*)",
+      "Bash(DATABASE_URL=\"ecto://postgres:postgres@localhost:5434/pki_ca_engine_dev\" mix ecto.migrate)",
+      "Bash(MIX_ENV=test mix ecto.migrate)",
+      "Bash(MIX_ENV=test mix test --no-start)",
+      "Bash(MIX_ENV=test mix run -e \"ExUnit.start\\(\\); Code.compile_file\\(\"\"test/test_helper.exs\"\"\\)\")"
     ]
   }
 }
