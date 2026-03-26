@@ -28,7 +28,8 @@ defmodule PkiTenancy.MixProject do
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.18"},
       {:jason, "~> 1.4"},
-      {:uniq, "~> 0.6"}
+      {:uniq, "~> 0.6"},
+      {:plug, "~> 1.14"}
     ]
   end
 
