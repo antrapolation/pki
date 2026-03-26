@@ -6,6 +6,10 @@ defmodule PkiCaEngine.KeyCeremony.DefaultCryptoAdapter do
   Secret Sharing) for threshold secret splitting and recovery.
 
   Private keys are serialized as DER-encoded binaries for splitting.
+
+  DEPRECATED: This adapter is superseded by PkiCrypto.Algorithm-based key
+  generation in KeyCeremonyManager and KeyVault. Retained for backward
+  compatibility with existing tests.
   """
   defstruct []
 end
@@ -80,11 +84,5 @@ defimpl PkiCaEngine.KeyCeremony.CryptoAdapter,
          {:RSAPrivateKey, _, modulus, public_exponent, _, _, _, _, _, _, _}
        ) do
     {:RSAPublicKey, modulus, public_exponent}
-  end
-
-  defp ec_public_from_private(ec_private_key) when is_tuple(ec_private_key) do
-    # ECPrivateKey record: {:ECPrivateKey, version, priv_bytes, curve_params, public_key, ...}
-    # Public key is at index 4, curve params at index 3
-    {elem(ec_private_key, 4), elem(ec_private_key, 3)}
   end
 end

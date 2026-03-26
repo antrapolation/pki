@@ -37,6 +37,13 @@ defmodule PkiCaEngine.CredentialManager do
           # 2. Generate signing credential
           case create_credential(user.id, "signing", signing_algo, password) do
             {:ok, _signing_cred} ->
+              # TODO(attestation): After creating signing credential, call attestation
+              # when the admin has an active session with a session_key:
+              #   PkiCrypto.Attestation.attest(admin_signing_key, admin_algorithm, signing_pub_key)
+              # This requires the admin's decrypted signing key, which is not available
+              # in the bootstrap flow. Wire this into the manual user creation flow
+              # where the admin's session_key is passed through the API.
+
               # 3. Generate KEM credential
               case create_credential(user.id, "kem", kem_algo, password) do
                 {:ok, _kem_cred} ->

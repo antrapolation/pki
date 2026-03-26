@@ -496,7 +496,7 @@ defmodule PkiRaPortal.RaEngineClient.Http do
 
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
-      {k, v} when is_binary(k) -> {String.to_atom(k), atomize_value(v)}
+      {k, v} when is_binary(k) -> {safe_to_atom(k), atomize_value(v)}
       {k, v} -> {k, atomize_value(v)}
     end)
   end
@@ -506,6 +506,12 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   defp atomize_value(v) when is_map(v), do: atomize_keys(v)
   defp atomize_value(v) when is_list(v), do: Enum.map(v, &atomize_value/1)
   defp atomize_value(v), do: v
+
+  defp safe_to_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> key
+  end
 
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn

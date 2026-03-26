@@ -8,7 +8,38 @@ defmodule PkiCaEngine.Api.CeremonyController do
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.KeyCeremony
   alias PkiCaEngine.KeyCeremony.SyncCeremony
+  alias PkiCaEngine.KeyCeremonyManager
   alias PkiCaEngine.Api.Helpers
+
+  # Agent-based registry mapping ceremony IDs to PIDs for the multi-phase flow.
+  # Started lazily on first use.
+  @registry_name :ceremony_pid_registry
+
+  defp ensure_registry do
+    case Agent.start(fn -> %{} end, name: @registry_name) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
+  end
+
+  defp register_ceremony(ceremony_id, pid) do
+    ensure_registry()
+    Agent.update(@registry_name, &Map.put(&1, ceremony_id, pid))
+  end
+
+  defp lookup_ceremony(ceremony_id) do
+    ensure_registry()
+
+    case Agent.get(@registry_name, &Map.get(&1, ceremony_id)) do
+      nil -> {:error, :not_found}
+      pid when is_pid(pid) -> if Process.alive?(pid), do: {:ok, pid}, else: {:error, :not_found}
+    end
+  end
+
+  defp unregister_ceremony(ceremony_id) do
+    ensure_registry()
+    Agent.update(@registry_name, &Map.delete(&1, ceremony_id))
+  end
 
   def index(conn) do
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
@@ -57,6 +88,140 @@ defmodule PkiCaEngine.Api.CeremonyController do
 
       {:error, reason} ->
         json(conn, 500, %{error: "internal_error", message: inspect(reason)})
+    end
+  end
+
+  def start_ceremony(conn) do
+    sessions = conn.body_params["sessions"] || []
+    ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
+
+    # Convert session maps to structs expected by KeyCeremonyManager
+    parsed_sessions =
+      Enum.map(sessions, fn s ->
+        %{username: s["username"], role: s["role"]}
+      end)
+
+    case KeyCeremonyManager.start_ceremony(ca_instance_id, parsed_sessions) do
+      {:ok, pid} ->
+        ceremony_id = Ecto.UUID.generate()
+        register_ceremony(ceremony_id, pid)
+        json(conn, 201, %{ceremony_id: ceremony_id})
+
+      {:error, reason} ->
+        json(conn, 422, %{error: inspect(reason)})
+    end
+  end
+
+  def generate_keypair(conn, ceremony_id) do
+    with {:ok, pid} <- lookup_ceremony(ceremony_id) do
+      algorithm = conn.body_params["algorithm"]
+      protection_mode = String.to_existing_atom(conn.body_params["protection_mode"] || "split_auth_token")
+      opts = [
+        threshold_k: conn.body_params["threshold_k"] || 2,
+        threshold_n: conn.body_params["threshold_n"] || 3
+      ]
+
+      case KeyCeremonyManager.generate_keypair(pid, algorithm, protection_mode, opts) do
+        {:ok, keypair_data} ->
+          json(conn, 200, %{
+            keypair_id: keypair_data.keypair_id,
+            algorithm: keypair_data.algorithm,
+            public_key: Base.encode64(keypair_data.public_key)
+          })
+
+        {:error, reason} ->
+          json(conn, 422, %{error: inspect(reason)})
+      end
+    else
+      {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
+    end
+  end
+
+  def self_sign(conn, ceremony_id) do
+    with {:ok, pid} <- lookup_ceremony(ceremony_id) do
+      subject_info = conn.body_params["subject_info"] || "/CN=Root CA"
+      cert_profile = %{validity_days: conn.body_params["validity_days"] || 3650}
+
+      case KeyCeremonyManager.gen_self_sign_cert(pid, subject_info, cert_profile) do
+        {:ok, cert_pem} ->
+          json(conn, 200, %{certificate_pem: cert_pem})
+
+        {:error, reason} ->
+          json(conn, 422, %{error: inspect(reason)})
+      end
+    else
+      {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
+    end
+  end
+
+  def gen_csr(conn, ceremony_id) do
+    with {:ok, pid} <- lookup_ceremony(ceremony_id) do
+      subject_info = conn.body_params["subject_info"] || "/CN=Sub CA"
+
+      case KeyCeremonyManager.gen_csr(pid, subject_info) do
+        {:ok, csr_pem} ->
+          json(conn, 200, %{csr_pem: csr_pem})
+
+        {:error, reason} ->
+          json(conn, 422, %{error: inspect(reason)})
+      end
+    else
+      {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
+    end
+  end
+
+  def assign_custodians(conn, ceremony_id) do
+    with {:ok, pid} <- lookup_ceremony(ceremony_id) do
+      custodians =
+        (conn.body_params["custodians"] || [])
+        |> Enum.map(fn c -> %{password: c["password"]} end)
+
+      threshold_k = conn.body_params["threshold_k"] || 2
+
+      case KeyCeremonyManager.assign_custodians(pid, custodians, threshold_k) do
+        {:ok, _encrypted_shares} ->
+          json(conn, 200, %{status: "custodians_assigned"})
+
+        {:error, reason} ->
+          json(conn, 422, %{error: inspect(reason)})
+      end
+    else
+      {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
+    end
+  end
+
+  def finalize(conn, ceremony_id) do
+    with {:ok, pid} <- lookup_ceremony(ceremony_id) do
+      auditor_session = %{
+        username: conn.body_params["auditor_username"],
+        role: conn.body_params["auditor_role"] || "auditor"
+      }
+
+      case KeyCeremonyManager.finalize(pid, auditor_session) do
+        {:ok, audit_trail} ->
+          unregister_ceremony(ceremony_id)
+          json(conn, 200, %{status: "finalized", audit_trail_count: length(audit_trail)})
+
+        {:error, reason} ->
+          json(conn, 422, %{error: inspect(reason)})
+      end
+    else
+      {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
+    end
+  end
+
+  def status(conn, ceremony_id) do
+    with {:ok, pid} <- lookup_ceremony(ceremony_id) do
+      status = KeyCeremonyManager.get_status(pid)
+      json(conn, 200, %{data: %{
+        phase: status.phase,
+        ca_instance_id: status.ca_instance_id,
+        keypair_id: status.keypair_id,
+        protection_mode: status.protection_mode,
+        audit_trail_count: status.audit_trail_count
+      }})
+    else
+      {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
     end
   end
 

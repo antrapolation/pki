@@ -11,6 +11,7 @@ RUN mix local.hex --force && mix local.rebar --force
 # Copy mix files for dep resolution
 COPY src/pki_platform_portal/mix.exs src/pki_platform_portal/mix.lock src/pki_platform_portal/
 COPY src/pki_tenancy/mix.exs src/pki_tenancy/
+COPY src/pki_platform_engine/mix.exs src/pki_platform_engine/
 
 RUN cd src/pki_platform_portal && mix deps.get
 
@@ -22,6 +23,9 @@ COPY src/pki_platform_portal/assets src/pki_platform_portal/assets
 COPY src/pki_tenancy/lib src/pki_tenancy/lib
 COPY src/pki_tenancy/config src/pki_tenancy/config
 COPY src/pki_tenancy/priv src/pki_tenancy/priv
+COPY src/pki_platform_engine/lib src/pki_platform_engine/lib
+COPY src/pki_platform_engine/config src/pki_platform_engine/config
+COPY src/pki_platform_engine/priv src/pki_platform_engine/priv
 
 # Compile first (generates phoenix-colocated hooks)
 RUN cd src/pki_platform_portal && mix compile

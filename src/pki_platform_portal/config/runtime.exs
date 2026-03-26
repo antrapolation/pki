@@ -12,12 +12,21 @@ end
 config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4006"))]
 
-# Platform admin credentials
-config :pki_platform_portal,
-  admin_username: System.get_env("PLATFORM_ADMIN_USERNAME", "admin"),
-  admin_password: System.get_env("PLATFORM_ADMIN_PASSWORD", "admin")
+if config_env() != :prod do
+  # Dev/test: allow defaults for convenience
+  config :pki_platform_portal,
+    admin_username: System.get_env("PLATFORM_ADMIN_USERNAME", "admin"),
+    admin_password: System.get_env("PLATFORM_ADMIN_PASSWORD", "admin")
+end
 
 if config_env() == :prod do
+  admin_password =
+    System.get_env("PLATFORM_ADMIN_PASSWORD") ||
+      raise "environment variable PLATFORM_ADMIN_PASSWORD is missing"
+
+  config :pki_platform_portal,
+    admin_username: System.get_env("PLATFORM_ADMIN_USERNAME", "admin"),
+    admin_password: admin_password
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
       raise """

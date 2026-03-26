@@ -20,19 +20,32 @@ defmodule PkiRaEngine.UserManagement do
     "auditor" => [:view_audit_log]
   }
 
-  @doc "Register a new RA user with username and password."
+  @doc "Register a new RA user with username and password. Creates cryptographic credentials when a password is provided."
   @spec register_user(map()) :: {:ok, RaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
   def register_user(attrs) do
     import Ecto.Query
+    password = attrs[:password] || attrs["password"]
+
     Repo.transaction(fn ->
       count = Repo.one(from u in RaUser, select: count(u.id))
 
       if count > 0 do
         Repo.rollback(:setup_already_complete)
       else
-        case %RaUser{} |> RaUser.registration_changeset(attrs) |> Repo.insert() do
-          {:ok, user} -> user
-          {:error, changeset} -> Repo.rollback(changeset)
+        if password != nil do
+          # Full flow: create user with cryptographic credentials (signing + KEM keypairs)
+          user_attrs = Map.drop(attrs, [:password, "password"])
+
+          case PkiRaEngine.CredentialManager.create_user_with_credentials(user_attrs, password) do
+            {:ok, user} -> user
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        else
+          # Legacy flow: create user without credentials
+          case %RaUser{} |> RaUser.registration_changeset(attrs) |> Repo.insert() do
+            {:ok, user} -> user
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
         end
       end
     end)
