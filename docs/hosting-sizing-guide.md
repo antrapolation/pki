@@ -4,7 +4,7 @@
 
 This guide provides resource sizing recommendations for deploying the PKI CA system across different scales — from development environments to national-scale sovereign CA infrastructure.
 
-All sizing assumes Elixir/OTP releases running on Linux (x86_64 or ARM64) with PostgreSQL 16 and Podman containers.
+All sizing assumes Elixir/OTP releases running on Linux (x86_64 or ARM64) with PostgreSQL 17 and Podman containers.
 
 ---
 

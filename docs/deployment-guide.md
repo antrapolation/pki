@@ -8,7 +8,7 @@
 | **OS** | Ubuntu 24.04 LTS |
 | **Runtime** | Podman (rootless containers) |
 | **Reverse Proxy** | Caddy (automatic HTTPS via Let's Encrypt) |
-| **Database** | PostgreSQL 16 (containerized) |
+| **Database** | PostgreSQL 17 (containerized) |
 | **HSM** | SoftHSM2 (containerized, for beta testing) |
 
 ---

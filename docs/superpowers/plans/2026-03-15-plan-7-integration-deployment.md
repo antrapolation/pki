@@ -19,7 +19,7 @@
 All services orchestrated via Podman Compose.
 
 **Services:**
-- `postgres` — PostgreSQL 16 with multiple databases
+- `postgres` — PostgreSQL 17 with multiple databases
 - `ssdid-registry` — SSDID DID registry (port 4000)
 - `pki-ca-engine` — Core CA Engine (port 4001)
 - `pki-ra-engine` — RA Engine with REST API (port 4003)

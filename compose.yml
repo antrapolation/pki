@@ -5,7 +5,7 @@
 services:
   # ── PostgreSQL ──────────────────────────────────────────────────────
   postgres:
-    image: docker.io/library/postgres:16-alpine
+    image: docker.io/library/postgres:17-alpine
     container_name: pki-postgres
     env_file: .env
     environment:

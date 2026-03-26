@@ -94,7 +94,7 @@ Then visit `http://localhost:4002/setup` (CA) and `http://localhost:4004/setup` 
 |-------|-----------|
 | Language | Elixir 1.18 / Erlang/OTP 27 |
 | Web | Phoenix 1.8 + LiveView 1.1 |
-| Database | PostgreSQL 16 |
+| Database | PostgreSQL 17 |
 | CSS | Tailwind CSS 4 + daisyUI 5 |
 | Containers | Podman (rootless) |
 | Crypto | Erlang `:public_key` + `:crypto`, X509 library |
