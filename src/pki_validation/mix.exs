@@ -32,7 +32,7 @@ defmodule PkiValidation.MixProject do
       {:plug_cowboy, "~> 2.7"},
       {:uniq, "~> 0.6"},
       {:pki_crypto, path: "../pki_crypto"},
-      {:pki_tenancy, path: "../pki_tenancy"}
+      {:pki_platform_engine, path: "../pki_platform_engine"}
     ]
   end
 

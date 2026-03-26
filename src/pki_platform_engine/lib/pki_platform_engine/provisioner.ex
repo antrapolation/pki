@@ -1,7 +1,7 @@
-defmodule PkiTenancy.Provisioner do
+defmodule PkiPlatformEngine.Provisioner do
   @moduledoc "Provisions and manages tenant databases."
 
-  alias PkiTenancy.{PlatformRepo, Tenant, TenantRepo}
+  alias PkiPlatformEngine.{PlatformRepo, Tenant, TenantRepo}
   import Ecto.Query
 
   def create_tenant(name, slug, opts \\ []) do
@@ -84,7 +84,7 @@ defmodule PkiTenancy.Provisioner do
   # because CREATE/DROP DATABASE cannot run inside a transaction block
   # (which Ecto.Adapters.SQL.Sandbox uses).
   defp with_admin_conn(fun) do
-    config = Application.get_env(:pki_tenancy, PlatformRepo, [])
+    config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
 
     {:ok, conn} =
       Postgrex.start_link(

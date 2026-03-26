@@ -19,7 +19,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
 
   @impl true
   def handle_event("create_tenant", %{"name" => name, "slug" => slug}, socket) do
-    case PkiTenancy.Provisioner.create_tenant(name, slug) do
+    case PkiPlatformEngine.Provisioner.create_tenant(name, slug) do
       {:ok, _tenant} ->
         tenants = list_tenants()
 
@@ -45,7 +45,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   end
 
   def handle_event("suspend_tenant", %{"id" => id}, socket) do
-    case PkiTenancy.Provisioner.suspend_tenant(id) do
+    case PkiPlatformEngine.Provisioner.suspend_tenant(id) do
       {:ok, _tenant} ->
         tenants = list_tenants()
         {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant suspended.")}
@@ -56,7 +56,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   end
 
   def handle_event("activate_tenant", %{"id" => id}, socket) do
-    case PkiTenancy.Provisioner.activate_tenant(id) do
+    case PkiPlatformEngine.Provisioner.activate_tenant(id) do
       {:ok, _tenant} ->
         tenants = list_tenants()
         {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant activated.")}
@@ -67,7 +67,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   end
 
   def handle_event("delete_tenant", %{"id" => id}, socket) do
-    case PkiTenancy.Provisioner.delete_tenant(id) do
+    case PkiPlatformEngine.Provisioner.delete_tenant(id) do
       {:ok, _tenant} ->
         tenants = list_tenants()
         {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant deleted.")}
@@ -82,7 +82,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   end
 
   defp list_tenants do
-    PkiTenancy.Provisioner.list_tenants()
+    PkiPlatformEngine.Provisioner.list_tenants()
   rescue
     _ -> []
   end

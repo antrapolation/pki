@@ -1,9 +1,9 @@
-defmodule PkiTenancy.MixProject do
+defmodule PkiPlatformEngine.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :pki_tenancy,
+      app: :pki_platform_engine,
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
@@ -15,7 +15,7 @@ defmodule PkiTenancy.MixProject do
 
   def application do
     [
-      mod: {PkiTenancy.Application, []},
+      mod: {PkiPlatformEngine.Application, []},
       extra_applications: [:logger]
     ]
   end

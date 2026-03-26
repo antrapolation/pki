@@ -1,4 +1,4 @@
-defmodule PkiTenancy.Plug.TenantContext do
+defmodule PkiPlatformEngine.Plug.TenantContext do
   @moduledoc """
   Plug that resolves the current tenant from the request context
   and stores it in conn.assigns.
@@ -13,7 +13,7 @@ defmodule PkiTenancy.Plug.TenantContext do
   """
 
   import Plug.Conn
-  alias PkiTenancy.Resolver
+  alias PkiPlatformEngine.Resolver
 
   def init(opts), do: opts
 

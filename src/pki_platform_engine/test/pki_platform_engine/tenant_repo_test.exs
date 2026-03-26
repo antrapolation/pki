@@ -1,7 +1,7 @@
-defmodule PkiTenancy.TenantRepoTest do
+defmodule PkiPlatformEngine.TenantRepoTest do
   use ExUnit.Case, async: false
 
-  alias PkiTenancy.TenantRepo
+  alias PkiPlatformEngine.TenantRepo
 
   @test_db "pki_tenant_repo_test"
 
@@ -117,7 +117,7 @@ defmodule PkiTenancy.TenantRepoTest do
     end
 
     test "accepts a Tenant struct" do
-      tenant = %PkiTenancy.Tenant{
+      tenant = %PkiPlatformEngine.Tenant{
         id: "test-id",
         database_name: @test_db,
         name: "Test",
@@ -153,7 +153,7 @@ defmodule PkiTenancy.TenantRepoTest do
     end
 
     test "accepts a Tenant struct" do
-      tenant = %PkiTenancy.Tenant{
+      tenant = %PkiPlatformEngine.Tenant{
         id: "test-id",
         database_name: @test_db,
         name: "Test",

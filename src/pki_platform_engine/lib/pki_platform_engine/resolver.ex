@@ -1,7 +1,7 @@
-defmodule PkiTenancy.Resolver do
+defmodule PkiPlatformEngine.Resolver do
   @moduledoc "Resolves tenant from request context."
 
-  alias PkiTenancy.{PlatformRepo, Tenant}
+  alias PkiPlatformEngine.{PlatformRepo, Tenant}
 
   def resolve_from_subdomain(host) when is_binary(host) do
     case extract_slug(host) do

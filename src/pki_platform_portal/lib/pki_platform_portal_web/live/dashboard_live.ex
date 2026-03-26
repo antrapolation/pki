@@ -16,7 +16,7 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
   end
 
   defp list_tenants do
-    PkiTenancy.Provisioner.list_tenants()
+    PkiPlatformEngine.Provisioner.list_tenants()
   rescue
     _ -> []
   end

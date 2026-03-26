@@ -46,7 +46,7 @@ defmodule PkiRaEngine.MixProject do
       {:x509, path: "../x509"},
       {:ex_ccrypto, path: "../ex_ccrypto"},
       {:pki_crypto, path: "../pki_crypto"},
-      {:pki_tenancy, path: "../pki_tenancy"}
+      {:pki_platform_engine, path: "../pki_platform_engine"}
     ]
   end
 end

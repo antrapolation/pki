@@ -1,4 +1,4 @@
-defmodule PkiTenancy.PlatformRepo.Migrations.CreateTenants do
+defmodule PkiPlatformEngine.PlatformRepo.Migrations.CreateTenants do
   use Ecto.Migration
 
   def change do

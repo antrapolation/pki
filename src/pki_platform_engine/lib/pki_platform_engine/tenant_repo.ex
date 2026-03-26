@@ -1,4 +1,4 @@
-defmodule PkiTenancy.TenantRepo do
+defmodule PkiPlatformEngine.TenantRepo do
   @moduledoc """
   Dynamic Ecto repo for per-tenant database access.
 
@@ -7,23 +7,23 @@ defmodule PkiTenancy.TenantRepo do
 
   ## Usage
 
-      PkiTenancy.TenantRepo.with_tenant("pki_tenant_abc123", "ca", fn ->
-        PkiTenancy.TenantRepo.all(SomeSchema)
+      PkiPlatformEngine.TenantRepo.with_tenant("pki_tenant_abc123", "ca", fn ->
+        PkiPlatformEngine.TenantRepo.all(SomeSchema)
       end)
 
   Or with a Tenant struct:
 
-      PkiTenancy.TenantRepo.with_tenant(tenant, "ra", fn ->
-        PkiTenancy.TenantRepo.insert(%RaUser{name: "alice"})
+      PkiPlatformEngine.TenantRepo.with_tenant(tenant, "ra", fn ->
+        PkiPlatformEngine.TenantRepo.insert(%RaUser{name: "alice"})
       end)
 
   For raw SQL:
 
-      PkiTenancy.TenantRepo.execute_sql("pki_tenant_abc123", "ca", "SELECT 1", [])
+      PkiPlatformEngine.TenantRepo.execute_sql("pki_tenant_abc123", "ca", "SELECT 1", [])
   """
 
   use Ecto.Repo,
-    otp_app: :pki_tenancy,
+    otp_app: :pki_platform_engine,
     adapter: Ecto.Adapters.Postgres
 
   @valid_prefixes ["ca", "ra", "validation", "audit", "public"]
@@ -34,13 +34,13 @@ defmodule PkiTenancy.TenantRepo do
   Starts a dynamic repo instance connected to the tenant's database with the
   given schema prefix, executes the function, then stops the instance.
 
-  The function receives no arguments -- use `PkiTenancy.TenantRepo` directly
+  The function receives no arguments -- use `PkiPlatformEngine.TenantRepo` directly
   inside the function body, as `put_dynamic_repo/1` routes calls to the
   correct instance.
 
   ## Parameters
 
-    * `tenant_or_db` - A `%PkiTenancy.Tenant{}` struct or a database name string
+    * `tenant_or_db` - A `%PkiPlatformEngine.Tenant{}` struct or a database name string
     * `schema_prefix` - PostgreSQL schema: "ca", "ra", "validation", "audit", or "public"
     * `fun` - Zero-arity function to execute in the tenant context
 
@@ -50,7 +50,7 @@ defmodule PkiTenancy.TenantRepo do
         TenantRepo.all(CaUser)
       end)
   """
-  def with_tenant(%PkiTenancy.Tenant{database_name: db_name}, schema_prefix, fun) do
+  def with_tenant(%PkiPlatformEngine.Tenant{database_name: db_name}, schema_prefix, fun) do
     with_tenant(db_name, schema_prefix, fun)
   end
 
@@ -77,14 +77,14 @@ defmodule PkiTenancy.TenantRepo do
 
   ## Parameters
 
-    * `tenant_or_db` - A `%PkiTenancy.Tenant{}` struct or a database name string
+    * `tenant_or_db` - A `%PkiPlatformEngine.Tenant{}` struct or a database name string
     * `schema_prefix` - PostgreSQL schema: "ca", "ra", "validation", "audit", or "public"
     * `sql` - SQL string to execute
     * `params` - List of query parameters (default: [])
   """
   def execute_sql(tenant_or_db, schema_prefix, sql, params \\ [])
 
-  def execute_sql(%PkiTenancy.Tenant{database_name: db_name}, schema_prefix, sql, params) do
+  def execute_sql(%PkiPlatformEngine.Tenant{database_name: db_name}, schema_prefix, sql, params) do
     execute_sql(db_name, schema_prefix, sql, params)
   end
 
@@ -96,7 +96,7 @@ defmodule PkiTenancy.TenantRepo do
   end
 
   defp build_config(database_name, schema_prefix) do
-    base = Application.get_env(:pki_tenancy, __MODULE__, [])
+    base = Application.get_env(:pki_platform_engine, __MODULE__, [])
 
     [
       hostname: Keyword.get(base, :hostname, "localhost"),

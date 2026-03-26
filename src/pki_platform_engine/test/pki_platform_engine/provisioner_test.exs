@@ -1,7 +1,7 @@
-defmodule PkiTenancy.ProvisionerTest do
+defmodule PkiPlatformEngine.ProvisionerTest do
   use ExUnit.Case, async: false
 
-  alias PkiTenancy.{Provisioner, PlatformRepo, TenantRepo}
+  alias PkiPlatformEngine.{Provisioner, PlatformRepo, TenantRepo}
 
   setup do
     # Checkout sandbox for PlatformRepo but use shared mode so
@@ -33,7 +33,7 @@ defmodule PkiTenancy.ProvisionerTest do
         assert tenant.kem_algorithm == "ECDH-P256"
 
         # Verify tenant record exists in PlatformRepo
-        assert PlatformRepo.get(PkiTenancy.Tenant, tenant.id) != nil
+        assert PlatformRepo.get(PkiPlatformEngine.Tenant, tenant.id) != nil
       after
         cleanup_tenant(tenant)
       end

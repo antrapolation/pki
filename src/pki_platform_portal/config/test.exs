@@ -26,7 +26,7 @@ config :pki_platform_portal, admin_username: "admin"
 config :pki_platform_portal, admin_password: "admin"
 
 # PlatformRepo config for tenancy (used by dashboard/tenants)
-config :pki_tenancy, PkiTenancy.PlatformRepo,
+config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",

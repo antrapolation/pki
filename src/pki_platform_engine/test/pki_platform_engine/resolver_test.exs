@@ -1,7 +1,7 @@
-defmodule PkiTenancy.ResolverTest do
+defmodule PkiPlatformEngine.ResolverTest do
   use ExUnit.Case, async: false
 
-  alias PkiTenancy.{PlatformRepo, Resolver, Tenant}
+  alias PkiPlatformEngine.{PlatformRepo, Resolver, Tenant}
 
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(PlatformRepo)

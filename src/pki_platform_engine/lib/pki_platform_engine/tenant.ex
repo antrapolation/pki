@@ -1,4 +1,4 @@
-defmodule PkiTenancy.Tenant do
+defmodule PkiPlatformEngine.Tenant do
   use Ecto.Schema
   import Ecto.Changeset
 
