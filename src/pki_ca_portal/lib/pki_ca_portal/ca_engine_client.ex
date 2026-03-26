@@ -20,6 +20,7 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback list_ceremonies(integer()) :: {:ok, [map()]} | {:error, term()}
   @callback query_audit_log(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
+  @callback authenticate_with_session(String.t(), String.t()) :: {:ok, map(), map()} | {:error, term()}
   @callback register_user(integer(), map()) :: {:ok, map()} | {:error, term()}
   @callback needs_setup?(integer()) :: boolean()
 
@@ -38,6 +39,7 @@ defmodule PkiCaPortal.CaEngineClient do
   def list_ceremonies(ca_instance_id), do: impl().list_ceremonies(ca_instance_id)
   def query_audit_log(filters), do: impl().query_audit_log(filters)
   def authenticate(username, password), do: impl().authenticate(username, password)
+  def authenticate_with_session(username, password), do: impl().authenticate_with_session(username, password)
   def register_user(ca_instance_id, attrs), do: impl().register_user(ca_instance_id, attrs)
   def needs_setup?(ca_instance_id), do: impl().needs_setup?(ca_instance_id)
 end

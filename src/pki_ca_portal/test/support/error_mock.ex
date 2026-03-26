@@ -29,6 +29,19 @@ defmodule PkiCaPortal.CaEngineClient.ErrorMock do
   @impl true
   def query_audit_log(filters), do: PkiCaPortal.CaEngineClient.Mock.query_audit_log(filters)
 
+  # Auth operations delegate to main mock
+  @impl true
+  def authenticate(username, password), do: PkiCaPortal.CaEngineClient.Mock.authenticate(username, password)
+
+  @impl true
+  def authenticate_with_session(username, password), do: PkiCaPortal.CaEngineClient.Mock.authenticate_with_session(username, password)
+
+  @impl true
+  def register_user(ca_instance_id, attrs), do: PkiCaPortal.CaEngineClient.Mock.register_user(ca_instance_id, attrs)
+
+  @impl true
+  def needs_setup?(ca_instance_id), do: PkiCaPortal.CaEngineClient.Mock.needs_setup?(ca_instance_id)
+
   # Mutating operations return errors
   @impl true
   def create_user(_ca_instance_id, _attrs), do: {:error, :permission_denied}

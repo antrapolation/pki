@@ -31,6 +31,34 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def authenticate_with_session(username, password) do
+    case post("/api/v1/auth/login", %{username: username, password: password}) do
+      {:ok, %{status: 200, body: body}} ->
+        user = atomize_keys(Map.drop(body, ["session_key", "session_salt"]))
+
+        session_info = %{
+          session_key: decode_session_value(body["session_key"]),
+          session_salt: decode_session_value(body["session_salt"])
+        }
+
+        {:ok, user, session_info}
+
+      {:ok, %{status: 401}} ->
+        {:error, :invalid_credentials}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  defp decode_session_value(nil), do: nil
+  defp decode_session_value(val) when is_binary(val), do: Base.decode64!(val)
+  defp decode_session_value(val), do: val
+
+  @impl true
   def register_user(ca_instance_id, attrs) do
     payload =
       attrs

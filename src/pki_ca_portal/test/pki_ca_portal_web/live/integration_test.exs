@@ -205,7 +205,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       {:ok, _view, html} = live(conn, "/ceremony")
 
       assert html =~ "Key Ceremony"
-      assert html =~ "Initiate Ceremony"
+      assert html =~ "Initiate Key Ceremony"
     end
 
     test "initiate ceremony -> ceremony status shown", %{conn: conn} do

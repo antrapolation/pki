@@ -93,6 +93,13 @@ defmodule PkiCaPortalWeb.UsersLive do
     end
   end
 
+  defp has_credential?(user, type) do
+    creds = Map.get(user, :credentials, [])
+    Enum.any?(creds, fn c ->
+      (c[:credential_type] || c["credential_type"]) == type
+    end)
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -126,6 +133,7 @@ defmodule PkiCaPortalWeb.UsersLive do
                   <th>Username</th>
                   <th>Name</th>
                   <th>Role</th>
+                  <th>Credentials</th>
                   <th>Status</th>
                   <th class="text-right">Actions</th>
                 </tr>
@@ -136,6 +144,11 @@ defmodule PkiCaPortalWeb.UsersLive do
                   <td>{user.display_name}</td>
                   <td>
                     <span class={"badge badge-sm #{role_badge_class(user.role)}"}>{user.role}</span>
+                  </td>
+                  <td>
+                    <span :if={has_credential?(user, "signing")} class="badge badge-sm badge-success mr-1">Signing &#10003;</span>
+                    <span :if={has_credential?(user, "kem")} class="badge badge-sm badge-info mr-1">KEM &#10003;</span>
+                    <span :if={!has_credential?(user, "signing") and !has_credential?(user, "kem")} class="badge badge-sm badge-ghost">No credentials</span>
                   </td>
                   <td>
                     <span class={"badge badge-sm #{status_badge_class(user.status)}"}>{user.status}</span>

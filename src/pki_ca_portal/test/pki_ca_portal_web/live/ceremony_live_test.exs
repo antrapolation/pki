@@ -16,7 +16,7 @@ defmodule PkiCaPortalWeb.CeremonyLiveTest do
     assert html =~ "Key Ceremony"
     assert html =~ "ML-DSA-65"
     assert html =~ "completed"
-    assert html =~ "Initiate Ceremony"
+    assert html =~ "Initiate Key Ceremony"
   end
 
   test "initiate_ceremony event works", %{conn: conn} do

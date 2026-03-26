@@ -155,6 +155,40 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def authenticate(username, _password) do
+    {:ok, %{id: Uniq.UUID.uuid7(), username: username, role: "ca_admin", display_name: "Mock Admin"}}
+  end
+
+  @impl true
+  def authenticate_with_session(username, _password) do
+    user = %{id: Uniq.UUID.uuid7(), username: username, role: "ca_admin", display_name: "Mock Admin"}
+    session_info = %{session_key: :crypto.strong_rand_bytes(32), session_salt: :crypto.strong_rand_bytes(32)}
+    {:ok, user, session_info}
+  end
+
+  @impl true
+  def register_user(_ca_instance_id, attrs) do
+    id = next_id()
+    user = Map.merge(%{id: id, status: "active", role: "ca_admin",
+      credentials: [
+        %{credential_type: "signing", algorithm: "ECC-P256", status: "active"},
+        %{credential_type: "kem", algorithm: "ECDH-P256", status: "active"}
+      ]}, attrs)
+
+    Agent.update(__MODULE__, fn state ->
+      %{state | users: state.users ++ [user]}
+    end)
+
+    {:ok, user}
+  end
+
+  @impl true
+  def needs_setup?(_ca_instance_id) do
+    users = Agent.get(__MODULE__, & &1.users)
+    Enum.empty?(users)
+  end
+
+  @impl true
   def query_audit_log(_filters) do
     {:ok, Agent.get(__MODULE__, & &1.audit_events)}
   end

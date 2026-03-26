@@ -24,7 +24,7 @@ defmodule PkiCaPortalWeb.SetupController do
           case CaEngineClient.register_user(1, attrs) do
             {:ok, _user} ->
               conn
-              |> put_flash(:info, "Admin account created. Please sign in.")
+              |> put_flash(:info, "Certificate Authority initialized. Admin account, ACL, and system keypairs created. Please sign in.")
               |> redirect(to: "/login")
 
             {:error, changeset} ->

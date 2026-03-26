@@ -26,14 +26,21 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
           username: "admin1",
           display_name: "Admin One",
           role: "ca_admin",
-          status: "active"
+          status: "active",
+          credentials: [
+            %{credential_type: "signing", algorithm: "ECC-P256", status: "active"},
+            %{credential_type: "kem", algorithm: "ECDH-P256", status: "active"}
+          ]
         },
         %{
           id: @user2_id,
           username: "keymgr1",
           display_name: "Key Manager One",
           role: "key_manager",
-          status: "active"
+          status: "active",
+          credentials: [
+            %{credential_type: "signing", algorithm: "ECC-P256", status: "active"}
+          ]
         }
       ],
       keystores: [
@@ -179,8 +186,19 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def authenticate_with_session(username, _password) do
+    user = %{id: @user1_id, username: username, role: "ca_admin", display_name: "Mock Admin"}
+    session_info = %{session_key: :crypto.strong_rand_bytes(32), session_salt: :crypto.strong_rand_bytes(32)}
+    {:ok, user, session_info}
+  end
+
+  @impl true
   def register_user(_ca_instance_id, attrs) do
-    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", role: "ca_admin"}, attrs)
+    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", role: "ca_admin",
+      credentials: [
+        %{credential_type: "signing", algorithm: "ECC-P256", status: "active"},
+        %{credential_type: "kem", algorithm: "ECDH-P256", status: "active"}
+      ]}, attrs)
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end
