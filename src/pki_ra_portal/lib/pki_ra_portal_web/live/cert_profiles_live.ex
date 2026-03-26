@@ -8,13 +8,15 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
     {:ok, profiles} = RaEngineClient.list_cert_profiles()
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Certificate Profiles",
        profiles: profiles,
        editing: nil,
        page: 1,
        per_page: 50
-     )}
+     )
+     |> apply_pagination()}
   end
 
   @impl true
@@ -34,6 +36,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
         {:noreply,
          socket
          |> assign(profiles: profiles)
+         |> apply_pagination()
          |> put_flash(:info, "Certificate profile created")}
 
       {:error, reason} ->
@@ -74,6 +77,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
         {:noreply,
          socket
          |> assign(profiles: profiles, editing: nil)
+         |> apply_pagination()
          |> put_flash(:info, "Profile updated")}
 
       {:error, reason} ->
@@ -90,6 +94,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
         {:noreply,
          socket
          |> assign(profiles: profiles)
+         |> apply_pagination()
          |> put_flash(:info, "Profile deleted")}
 
       {:error, reason} ->
@@ -99,7 +104,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
   end
 
   defp parse_int(val, default) when is_binary(val) do
@@ -111,18 +116,20 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   defp parse_int(_, default), do: default
 
+  defp apply_pagination(socket) do
+    items = socket.assigns.profiles
+    total = length(items)
+    per_page = socket.assigns.per_page
+    total_pages = max(ceil(total / per_page), 1)
+    page = min(socket.assigns.page, total_pages)
+    start_idx = (page - 1) * per_page
+    paged = items |> Enum.drop(start_idx) |> Enum.take(per_page)
+
+    assign(socket, paged_profiles: paged, total_pages: total_pages, page: page)
+  end
+
   @impl true
   def render(assigns) do
-    total = length(assigns.profiles)
-    total_pages = max(ceil(total / assigns.per_page), 1)
-    start_idx = (assigns.page - 1) * assigns.per_page
-    paged_profiles = assigns.profiles |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
-
-    assigns =
-      assigns
-      |> Map.put(:paged_profiles, paged_profiles)
-      |> Map.put(:total_pages, total_pages)
-
     ~H"""
     <div id="cert-profiles-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">Certificate Profiles</h1>

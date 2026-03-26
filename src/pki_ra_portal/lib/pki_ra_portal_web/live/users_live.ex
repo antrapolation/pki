@@ -8,14 +8,16 @@ defmodule PkiRaPortalWeb.UsersLive do
     {:ok, users} = RaEngineClient.list_users()
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Users",
        users: users,
        filtered_users: users,
        role_filter: "all",
        page: 1,
        per_page: 50
-     )}
+     )
+     |> apply_pagination()}
   end
 
   @impl true
@@ -30,6 +32,7 @@ defmodule PkiRaPortalWeb.UsersLive do
         {:noreply,
          socket
          |> assign(users: users, filtered_users: filtered, page: 1)
+         |> apply_pagination()
          |> put_flash(:info, "User created successfully")}
 
       {:error, reason} ->
@@ -47,6 +50,7 @@ defmodule PkiRaPortalWeb.UsersLive do
         {:noreply,
          socket
          |> assign(users: users, filtered_users: filtered)
+         |> apply_pagination()
          |> put_flash(:info, "User suspended")}
 
       {:error, reason} ->
@@ -57,29 +61,31 @@ defmodule PkiRaPortalWeb.UsersLive do
   @impl true
   def handle_event("filter_role", %{"role" => role}, socket) do
     filtered = filter_users(socket.assigns.users, role)
-    {:noreply, assign(socket, role_filter: role, filtered_users: filtered, page: 1)}
+    {:noreply, socket |> assign(role_filter: role, filtered_users: filtered, page: 1) |> apply_pagination()}
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
   end
 
   defp filter_users(users, "all"), do: users
   defp filter_users(users, role), do: Enum.filter(users, &(&1.role == role))
 
+  defp apply_pagination(socket) do
+    items = socket.assigns.filtered_users
+    total = length(items)
+    per_page = socket.assigns.per_page
+    total_pages = max(ceil(total / per_page), 1)
+    page = min(socket.assigns.page, total_pages)
+    start_idx = (page - 1) * per_page
+    paged = items |> Enum.drop(start_idx) |> Enum.take(per_page)
+
+    assign(socket, paged_users: paged, total_pages: total_pages, page: page)
+  end
+
   @impl true
   def render(assigns) do
-    total = length(assigns.filtered_users)
-    total_pages = max(ceil(total / assigns.per_page), 1)
-    start_idx = (assigns.page - 1) * assigns.per_page
-    paged_users = assigns.filtered_users |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
-
-    assigns =
-      assigns
-      |> Map.put(:paged_users, paged_users)
-      |> Map.put(:total_pages, total_pages)
-
     ~H"""
     <div id="users-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">User Management</h1>

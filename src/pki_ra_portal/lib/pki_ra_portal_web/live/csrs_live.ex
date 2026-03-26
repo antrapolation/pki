@@ -8,7 +8,8 @@ defmodule PkiRaPortalWeb.CsrsLive do
     {:ok, csrs} = RaEngineClient.list_csrs()
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "CSR Management",
        csrs: csrs,
        status_filter: "all",
@@ -16,14 +17,15 @@ defmodule PkiRaPortalWeb.CsrsLive do
        reject_reason: "",
        page: 1,
        per_page: 10
-     )}
+     )
+     |> apply_pagination()}
   end
 
   @impl true
   def handle_event("filter_status", %{"status" => status}, socket) do
     filters = if status == "all", do: [], else: [status: status]
     {:ok, csrs} = RaEngineClient.list_csrs(filters)
-    {:noreply, assign(socket, csrs: csrs, status_filter: status, page: 1)}
+    {:noreply, socket |> assign(csrs: csrs, status_filter: status, page: 1) |> apply_pagination()}
   end
 
   @impl true
@@ -47,6 +49,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
         {:noreply,
          socket
          |> assign(csrs: csrs, selected_csr: nil)
+         |> apply_pagination()
          |> put_flash(:info, "CSR approved successfully")}
 
       {:error, reason} ->
@@ -64,6 +67,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
         {:noreply,
          socket
          |> assign(csrs: csrs, selected_csr: nil)
+         |> apply_pagination()
          |> put_flash(:info, "CSR rejected")}
 
       {:error, reason} ->
@@ -73,22 +77,23 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+  end
+
+  defp apply_pagination(socket) do
+    items = socket.assigns.csrs
+    total = length(items)
+    per_page = socket.assigns.per_page
+    total_pages = max(ceil(total / per_page), 1)
+    page = min(socket.assigns.page, total_pages)
+    start_idx = (page - 1) * per_page
+    paged = items |> Enum.drop(start_idx) |> Enum.take(per_page)
+
+    assign(socket, paged_csrs: paged, total_pages: total_pages, page: page)
   end
 
   @impl true
   def render(assigns) do
-    # Pagination applies AFTER status filtering (csrs is already filtered)
-    total = length(assigns.csrs)
-    total_pages = max(ceil(total / assigns.per_page), 1)
-    start_idx = (assigns.page - 1) * assigns.per_page
-    paged_csrs = assigns.csrs |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
-
-    assigns =
-      assigns
-      |> Map.put(:paged_csrs, paged_csrs)
-      |> Map.put(:total_pages, total_pages)
-
     ~H"""
     <div id="csrs-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">CSR Management</h1>
