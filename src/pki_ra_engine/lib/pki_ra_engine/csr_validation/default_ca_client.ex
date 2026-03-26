@@ -7,6 +7,9 @@ defmodule PkiRaEngine.CsrValidation.DefaultCaClient do
   CA engine integration is not yet wired up.
   """
 
+  @behaviour PkiRaEngine.CaClient
+
+  @impl true
   def sign_certificate(_csr_pem, _cert_profile) do
     {:error, :ca_engine_not_configured}
   end

@@ -44,7 +44,8 @@ defmodule PkiRaEngine.MixProject do
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"},
       {:x509, path: "../x509"},
-      {:ex_ccrypto, path: "../ex_ccrypto"}
+      {:ex_ccrypto, path: "../ex_ccrypto"},
+      {:pki_crypto, path: "../pki_crypto"}
     ]
   end
 end

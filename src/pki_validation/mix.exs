@@ -30,7 +30,8 @@ defmodule PkiValidation.MixProject do
       {:jason, "~> 1.4"},
       {:plug, "~> 1.16"},
       {:plug_cowboy, "~> 2.7"},
-      {:uniq, "~> 0.6"}
+      {:uniq, "~> 0.6"},
+      {:pki_crypto, path: "../pki_crypto"}
     ]
   end
 
