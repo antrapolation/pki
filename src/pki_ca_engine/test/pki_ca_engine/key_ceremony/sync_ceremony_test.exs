@@ -1,7 +1,7 @@
 defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
   use PkiCaEngine.DataCase, async: true
 
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, TestCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.SyncCeremony
   alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore, ThresholdShare}
 
   setup do
@@ -28,14 +28,11 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         user
       end
 
-    adapter = %TestCryptoAdapter{}
-
     %{
       ca: ca,
       keystore: keystore,
       initiator: initiator,
-      custodians: custodians,
-      adapter: adapter
+      custodians: custodians
     }
   end
 
@@ -124,23 +121,21 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
   # ── generate_keypair/2 ──────────────────────────────────────────
 
   describe "generate_keypair/2" do
-    test "generates keypair via CryptoAdapter", ctx do
+    test "generates keypair via PkiCrypto", _ctx do
       assert {:ok, %{public_key: pub, private_key: priv}} =
-               SyncCeremony.generate_keypair(ctx.adapter, "RSA-4096")
+               SyncCeremony.generate_keypair("ECC-P256")
 
       assert is_binary(pub)
       assert is_binary(priv)
-      assert byte_size(pub) == 32
-      assert byte_size(priv) == 32
     end
   end
 
   # ── distribute_shares/4 ────────────────────────────────────────
 
-  describe "distribute_shares/4" do
+  describe "distribute_shares/3" do
     setup ctx do
       params = %{
-        algorithm: "RSA-4096",
+        algorithm: "ECC-P256",
         keystore_id: ctx.keystore.id,
         threshold_k: 2,
         threshold_n: 3,
@@ -148,7 +143,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
       }
 
       {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(ctx.ca.id, params)
-      {:ok, %{public_key: _pub, private_key: priv}} = SyncCeremony.generate_keypair(ctx.adapter, "RSA-4096")
+      {:ok, %{public_key: _pub, private_key: priv}} = SyncCeremony.generate_keypair("ECC-P256")
 
       Map.merge(ctx, %{ceremony: ceremony, private_key: priv})
     end
@@ -161,8 +156,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
                SyncCeremony.distribute_shares(
                  ctx.ceremony,
                  ctx.private_key,
-                 custodian_passwords,
-                 ctx.adapter
+                 custodian_passwords
                )
 
       # Verify shares stored in DB
@@ -188,8 +182,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
                SyncCeremony.distribute_shares(
                  ctx.ceremony,
                  ctx.private_key,
-                 custodian_passwords,
-                 ctx.adapter
+                 custodian_passwords
                )
     end
 
@@ -201,8 +194,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         SyncCeremony.distribute_shares(
           ctx.ceremony,
           ctx.private_key,
-          custodian_passwords,
-          ctx.adapter
+          custodian_passwords
         )
 
       shares = Repo.all(from(s in ThresholdShare, where: s.issuer_key_id == ^ctx.ceremony.issuer_key_id, order_by: s.share_index))

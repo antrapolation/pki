@@ -33,6 +33,7 @@ defmodule PkiCaEngine.MixProject do
       {:keyx, path: "../keyx"},
       {:x509, path: "../x509"},
       {:ex_ccrypto, path: "../ex_ccrypto"},
+      {:pki_crypto, path: "../pki_crypto"},
       {:pki_audit_trail, path: "../pki_audit_trail", runtime: false},
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"}

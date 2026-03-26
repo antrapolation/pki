@@ -8,7 +8,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
 
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore}
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, DefaultCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.SyncCeremony
   alias PkiCaEngine.KeyActivation
 
   @doc """
@@ -71,8 +71,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
       ca_admin: ca_admin,
       key_managers: key_managers,
       auditor: auditor,
-      keystore: keystore,
-      adapter: %DefaultCryptoAdapter{}
+      keystore: keystore
     }
   end
 
@@ -97,7 +96,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
         initiated_by: km1.id
       })
 
-    {:ok, keypair} = SyncCeremony.generate_keypair(setup.adapter, "RSA-4096")
+    {:ok, keypair} = SyncCeremony.generate_keypair("RSA-4096")
 
     custodian_passwords =
       setup.key_managers
@@ -108,8 +107,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
       SyncCeremony.distribute_shares(
         ceremony,
         keypair.private_key,
-        custodian_passwords,
-        setup.adapter
+        custodian_passwords
       )
 
     # Generate a real self-signed root CA certificate

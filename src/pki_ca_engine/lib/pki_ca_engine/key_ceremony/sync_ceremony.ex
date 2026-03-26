@@ -4,7 +4,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
 
   Orchestrates the full ceremony flow:
   1. `initiate/2` - creates ceremony + issuer_key records
-  2. `generate_keypair/2` - generates keypair via CryptoAdapter protocol
+  2. `generate_keypair/1` - generates keypair via PkiCrypto.Algorithm protocol
   3. `distribute_shares/4` - splits private key, encrypts shares, stores in DB
   4. `complete_as_root/3` - for independent root CA (activates key with cert)
   5. `complete_as_sub_ca/3` - for sub-CA (key stays pending, generates real PKCS#10 CSR)
@@ -15,7 +15,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.{KeyCeremony, IssuerKey, ThresholdShare}
   alias PkiCaEngine.{KeystoreManagement, IssuerKeyManagement}
-  alias PkiCaEngine.KeyCeremony.{CryptoAdapter, ShareEncryption}
+  alias PkiCaEngine.KeyCeremony.ShareEncryption
 
   @doc """
   Initiates a synchronous key ceremony.
@@ -72,42 +72,44 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   end
 
   @doc """
-  Generates a keypair using the given CryptoAdapter.
+  Generates a keypair for the given algorithm string via PkiCrypto.
 
   Returns `{:ok, %{public_key: binary, private_key: binary}}`.
   The private key material is returned in memory only -- it must NOT be persisted to DB.
   """
-  @spec generate_keypair(CryptoAdapter.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def generate_keypair(crypto_adapter, algorithm) do
-    CryptoAdapter.generate_keypair(crypto_adapter, algorithm)
+  @spec generate_keypair(String.t()) :: {:ok, map()} | {:error, term()}
+  def generate_keypair(algorithm) do
+    case PkiCrypto.Registry.get(algorithm) do
+      nil -> {:error, {:unsupported_algorithm, algorithm}}
+      algo_struct -> PkiCrypto.Algorithm.generate_keypair(algo_struct)
+    end
   end
 
   @doc """
   Distributes private key shares to custodians.
 
-  Splits the private key into N shares using the CryptoAdapter, encrypts each share
+  Splits the private key into N shares using PkiCrypto.Shamir, encrypts each share
   with the corresponding custodian's password, and stores encrypted shares in the DB.
 
   ## Parameters
     - `ceremony` - the KeyCeremony record (must have threshold_n, threshold_k, issuer_key_id)
     - `private_key_material` - the raw private key binary (NOT stored in DB)
     - `custodian_passwords` - list of `{custodian_user_id, password}` tuples
-    - `crypto_adapter` - CryptoAdapter implementation for splitting
 
   ## Returns
     - `{:ok, share_count}` on success
     - `{:error, :wrong_custodian_count}` if custodian count != threshold_n
   """
-  @spec distribute_shares(KeyCeremony.t(), binary(), [{String.t(), String.t()}], CryptoAdapter.t()) ::
+  @spec distribute_shares(KeyCeremony.t(), binary(), [{String.t(), String.t()}]) ::
           {:ok, integer()} | {:error, term()}
-  def distribute_shares(ceremony, private_key_material, custodian_passwords, crypto_adapter) do
+  def distribute_shares(ceremony, private_key_material, custodian_passwords) do
     n = length(custodian_passwords)
 
     if n != ceremony.threshold_n do
       {:error, :wrong_custodian_count}
     else
       {:ok, shares} =
-        CryptoAdapter.split_secret(crypto_adapter, private_key_material, ceremony.threshold_k, n)
+        PkiCrypto.Shamir.split(private_key_material, ceremony.threshold_k, n)
 
       Repo.transaction(fn ->
         Enum.zip(custodian_passwords, shares)
