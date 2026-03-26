@@ -97,21 +97,26 @@ defmodule PkiCaEngine.KeyActivation do
 
               if length(new_pending) >= record.min_shares do
                 # Threshold met - reconstruct secret
-                {:ok, secret} = PkiCrypto.Shamir.recover(new_pending)
-                timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
+                case PkiCrypto.Shamir.recover(new_pending) do
+                  {:ok, secret} ->
+                    timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
 
-                new_state = %{
-                  state
-                  | active_keys:
-                      Map.put(state.active_keys, issuer_key_id, %{
-                        secret: secret,
-                        timer_ref: timer_ref
-                      }),
-                    pending_shares: Map.delete(state.pending_shares, issuer_key_id),
-                    custodians_submitted: new_submitted
-                }
+                    new_state = %{
+                      state
+                      | active_keys:
+                          Map.put(state.active_keys, issuer_key_id, %{
+                            secret: secret,
+                            timer_ref: timer_ref
+                          }),
+                        pending_shares: Map.delete(state.pending_shares, issuer_key_id),
+                        custodians_submitted: new_submitted
+                    }
 
-                {:reply, {:ok, :key_activated}, new_state}
+                    {:reply, {:ok, :key_activated}, new_state}
+
+                  {:error, reason} ->
+                    {:reply, {:error, {:reconstruction_failed, reason}}, state}
+                end
               else
                 new_state = %{
                   state
