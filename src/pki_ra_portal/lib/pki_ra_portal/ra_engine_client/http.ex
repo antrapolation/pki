@@ -48,8 +48,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
       {:ok, %{status: 200, body: body}} ->
         user = atomize_keys(body)
         session = %{
-          session_key: Map.get(body, "session_key", nil),
-          session_salt: Map.get(body, "session_salt", nil)
+          session_key: decode_session_value(Map.get(body, "session_key")),
+          session_salt: decode_session_value(Map.get(body, "session_salt"))
         }
         {:ok, user, session}
 
@@ -521,4 +521,12 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   defp stringify_keys(other), do: other
+
+  defp decode_session_value(nil), do: nil
+  defp decode_session_value(val) when is_binary(val) do
+    case Base.decode64(val) do
+      {:ok, bin} -> bin
+      :error -> val  # return as-is if not base64
+    end
+  end
 end

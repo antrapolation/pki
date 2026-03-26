@@ -34,12 +34,11 @@ defmodule PkiRaEngine.CredentialManager do
           # 2. Generate signing credential
           case create_credential(user.id, "signing", signing_algo, password) do
             {:ok, _signing_cred} ->
-              # TODO(attestation): After creating signing credential, call attestation
-              # when the admin has an active session with a session_key:
-              #   PkiCrypto.Attestation.attest(admin_signing_key, admin_algorithm, signing_pub_key)
-              # This requires the admin's decrypted signing key, which is not available
-              # in the bootstrap flow. Wire this into the manual user creation flow
-              # where the admin's session_key is passed through the API.
+              # TODO(attestation): Wire PkiCrypto.Attestation.attest/3 here.
+              # Requires: admin's decrypted signing key (from session_key).
+              # The admin signs the new user's public keys to create an attestation certificate.
+              # This is blocked until the API passes the admin's session context through to user creation.
+              # Tracked in: docs/superpowers/specs/2026-03-26-beta2-multi-tenancy-crypto-credentials.md Section 3.3
 
               # 3. Generate KEM credential
               case create_credential(user.id, "kem", kem_algo, password) do

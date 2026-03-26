@@ -27,6 +27,7 @@ if config_env() == :prod do
   config :pki_platform_portal,
     admin_username: System.get_env("PLATFORM_ADMIN_USERNAME", "admin"),
     admin_password: admin_password
+
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
       raise """

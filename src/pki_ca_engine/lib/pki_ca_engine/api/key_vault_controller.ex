@@ -17,11 +17,9 @@ defmodule PkiCaEngine.Api.KeyVaultController do
     result =
       case protection_mode do
         "credential_own" ->
-          acl_kem_public_key =
-            conn.body_params["acl_kem_public_key"]
-            |> decode_binary()
-
-          KeyVault.register_keypair(ca_instance_id, name, algorithm, acl_kem_public_key)
+          with {:ok, acl_kem_public_key} <- decode_binary(conn.body_params["acl_kem_public_key"]) do
+            KeyVault.register_keypair(ca_instance_id, name, algorithm, acl_kem_public_key)
+          end
 
         "split_auth_token" ->
           threshold_k = conn.body_params["threshold_k"] || 2
@@ -43,6 +41,9 @@ defmodule PkiCaEngine.Api.KeyVaultController do
         # (they must be distributed to custodians via a secure channel)
         json(conn, 201, %{data: serialize_keypair(keypair), shares_generated: true})
 
+      {:error, :invalid_base64} ->
+        json(conn, 422, %{error: "invalid_base64"})
+
       {:error, %Ecto.Changeset{} = changeset} ->
         json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
 
@@ -53,15 +54,19 @@ defmodule PkiCaEngine.Api.KeyVaultController do
 
   def grant_access(conn, keypair_id) do
     credential_id = conn.body_params["credential_id"]
-    acl_signing_key = decode_binary(conn.body_params["acl_signing_key"])
     acl_signing_algo = conn.body_params["acl_signing_algo"] || "ECC-P256"
 
-    case KeyVault.grant_access(keypair_id, credential_id, acl_signing_key, acl_signing_algo) do
-      {:ok, grant} ->
-        json(conn, 201, %{data: %{id: grant.id, managed_keypair_id: grant.managed_keypair_id, credential_id: grant.credential_id}})
+    with {:ok, acl_signing_key} <- decode_binary(conn.body_params["acl_signing_key"]) do
+      case KeyVault.grant_access(keypair_id, credential_id, acl_signing_key, acl_signing_algo) do
+        {:ok, grant} ->
+          json(conn, 201, %{data: %{id: grant.id, managed_keypair_id: grant.managed_keypair_id, credential_id: grant.credential_id}})
 
-      {:error, reason} ->
-        json(conn, 422, %{error: inspect(reason)})
+        {:error, reason} ->
+          json(conn, 422, %{error: inspect(reason)})
+      end
+    else
+      {:error, :invalid_base64} ->
+        json(conn, 422, %{error: "invalid_base64"})
     end
   end
 
@@ -71,22 +76,24 @@ defmodule PkiCaEngine.Api.KeyVaultController do
     result =
       case protection_mode do
         "credential_own" ->
-          acl_kem_private_key = decode_binary(conn.body_params["acl_kem_private_key"])
-          kem_algo = conn.body_params["kem_algo"] || "ECDH-P256"
-          KeyVault.activate_credential_own(keypair_id, acl_kem_private_key, kem_algo)
+          with {:ok, acl_kem_private_key} <- decode_binary(conn.body_params["acl_kem_private_key"]) do
+            kem_algo = conn.body_params["kem_algo"] || "ECDH-P256"
+            KeyVault.activate_credential_own(keypair_id, acl_kem_private_key, kem_algo)
+          end
 
         mode when mode in ["split_auth_token", "split_key"] ->
-          shares =
-            (conn.body_params["shares"] || [])
-            |> Enum.map(&decode_binary/1)
-
-          KeyVault.activate_from_shares(keypair_id, shares)
+          with {:ok, shares} <- decode_binary_list(conn.body_params["shares"] || []) do
+            KeyVault.activate_from_shares(keypair_id, shares)
+          end
       end
 
     case result do
       {:ok, _private_key} ->
         # Never expose the private key over HTTP; just confirm activation succeeded
         json(conn, 200, %{status: "activated"})
+
+      {:error, :invalid_base64} ->
+        json(conn, 422, %{error: "invalid_base64"})
 
       {:error, reason} ->
         json(conn, 422, %{error: inspect(reason)})
@@ -143,8 +150,22 @@ defmodule PkiCaEngine.Api.KeyVaultController do
   defp safe_encode(nil), do: nil
   defp safe_encode(bin) when is_binary(bin), do: Base.encode64(bin)
 
-  defp decode_binary(nil), do: nil
-  defp decode_binary(val) when is_binary(val), do: Base.decode64!(val)
+  defp decode_binary(nil), do: {:ok, nil}
+  defp decode_binary(val) when is_binary(val) do
+    case Base.decode64(val) do
+      {:ok, bin} -> {:ok, bin}
+      :error -> {:error, :invalid_base64}
+    end
+  end
+
+  defp decode_binary_list(items) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
+      case decode_binary(item) do
+        {:ok, decoded} -> {:cont, {:ok, acc ++ [decoded]}}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
 
   defp changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->

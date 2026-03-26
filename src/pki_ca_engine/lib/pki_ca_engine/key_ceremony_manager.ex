@@ -289,7 +289,10 @@ defmodule PkiCaEngine.KeyCeremonyManager do
 
   @impl true
   def terminate(_reason, state) do
+    # Best-effort wipe: nil out sensitive fields and request GC
+    # Note: BEAM cannot guarantee memory zeroing; this minimizes exposure window
     _wiped = %{state | private_key: nil, shares: nil, keypair_data: nil}
+    :erlang.garbage_collect(self())
     :ok
   end
 

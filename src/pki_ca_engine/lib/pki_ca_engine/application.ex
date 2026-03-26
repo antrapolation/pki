@@ -8,6 +8,7 @@ defmodule PkiCaEngine.Application do
     children =
       [
         PkiCaEngine.Repo,
+        %{id: :ceremony_pid_registry, start: {Agent, :start_link, [fn -> %{} end, [name: :ceremony_pid_registry]]}},
         {PkiCaEngine.KeyActivation,
          name: PkiCaEngine.KeyActivation,
          timeout_ms: Application.get_env(:pki_ca_engine, :key_activation_timeout_ms, 3_600_000)},

@@ -12,24 +12,14 @@ defmodule PkiCaEngine.Api.CeremonyController do
   alias PkiCaEngine.Api.Helpers
 
   # Agent-based registry mapping ceremony IDs to PIDs for the multi-phase flow.
-  # Started lazily on first use.
+  # Supervised in PkiCaEngine.Application.
   @registry_name :ceremony_pid_registry
 
-  defp ensure_registry do
-    case Agent.start(fn -> %{} end, name: @registry_name) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
-  end
-
   defp register_ceremony(ceremony_id, pid) do
-    ensure_registry()
     Agent.update(@registry_name, &Map.put(&1, ceremony_id, pid))
   end
 
   defp lookup_ceremony(ceremony_id) do
-    ensure_registry()
-
     case Agent.get(@registry_name, &Map.get(&1, ceremony_id)) do
       nil -> {:error, :not_found}
       pid when is_pid(pid) -> if Process.alive?(pid), do: {:ok, pid}, else: {:error, :not_found}
@@ -37,7 +27,6 @@ defmodule PkiCaEngine.Api.CeremonyController do
   end
 
   defp unregister_ceremony(ceremony_id) do
-    ensure_registry()
     Agent.update(@registry_name, &Map.delete(&1, ceremony_id))
   end
 
@@ -87,7 +76,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
         json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
 
       {:error, reason} ->
-        json(conn, 500, %{error: "internal_error", message: inspect(reason)})
+        json(conn, 500, %{error: "internal_error", message: format_error(reason)})
     end
   end
 
@@ -108,14 +97,14 @@ defmodule PkiCaEngine.Api.CeremonyController do
         json(conn, 201, %{ceremony_id: ceremony_id})
 
       {:error, reason} ->
-        json(conn, 422, %{error: inspect(reason)})
+        json(conn, 422, %{error: format_error(reason)})
     end
   end
 
   def generate_keypair(conn, ceremony_id) do
-    with {:ok, pid} <- lookup_ceremony(ceremony_id) do
+    with {:ok, pid} <- lookup_ceremony(ceremony_id),
+         {:ok, protection_mode} <- parse_protection_mode(conn.body_params["protection_mode"]) do
       algorithm = conn.body_params["algorithm"]
-      protection_mode = String.to_existing_atom(conn.body_params["protection_mode"] || "split_auth_token")
       opts = [
         threshold_k: conn.body_params["threshold_k"] || 2,
         threshold_n: conn.body_params["threshold_n"] || 3
@@ -130,10 +119,11 @@ defmodule PkiCaEngine.Api.CeremonyController do
           })
 
         {:error, reason} ->
-          json(conn, 422, %{error: inspect(reason)})
+          json(conn, 422, %{error: format_error(reason)})
       end
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
+      {:error, :invalid_protection_mode} -> json(conn, 422, %{error: "invalid_protection_mode"})
     end
   end
 
@@ -147,7 +137,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
           json(conn, 200, %{certificate_pem: cert_pem})
 
         {:error, reason} ->
-          json(conn, 422, %{error: inspect(reason)})
+          json(conn, 422, %{error: format_error(reason)})
       end
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
@@ -163,7 +153,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
           json(conn, 200, %{csr_pem: csr_pem})
 
         {:error, reason} ->
-          json(conn, 422, %{error: inspect(reason)})
+          json(conn, 422, %{error: format_error(reason)})
       end
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
@@ -183,7 +173,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
           json(conn, 200, %{status: "custodians_assigned"})
 
         {:error, reason} ->
-          json(conn, 422, %{error: inspect(reason)})
+          json(conn, 422, %{error: format_error(reason)})
       end
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
@@ -203,7 +193,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
           json(conn, 200, %{status: "finalized", audit_trail_count: length(audit_trail)})
 
         {:error, reason} ->
-          json(conn, 422, %{error: inspect(reason)})
+          json(conn, 422, %{error: format_error(reason)})
       end
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
@@ -242,6 +232,16 @@ defmodule PkiCaEngine.Api.CeremonyController do
       updated_at: ceremony.updated_at
     }
   end
+
+  defp parse_protection_mode(nil), do: {:ok, :split_auth_token}
+  defp parse_protection_mode("credential_own"), do: {:ok, :credential_own}
+  defp parse_protection_mode("split_auth_token"), do: {:ok, :split_auth_token}
+  defp parse_protection_mode("split_key"), do: {:ok, :split_key}
+  defp parse_protection_mode(_), do: {:error, :invalid_protection_mode}
+
+  defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_error({key, details}), do: "#{key}: #{inspect(details)}"
+  defp format_error(reason), do: inspect(reason)
 
   defp changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->

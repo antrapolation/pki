@@ -28,6 +28,11 @@ defmodule PkiCaPortalWeb.SessionController do
 
       {:error, :invalid_credentials} ->
         render(conn, :login, layout: false, error: "Invalid username or password")
+
+      {:error, reason} ->
+        require Logger
+        Logger.error("Authentication error: #{inspect(reason)}")
+        render(conn, :login, layout: false, error: "Service unavailable. Please try again.")
     end
   end
 
@@ -37,13 +42,8 @@ defmodule PkiCaPortalWeb.SessionController do
     |> redirect(to: "/login")
   end
 
-  defp parse_instance_id(val) when is_binary(val) do
-    case Integer.parse(val) do
-      {int, _} -> int
-      :error -> 1
-    end
-  end
-
-  defp parse_instance_id(val) when is_integer(val), do: val
-  defp parse_instance_id(_), do: 1
+  defp parse_instance_id(nil), do: "default"
+  defp parse_instance_id(val) when is_binary(val), do: val
+  defp parse_instance_id(val) when is_integer(val), do: Integer.to_string(val)
+  defp parse_instance_id(_), do: "default"
 end

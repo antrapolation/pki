@@ -24,6 +24,11 @@ defmodule PkiRaPortalWeb.SessionController do
 
       {:error, :invalid_credentials} ->
         render(conn, :login, layout: false, error: "Invalid username or password")
+
+      {:error, reason} ->
+        require Logger
+        Logger.error("Authentication error: #{inspect(reason)}")
+        render(conn, :login, layout: false, error: "Service unavailable. Please try again.")
     end
   end
 
