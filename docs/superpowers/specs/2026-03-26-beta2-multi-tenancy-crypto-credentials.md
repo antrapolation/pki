@@ -514,7 +514,9 @@ PkiTenancy.DynamicRepo            — dynamic repo configuration per tenant
 
 ---
 
-## 12. Algorithm Support
+## 12. Algorithm Support (Protocol-Based)
+
+### 12.1 Supported Algorithms
 
 | Purpose | PQC Algorithm | Classical Fallback |
 |---------|--------------|-------------------|
@@ -525,6 +527,159 @@ PkiTenancy.DynamicRepo            — dynamic repo configuration per tenant
 | Key Derivation | HKDF-SHA-256 | HKDF-SHA-256 |
 
 Algorithm choice is configurable per tenant. Default: PQC.
+
+### 12.2 PkiCrypto Library (New Shared Library)
+
+A new `pki_crypto` library provides protocol-based algorithm dispatch. All services depend on it.
+
+```
+src/pki_crypto/
+├── lib/pki_crypto/
+│   ├── algorithm.ex              — protocol definition
+│   ├── signing/
+│   │   ├── rsa4096.ex            — RSA-4096 implementation
+│   │   ├── ecc_p256.ex           — ECC-P256 implementation
+│   │   ├── ecc_p384.ex           — ECC-P384 implementation
+│   │   └── ml_dsa_65.ex          — ML-DSA-65 implementation (liboqs NIF)
+│   ├── kem/
+│   │   ├── ecdh_p256.ex          — ECDH-P256 implementation
+│   │   └── ml_kem_768.ex         — ML-KEM-768 implementation (liboqs NIF)
+│   ├── symmetric.ex              — AES-256-GCM (shared, not protocol-based)
+│   ├── kdf.ex                    — HKDF-SHA-256 (shared, not protocol-based)
+│   └── registry.ex               — algorithm name ↔ struct lookup
+└── mix.exs
+```
+
+### 12.3 Protocol Definition
+
+```elixir
+defprotocol PkiCrypto.Algorithm do
+  @doc "Generate a keypair for this algorithm"
+  def generate_keypair(algorithm)
+
+  @doc "Sign data with a private key"
+  def sign(algorithm, private_key, data)
+
+  @doc "Verify a signature"
+  def verify(algorithm, public_key, signature, data)
+
+  @doc "KEM encapsulate — generate shared secret + ciphertext from public key"
+  def kem_encapsulate(algorithm, public_key)
+
+  @doc "KEM decapsulate — recover shared secret from ciphertext + private key"
+  def kem_decapsulate(algorithm, private_key, ciphertext)
+
+  @doc "Algorithm identifier string (for DB storage and wire format)"
+  def identifier(algorithm)
+
+  @doc "Algorithm type — :signing, :kem, or :dual"
+  def algorithm_type(algorithm)
+end
+```
+
+### 12.4 Algorithm Implementations
+
+Each algorithm is a struct + protocol implementation:
+
+```elixir
+# Signing algorithm
+defmodule PkiCrypto.Signing.RSA4096 do
+  defstruct []
+end
+
+defimpl PkiCrypto.Algorithm, for: PkiCrypto.Signing.RSA4096 do
+  def generate_keypair(_), do: # Erlang :public_key
+  def sign(_, private_key, data), do: # :public_key.sign
+  def verify(_, public_key, sig, data), do: # :public_key.verify
+  def kem_encapsulate(_, _), do: {:error, :not_supported}
+  def kem_decapsulate(_, _, _), do: {:error, :not_supported}
+  def identifier(_), do: "RSA-4096"
+  def algorithm_type(_), do: :signing
+end
+
+# KEM algorithm
+defmodule PkiCrypto.Kem.ECDHP256 do
+  defstruct []
+end
+
+defimpl PkiCrypto.Algorithm, for: PkiCrypto.Kem.ECDHP256 do
+  def generate_keypair(_), do: # Erlang :crypto.generate_key(:ecdh, :secp256r1)
+  def sign(_, _, _), do: {:error, :not_supported}
+  def verify(_, _, _, _), do: {:error, :not_supported}
+  def kem_encapsulate(_, public_key), do: # ECDH + HKDF
+  def kem_decapsulate(_, private_key, ct), do: # ECDH + HKDF
+  def identifier(_), do: "ECDH-P256"
+  def algorithm_type(_), do: :kem
+end
+```
+
+### 12.5 Algorithm Registry
+
+Lookup algorithms by name (from DB or API):
+
+```elixir
+defmodule PkiCrypto.Registry do
+  @algorithms %{
+    "RSA-4096"    => %PkiCrypto.Signing.RSA4096{},
+    "ECC-P256"    => %PkiCrypto.Signing.ECCP256{},
+    "ML-DSA-65"   => %PkiCrypto.Signing.MLDSA65{},
+    "KAZ-SIGN"    => %PkiCrypto.Signing.KazSign{},
+    "ECDH-P256"   => %PkiCrypto.Kem.ECDHP256{},
+    "ML-KEM-768"  => %PkiCrypto.Kem.MLKEM768{},
+  }
+
+  def get(name), do: Map.get(@algorithms, name)
+  def signing_algorithms, do: # filter by algorithm_type == :signing
+  def kem_algorithms, do: # filter by algorithm_type == :kem
+  def all, do: @algorithms
+end
+```
+
+### 12.6 Usage
+
+```elixir
+# Tenant config stores algorithm names as strings
+tenant_signing_algo = PkiCrypto.Registry.get(tenant.signing_algorithm)
+tenant_kem_algo = PkiCrypto.Registry.get(tenant.kem_algorithm)
+
+# All operations dispatch via protocol — zero knowledge of specific algorithm
+{:ok, keypair} = PkiCrypto.Algorithm.generate_keypair(tenant_signing_algo)
+{:ok, sig} = PkiCrypto.Algorithm.sign(tenant_signing_algo, private_key, data)
+{:ok, {shared_secret, ct}} = PkiCrypto.Algorithm.kem_encapsulate(tenant_kem_algo, public_key)
+```
+
+### 12.7 Adding a New Algorithm
+
+To add a new PQC algorithm (e.g., SLH-DSA):
+
+1. Create `lib/pki_crypto/signing/slh_dsa.ex` with struct + `defimpl`
+2. Register in `PkiCrypto.Registry`
+3. Add to ceremony form dropdown in portal
+
+Zero changes to core engine, ceremony, signing, or validation code.
+
+### 12.8 Replacing CryptoAdapter
+
+The existing `PkiCaEngine.KeyCeremony.CryptoAdapter` protocol is replaced by `PkiCrypto.Algorithm`. The `CryptoAdapter` also handles Shamir secret sharing which is not algorithm-specific — that moves to a standalone module:
+
+```elixir
+# Shamir is not an algorithm — it's a utility
+PkiCrypto.Shamir.split(secret, k, n)
+PkiCrypto.Shamir.recover(shares)
+```
+
+### 12.9 Formalize CaClient Behaviour
+
+The duck-typed RA→CA client gets an explicit behaviour:
+
+```elixir
+defmodule PkiRaEngine.CaClient do
+  @callback sign_certificate(csr_pem :: String.t(), cert_profile :: map()) ::
+              {:ok, map()} | {:error, term()}
+end
+```
+
+`DefaultCaClient` and `HttpCaClient` both add `@behaviour PkiRaEngine.CaClient` and `@impl true`.
 
 ---
 
