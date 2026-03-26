@@ -36,7 +36,8 @@ defmodule PkiCaEngine.MixProject do
       {:pki_crypto, path: "../pki_crypto"},
       {:pki_audit_trail, path: "../pki_audit_trail", runtime: false},
       {:req, "~> 0.5"},
-      {:uniq, "~> 0.6"}
+      {:uniq, "~> 0.6"},
+      {:pki_tenancy, path: "../pki_tenancy"}
     ]
   end
 
