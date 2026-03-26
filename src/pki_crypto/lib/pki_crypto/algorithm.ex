@@ -6,7 +6,10 @@ defprotocol PkiCrypto.Algorithm do
   via a struct. Dispatch is automatic based on the struct type.
   """
 
-  @doc "Generate a keypair. Returns {:ok, %{public_key: binary, private_key: binary}} or {:error, reason}"
+  @doc """
+  Generate a keypair. Returns {:ok, %{public_key: binary, private_key: binary}} or {:error, reason}.
+  Key format is algorithm-specific (DER for RSA, raw EC point binary for ECC/KEM).
+  """
   def generate_keypair(algorithm)
 
   @doc "Sign data. Returns {:ok, signature_binary} or {:error, reason}"

@@ -10,10 +10,12 @@ defmodule PkiCrypto.Shamir do
 
   def split(_secret, _k, _n), do: {:error, :invalid_threshold}
 
-  def recover(shares) when is_list(shares) and length(shares) >= 1 do
+  def recover(shares) when is_list(shares) and length(shares) >= 2 do
     secret = KeyX.Shamir.recover_secret(shares)
     {:ok, secret}
   rescue
     e -> {:error, Exception.message(e)}
   end
+
+  def recover(_shares), do: {:error, :insufficient_shares}
 end

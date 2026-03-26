@@ -54,5 +54,16 @@ defmodule PkiCrypto.ShamirTest do
       {:ok, shares} = PkiCrypto.Shamir.split(secret, 2, 3)
       assert {:ok, ^secret} = PkiCrypto.Shamir.recover(Enum.take(shares, 2))
     end
+
+    test "recovering with 1 share does not return original secret" do
+      secret = :crypto.strong_rand_bytes(32)
+      {:ok, shares} = PkiCrypto.Shamir.split(secret, 2, 3)
+      single = [hd(shares)]
+
+      case PkiCrypto.Shamir.recover(single) do
+        {:error, _} -> :ok
+        {:ok, recovered} -> refute recovered == secret
+      end
+    end
   end
 end
