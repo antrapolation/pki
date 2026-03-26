@@ -14,13 +14,29 @@ defmodule PkiRaEngine.Api.UserController do
 
   def create(conn) do
     attrs = build_attrs(conn.body_params)
+    password = conn.body_params["password"]
 
-    case UserManagement.create_user(attrs) do
-      {:ok, user} ->
-        json(conn, 201, serialize_user(user))
+    if password do
+      # Create user with credential keypairs
+      case UserManagement.create_user_with_credentials(attrs, password) do
+        {:ok, user} ->
+          json(conn, 201, Map.merge(serialize_user(user), %{has_credentials: true}))
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+        {:error, %Ecto.Changeset{} = changeset} ->
+          json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+
+        {:error, reason} ->
+          json(conn, 422, %{error: "credential_error", message: inspect(reason)})
+      end
+    else
+      # Legacy: create user without credentials
+      case UserManagement.create_user(attrs) do
+        {:ok, user} ->
+          json(conn, 201, Map.merge(serialize_user(user), %{has_credentials: false}))
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+      end
     end
   end
 

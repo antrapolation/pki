@@ -210,7 +210,10 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @impl true
   def create_user(attrs) do
-    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", has_credentials: false}, attrs)
+    has_creds = Map.has_key?(attrs, :password) or Map.has_key?(attrs, "password")
+    user = attrs
+      |> Map.drop([:password, "password"])
+      |> Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", has_credentials: has_creds})
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end

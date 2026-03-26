@@ -64,6 +64,21 @@ defmodule PkiRaEngine.UserManagement do
     count == 0
   end
 
+  @doc "Create a new RA user with credentials (password + dual keypairs)."
+  @spec create_user_with_credentials(map(), String.t(), keyword()) :: {:ok, RaUser.t()} | {:error, term()}
+  def create_user_with_credentials(attrs, password, opts \\ []) do
+    PkiRaEngine.CredentialManager.create_user_with_credentials(attrs, password, opts)
+  end
+
+  @doc """
+  Authenticate with credential verification (password + key ownership).
+  Returns {:ok, user, session_info} or {:error, :invalid_credentials}.
+  """
+  @spec authenticate_with_credentials(String.t(), String.t()) :: {:ok, RaUser.t(), map()} | {:error, :invalid_credentials}
+  def authenticate_with_credentials(username, password) do
+    PkiRaEngine.CredentialManager.authenticate(username, password)
+  end
+
   @doc "Create a new RA user (without password, for admin-created users)."
   @spec create_user(map()) :: {:ok, RaUser.t()} | {:error, Ecto.Changeset.t()}
   def create_user(attrs) do
