@@ -17,13 +17,27 @@ defmodule PkiCaEngine.Api.UserController do
   def create(conn) do
     ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
     attrs = build_attrs(conn.body_params)
+    password = conn.body_params["password"]
 
-    case UserManagement.create_user(ca_instance_id, attrs) do
+    result =
+      if password do
+        # Create user with cryptographic credentials
+        user_attrs = Map.drop(attrs, [:password, "password"])
+        UserManagement.create_user_with_credentials(ca_instance_id, user_attrs, password)
+      else
+        # Legacy: create user without credentials
+        UserManagement.create_user(ca_instance_id, attrs)
+      end
+
+    case result do
       {:ok, user} ->
         json(conn, 201, serialize_user(user))
 
       {:error, %Ecto.Changeset{} = changeset} ->
         json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+
+      {:error, reason} ->
+        json(conn, 422, %{error: "validation_error", details: %{base: [inspect(reason)]}})
     end
   end
 
