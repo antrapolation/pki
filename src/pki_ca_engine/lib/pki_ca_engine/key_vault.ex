@@ -6,7 +6,7 @@ defmodule PkiCaEngine.KeyVault do
 
   alias PkiCaEngine.Repo
   alias PkiCaEngine.KeyVault.{ManagedKeypair, KeypairGrant}
-  alias PkiCrypto.{Algorithm, Registry, Symmetric}
+  alias PkiCrypto.{Algorithm, Registry, Symmetric, Shamir}
   import Ecto.Query
 
   @doc """
@@ -93,6 +93,108 @@ defmodule PkiCaEngine.KeyVault do
         where: k.ca_instance_id == ^ca_instance_id,
         order_by: [desc: k.inserted_at]
     )
+  end
+
+  @doc """
+  Register a keypair with split-auth-token protection.
+  The private key is encrypted with a random password; the password is split via Shamir(k, n).
+  Returns `{:ok, keypair, shares}` where shares are raw binaries for custodians.
+  """
+  def register_keypair_split_auth(ca_instance_id, name, algorithm, threshold_k, threshold_n, opts \\ []) do
+    algo = Registry.get(algorithm)
+
+    with {:ok, %{public_key: pub, private_key: priv}} <- Algorithm.generate_keypair(algo) do
+      # Generate random password and encrypt private key
+      random_password = :crypto.strong_rand_bytes(32)
+      {:ok, encrypted_priv} = Symmetric.encrypt(priv, random_password)
+
+      # Split the password via Shamir
+      {:ok, shares} = Shamir.split(random_password, threshold_k, threshold_n)
+
+      # Store the managed keypair (encrypted password is NOT stored — only shares hold it)
+      result =
+        %ManagedKeypair{}
+        |> ManagedKeypair.changeset(%{
+          ca_instance_id: ca_instance_id,
+          name: name,
+          algorithm: algorithm,
+          protection_mode: "split_auth_token",
+          public_key: pub,
+          encrypted_private_key: encrypted_priv,
+          threshold_k: threshold_k,
+          threshold_n: threshold_n,
+          status: Keyword.get(opts, :status, "pending"),
+          metadata: Keyword.get(opts, :metadata, %{})
+        })
+        |> Repo.insert()
+
+      case result do
+        {:ok, keypair} -> {:ok, keypair, shares}
+        {:error, changeset} -> {:error, changeset}
+      end
+    end
+  end
+
+  @doc """
+  Register a keypair with split-key protection.
+  The PRIVATE KEY itself is split via Shamir(k, n) — it is NOT stored.
+  Returns `{:ok, keypair, shares}` where shares are key fragments.
+  """
+  def register_keypair_split_key(ca_instance_id, name, algorithm, threshold_k, threshold_n, opts \\ []) do
+    algo = Registry.get(algorithm)
+
+    with {:ok, %{public_key: pub, private_key: priv}} <- Algorithm.generate_keypair(algo) do
+      # Split the private key directly via Shamir
+      {:ok, shares} = Shamir.split(priv, threshold_k, threshold_n)
+
+      # Store the managed keypair — no encrypted_private_key
+      result =
+        %ManagedKeypair{}
+        |> ManagedKeypair.changeset(%{
+          ca_instance_id: ca_instance_id,
+          name: name,
+          algorithm: algorithm,
+          protection_mode: "split_key",
+          public_key: pub,
+          threshold_k: threshold_k,
+          threshold_n: threshold_n,
+          status: Keyword.get(opts, :status, "pending"),
+          metadata: Keyword.get(opts, :metadata, %{})
+        })
+        |> Repo.insert()
+
+      case result do
+        {:ok, keypair} -> {:ok, keypair, shares}
+        {:error, changeset} -> {:error, changeset}
+      end
+    end
+  end
+
+  @doc """
+  Activate a keypair from Shamir shares.
+  For split_auth_token: recovers the password from shares, then decrypts the private key.
+  For split_key: recovers the private key directly from shares.
+  Returns `{:ok, private_key}`.
+  """
+  def activate_from_shares(keypair_id, shares) do
+    case get_keypair(keypair_id) do
+      nil ->
+        {:error, :not_found}
+
+      %{protection_mode: "split_auth_token"} = keypair ->
+        with {:ok, password} <- Shamir.recover(shares),
+             {:ok, private_key} <- Symmetric.decrypt(keypair.encrypted_private_key, password) do
+          {:ok, private_key}
+        end
+
+      %{protection_mode: "split_key"} ->
+        with {:ok, private_key} <- Shamir.recover(shares) do
+          {:ok, private_key}
+        end
+
+      _other ->
+        {:error, :invalid_protection_mode}
+    end
   end
 
   @doc "Update keypair status."
