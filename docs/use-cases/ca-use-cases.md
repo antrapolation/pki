@@ -587,3 +587,224 @@
 | 4 | archived | pending | `{:error, {:invalid_transition, ...}}` |
 | 5 | active | pending | `{:error, {:invalid_transition, ...}}` |
 | 6 | suspended | pending | `{:error, {:invalid_transition, ...}}` |
+
+---
+
+## UC-CA-00C: First-Run Bootstrap with Credentials (Beta.2)
+
+**Actor:** First user (becomes CA Admin)
+**Precondition:** Tenant database created (via Platform Portal), no users exist, service running
+**Trigger:** Navigate to `/setup`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to `/setup` | Setup form displayed with title "CA Portal Setup" |
+| 2 | Enter name, login (username), password, org name | Form populated |
+| 3 | Click "Create Admin Account" | Bootstrap process begins |
+| 4 | System creates CA Admin user with password hash (Argon2) | User record created with role `ca_admin` |
+| 5 | System generates signing keypair (algorithm per tenant config, e.g., ML-DSA-65) | Signing public key stored plain |
+| 6 | System encrypts signing private key with password-derived key (PBKDF2 + HKDF) | Encrypted private key stored |
+| 7 | System generates KEM keypair (e.g., ML-KEM-768) | KEM public key stored plain |
+| 8 | System encrypts KEM private key with password-derived key | Encrypted private key stored |
+| 9 | System self-certifies admin's public keys (no higher authority) | Certificates created |
+| 10 | System creates Keypair ACL credential (signing + KEM keypairs, random password) | ACL random password encrypted with admin's KEM public key |
+| 11 | System grants admin activation rights on Keypair ACL | Grant record in `keypair_grants` |
+| 12 | System creates 4 bootstrap keypairs: `:root`, `:sub_root`, `:strap_ca_remote_service_host_signing_key`, `:strap_ca_remote_service_host_cipher_key` | All random passwords encrypted with admin's KEM public key |
+| 13 | Tenant status updated to "active" | Transition recorded |
+| 14 | Redirected to `/login` with flash "Admin account created. Please sign in." | Success |
+
+**Error Cases:**
+- Password too short (< 8 chars) → validation error
+- Username too short (< 3 chars) → validation error
+- Keypair generation failure → error with full rollback (no partial state)
+- Setup page visited after bootstrap → redirected to `/login` with "System already configured."
+
+---
+
+## UC-CA-01A: Login with Credentials (Beta.2)
+
+**Actor:** CA Admin / Key Manager / Auditor
+**Precondition:** User exists with credentials configured (signing + KEM keypairs)
+**Trigger:** Navigate to `/login`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to `/login` | Login form with username and password fields |
+| 2 | Enter username | Field populated |
+| 3 | Enter password | Field populated |
+| 4 | Click "Login" | Authentication begins |
+| 5 | System verifies password hash (Argon2) | Fast check passes |
+| 6 | System derives session_key from password (HKDF) | Session key derived |
+| 7 | System decrypts signing private key with session_key | Proves key ownership (decrypt test) |
+| 8 | session_key stored in encrypted session cookie | Cookie set |
+| 9 | Redirected to Dashboard (`/`) | User identity in nav bar |
+
+**Error Cases:**
+- Wrong password → "Invalid credentials" (Argon2 check fails)
+- Correct password but corrupt signing key → "Credential error" (decrypt test fails)
+- User status = "suspended" → "Account suspended"
+- User has no credentials configured → falls back to password-only login (backward compat)
+
+---
+
+## UC-CA-03A: Create User with Credentials (Beta.2)
+
+**Actor:** CA Admin
+**Precondition:** Logged in as `ca_admin` with active session_key
+**Trigger:** Navigate to `/users`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to `/users` | User list table and create form displayed |
+| 2 | Enter username | Username field populated |
+| 3 | Enter display name | Name field populated |
+| 4 | Select role (e.g., `key_manager`) | Role dropdown set |
+| 5 | Enter password for new user | Password field populated |
+| 6 | Click "Create User" | User creation with credential generation begins |
+| 7 | System generates signing keypair (per tenant algorithm config) | Signing keypair created |
+| 8 | System generates KEM keypair | KEM keypair created |
+| 9 | System encrypts both private keys with new user's password-derived key (PBKDF2) | Private keys encrypted per-user |
+| 10 | Admin signs new user's public keys (attestation via admin's signing key) | Certificates created for new user |
+| 11 | User appears in table | Shows username, display name, role, active status |
+| 12 | User row shows "Credentials: configured" badge | Both signing and KEM keys present |
+
+**Error Cases:**
+- Duplicate username → changeset error displayed
+- Password too short → "Password must be at least 8 characters"
+- Admin session_key expired/invalid → "Session expired, please re-login"
+- Keypair generation failure → error with rollback
+
+---
+
+## UC-CA-34: View User Credentials
+
+**Actor:** CA Admin
+**Precondition:** Users exist with various credential states
+**Trigger:** Navigate to `/users`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to `/users` | User list table displayed |
+| 2 | View user row for user with full credentials | "Signing: configured" and "KEM: configured" badges shown |
+| 3 | View user row for user without credentials (legacy) | "Signing: not set" and "KEM: not set" badges shown |
+| 4 | View user row for user with partial credentials | Appropriate badge per key type |
+
+---
+
+## UC-CA-35: Key Ceremony with Multi-Manager + Auditor (Beta.2)
+
+**Actor:** Key Managers (multiple), Auditor
+**Precondition:** Multiple Key Managers exist (policy-driven, e.g., 2 required), Auditor exists, keystore configured
+**Trigger:** Key Managers and Auditor initiate ceremony
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Key Manager 1 logs in with credentials | Authenticated session with session_key |
+| 2 | Key Manager 2 logs in with credentials | Second authenticated session |
+| 3 | Auditor logs in with credentials | Auditor session active |
+| 4 | Key Manager starts ceremony with authorized session list | System verifies all sessions and roles |
+| 5 | System returns ceremony Process ID (PID) | GenServer process started, ceremony status = "setup" |
+| **Phase: Key Generation** | | |
+| 6 | Key Manager: `KeyCeremonyManager.generate_keypair(pid, keyspec)` | Keypair generated, encrypted with random password |
+| 7 | Keypair status set to "pending" | Status recorded |
+| **Phase: Certificate Binding** | | |
+| 8a | (Root) `KeyCeremonyManager.gen_self_sign_cert(pid, subject, profile)` | Self-signed certificate created, keypair status → "active" |
+| 8b | (Sub) `KeyCeremonyManager.gen_csr(pid, subject)` | CSR generated, keypair stays "pending" |
+| **Phase: Custodian Assignment** | | |
+| 9 | Key Manager: `assign_custodians(pid, custodians, activation_policy)` | Random password split per activation policy |
+| 10 | Each custodian provides their password | Encrypted shares returned to custodians |
+| 11 | Shares NOT stored in database | Only custodians hold shares |
+| **Phase: Finalization** | | |
+| 12 | Auditor: `KeyCeremonyManager.finalize(pid, auditor_session)` | Audit trail signed by Auditor's signing key |
+| 13 | Signed audit trail returned for safekeeping | Auditor receives signed audit record |
+| 14 | Ceremony marked complete | Status = "completed" |
+
+**Error Cases:**
+- Insufficient Key Managers for policy → `{:error, :insufficient_managers}`
+- No Auditor present → `{:error, :auditor_required}`
+- Session expired mid-ceremony → `{:error, :session_expired}`
+- Auditor refuses to finalize → ceremony stays in "pending_finalization" state
+
+---
+
+## UC-CA-36: Keypair ACL Activation
+
+**Actor:** CA Admin
+**Precondition:** Keypair ACL initialized (via bootstrap), admin has KEM credentials
+**Trigger:** Admin needs to activate a keypair or grant access
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Admin's session_key decrypts admin's KEM private key | KEM private key available |
+| 2 | Admin's KEM key decrypts Keypair ACL's random password | ACL password recovered |
+| 3 | ACL password activates Keypair ACL's KEM private key | ACL KEM key available |
+| 4 | ACL KEM key decrypts target keypair's random password | Keypair password recovered |
+| 5 | Keypair password activates target keypair's signing private key | Keypair ready for use |
+
+**Error Cases:**
+- Admin KEM key decryption fails → `{:error, :credential_decryption_failed}`
+- ACL password decryption fails → `{:error, :acl_activation_failed}`
+- Target keypair not found → `{:error, :keypair_not_found}`
+- Admin not authorized on ACL → `{:error, :not_authorized}`
+
+---
+
+## UC-CA-37: Key Vault — Register Keypair with Protection Mode
+
+**Actor:** Key Manager (via ceremony or API)
+**Precondition:** Key Vault initialized, Keypair ACL active
+**Trigger:** Keypair generated during ceremony or operational key creation
+
+### Mode: `credential_own` (Operational/Leaf Issuer Keys)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Generate keypair | Public + private key pair |
+| 2 | Generate random password | Random password created |
+| 3 | Encrypt private key with random password | Encrypted key stored in keystore |
+| 4 | Encrypt random password with Keypair ACL's KEM public key | Password protected by ACL |
+| 5 | Register keypair in Key Vault | Keypair record with protection_mode = "credential_own" |
+
+### Mode: `split_auth_token` (Root/Sub-Root Keys in HSM)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Generate keypair | Public + private key pair |
+| 2 | Generate random password, encrypt private key | Encrypted key stored |
+| 3 | Split random password via Shamir (threshold=required, shares=N) | Password shares created |
+| 4 | Each custodian provides their password | Share encrypted per-custodian |
+| 5 | Encrypted shares returned to custodians | Shares NOT stored in DB |
+| 6 | Register keypair in Key Vault | protection_mode = "split_auth_token" |
+
+### Mode: `split_key` (Software-Only Root/Sub-Root Keys)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Generate keypair | Public + private key pair |
+| 2 | Split PRIVATE KEY itself via Shamir (threshold=required, shares=N) | Key shares created |
+| 3 | Each custodian provides their password | Key share encrypted per-custodian |
+| 4 | Encrypted key shares returned to custodians | Shares NOT stored in DB |
+| 5 | Private key wiped from memory | Key only exists as shares |
+| 6 | Register keypair in Key Vault | protection_mode = "split_key" |
+
+---
+
+## UC-CA-38: Grant Keypair Access
+
+**Actor:** CA Admin
+**Precondition:** Keypair ACL active, target keypair registered, target user has credentials
+**Trigger:** Admin grants a user access to a specific keypair
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Admin activates Keypair ACL (UC-CA-36) | ACL signing key available |
+| 2 | ACL signing key constructs grant envelope: `{keypair_id, allowed_credential_id, granted_at}` | Envelope assembled |
+| 3 | ACL signing key signs the grant envelope | Cryptographic signature created |
+| 4 | Signed grant stored in `keypair_grants` table | Grant record persisted |
+| 5 | Verify grant is valid | Signature verification passes against ACL public key |
+
+**Error Cases:**
+- Target user credential not found → `{:error, :credential_not_found}`
+- Target keypair not found → `{:error, :keypair_not_found}`
+- ACL not activated → `{:error, :acl_not_active}`
+- Duplicate grant → `{:error, :grant_already_exists}`
