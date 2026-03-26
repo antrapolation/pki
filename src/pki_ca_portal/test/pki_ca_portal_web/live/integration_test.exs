@@ -1,9 +1,9 @@
 defmodule PkiCaPortalWeb.Live.IntegrationTest do
   @moduledoc """
-  Layer 2 integration tests: Portal → Engine.
+  Layer 2 integration tests: Portal -> Engine.
 
   Uses the StatefulMock client to verify the full round-trip:
-  LiveView render → user action → CaEngineClient call → state change → re-render.
+  LiveView render -> user action -> CaEngineClient call -> state change -> re-render.
 
   Unlike unit tests (which use the static Mock), these tests verify that:
   1. Created entities appear in subsequent list views
@@ -33,40 +33,40 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
     {:ok, conn: conn}
   end
 
-  # ── Users page integration ─────────────────────────────────────────
+  # -- Users page integration --
 
   describe "users page integration" do
     test "starts with empty user list", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/users")
 
       assert html =~ "User Management"
-      # StatefulMock starts empty — no pre-seeded users
-      refute html =~ "did:ssdid:admin1"
+      # StatefulMock starts empty -- no pre-seeded users
+      refute html =~ "admin1"
     end
 
-    test "create user → user appears in list", %{conn: conn} do
+    test "create user -> user appears in list", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/users")
 
       html =
         view
         |> form("#create-user-form form", %{
-          did: "did:ssdid:integration1",
+          username: "integration1",
           display_name: "Integration User",
           role: "ca_admin"
         })
         |> render_submit()
 
-      assert html =~ "did:ssdid:integration1"
+      assert html =~ "integration1"
       assert html =~ "Integration User"
     end
 
-    test "create multiple users → all appear in list", %{conn: conn} do
+    test "create multiple users -> all appear in list", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/users")
 
       # Create first user
       view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:user_a",
+        username: "user_a",
         display_name: "User A",
         role: "ca_admin"
       })
@@ -76,32 +76,32 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       html =
         view
         |> form("#create-user-form form", %{
-          did: "did:ssdid:user_b",
+          username: "user_b",
           display_name: "User B",
           role: "key_manager"
         })
         |> render_submit()
 
-      assert html =~ "did:ssdid:user_a"
+      assert html =~ "user_a"
       assert html =~ "User A"
-      assert html =~ "did:ssdid:user_b"
+      assert html =~ "user_b"
       assert html =~ "User B"
     end
 
-    test "create user then delete → user removed from list", %{conn: conn} do
+    test "create user then delete -> user removed from list", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/users")
 
       # Create a user
       view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:deleteme",
+        username: "deleteme",
         display_name: "Delete Me",
         role: "auditor"
       })
       |> render_submit()
 
       rendered = render(view)
-      assert rendered =~ "did:ssdid:deleteme"
+      assert rendered =~ "deleteme"
 
       # Find the user row and click delete
       view
@@ -109,7 +109,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       |> render_click()
 
       rendered = render(view)
-      refute rendered =~ "did:ssdid:deleteme"
+      refute rendered =~ "deleteme"
     end
 
     test "create users and filter by role", %{conn: conn} do
@@ -118,7 +118,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       # Create an admin
       view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:admin_filter",
+        username: "admin_filter",
         display_name: "Admin Filter",
         role: "ca_admin"
       })
@@ -127,7 +127,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       # Create a key manager
       view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:keymgr_filter",
+        username: "keymgr_filter",
         display_name: "KeyMgr Filter",
         role: "key_manager"
       })
@@ -153,7 +153,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
     end
   end
 
-  # ── Keystores page integration ─────────────────────────────────────
+  # -- Keystores page integration --
 
   describe "keystores page integration" do
     test "starts with empty keystore list", %{conn: conn} do
@@ -164,7 +164,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       refute html =~ "StrapSoftPrivKeyStoreProvider"
     end
 
-    test "configure keystore → keystore appears in list", %{conn: conn} do
+    test "configure keystore -> keystore appears in list", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/keystores")
 
       html =
@@ -176,7 +176,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       assert html =~ "StrapSoftPrivKeyStoreProvider"
     end
 
-    test "configure multiple keystores → all appear", %{conn: conn} do
+    test "configure multiple keystores -> all appear", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/keystores")
 
       view
@@ -195,7 +195,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
     end
   end
 
-  # ── Ceremony page integration ──────────────────────────────────────
+  # -- Ceremony page integration --
 
   describe "ceremony page integration" do
     test "starts with empty ceremony list", %{conn: conn} do
@@ -208,7 +208,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       assert html =~ "Initiate Ceremony"
     end
 
-    test "initiate ceremony → ceremony status shown", %{conn: conn} do
+    test "initiate ceremony -> ceremony status shown", %{conn: conn} do
       # Pre-configure a keystore so the ceremony form has options
       {:ok, keystore} = StatefulMock.configure_keystore(1, %{type: "software"})
 
@@ -229,7 +229,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       assert render(view) =~ "ML-DSA-65"
     end
 
-    test "initiate ceremony → ceremony appears in past ceremonies table", %{conn: conn} do
+    test "initiate ceremony -> ceremony appears in past ceremonies table", %{conn: conn} do
       {:ok, keystore} = StatefulMock.configure_keystore(1, %{type: "software"})
 
       {:ok, view, _html} = live(conn, "/ceremony")
@@ -251,7 +251,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
     end
   end
 
-  # ── Audit log page integration ─────────────────────────────────────
+  # -- Audit log page integration --
 
   describe "audit log page integration" do
     test "starts with empty audit log", %{conn: conn} do
@@ -262,7 +262,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
 
     test "actions generate audit events that appear in log", %{conn: conn} do
       # Perform some actions that generate audit events
-      StatefulMock.create_user(1, %{did: "did:ssdid:audited_user", display_name: "Audited", role: "ca_admin"})
+      StatefulMock.create_user(1, %{username: "audited_user", display_name: "Audited", role: "ca_admin"})
       StatefulMock.configure_keystore(1, %{type: "software"})
 
       {:ok, _view, html} = live(conn, "/audit-log")
@@ -277,7 +277,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
 
       view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:cross_page",
+        username: "cross_page",
         display_name: "Cross Page User",
         role: "ca_admin"
       })
@@ -286,20 +286,20 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
       # Now navigate to audit log and verify the event
       {:ok, _view, html} = live(conn, "/audit-log")
       assert html =~ "user_created"
-      assert html =~ "did:ssdid:cross_page"
+      assert html =~ "cross_page"
     end
   end
 
-  # ── Full workflow integration ──────────────────────────────────────
+  # -- Full workflow integration --
 
   describe "full workflow integration" do
-    test "complete CA setup flow: users → keystores → ceremony → audit trail", %{conn: conn} do
+    test "complete CA setup flow: users -> keystores -> ceremony -> audit trail", %{conn: conn} do
       # Step 1: Create users
       {:ok, users_view, _html} = live(conn, "/users")
 
       users_view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:full_admin",
+        username: "full_admin",
         display_name: "Full Admin",
         role: "ca_admin"
       })
@@ -307,7 +307,7 @@ defmodule PkiCaPortalWeb.Live.IntegrationTest do
 
       users_view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:full_keymgr",
+        username: "full_keymgr",
         display_name: "Full KeyMgr",
         role: "key_manager"
       })

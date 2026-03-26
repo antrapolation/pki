@@ -11,7 +11,7 @@ defmodule PkiRaPortal.RaEngineClientTest do
 
       user = hd(users)
       assert Map.has_key?(user, :id)
-      assert Map.has_key?(user, :did)
+      assert Map.has_key?(user, :username)
       assert Map.has_key?(user, :role)
       assert Map.has_key?(user, :status)
     end
@@ -19,19 +19,19 @@ defmodule PkiRaPortal.RaEngineClientTest do
 
   describe "create_user/1" do
     test "returns created user with merged attributes" do
-      attrs = %{did: "did:ssdid:new", display_name: "New User", role: "ra_officer"}
+      attrs = %{username: "newuser", display_name: "New User", role: "ra_officer"}
       assert {:ok, user} = RaEngineClient.create_user(attrs)
-      assert user.did == "did:ssdid:new"
+      assert user.username == "newuser"
       assert user.role == "ra_officer"
       assert user.status == "active"
-      assert is_integer(user.id)
+      assert is_binary(user.id)
     end
   end
 
   describe "delete_user/1" do
     test "returns user with suspended status" do
-      assert {:ok, user} = RaEngineClient.delete_user(1)
-      assert user.id == 1
+      assert {:ok, user} = RaEngineClient.delete_user("019577b0-0001-7000-8000-000000000001")
+      assert user.id == "019577b0-0001-7000-8000-000000000001"
       assert user.status == "suspended"
     end
   end
@@ -57,8 +57,9 @@ defmodule PkiRaPortal.RaEngineClientTest do
 
   describe "get_csr/1" do
     test "returns a CSR map for a given id" do
-      assert {:ok, csr} = RaEngineClient.get_csr(1)
-      assert csr.id == 1
+      csr_id = "019577b0-0010-7000-8000-000000000010"
+      assert {:ok, csr} = RaEngineClient.get_csr(csr_id)
+      assert csr.id == csr_id
       assert Map.has_key?(csr, :subject)
       assert Map.has_key?(csr, :status)
     end
@@ -66,16 +67,18 @@ defmodule PkiRaPortal.RaEngineClientTest do
 
   describe "approve_csr/2" do
     test "returns approved CSR" do
-      assert {:ok, csr} = RaEngineClient.approve_csr(1)
-      assert csr.id == 1
+      csr_id = "019577b0-0010-7000-8000-000000000010"
+      assert {:ok, csr} = RaEngineClient.approve_csr(csr_id)
+      assert csr.id == csr_id
       assert csr.status == "approved"
     end
   end
 
   describe "reject_csr/3" do
     test "returns rejected CSR with reason" do
-      assert {:ok, csr} = RaEngineClient.reject_csr(1, "Invalid subject")
-      assert csr.id == 1
+      csr_id = "019577b0-0010-7000-8000-000000000010"
+      assert {:ok, csr} = RaEngineClient.reject_csr(csr_id, "Invalid subject")
+      assert csr.id == csr_id
       assert csr.status == "rejected"
       assert csr.rejection_reason == "Invalid subject"
     end
@@ -101,23 +104,25 @@ defmodule PkiRaPortal.RaEngineClientTest do
       attrs = %{name: "Code Signing", key_usage: "digitalSignature", digest_algo: "SHA-256"}
       assert {:ok, profile} = RaEngineClient.create_cert_profile(attrs)
       assert profile.name == "Code Signing"
-      assert is_integer(profile.id)
+      assert is_binary(profile.id)
     end
   end
 
   describe "update_cert_profile/2" do
     test "returns updated cert profile" do
       attrs = %{validity_days: 180}
-      assert {:ok, profile} = RaEngineClient.update_cert_profile(1, attrs)
-      assert profile.id == 1
+      profile_id = "019577b0-0020-7000-8000-000000000020"
+      assert {:ok, profile} = RaEngineClient.update_cert_profile(profile_id, attrs)
+      assert profile.id == profile_id
       assert profile.validity_days == 180
     end
   end
 
   describe "delete_cert_profile/1" do
     test "returns deleted confirmation" do
-      assert {:ok, result} = RaEngineClient.delete_cert_profile(1)
-      assert result.id == 1
+      profile_id = "019577b0-0020-7000-8000-000000000020"
+      assert {:ok, result} = RaEngineClient.delete_cert_profile(profile_id)
+      assert result.id == profile_id
       assert result.deleted == true
     end
   end
@@ -142,7 +147,7 @@ defmodule PkiRaPortal.RaEngineClientTest do
       assert {:ok, svc} = RaEngineClient.configure_service(attrs)
       assert svc.service_type == "OCSP Responder"
       assert svc.status == "active"
-      assert is_integer(svc.id)
+      assert is_binary(svc.id)
     end
   end
 
@@ -172,8 +177,9 @@ defmodule PkiRaPortal.RaEngineClientTest do
 
   describe "revoke_api_key/1" do
     test "returns revoked API key" do
-      assert {:ok, key} = RaEngineClient.revoke_api_key(1)
-      assert key.id == 1
+      apikey_id = "019577b0-0040-7000-8000-000000000040"
+      assert {:ok, key} = RaEngineClient.revoke_api_key(apikey_id)
+      assert key.id == apikey_id
       assert key.status == "revoked"
     end
   end

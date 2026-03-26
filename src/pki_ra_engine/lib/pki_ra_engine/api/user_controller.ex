@@ -25,7 +25,7 @@ defmodule PkiRaEngine.Api.UserController do
   end
 
   def delete(conn, id) do
-    case UserManagement.delete_user(String.to_integer(id)) do
+    case UserManagement.delete_user(id) do
       {:ok, user} -> json(conn, 200, serialize_user(user))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
@@ -50,7 +50,6 @@ defmodule PkiRaEngine.Api.UserController do
     |> maybe_put(:password, params["password"])
     |> maybe_put(:display_name, params["display_name"])
     |> maybe_put(:role, params["role"])
-    |> maybe_put(:did, params["did"])
     |> maybe_put(:status, params["status"])
   end
 
@@ -64,7 +63,6 @@ defmodule PkiRaEngine.Api.UserController do
       display_name: user.display_name,
       role: user.role,
       status: user.status,
-      did: user.did,
       inserted_at: user.inserted_at,
       updated_at: user.updated_at
     }

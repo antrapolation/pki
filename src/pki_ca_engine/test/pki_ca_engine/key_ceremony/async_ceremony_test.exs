@@ -22,7 +22,6 @@ defmodule PkiCaEngine.KeyCeremony.AsyncCeremonyTest do
       Repo.insert(
         CaUser.changeset(%CaUser{}, %{
           ca_instance_id: ca.id,
-          did: "did:example:async-init-#{System.unique_integer([:positive])}",
           role: "key_manager"
         })
       )
@@ -33,7 +32,6 @@ defmodule PkiCaEngine.KeyCeremony.AsyncCeremonyTest do
           Repo.insert(
             CaUser.changeset(%CaUser{}, %{
               ca_instance_id: ca.id,
-              did: "did:example:async-cust-#{i}-#{System.unique_integer([:positive])}",
               role: "key_manager"
             })
           )

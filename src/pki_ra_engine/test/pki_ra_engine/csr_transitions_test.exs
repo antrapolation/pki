@@ -29,7 +29,6 @@ defmodule PkiRaEngine.CsrTransitionsTest do
   defp create_officer! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:officer_#{System.unique_integer([:positive])}",
         display_name: "Officer",
         role: "ra_officer"
       })

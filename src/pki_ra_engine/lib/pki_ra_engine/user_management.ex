@@ -81,7 +81,7 @@ defmodule PkiRaEngine.UserManagement do
   end
 
   @doc "Get a user by ID."
-  @spec get_user(integer()) :: {:ok, RaUser.t()} | {:error, :not_found}
+  @spec get_user(String.t()) :: {:ok, RaUser.t()} | {:error, :not_found}
   def get_user(id) do
     case Repo.get(RaUser, id) do
       nil -> {:error, :not_found}
@@ -90,7 +90,7 @@ defmodule PkiRaEngine.UserManagement do
   end
 
   @doc "Update a user's display_name or status only."
-  @spec update_user(integer(), map()) :: {:ok, RaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec update_user(String.t(), map()) :: {:ok, RaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_user(id, attrs) do
     with {:ok, user} <- get_user(id) do
       allowed = Map.take(attrs, [:display_name, :status, "display_name", "status"])
@@ -102,7 +102,7 @@ defmodule PkiRaEngine.UserManagement do
   end
 
   @doc "Soft-delete a user by setting status to suspended."
-  @spec delete_user(integer()) :: {:ok, RaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec delete_user(String.t()) :: {:ok, RaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def delete_user(id) do
     update_user(id, %{status: "suspended"})
   end

@@ -1,5 +1,5 @@
 import { test, expect } from "../../lib/fixtures";
-import { loginRaPortal, uniqueDid, uniqueName } from "../../lib/fixtures";
+import { loginRaPortal, uniqueUsername, uniqueName } from "../../lib/fixtures";
 
 test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
   test("UC-E2E-10: full RA initial setup", async ({ page }) => {
@@ -9,12 +9,12 @@ test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
 
     // 2. Create RA officer
     await page.goto("/users");
-    const officerDid = uniqueDid("ra-officer");
-    await page.fill("#user-did", officerDid);
+    const officerUsername = uniqueUsername("ra-officer");
+    await page.fill("#user-username", officerUsername);
     await page.fill("#user-display-name", "RA Officer");
     await page.selectOption("#user-role", "ra_officer");
     await page.click('#create-user-form button[type="submit"]');
-    await expect(page.locator("#user-list")).toContainText(officerDid);
+    await expect(page.locator("#user-list")).toContainText(officerUsername);
 
     // 3. Create cert profile
     await page.goto("/cert-profiles");

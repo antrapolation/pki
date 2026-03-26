@@ -13,7 +13,7 @@ defmodule PkiCaPortal.CaEngineClientTest do
 
       user = hd(users)
       assert Map.has_key?(user, :id)
-      assert Map.has_key?(user, :did)
+      assert Map.has_key?(user, :username)
       assert Map.has_key?(user, :role)
       assert Map.has_key?(user, :status)
     end
@@ -21,28 +21,28 @@ defmodule PkiCaPortal.CaEngineClientTest do
 
   describe "create_user/2" do
     test "returns created user with merged attributes" do
-      attrs = %{did: "did:ssdid:new", display_name: "New User", role: "auditor"}
+      attrs = %{username: "newuser", display_name: "New User", role: "auditor"}
       assert {:ok, user} = CaEngineClient.create_user(@ca_instance_id, attrs)
-      assert user.did == "did:ssdid:new"
+      assert user.username == "newuser"
       assert user.role == "auditor"
       assert user.status == "active"
-      assert is_integer(user.id)
+      assert is_binary(user.id)
     end
   end
 
   describe "get_user/1" do
     test "returns a user map for a given id" do
-      assert {:ok, user} = CaEngineClient.get_user(42)
-      assert user.id == 42
-      assert Map.has_key?(user, :did)
+      assert {:ok, user} = CaEngineClient.get_user("019577a0-0042-7000-8000-000000000042")
+      assert user.id == "019577a0-0042-7000-8000-000000000042"
+      assert Map.has_key?(user, :username)
       assert Map.has_key?(user, :role)
     end
   end
 
   describe "delete_user/1" do
     test "returns user with suspended status" do
-      assert {:ok, user} = CaEngineClient.delete_user(1)
-      assert user.id == 1
+      assert {:ok, user} = CaEngineClient.delete_user("019577a0-0001-7000-8000-000000000001")
+      assert user.id == "019577a0-0001-7000-8000-000000000001"
       assert user.status == "suspended"
     end
   end
@@ -94,7 +94,7 @@ defmodule PkiCaPortal.CaEngineClientTest do
       params = %{algorithm: "ML-DSA-65"}
       assert {:ok, ceremony} = CaEngineClient.initiate_ceremony(@ca_instance_id, params)
       assert ceremony.status == "initiated"
-      assert is_integer(ceremony.id)
+      assert is_binary(ceremony.id)
     end
   end
 
@@ -118,7 +118,7 @@ defmodule PkiCaPortal.CaEngineClientTest do
       event = hd(events)
       assert Map.has_key?(event, :event_id)
       assert Map.has_key?(event, :action)
-      assert Map.has_key?(event, :actor_did)
+      assert Map.has_key?(event, :actor)
       assert Map.has_key?(event, :timestamp)
     end
   end

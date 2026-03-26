@@ -34,13 +34,13 @@ defmodule PkiCaPortalWeb.E2ETest do
       html =
         users_view
         |> form("#create-user-form form", %{
-          did: "did:ssdid:e2e_keymgr",
+          username: "e2e_keymgr",
           display_name: "E2E Key Manager",
           role: "key_manager"
         })
         |> render_submit()
 
-      assert html =~ "did:ssdid:e2e_keymgr"
+      assert html =~ "e2e_keymgr"
       assert html =~ "E2E Key Manager"
 
       # Step 3: Navigate to keystores and configure a software keystore
@@ -66,7 +66,7 @@ defmodule PkiCaPortalWeb.E2ETest do
       ceremony_view
       |> form("#initiate-ceremony-form form", %{
         algorithm: "ML-DSA-65",
-        keystore_id: "1",
+        keystore_id: "019577a0-0003-7000-8000-000000000003",
         threshold_k: "2",
         threshold_n: "3",
         domain_info: "e2e test domain"
@@ -82,7 +82,7 @@ defmodule PkiCaPortalWeb.E2ETest do
       assert html =~ "Audit Log"
       assert html =~ "login"
       assert html =~ "key_generated"
-      assert html =~ "did:ssdid:admin1"
+      assert html =~ "admin1"
     end
 
     test "admin: audit log filtering works end-to-end", %{conn: conn} do
@@ -94,7 +94,7 @@ defmodule PkiCaPortalWeb.E2ETest do
         audit_view
         |> form("#audit-filter form", %{
           action: "login",
-          actor_did: "did:ssdid:admin1",
+          actor: "admin1",
           date_from: "",
           date_to: ""
         })

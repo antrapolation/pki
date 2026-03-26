@@ -10,8 +10,8 @@ defmodule PkiCaPortal.CaEngineClient do
 
   @callback list_users(integer()) :: {:ok, [map()]} | {:error, term()}
   @callback create_user(integer(), map()) :: {:ok, map()} | {:error, term()}
-  @callback get_user(integer()) :: {:ok, map()} | {:error, term()}
-  @callback delete_user(integer()) :: {:ok, map()} | {:error, term()}
+  @callback get_user(String.t()) :: {:ok, map()} | {:error, term()}
+  @callback delete_user(String.t()) :: {:ok, map()} | {:error, term()}
   @callback list_keystores(integer()) :: {:ok, [map()]} | {:error, term()}
   @callback configure_keystore(integer(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_issuer_keys(integer()) :: {:ok, [map()]} | {:error, term()}

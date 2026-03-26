@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { URLS, uniqueUsername as uniqueDid } from "../../lib/fixtures";
+import { URLS, uniqueUsername } from "../../lib/fixtures";
 
 test.describe("E2E — CA Setup from Scratch (UC-E2E-09)", () => {
   test("UC-E2E-09: full CA initial setup", async ({ browser }) => {
@@ -17,21 +17,21 @@ test.describe("E2E — CA Setup from Scratch (UC-E2E-09)", () => {
     // 2-4. Create 3 key manager users
     await page.goto("/users");
     for (let i = 1; i <= 3; i++) {
-      const kmDid = uniqueDid(`km-${i}`);
-      await page.fill("#user-did", kmDid);
+      const kmUsername = uniqueUsername(`km-${i}`);
+      await page.fill("#user-username", kmUsername);
       await page.fill("#user-display-name", `Key Manager ${i}`);
       await page.selectOption("#user-role", "key_manager");
       await page.click('#create-user-form button[type="submit"]');
-      await expect(page.locator("#user-list")).toContainText(kmDid);
+      await expect(page.locator("#user-list")).toContainText(kmUsername);
     }
 
     // 5. Create auditor
-    const auditorDid = uniqueDid("auditor");
-    await page.fill("#user-did", auditorDid);
+    const auditorUsername = uniqueUsername("auditor");
+    await page.fill("#user-username", auditorUsername);
     await page.fill("#user-display-name", "Auditor");
     await page.selectOption("#user-role", "auditor");
     await page.click('#create-user-form button[type="submit"]');
-    await expect(page.locator("#user-list")).toContainText(auditorDid);
+    await expect(page.locator("#user-list")).toContainText(auditorUsername);
 
     // 6. Configure software keystore
     await page.goto("/keystores");

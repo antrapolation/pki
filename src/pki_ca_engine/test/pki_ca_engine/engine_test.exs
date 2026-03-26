@@ -101,7 +101,6 @@ defmodule PkiCaEngine.EngineTest do
         Repo.insert(
           CaUser.changeset(%CaUser{}, %{
             ca_instance_id: ctx.ca.id,
-            did: "did:example:engine-init-#{System.unique_integer([:positive])}",
             role: "key_manager"
           })
         )
@@ -112,7 +111,6 @@ defmodule PkiCaEngine.EngineTest do
             Repo.insert(
               CaUser.changeset(%CaUser{}, %{
                 ca_instance_id: ctx.ca.id,
-                did: "did:example:engine-cust-#{i}-#{System.unique_integer([:positive])}",
                 role: "key_manager"
               })
             )

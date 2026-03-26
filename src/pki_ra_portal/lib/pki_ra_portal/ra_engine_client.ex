@@ -10,20 +10,20 @@ defmodule PkiRaPortal.RaEngineClient do
 
   @callback list_users() :: {:ok, [map()]} | {:error, term()}
   @callback create_user(map()) :: {:ok, map()} | {:error, term()}
-  @callback delete_user(integer()) :: {:ok, map()} | {:error, term()}
+  @callback delete_user(String.t()) :: {:ok, map()} | {:error, term()}
   @callback list_csrs(keyword()) :: {:ok, [map()]} | {:error, term()}
-  @callback get_csr(integer()) :: {:ok, map()} | {:error, term()}
-  @callback approve_csr(integer(), map()) :: {:ok, map()} | {:error, term()}
-  @callback reject_csr(integer(), binary(), map()) :: {:ok, map()} | {:error, term()}
+  @callback get_csr(String.t()) :: {:ok, map()} | {:error, term()}
+  @callback approve_csr(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @callback reject_csr(String.t(), binary(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_cert_profiles() :: {:ok, [map()]} | {:error, term()}
   @callback create_cert_profile(map()) :: {:ok, map()} | {:error, term()}
-  @callback update_cert_profile(integer(), map()) :: {:ok, map()} | {:error, term()}
-  @callback delete_cert_profile(integer()) :: {:ok, map()} | {:error, term()}
+  @callback update_cert_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @callback delete_cert_profile(String.t()) :: {:ok, map()} | {:error, term()}
   @callback list_service_configs() :: {:ok, [map()]} | {:error, term()}
   @callback configure_service(map()) :: {:ok, map()} | {:error, term()}
   @callback list_api_keys(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback create_api_key(map()) :: {:ok, map()} | {:error, term()}
-  @callback revoke_api_key(integer()) :: {:ok, map()} | {:error, term()}
+  @callback revoke_api_key(String.t()) :: {:ok, map()} | {:error, term()}
   @callback authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
   @callback register_user(map()) :: {:ok, map()} | {:error, term()}
   @callback needs_setup?() :: boolean()

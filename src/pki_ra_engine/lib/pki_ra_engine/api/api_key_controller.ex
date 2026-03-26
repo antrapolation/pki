@@ -9,8 +9,7 @@ defmodule PkiRaEngine.Api.ApiKeyController do
   def index(conn) do
     case conn.query_params do
       %{"ra_user_id" => ra_user_id_str} ->
-        ra_user_id = String.to_integer(ra_user_id_str)
-        keys = ApiKeyManagement.list_keys(ra_user_id)
+        keys = ApiKeyManagement.list_keys(ra_user_id_str)
         json(conn, 200, Enum.map(keys, &serialize_key/1))
 
       _ ->
@@ -38,7 +37,7 @@ defmodule PkiRaEngine.Api.ApiKeyController do
   end
 
   def revoke(conn, id) do
-    case ApiKeyManagement.revoke_key(String.to_integer(id)) do
+    case ApiKeyManagement.revoke_key(id) do
       {:ok, api_key} ->
         json(conn, 200, serialize_key(api_key))
 

@@ -8,8 +8,7 @@ defmodule PkiCaEngine.Api.UserController do
 
   def index(conn) do
     case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id_str} ->
-        ca_instance_id = String.to_integer(ca_instance_id_str)
+      %{"ca_instance_id" => ca_instance_id} ->
         opts = if role = conn.query_params["role"], do: [role: role], else: []
         users = UserManagement.list_users(ca_instance_id, opts)
         json(conn, 200, %{data: Enum.map(users, &serialize_user/1)})
@@ -37,14 +36,14 @@ defmodule PkiCaEngine.Api.UserController do
   end
 
   def show(conn, id) do
-    case UserManagement.get_user(String.to_integer(id)) do
+    case UserManagement.get_user(id) do
       {:ok, user} -> json(conn, 200, serialize_user(user))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
   end
 
   def delete(conn, id) do
-    case UserManagement.delete_user(String.to_integer(id)) do
+    case UserManagement.delete_user(id) do
       {:ok, user} -> json(conn, 200, serialize_user(user))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
@@ -56,7 +55,6 @@ defmodule PkiCaEngine.Api.UserController do
     |> maybe_put(:password, params["password"])
     |> maybe_put(:display_name, params["display_name"])
     |> maybe_put(:role, params["role"])
-    |> maybe_put(:did, params["did"])
     |> maybe_put(:status, params["status"])
   end
 
@@ -71,7 +69,6 @@ defmodule PkiCaEngine.Api.UserController do
       role: user.role,
       status: user.status,
       ca_instance_id: user.ca_instance_id,
-      did: user.did,
       inserted_at: user.inserted_at,
       updated_at: user.updated_at
     }

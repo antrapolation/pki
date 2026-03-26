@@ -31,7 +31,7 @@ defmodule PkiCaEngine.IssuerKeyManagement do
   @doc """
   Creates an issuer key record for a CA instance.
   """
-  @spec create_issuer_key(integer(), map()) :: {:ok, IssuerKey.t()} | {:error, Ecto.Changeset.t()}
+  @spec create_issuer_key(String.t(), map()) :: {:ok, IssuerKey.t()} | {:error, Ecto.Changeset.t()}
   def create_issuer_key(ca_instance_id, attrs) do
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
 
@@ -43,7 +43,7 @@ defmodule PkiCaEngine.IssuerKeyManagement do
   @doc """
   Gets an issuer key by ID.
   """
-  @spec get_issuer_key(integer()) :: {:ok, IssuerKey.t()} | {:error, :not_found}
+  @spec get_issuer_key(String.t()) :: {:ok, IssuerKey.t()} | {:error, :not_found}
   def get_issuer_key(id) do
     case Repo.get(IssuerKey, id) do
       nil -> {:error, :not_found}
@@ -54,7 +54,7 @@ defmodule PkiCaEngine.IssuerKeyManagement do
   @doc """
   Lists issuer keys for a CA instance, with optional status filter.
   """
-  @spec list_issuer_keys(integer(), keyword()) :: [IssuerKey.t()]
+  @spec list_issuer_keys(String.t(), keyword()) :: [IssuerKey.t()]
   def list_issuer_keys(ca_instance_id, opts \\ []) do
     query = from(k in IssuerKey, where: k.ca_instance_id == ^ca_instance_id)
 

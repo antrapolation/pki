@@ -2,6 +2,9 @@ defmodule PkiCaEngine.Schema.KeypairAccess do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   schema "keypair_access" do
     field :granted_at, :utc_datetime
 
@@ -18,5 +21,14 @@ defmodule PkiCaEngine.Schema.KeypairAccess do
     |> foreign_key_constraint(:user_id)
     |> foreign_key_constraint(:granted_by)
     |> unique_constraint([:issuer_key_id, :user_id])
+    |> maybe_generate_id()
+  end
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
   end
 end

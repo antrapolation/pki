@@ -24,7 +24,6 @@ defmodule PkiCaEngine.CertificateSigningTest do
       Repo.insert(
         CaUser.changeset(%CaUser{}, %{
           ca_instance_id: ca.id,
-          did: "did:example:sign-init-#{System.unique_integer([:positive])}",
           role: "key_manager"
         })
       )
@@ -35,7 +34,6 @@ defmodule PkiCaEngine.CertificateSigningTest do
           Repo.insert(
             CaUser.changeset(%CaUser{}, %{
               ca_instance_id: ca.id,
-              did: "did:example:sign-cust-#{i}-#{System.unique_integer([:positive])}",
               role: "key_manager"
             })
           )
@@ -264,7 +262,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
     end
 
     test "returns empty list for unknown issuer_key_id" do
-      assert [] == CertificateSigning.list_certificates(-1)
+      assert [] == CertificateSigning.list_certificates(Uniq.UUID.uuid7())
     end
   end
 end

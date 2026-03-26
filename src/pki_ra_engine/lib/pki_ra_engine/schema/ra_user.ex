@@ -2,6 +2,9 @@ defmodule PkiRaEngine.Schema.RaUser do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   @roles ["ra_admin", "ra_officer", "auditor"]
   @statuses ["active", "suspended"]
 
@@ -9,7 +12,6 @@ defmodule PkiRaEngine.Schema.RaUser do
     field :username, :string
     field :password_hash, :string
     field :password, :string, virtual: true
-    field :did, :string
     field :display_name, :string
     field :role, :string
     field :status, :string, default: "active"
@@ -22,12 +24,12 @@ defmodule PkiRaEngine.Schema.RaUser do
 
   def changeset(ra_user, attrs) do
     ra_user
-    |> cast(attrs, [:username, :did, :display_name, :role, :status])
+    |> cast(attrs, [:username, :display_name, :role, :status])
     |> validate_required([:role])
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:username)
-    |> unique_constraint(:did)
+    |> maybe_generate_id()
   end
 
   def registration_changeset(ra_user, attrs) do
@@ -39,6 +41,7 @@ defmodule PkiRaEngine.Schema.RaUser do
     |> validate_inclusion(:role, @roles)
     |> unique_constraint(:username)
     |> hash_password()
+    |> maybe_generate_id()
   end
 
   def roles, do: @roles
@@ -49,4 +52,12 @@ defmodule PkiRaEngine.Schema.RaUser do
   end
 
   defp hash_password(changeset), do: changeset
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
+  end
 end

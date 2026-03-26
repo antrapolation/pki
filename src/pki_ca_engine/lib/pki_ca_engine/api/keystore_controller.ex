@@ -8,8 +8,7 @@ defmodule PkiCaEngine.Api.KeystoreController do
 
   def index(conn) do
     case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id_str} ->
-        ca_instance_id = String.to_integer(ca_instance_id_str)
+      %{"ca_instance_id" => ca_instance_id} ->
         keystores = KeystoreManagement.list_keystores(ca_instance_id)
         json(conn, 200, %{data: Enum.map(keystores, &serialize_keystore/1)})
 

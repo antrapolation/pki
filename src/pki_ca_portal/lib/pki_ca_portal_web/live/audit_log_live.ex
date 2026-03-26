@@ -23,7 +23,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
     filters =
       []
       |> maybe_add_filter(:action, params["action"])
-      |> maybe_add_filter(:actor_did, params["actor_did"])
+      |> maybe_add_filter(:actor, params["actor"])
       |> maybe_add_filter(:date_from, params["date_from"])
       |> maybe_add_filter(:date_to, params["date_to"])
 
@@ -33,7 +33,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
      assign(socket,
        events: events,
        filter_action: params["action"] || "",
-       filter_actor: params["actor_did"] || "",
+       filter_actor: params["actor"] || "",
        filter_date_from: params["date_from"] || "",
        filter_date_to: params["date_to"] || ""
      )}
@@ -66,8 +66,8 @@ defmodule PkiCaPortalWeb.AuditLogLive do
             </select>
           </div>
           <div>
-            <label for="actor_did">Actor DID:</label>
-            <input type="text" name="actor_did" id="filter-actor" value={@filter_actor} />
+            <label for="actor">Actor:</label>
+            <input type="text" name="actor" id="filter-actor" value={@filter_actor} />
           </div>
           <div>
             <label for="date_from">From:</label>
@@ -95,7 +95,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
             <tr :for={event <- @events} id={"event-#{event.event_id}"}>
               <td>{Calendar.strftime(event.timestamp, "%Y-%m-%d %H:%M:%S")}</td>
               <td>{event.action}</td>
-              <td>{event.actor_did}</td>
+              <td>{event.actor}</td>
               <td>{event.event_id}</td>
             </tr>
           </tbody>

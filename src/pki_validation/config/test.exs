@@ -4,7 +4,7 @@ config :pki_validation, PkiValidation.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  port: 5432,
+  port: 5434,
   database: "pki_validation_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10

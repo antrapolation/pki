@@ -38,13 +38,11 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("revoke_api_key", %{"id" => id}, socket) do
-    key_id = String.to_integer(id)
-
-    case RaEngineClient.revoke_api_key(key_id) do
+    case RaEngineClient.revoke_api_key(id) do
       {:ok, _} ->
         keys =
           Enum.map(socket.assigns.api_keys, fn k ->
-            if k.id == key_id, do: Map.put(k, :status, "revoked"), else: k
+            if k.id == id, do: Map.put(k, :status, "revoked"), else: k
           end)
 
         {:noreply,

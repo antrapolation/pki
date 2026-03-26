@@ -30,7 +30,6 @@ defmodule PkiCaEngine.IntegrationHelpers do
       Repo.insert(
         CaUser.changeset(%CaUser{}, %{
           ca_instance_id: ca.id,
-          did: "did:example:admin-#{uniq}",
           role: "ca_admin",
           display_name: "CA Admin"
         })
@@ -42,7 +41,6 @@ defmodule PkiCaEngine.IntegrationHelpers do
           Repo.insert(
             CaUser.changeset(%CaUser{}, %{
               ca_instance_id: ca.id,
-              did: "did:example:km-#{i}-#{uniq}",
               role: "key_manager",
               display_name: "Key Manager #{i}"
             })
@@ -55,7 +53,6 @@ defmodule PkiCaEngine.IntegrationHelpers do
       Repo.insert(
         CaUser.changeset(%CaUser{}, %{
           ca_instance_id: ca.id,
-          did: "did:example:auditor-#{uniq}",
           role: "auditor",
           display_name: "Auditor"
         })

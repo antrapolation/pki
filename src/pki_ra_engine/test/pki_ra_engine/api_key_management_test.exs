@@ -8,7 +8,6 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
   defp create_user! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:apikey_#{System.unique_integer([:positive])}",
         display_name: "API Key User",
         role: "ra_admin"
       })
@@ -151,7 +150,7 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
     end
 
     test "returns error for non-existent key" do
-      assert {:error, :not_found} = ApiKeyManagement.revoke_key(999_999)
+      assert {:error, :not_found} = ApiKeyManagement.revoke_key(Uniq.UUID.uuid7())
     end
   end
 end

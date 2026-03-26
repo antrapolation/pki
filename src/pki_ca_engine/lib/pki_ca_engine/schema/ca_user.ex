@@ -2,6 +2,9 @@ defmodule PkiCaEngine.Schema.CaUser do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   @roles ["ca_admin", "key_manager", "ra_admin", "auditor"]
   @statuses ["active", "suspended"]
 
@@ -9,7 +12,6 @@ defmodule PkiCaEngine.Schema.CaUser do
     field :username, :string
     field :password_hash, :string
     field :password, :string, virtual: true
-    field :did, :string
     field :display_name, :string
     field :role, :string
     field :status, :string, default: "active"
@@ -24,13 +26,13 @@ defmodule PkiCaEngine.Schema.CaUser do
 
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:ca_instance_id, :username, :did, :display_name, :role, :status])
+    |> cast(attrs, [:ca_instance_id, :username, :display_name, :role, :status])
     |> validate_required([:ca_instance_id, :role])
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:ca_instance_id)
     |> unique_constraint(:username)
-    |> unique_constraint([:ca_instance_id, :did])
+    |> maybe_generate_id()
   end
 
   def registration_changeset(user, attrs) do
@@ -43,6 +45,7 @@ defmodule PkiCaEngine.Schema.CaUser do
     |> unique_constraint(:username)
     |> foreign_key_constraint(:ca_instance_id)
     |> hash_password()
+    |> maybe_generate_id()
   end
 
   def update_changeset(user, attrs) do
@@ -56,4 +59,12 @@ defmodule PkiCaEngine.Schema.CaUser do
   end
 
   defp hash_password(changeset), do: changeset
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
+  end
 end

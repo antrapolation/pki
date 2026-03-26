@@ -26,8 +26,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("view_csr", %{"id" => id}, socket) do
-    csr_id = String.to_integer(id)
-    {:ok, csr} = RaEngineClient.get_csr(csr_id)
+    {:ok, csr} = RaEngineClient.get_csr(id)
     {:noreply, assign(socket, selected_csr: csr)}
   end
 
@@ -38,9 +37,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("approve_csr", %{"id" => id}, socket) do
-    csr_id = String.to_integer(id)
-
-    case RaEngineClient.approve_csr(csr_id, %{approved_by: socket.assigns.current_user["did"]}) do
+    case RaEngineClient.approve_csr(id, %{approved_by: socket.assigns.current_user["username"]}) do
       {:ok, _} ->
         filters = if socket.assigns.status_filter == "all", do: [], else: [status: socket.assigns.status_filter]
         {:ok, csrs} = RaEngineClient.list_csrs(filters)
@@ -57,9 +54,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("reject_csr", %{"csr_id" => id, "reason" => reason}, socket) do
-    csr_id = String.to_integer(id)
-
-    case RaEngineClient.reject_csr(csr_id, reason, %{rejected_by: socket.assigns.current_user["did"]}) do
+    case RaEngineClient.reject_csr(id, reason, %{rejected_by: socket.assigns.current_user["username"]}) do
       {:ok, _} ->
         filters = if socket.assigns.status_filter == "all", do: [], else: [status: socket.assigns.status_filter]
         {:ok, csrs} = RaEngineClient.list_csrs(filters)
@@ -129,7 +124,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
         <p>Status: <span id="csr-status">{@selected_csr.status}</span></p>
         <p>Profile: {@selected_csr.profile_name}</p>
         <p>Public Key Algorithm: {@selected_csr.public_key_algorithm}</p>
-        <p>Requestor: {@selected_csr.requestor_did}</p>
+        <p>Requestor: {@selected_csr.requestor}</p>
 
         <div :if={@selected_csr.status == "pending"} id="csr-actions">
           <button phx-click="approve_csr" phx-value-id={@selected_csr.id}>Approve</button>

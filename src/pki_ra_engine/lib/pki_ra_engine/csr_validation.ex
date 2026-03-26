@@ -33,7 +33,7 @@ defmodule PkiRaEngine.CsrValidation do
   # ── Public API ──────────────────────────────────────────────────────
 
   @doc "Submit a CSR. Accepts CSR PEM string and cert_profile_id."
-  @spec submit_csr(String.t(), integer()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  @spec submit_csr(String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def submit_csr(csr_pem, cert_profile_id) do
     # Extract a basic subject_dn placeholder (real crypto extraction comes later)
     subject_dn = extract_subject_dn(csr_pem)
@@ -52,7 +52,7 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   @doc "Auto-validate a pending CSR. Basic structural checks."
-  @spec validate_csr(integer()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  @spec validate_csr(String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def validate_csr(csr_id) do
     with {:ok, csr} <- get_csr(csr_id),
          :ok <- check_auto_transition(csr.status, "verified") do
@@ -67,7 +67,7 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   @doc "RA officer approves a verified CSR."
-  @spec approve_csr(integer(), integer()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  @spec approve_csr(String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def approve_csr(csr_id, reviewer_user_id) do
     with {:ok, csr} <- get_csr(csr_id),
          :ok <- check_transition(csr.status, "approved") do
@@ -79,7 +79,7 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   @doc "RA officer rejects a verified CSR with reason."
-  @spec reject_csr(integer(), integer(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  @spec reject_csr(String.t(), String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def reject_csr(csr_id, reviewer_user_id, reason) do
     with {:ok, csr} <- get_csr(csr_id),
          :ok <- check_transition(csr.status, "rejected") do
@@ -92,7 +92,7 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   @doc "Get a CSR by ID."
-  @spec get_csr(integer()) :: {:ok, CsrRequest.t()} | {:error, :not_found}
+  @spec get_csr(String.t()) :: {:ok, CsrRequest.t()} | {:error, :not_found}
   def get_csr(id) do
     case Repo.get(CsrRequest, id) do
       nil -> {:error, :not_found}
@@ -109,7 +109,7 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   @doc "Forward an approved CSR to the CA engine for signing."
-  @spec forward_to_ca(integer()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  @spec forward_to_ca(String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def forward_to_ca(csr_id) do
     ca_module =
       Application.get_env(:pki_ra_engine, :ca_engine_module, __MODULE__.DefaultCaClient)
@@ -127,7 +127,7 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   @doc "Mark an approved CSR as issued with the certificate serial."
-  @spec mark_issued(integer(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  @spec mark_issued(String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def mark_issued(csr_id, cert_serial) do
     with {:ok, csr} <- get_csr(csr_id),
          :ok <- check_transition(csr.status, "issued") do

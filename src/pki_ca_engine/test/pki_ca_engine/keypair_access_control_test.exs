@@ -11,7 +11,6 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     {:ok, user} =
       Repo.insert(CaUser.changeset(%CaUser{}, %{
         ca_instance_id: ca.id,
-        did: "did:example:user1",
         display_name: "User One",
         role: "key_manager"
       }))
@@ -19,7 +18,6 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     {:ok, granter} =
       Repo.insert(CaUser.changeset(%CaUser{}, %{
         ca_instance_id: ca.id,
-        did: "did:example:granter",
         display_name: "Granter",
         role: "ca_admin"
       }))
@@ -40,7 +38,7 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     %{ca: ca, user: user, granter: granter, keystore: keystore, issuer_key: issuer_key}
   end
 
-  # ── grant_access/3 ─────────────────────────────────────────────────
+  # -- grant_access/3 --
 
   describe "grant_access/3" do
     test "grants a user access to a key", %{issuer_key: key, user: user, granter: granter} do
@@ -60,7 +58,7 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     end
   end
 
-  # ── revoke_access/2 ────────────────────────────────────────────────
+  # -- revoke_access/2 --
 
   describe "revoke_access/2" do
     test "revokes user's access to a key", %{issuer_key: key, user: user, granter: granter} do
@@ -74,7 +72,7 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     end
   end
 
-  # ── has_access?/2 ──────────────────────────────────────────────────
+  # -- has_access?/2 --
 
   describe "has_access?/2" do
     test "returns true when user has access", %{issuer_key: key, user: user, granter: granter} do
@@ -87,14 +85,13 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     end
   end
 
-  # ── list_access/1 ──────────────────────────────────────────────────
+  # -- list_access/1 --
 
   describe "list_access/1" do
     test "lists all users with access to a key", %{issuer_key: key, user: user, granter: granter, ca: ca} do
       {:ok, user2} =
         Repo.insert(CaUser.changeset(%CaUser{}, %{
           ca_instance_id: ca.id,
-          did: "did:example:user2",
           role: "key_manager"
         }))
 
@@ -110,7 +107,7 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     end
   end
 
-  # ── list_keys_for_user/1 ───────────────────────────────────────────
+  # -- list_keys_for_user/1 --
 
   describe "list_keys_for_user/1" do
     test "lists all keys a user can access", %{issuer_key: key, user: user, granter: granter, ca: ca} do
@@ -133,7 +130,7 @@ defmodule PkiCaEngine.KeypairAccessControlTest do
     end
   end
 
-  # ── Helper ─────────────────────────────────────────────────────────
+  # -- Helper --
 
   defp errors_on(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->

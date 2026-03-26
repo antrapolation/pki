@@ -23,7 +23,6 @@ defmodule PkiCaEngine.KeyActivationTest do
       Repo.insert(
         CaUser.changeset(%CaUser{}, %{
           ca_instance_id: ca.id,
-          did: "did:example:activ-init-#{System.unique_integer([:positive])}",
           role: "key_manager"
         })
       )
@@ -34,7 +33,6 @@ defmodule PkiCaEngine.KeyActivationTest do
           Repo.insert(
             CaUser.changeset(%CaUser{}, %{
               ca_instance_id: ca.id,
-              did: "did:example:activ-cust-#{i}-#{System.unique_integer([:positive])}",
               role: "key_manager"
             })
           )
@@ -257,7 +255,7 @@ defmodule PkiCaEngine.KeyActivationTest do
       )
 
       [c1 | _] = ctx.custodians
-      non_existent_key_id = -1
+      non_existent_key_id = Uniq.UUID.uuid7()
 
       assert {:error, :share_not_found} =
                KeyActivation.submit_share(name, non_existent_key_id, c1.id, "password-#{c1.id}")

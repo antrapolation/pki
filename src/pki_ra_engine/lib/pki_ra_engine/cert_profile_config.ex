@@ -15,7 +15,7 @@ defmodule PkiRaEngine.CertProfileConfig do
   end
 
   @doc "Get a certificate profile by ID."
-  @spec get_profile(integer()) :: {:ok, CertProfile.t()} | {:error, :not_found}
+  @spec get_profile(String.t()) :: {:ok, CertProfile.t()} | {:error, :not_found}
   def get_profile(id) do
     case Repo.get(CertProfile, id) do
       nil -> {:error, :not_found}
@@ -30,7 +30,7 @@ defmodule PkiRaEngine.CertProfileConfig do
   end
 
   @doc "Update a certificate profile."
-  @spec update_profile(integer(), map()) :: {:ok, CertProfile.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec update_profile(String.t(), map()) :: {:ok, CertProfile.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_profile(id, attrs) do
     with {:ok, profile} <- get_profile(id) do
       profile
@@ -40,7 +40,7 @@ defmodule PkiRaEngine.CertProfileConfig do
   end
 
   @doc "Hard-delete a certificate profile."
-  @spec delete_profile(integer()) :: {:ok, CertProfile.t()} | {:error, :not_found}
+  @spec delete_profile(String.t()) :: {:ok, CertProfile.t()} | {:error, :not_found}
   def delete_profile(id) do
     with {:ok, profile} <- get_profile(id) do
       Repo.delete(profile)

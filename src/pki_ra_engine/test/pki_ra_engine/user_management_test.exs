@@ -4,7 +4,6 @@ defmodule PkiRaEngine.UserManagementTest do
   alias PkiRaEngine.UserManagement
 
   @valid_attrs %{
-    did: "did:example:user1",
     display_name: "Alice Admin",
     role: "ra_admin"
   }
@@ -17,7 +16,6 @@ defmodule PkiRaEngine.UserManagementTest do
   describe "create_user/1" do
     test "creates user with valid attrs" do
       assert {:ok, user} = UserManagement.create_user(@valid_attrs)
-      assert user.did == "did:example:user1"
       assert user.display_name == "Alice Admin"
       assert user.role == "ra_admin"
       assert user.status == "active"
@@ -33,29 +31,20 @@ defmodule PkiRaEngine.UserManagementTest do
       assert errors_on(changeset)[:role]
     end
 
-    test "fails with duplicate did" do
-      create_user!()
-      # DID uniqueness still enforced when provided
-      result = UserManagement.create_user(@valid_attrs)
-      case result do
-        {:error, changeset} -> assert errors_on(changeset)[:did]
-        {:ok, _} -> :ok  # DID may be nil, so duplicate nil is allowed
-      end
-    end
   end
 
   describe "list_users/1" do
     test "lists all users with no filters" do
-      create_user!(%{did: "did:example:a1", role: "ra_admin"})
-      create_user!(%{did: "did:example:o1", role: "ra_officer"})
+      create_user!(%{role: "ra_admin"})
+      create_user!(%{role: "ra_officer"})
 
       users = UserManagement.list_users([])
       assert length(users) == 2
     end
 
     test "filters by role" do
-      create_user!(%{did: "did:example:a1", role: "ra_admin"})
-      create_user!(%{did: "did:example:o1", role: "ra_officer"})
+      create_user!(%{role: "ra_admin"})
+      create_user!(%{role: "ra_officer"})
 
       users = UserManagement.list_users(role: "ra_admin")
       assert length(users) == 1
@@ -63,8 +52,8 @@ defmodule PkiRaEngine.UserManagementTest do
     end
 
     test "filters by status" do
-      user = create_user!(%{did: "did:example:a1"})
-      create_user!(%{did: "did:example:a2"})
+      user = create_user!()
+      create_user!()
       UserManagement.delete_user(user.id)
 
       users = UserManagement.list_users(status: "suspended")
@@ -81,7 +70,7 @@ defmodule PkiRaEngine.UserManagementTest do
     end
 
     test "returns error for non-existent id" do
-      assert {:error, :not_found} = UserManagement.get_user(999_999)
+      assert {:error, :not_found} = UserManagement.get_user(Uniq.UUID.uuid7())
     end
   end
 
@@ -105,7 +94,7 @@ defmodule PkiRaEngine.UserManagementTest do
     end
 
     test "returns error for non-existent user" do
-      assert {:error, :not_found} = UserManagement.update_user(999_999, %{display_name: "X"})
+      assert {:error, :not_found} = UserManagement.update_user(Uniq.UUID.uuid7(), %{display_name: "X"})
     end
   end
 
@@ -117,7 +106,7 @@ defmodule PkiRaEngine.UserManagementTest do
     end
 
     test "returns error for non-existent user" do
-      assert {:error, :not_found} = UserManagement.delete_user(999_999)
+      assert {:error, :not_found} = UserManagement.delete_user(Uniq.UUID.uuid7())
     end
   end
 

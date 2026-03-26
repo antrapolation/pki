@@ -24,7 +24,7 @@ defmodule PkiRaEngine.Api.CertProfileController do
   end
 
   def update(conn, id) do
-    case CertProfileConfig.update_profile(String.to_integer(id), conn.body_params) do
+    case CertProfileConfig.update_profile(id, conn.body_params) do
       {:ok, profile} ->
         json(conn, 200, serialize_profile(profile))
 
@@ -37,7 +37,7 @@ defmodule PkiRaEngine.Api.CertProfileController do
   end
 
   def delete(conn, id) do
-    case CertProfileConfig.delete_profile(String.to_integer(id)) do
+    case CertProfileConfig.delete_profile(id) do
       {:ok, profile} ->
         json(conn, 200, serialize_profile(profile))
 

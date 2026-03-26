@@ -112,7 +112,7 @@ defmodule PkiValidation.Api.RouterTest do
     %CertificateStatus{}
     |> CertificateStatus.changeset(%{
       serial_number: serial,
-      issuer_key_id: 1,
+      issuer_key_id: "019577a0-0000-7000-8000-000000000001",
       subject_dn: "CN=#{serial}.example.com,O=Test,C=MY",
       status: "active",
       not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -125,7 +125,7 @@ defmodule PkiValidation.Api.RouterTest do
     %CertificateStatus{}
     |> CertificateStatus.changeset(%{
       serial_number: serial,
-      issuer_key_id: 1,
+      issuer_key_id: "019577a0-0000-7000-8000-000000000001",
       subject_dn: "CN=#{serial}.example.com,O=Test,C=MY",
       status: "revoked",
       not_before: ~U[2026-01-01 00:00:00.000000Z],

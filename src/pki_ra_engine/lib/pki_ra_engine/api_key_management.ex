@@ -62,14 +62,14 @@ defmodule PkiRaEngine.ApiKeyManagement do
   end
 
   @doc "List all API keys for a given RA user."
-  @spec list_keys(integer()) :: [RaApiKey.t()]
+  @spec list_keys(String.t()) :: [RaApiKey.t()]
   def list_keys(ra_user_id) do
     from(k in RaApiKey, where: k.ra_user_id == ^ra_user_id)
     |> Repo.all()
   end
 
   @doc "Revoke an API key by ID."
-  @spec revoke_key(integer()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec revoke_key(String.t()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def revoke_key(id) do
     case Repo.get(RaApiKey, id) do
       nil ->

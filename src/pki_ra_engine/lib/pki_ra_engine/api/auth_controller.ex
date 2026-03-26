@@ -45,7 +45,6 @@ defmodule PkiRaEngine.Api.AuthController do
     |> maybe_put(:password, params["password"])
     |> maybe_put(:display_name, params["display_name"])
     |> maybe_put(:role, params["role"])
-    |> maybe_put(:did, params["did"])
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -58,7 +57,6 @@ defmodule PkiRaEngine.Api.AuthController do
       display_name: user.display_name,
       role: user.role,
       status: user.status,
-      did: user.did,
       inserted_at: user.inserted_at,
       updated_at: user.updated_at
     }

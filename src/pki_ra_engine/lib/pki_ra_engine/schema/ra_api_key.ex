@@ -2,6 +2,9 @@ defmodule PkiRaEngine.Schema.RaApiKey do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   @statuses ["active", "revoked"]
 
   schema "ra_api_keys" do
@@ -26,7 +29,16 @@ defmodule PkiRaEngine.Schema.RaApiKey do
     |> validate_required(@required_fields)
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:ra_user_id)
+    |> maybe_generate_id()
   end
 
   def statuses, do: @statuses
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
+  end
 end

@@ -34,7 +34,8 @@ defmodule PkiCaEngine.MixProject do
       {:x509, path: "../x509"},
       {:ex_ccrypto, path: "../ex_ccrypto"},
       {:pki_audit_trail, path: "../pki_audit_trail", runtime: false},
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      {:uniq, "~> 0.6"}
     ]
   end
 

@@ -25,7 +25,7 @@ defmodule PkiCaPortalWeb.CeremonyLiveTest do
     view
     |> form("#initiate-ceremony-form form", %{
       algorithm: "ML-DSA-65",
-      keystore_id: "1",
+      keystore_id: "019577a0-0003-7000-8000-000000000003",
       threshold_k: "2",
       threshold_n: "3",
       domain_info: "test domain"

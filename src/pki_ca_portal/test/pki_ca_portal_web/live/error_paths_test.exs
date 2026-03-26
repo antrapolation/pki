@@ -34,7 +34,7 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
         view
         |> form("#initiate-ceremony-form form", %{
           algorithm: "ML-DSA-65",
-          keystore_id: "1",
+          keystore_id: "019577a0-0003-7000-8000-000000000003",
           threshold_k: "2",
           threshold_n: "3",
           domain_info: "test domain"
@@ -58,7 +58,7 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
       html =
         view
         |> form("#create-user-form form", %{
-          did: "did:ssdid:fail",
+          username: "failuser",
           display_name: "Fail User",
           role: "ca_admin"
         })
@@ -79,7 +79,7 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
 
       html =
         view
-        |> element("#user-1 button", "Delete")
+        |> element("#user-#{mock_user1_id()} button", "Delete")
         |> render_click()
 
       # View still works, user was not removed
@@ -107,4 +107,6 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
       assert new_count == initial_count
     end
   end
+
+  defp mock_user1_id, do: "019577a0-0001-7000-8000-000000000001"
 end

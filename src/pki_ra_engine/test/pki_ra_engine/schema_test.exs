@@ -11,7 +11,6 @@ defmodule PkiRaEngine.SchemaTest do
 
   describe "RaUser.changeset/2" do
     @valid_ra_user %{
-      did: "did:example:123",
       display_name: "Alice",
       role: "ra_admin",
       status: "active"
@@ -69,7 +68,7 @@ defmodule PkiRaEngine.SchemaTest do
   describe "CsrRequest.changeset/2" do
     @valid_csr_request %{
       subject_dn: "CN=test.example.com",
-      cert_profile_id: 1,
+      cert_profile_id: Uniq.UUID.uuid7(),
       status: "pending",
       submitted_at: ~U[2026-01-01 00:00:00.000000Z]
     }
@@ -130,7 +129,7 @@ defmodule PkiRaEngine.SchemaTest do
   describe "RaApiKey.changeset/2" do
     @valid_api_key %{
       hashed_key: "abc123hash",
-      ra_user_id: 1,
+      ra_user_id: Uniq.UUID.uuid7(),
       label: "My Key",
       status: "active"
     }

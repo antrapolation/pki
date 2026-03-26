@@ -8,8 +8,7 @@ defmodule PkiCaEngine.Api.CertificateController do
 
   def index(conn) do
     case conn.query_params do
-      %{"issuer_key_id" => issuer_key_id_str} ->
-        issuer_key_id = String.to_integer(issuer_key_id_str)
+      %{"issuer_key_id" => issuer_key_id} ->
         filters = build_filters(conn.query_params)
         certs = CertificateSigning.list_certificates(issuer_key_id, filters)
         json(conn, 200, %{data: Enum.map(certs, &serialize_certificate/1)})

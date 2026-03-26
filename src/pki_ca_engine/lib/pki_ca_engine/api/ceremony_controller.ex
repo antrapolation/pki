@@ -11,11 +11,9 @@ defmodule PkiCaEngine.Api.CeremonyController do
 
   def index(conn) do
     case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id_str} ->
-        ca_instance_id = String.to_integer(ca_instance_id_str)
-
+      %{"ca_instance_id" => ca_instance_id} ->
         ceremonies =
-          from(c in KeyCeremony, where: c.ca_instance_id == ^ca_instance_id, order_by: [desc: c.id])
+          from(c in KeyCeremony, where: c.ca_instance_id == ^ca_instance_id, order_by: [desc: c.inserted_at])
           |> Repo.all()
 
         json(conn, 200, %{data: Enum.map(ceremonies, &serialize_ceremony/1)})

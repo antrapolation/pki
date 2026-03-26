@@ -2,6 +2,9 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   schema "threshold_shares" do
     field :share_index, :integer
     field :encrypted_share, :binary
@@ -21,5 +24,14 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     |> foreign_key_constraint(:issuer_key_id)
     |> foreign_key_constraint(:custodian_user_id)
     |> unique_constraint([:issuer_key_id, :custodian_user_id])
+    |> maybe_generate_id()
+  end
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
   end
 end

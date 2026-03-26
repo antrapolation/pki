@@ -82,7 +82,7 @@ defmodule PkiCaEngine.KeystoreManagementTest do
     end
 
     test "returns error for non-existent keystore" do
-      assert {:error, :not_found} = KeystoreManagement.get_keystore(-1)
+      assert {:error, :not_found} = KeystoreManagement.get_keystore(Uniq.UUID.uuid7())
     end
   end
 
@@ -108,7 +108,7 @@ defmodule PkiCaEngine.KeystoreManagementTest do
     end
 
     test "returns error for non-existent keystore" do
-      assert {:error, :not_found} = KeystoreManagement.update_keystore(-1, %{config: "x"})
+      assert {:error, :not_found} = KeystoreManagement.update_keystore(Uniq.UUID.uuid7(), %{config: "x"})
     end
   end
 

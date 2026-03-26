@@ -19,7 +19,6 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
   defp create_user! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:ctrl_#{System.unique_integer([:positive])}",
         display_name: "Controller Test User",
         role: "ra_officer"
       })
@@ -199,20 +198,11 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
     test "404 for non-existent CSR id", %{raw_key: raw_key} do
       conn =
-        auth_conn(:get, "/api/v1/csr/99999", nil, raw_key)
+        auth_conn(:get, "/api/v1/csr/#{Uniq.UUID.uuid7()}", nil, raw_key)
         |> Router.call(@opts)
 
       assert conn.status == 404
       assert json(conn)["error"] == "not_found"
-    end
-
-    test "400 for non-integer id", %{raw_key: raw_key} do
-      conn =
-        auth_conn(:get, "/api/v1/csr/not-a-number", nil, raw_key)
-        |> Router.call(@opts)
-
-      assert conn.status == 400
-      assert json(conn)["error"] =~ "invalid id"
     end
   end
 
@@ -253,7 +243,7 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
       body = %{"reviewer_user_id" => user.id}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/99999/approve", body, raw_key)
+        auth_conn(:post, "/api/v1/csr/#{Uniq.UUID.uuid7()}/approve", body, raw_key)
         |> Router.call(@opts)
 
       assert conn.status in [404, 422]

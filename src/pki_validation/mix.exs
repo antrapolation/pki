@@ -29,7 +29,8 @@ defmodule PkiValidation.MixProject do
       {:postgrex, "~> 0.18"},
       {:jason, "~> 1.4"},
       {:plug, "~> 1.16"},
-      {:plug_cowboy, "~> 2.7"}
+      {:plug_cowboy, "~> 2.7"},
+      {:uniq, "~> 0.6"}
     ]
   end
 

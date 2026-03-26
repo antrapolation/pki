@@ -14,9 +14,9 @@ defmodule PkiRaPortalWeb.UsersLiveTest do
     {:ok, _view, html} = live(conn, "/users")
 
     assert html =~ "User Management"
-    assert html =~ "did:ssdid:raadmin1"
+    assert html =~ "raadmin1"
     assert html =~ "RA Admin One"
-    assert html =~ "did:ssdid:raofficer1"
+    assert html =~ "raofficer1"
     assert html =~ "RA Officer One"
   end
 
@@ -26,13 +26,13 @@ defmodule PkiRaPortalWeb.UsersLiveTest do
     html =
       view
       |> form("#create-user-form form", %{
-        did: "did:ssdid:new1",
+        username: "newuser1",
         display_name: "New User",
         role: "ra_officer"
       })
       |> render_submit()
 
-    assert html =~ "did:ssdid:new1"
+    assert html =~ "newuser1"
     assert html =~ "New User"
   end
 

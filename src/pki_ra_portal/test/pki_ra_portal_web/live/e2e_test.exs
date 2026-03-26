@@ -7,6 +7,8 @@ defmodule PkiRaPortalWeb.E2ETest do
 
   import Phoenix.LiveViewTest
 
+  @csr1_id "019577b0-0010-7000-8000-000000000010"
+
   describe "RA admin full journey" do
     @admin %{id: 1, username: "raadmin1", role: "ra_admin"}
 
@@ -28,13 +30,13 @@ defmodule PkiRaPortalWeb.E2ETest do
       html =
         users_view
         |> form("#create-user-form form", %{
-          did: "did:ssdid:e2e_officer",
+          username: "e2e_officer",
           display_name: "E2E Officer",
           role: "ra_officer"
         })
         |> render_submit()
 
-      assert html =~ "did:ssdid:e2e_officer"
+      assert html =~ "e2e_officer"
       assert html =~ "E2E Officer"
 
       # Step 3: Navigate to cert profiles and create a profile
@@ -100,7 +102,7 @@ defmodule PkiRaPortalWeb.E2ETest do
       # Step 3: View CSR detail
       html =
         csrs_view
-        |> element("#csr-1 button", "View")
+        |> element("#csr-#{@csr1_id} button", "View")
         |> render_click()
 
       assert html =~ "CSR Detail"
@@ -113,7 +115,7 @@ defmodule PkiRaPortalWeb.E2ETest do
       # Step 5: Approve the CSR
       html =
         csrs_view
-        |> element("#csr-1 button", "Approve")
+        |> element("#csr-#{@csr1_id} button", "Approve")
         |> render_click()
 
       assert html =~ "CSR Management"
@@ -128,12 +130,12 @@ defmodule PkiRaPortalWeb.E2ETest do
       {:ok, csrs_view, _html} = live(conn, "/csrs")
 
       # Open CSR detail
-      csrs_view |> element("#csr-1 button", "View") |> render_click()
+      csrs_view |> element("#csr-#{@csr1_id} button", "View") |> render_click()
 
       # Reject with a reason
       html =
         csrs_view
-        |> form("#reject-form", %{csr_id: "1", reason: "Key too weak for policy"})
+        |> form("#reject-form", %{csr_id: @csr1_id, reason: "Key too weak for policy"})
         |> render_submit()
 
       # After rejection, detail is closed and list refreshed

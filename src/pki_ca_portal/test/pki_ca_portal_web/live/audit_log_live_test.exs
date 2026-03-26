@@ -16,8 +16,8 @@ defmodule PkiCaPortalWeb.AuditLogLiveTest do
     assert html =~ "Audit Log"
     assert html =~ "login"
     assert html =~ "key_generated"
-    assert html =~ "did:ssdid:admin1"
-    assert html =~ "did:ssdid:keymgr1"
+    assert html =~ "admin1"
+    assert html =~ "keymgr1"
   end
 
   test "filter event applies filters", %{conn: conn} do
@@ -27,7 +27,7 @@ defmodule PkiCaPortalWeb.AuditLogLiveTest do
       view
       |> form("#audit-filter form", %{
         action: "login",
-        actor_did: "did:ssdid:admin1",
+        actor: "admin1",
         date_from: "",
         date_to: ""
       })

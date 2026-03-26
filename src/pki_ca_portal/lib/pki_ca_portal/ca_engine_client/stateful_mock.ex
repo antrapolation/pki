@@ -4,9 +4,9 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
 
   Stores data in an Agent process, allowing integration tests to verify
   that user actions (form submits, button clicks) produce the expected
-  state changes through the full LiveView → Client → State round-trip.
+  state changes through the full LiveView -> Client -> State round-trip.
 
-  Unlike the static Mock, this implementation accumulates state —
+  Unlike the static Mock, this implementation accumulates state --
   a created user will appear in subsequent list_users calls.
   """
 
@@ -28,7 +28,7 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
       keystores: [],
       ceremonies: [],
       issuer_keys: [
-        %{id: 1, key_alias: "root-1", algorithm: "ML-DSA-65", status: "active", is_root: true}
+        %{id: Uniq.UUID.uuid7(), key_alias: "root-1", algorithm: "ML-DSA-65", status: "active", is_root: true}
       ],
       audit_events: [],
       id_counter: 100
@@ -36,13 +36,10 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   defp next_id do
-    Agent.get_and_update(__MODULE__, fn state ->
-      id = state.id_counter + 1
-      {id, %{state | id_counter: id}}
-    end)
+    Uniq.UUID.uuid7()
   end
 
-  # ── Callbacks ──────────────────────────────────────────────────────
+  # -- Callbacks --
 
   @impl true
   def list_users(_ca_instance_id) do
@@ -61,7 +58,7 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
       event = %{
         event_id: "evt-#{System.unique_integer([:positive])}",
         action: "user_created",
-        actor_did: Map.get(attrs, :did, "system"),
+        actor: Map.get(attrs, :username, "system"),
         timestamp: DateTime.utc_now()
       }
 
@@ -105,7 +102,7 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
       event = %{
         event_id: "evt-#{System.unique_integer([:positive])}",
         action: "keystore_configured",
-        actor_did: "system",
+        actor: "system",
         timestamp: DateTime.utc_now()
       }
 
@@ -142,7 +139,7 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
       event = %{
         event_id: "evt-#{System.unique_integer([:positive])}",
         action: "ceremony_initiated",
-        actor_did: "system",
+        actor: "system",
         timestamp: DateTime.utc_now()
       }
 
@@ -162,7 +159,7 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
     {:ok, Agent.get(__MODULE__, & &1.audit_events)}
   end
 
-  # ── Private ────────────────────────────────────────────────────────
+  # -- Private --
 
   defp provider_for_type("software"), do: "StrapSoftPrivKeyStoreProvider"
   defp provider_for_type("hsm"), do: "StrapSofthsmPrivKeyStoreProvider"

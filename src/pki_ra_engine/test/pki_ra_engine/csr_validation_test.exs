@@ -13,7 +13,6 @@ defmodule PkiRaEngine.CsrValidationTest do
   defp create_officer! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:officer_#{System.unique_integer([:positive])}",
         display_name: "Officer",
         role: "ra_officer"
       })
@@ -39,7 +38,7 @@ defmodule PkiRaEngine.CsrValidationTest do
     end
 
     test "fails with non-existent profile" do
-      assert {:error, _reason} = CsrValidation.submit_csr("some csr", 999_999)
+      assert {:error, _reason} = CsrValidation.submit_csr("some csr", Uniq.UUID.uuid7())
     end
   end
 
@@ -68,7 +67,7 @@ defmodule PkiRaEngine.CsrValidationTest do
       csr = submit_csr!(profile)
       # Remove FK constraint temporarily and delete the profile to simulate missing profile
       Repo.query!("ALTER TABLE csr_requests DROP CONSTRAINT csr_requests_cert_profile_id_fkey")
-      Repo.query!("DELETE FROM cert_profiles WHERE id = $1", [profile.id])
+      Repo.query!("DELETE FROM cert_profiles WHERE id = $1", [Ecto.UUID.dump!(profile.id)])
 
       assert {:ok, validated} = CsrValidation.validate_csr(csr.id)
       assert validated.status == "rejected"
@@ -165,7 +164,7 @@ defmodule PkiRaEngine.CsrValidationTest do
     end
 
     test "returns error for non-existent id" do
-      assert {:error, :not_found} = CsrValidation.get_csr(999_999)
+      assert {:error, :not_found} = CsrValidation.get_csr(Uniq.UUID.uuid7())
     end
   end
 
@@ -242,7 +241,7 @@ defmodule PkiRaEngine.CsrValidationTest do
     end
 
     test "validate_csr/1 returns error for non-existent CSR" do
-      assert {:error, :not_found} = CsrValidation.validate_csr(999_999)
+      assert {:error, :not_found} = CsrValidation.validate_csr(Uniq.UUID.uuid7())
     end
 
     test "double validation is rejected (verified -> verified is invalid)" do

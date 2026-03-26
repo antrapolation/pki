@@ -14,14 +14,14 @@ defmodule PkiCaPortalWeb.UsersLive do
        users: users,
        filtered_users: users,
        role_filter: "all",
-       form: to_form(%{"did" => "", "display_name" => "", "role" => "ca_admin"})
+       form: to_form(%{"username" => "", "display_name" => "", "role" => "ca_admin"})
      )}
   end
 
   @impl true
-  def handle_event("create_user", %{"did" => did, "display_name" => name, "role" => role}, socket) do
+  def handle_event("create_user", %{"username" => username, "display_name" => name, "role" => role}, socket) do
     ca_id = ca_instance_id(socket)
-    attrs = %{did: did, display_name: name, role: role}
+    attrs = %{username: username, display_name: name, role: role}
 
     case CaEngineClient.create_user(ca_id, attrs) do
       {:ok, user} ->
@@ -40,11 +40,9 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("delete_user", %{"id" => id}, socket) do
-    user_id = String.to_integer(id)
-
-    case CaEngineClient.delete_user(user_id) do
+    case CaEngineClient.delete_user(id) do
       {:ok, _} ->
-        users = Enum.reject(socket.assigns.users, &(&1.id == user_id))
+        users = Enum.reject(socket.assigns.users, &(&1.id == id))
         filtered = filter_users(users, socket.assigns.role_filter)
 
         {:noreply,
@@ -92,7 +90,7 @@ defmodule PkiCaPortalWeb.UsersLive do
         <table>
           <thead>
             <tr>
-              <th>DID</th>
+              <th>Username</th>
               <th>Name</th>
               <th>Role</th>
               <th>Status</th>
@@ -101,7 +99,7 @@ defmodule PkiCaPortalWeb.UsersLive do
           </thead>
           <tbody id="user-list">
             <tr :for={user <- @filtered_users} id={"user-#{user.id}"}>
-              <td>{user.did}</td>
+              <td>{user.username}</td>
               <td>{user.display_name}</td>
               <td>{user.role}</td>
               <td>{user.status}</td>
@@ -117,8 +115,8 @@ defmodule PkiCaPortalWeb.UsersLive do
         <h2>Create User</h2>
         <form phx-submit="create_user">
           <div>
-            <label for="did">DID:</label>
-            <input type="text" name="did" id="user-did" required />
+            <label for="username">Username:</label>
+            <input type="text" name="username" id="user-username" required />
           </div>
           <div>
             <label for="display_name">Display Name:</label>

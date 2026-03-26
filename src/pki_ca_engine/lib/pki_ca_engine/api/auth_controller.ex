@@ -42,8 +42,7 @@ defmodule PkiCaEngine.Api.AuthController do
 
   def needs_setup(conn) do
     case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id_str} ->
-        ca_instance_id = String.to_integer(ca_instance_id_str)
+      %{"ca_instance_id" => ca_instance_id} ->
         json(conn, 200, %{needs_setup: UserManagement.needs_setup?(ca_instance_id)})
 
       _ ->
@@ -57,7 +56,6 @@ defmodule PkiCaEngine.Api.AuthController do
     |> maybe_put(:password, params["password"])
     |> maybe_put(:display_name, params["display_name"])
     |> maybe_put(:role, params["role"])
-    |> maybe_put(:did, params["did"])
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -71,7 +69,6 @@ defmodule PkiCaEngine.Api.AuthController do
       role: user.role,
       status: user.status,
       ca_instance_id: user.ca_instance_id,
-      did: user.did,
       inserted_at: user.inserted_at,
       updated_at: user.updated_at
     }

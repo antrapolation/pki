@@ -21,7 +21,7 @@ defmodule PkiCaEngine.UserManagement do
   Registers a new user with username and password.
   Used for bootstrap setup and admin-created users.
   """
-  @spec register_user(integer(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
+  @spec register_user(String.t(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
   def register_user(ca_instance_id, attrs) do
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
 
@@ -64,7 +64,7 @@ defmodule PkiCaEngine.UserManagement do
   Returns true if no users exist for the given CA instance.
   Used to determine if bootstrap setup is needed.
   """
-  @spec needs_setup?(integer()) :: boolean()
+  @spec needs_setup?(String.t()) :: boolean()
   def needs_setup?(ca_instance_id) do
     count = Repo.one(from u in CaUser, where: u.ca_instance_id == ^ca_instance_id, select: count(u.id))
     count == 0
@@ -73,7 +73,7 @@ defmodule PkiCaEngine.UserManagement do
   @doc """
   Creates a user for the given CA instance (without password, legacy).
   """
-  @spec create_user(integer(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t()}
+  @spec create_user(String.t(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t()}
   def create_user(ca_instance_id, attrs) do
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
 
@@ -85,7 +85,7 @@ defmodule PkiCaEngine.UserManagement do
   @doc """
   Lists users for a CA instance. Accepts optional `role:` filter.
   """
-  @spec list_users(integer(), keyword()) :: [CaUser.t()]
+  @spec list_users(String.t(), keyword()) :: [CaUser.t()]
   def list_users(ca_instance_id, opts \\ []) do
     query = from(u in CaUser, where: u.ca_instance_id == ^ca_instance_id)
 
@@ -101,7 +101,7 @@ defmodule PkiCaEngine.UserManagement do
   @doc """
   Gets a user by ID.
   """
-  @spec get_user(integer()) :: {:ok, CaUser.t()} | {:error, :not_found}
+  @spec get_user(String.t()) :: {:ok, CaUser.t()} | {:error, :not_found}
   def get_user(id) do
     case Repo.get(CaUser, id) do
       nil -> {:error, :not_found}
@@ -110,9 +110,9 @@ defmodule PkiCaEngine.UserManagement do
   end
 
   @doc """
-  Updates a user's display_name or status. Role and DID cannot be changed.
+  Updates a user's display_name or status. Role cannot be changed.
   """
-  @spec update_user(integer(), map()) :: {:ok, CaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec update_user(String.t(), map()) :: {:ok, CaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_user(id, attrs) do
     case Repo.get(CaUser, id) do
       nil ->
@@ -128,7 +128,7 @@ defmodule PkiCaEngine.UserManagement do
   @doc """
   Soft-deletes a user by setting status to "suspended".
   """
-  @spec delete_user(integer()) :: {:ok, CaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec delete_user(String.t()) :: {:ok, CaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def delete_user(id) do
     update_user(id, %{status: "suspended"})
   end

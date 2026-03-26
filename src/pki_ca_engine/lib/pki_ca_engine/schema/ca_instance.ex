@@ -2,6 +2,9 @@ defmodule PkiCaEngine.Schema.CaInstance do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   @statuses ["initialized", "active", "suspended"]
 
   schema "ca_instances" do
@@ -24,5 +27,14 @@ defmodule PkiCaEngine.Schema.CaInstance do
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:name)
+    |> maybe_generate_id()
+  end
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
   end
 end

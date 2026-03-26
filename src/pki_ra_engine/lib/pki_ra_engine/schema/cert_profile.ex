@@ -2,6 +2,9 @@ defmodule PkiRaEngine.Schema.CertProfile do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   schema "cert_profiles" do
     field :name, :string
     field :subject_dn_policy, :map, default: %{}
@@ -49,5 +52,14 @@ defmodule PkiRaEngine.Schema.CertProfile do
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> unique_constraint(:name)
+    |> maybe_generate_id()
+  end
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
   end
 end

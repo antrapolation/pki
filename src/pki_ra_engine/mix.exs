@@ -42,6 +42,7 @@ defmodule PkiRaEngine.MixProject do
       {:plug, "~> 1.16"},
       {:plug_cowboy, "~> 2.7"},
       {:req, "~> 0.5"},
+      {:uniq, "~> 0.6"},
       {:x509, path: "../x509"},
       {:ex_ccrypto, path: "../ex_ccrypto"}
     ]

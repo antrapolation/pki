@@ -12,7 +12,6 @@ defmodule PkiRaEngine.Api.RouterTest do
   defp create_user! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:api_#{System.unique_integer([:positive])}",
         display_name: "API User",
         role: "ra_officer"
       })
@@ -167,7 +166,7 @@ defmodule PkiRaEngine.Api.RouterTest do
       raw_key = create_api_key!(user)
 
       conn =
-        auth_conn(:get, "/api/v1/csr/999999", nil, raw_key)
+        auth_conn(:get, "/api/v1/csr/#{Uniq.UUID.uuid7()}", nil, raw_key)
         |> Router.call(@opts)
 
       assert conn.status == 404
@@ -257,44 +256,18 @@ defmodule PkiRaEngine.Api.RouterTest do
     end
   end
 
-  describe "D11: non-integer path ID returns 400" do
-    test "GET /api/v1/csr/abc returns 400" do
+  describe "D11: non-existent UUID path ID returns 404" do
+    test "GET /api/v1/csr/<uuid> returns 404 for non-existent" do
       user = create_user!()
       raw_key = create_api_key!(user)
 
       conn =
-        auth_conn(:get, "/api/v1/csr/abc", nil, raw_key)
+        auth_conn(:get, "/api/v1/csr/#{Uniq.UUID.uuid7()}", nil, raw_key)
         |> Router.call(@opts)
 
-      assert conn.status == 400
+      assert conn.status == 404
       resp = json_response(conn)
-      assert resp["error"] =~ "invalid id"
-    end
-
-    test "POST /api/v1/csr/abc/approve returns 400" do
-      user = create_user!()
-      raw_key = create_api_key!(user)
-
-      conn =
-        auth_conn(:post, "/api/v1/csr/abc/approve", %{"reviewer_user_id" => 1}, raw_key)
-        |> Router.call(@opts)
-
-      assert conn.status == 400
-      resp = json_response(conn)
-      assert resp["error"] =~ "invalid id"
-    end
-
-    test "POST /api/v1/csr/abc/reject returns 400" do
-      user = create_user!()
-      raw_key = create_api_key!(user)
-
-      conn =
-        auth_conn(:post, "/api/v1/csr/abc/reject", %{"reviewer_user_id" => 1, "reason" => "test"}, raw_key)
-        |> Router.call(@opts)
-
-      assert conn.status == 400
-      resp = json_response(conn)
-      assert resp["error"] =~ "invalid id"
+      assert resp["error"] == "not_found"
     end
   end
 

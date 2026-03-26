@@ -40,7 +40,6 @@ defmodule PkiRaEngine.IntegrationTest do
   defp create_officer! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:officer_#{System.unique_integer([:positive])}",
         display_name: "RA Officer",
         role: "ra_officer"
       })
@@ -252,7 +251,7 @@ defmodule PkiRaEngine.IntegrationTest do
 
       submit_body = %{
         "csr_pem" => @valid_csr_pem,
-        "cert_profile_id" => 999_999
+        "cert_profile_id" => Uniq.UUID.uuid7()
       }
 
       conn =

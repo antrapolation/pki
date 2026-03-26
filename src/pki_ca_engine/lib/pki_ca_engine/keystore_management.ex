@@ -19,7 +19,7 @@ defmodule PkiCaEngine.KeystoreManagement do
   @doc """
   Creates a keystore configuration for a CA instance.
   """
-  @spec configure_keystore(integer(), map()) :: {:ok, Keystore.t()} | {:error, Ecto.Changeset.t()}
+  @spec configure_keystore(String.t(), map()) :: {:ok, Keystore.t()} | {:error, Ecto.Changeset.t()}
   def configure_keystore(ca_instance_id, attrs) do
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
 
@@ -31,7 +31,7 @@ defmodule PkiCaEngine.KeystoreManagement do
   @doc """
   Lists all keystores for a CA instance.
   """
-  @spec list_keystores(integer()) :: [Keystore.t()]
+  @spec list_keystores(String.t()) :: [Keystore.t()]
   def list_keystores(ca_instance_id) do
     from(k in Keystore, where: k.ca_instance_id == ^ca_instance_id)
     |> Repo.all()
@@ -40,7 +40,7 @@ defmodule PkiCaEngine.KeystoreManagement do
   @doc """
   Gets a keystore by ID.
   """
-  @spec get_keystore(integer()) :: {:ok, Keystore.t()} | {:error, :not_found}
+  @spec get_keystore(String.t()) :: {:ok, Keystore.t()} | {:error, :not_found}
   def get_keystore(id) do
     case Repo.get(Keystore, id) do
       nil -> {:error, :not_found}
@@ -51,7 +51,7 @@ defmodule PkiCaEngine.KeystoreManagement do
   @doc """
   Updates a keystore's config or status.
   """
-  @spec update_keystore(integer(), map()) :: {:ok, Keystore.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec update_keystore(String.t(), map()) :: {:ok, Keystore.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_keystore(id, attrs) do
     case Repo.get(Keystore, id) do
       nil ->
@@ -67,7 +67,7 @@ defmodule PkiCaEngine.KeystoreManagement do
   @doc """
   Returns only active keystores for a CA instance.
   """
-  @spec available_keystores(integer()) :: [Keystore.t()]
+  @spec available_keystores(String.t()) :: [Keystore.t()]
   def available_keystores(ca_instance_id) do
     from(k in Keystore,
       where: k.ca_instance_id == ^ca_instance_id and k.status == "active"

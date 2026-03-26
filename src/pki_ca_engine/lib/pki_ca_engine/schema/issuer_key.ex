@@ -2,6 +2,9 @@ defmodule PkiCaEngine.Schema.IssuerKey do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   @statuses ["pending", "active", "suspended", "archived"]
 
   schema "issuer_keys" do
@@ -34,6 +37,7 @@ defmodule PkiCaEngine.Schema.IssuerKey do
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:ca_instance_id)
     |> unique_constraint([:ca_instance_id, :key_alias])
+    |> maybe_generate_id()
   end
 
   @doc """
@@ -63,5 +67,13 @@ defmodule PkiCaEngine.Schema.IssuerKey do
   def certificate_changeset(key, attrs) do
     key
     |> cast(attrs, [:certificate_der, :certificate_pem])
+  end
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
   end
 end

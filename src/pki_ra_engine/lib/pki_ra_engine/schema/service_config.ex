@@ -2,6 +2,9 @@ defmodule PkiRaEngine.Schema.ServiceConfig do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   @service_types ["csr_web", "crl", "ldap", "ocsp"]
 
   schema "service_configs" do
@@ -36,7 +39,16 @@ defmodule PkiRaEngine.Schema.ServiceConfig do
     |> validate_required(@required_fields)
     |> validate_inclusion(:service_type, @service_types)
     |> unique_constraint(:service_type)
+    |> maybe_generate_id()
   end
 
   def service_types, do: @service_types
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
+  end
 end

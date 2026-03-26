@@ -8,8 +8,7 @@ defmodule PkiCaEngine.Api.StatusController do
 
   def show(conn) do
     case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id_str} ->
-        ca_instance_id = String.to_integer(ca_instance_id_str)
+      %{"ca_instance_id" => ca_instance_id} ->
         issuer_keys = IssuerKeyManagement.list_issuer_keys(ca_instance_id)
 
         active_keys = Enum.count(issuer_keys, &(&1.status == "active"))

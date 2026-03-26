@@ -16,9 +16,11 @@ defmodule PkiValidation.Schema.CertificateStatus do
     remove_from_crl privilege_withdrawn aa_compromise
   )
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+
   schema "certificate_status" do
     field :serial_number, :string
-    field :issuer_key_id, :integer
+    field :issuer_key_id, :binary_id
     field :subject_dn, :string
     field :status, :string, default: "active"
     field :not_before, :utc_datetime_usec
@@ -38,11 +40,19 @@ defmodule PkiValidation.Schema.CertificateStatus do
   def changeset(certificate_status, attrs) do
     certificate_status
     |> cast(attrs, @required_fields ++ @optional_fields)
+    |> maybe_generate_id()
     |> validate_required(@required_fields)
     |> validate_inclusion(:status, @valid_statuses)
     |> validate_inclusion(:revocation_reason, @valid_revocation_reasons)
     |> validate_revocation_fields()
     |> unique_constraint(:serial_number)
+  end
+
+  defp maybe_generate_id(changeset) do
+    case get_field(changeset, :id) do
+      nil -> put_change(changeset, :id, Uniq.UUID.uuid7())
+      _ -> changeset
+    end
   end
 
   defp validate_revocation_fields(changeset) do

@@ -14,7 +14,6 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
     {:ok, initiator} =
       Repo.insert(CaUser.changeset(%CaUser{}, %{
         ca_instance_id: ca.id,
-        did: "did:example:initiator-#{System.unique_integer([:positive])}",
         role: "key_manager"
       }))
 
@@ -24,7 +23,6 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         {:ok, user} =
           Repo.insert(CaUser.changeset(%CaUser{}, %{
             ca_instance_id: ca.id,
-            did: "did:example:custodian-#{i}-#{System.unique_integer([:positive])}",
             role: "key_manager"
           }))
         user
@@ -72,7 +70,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
     test "returns error when keystore does not exist", ctx do
       params = %{
         algorithm: "RSA-4096",
-        keystore_id: -1,
+        keystore_id: Uniq.UUID.uuid7(),
         threshold_k: 2,
         threshold_n: 3,
         initiated_by: ctx.initiator.id
@@ -119,7 +117,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
       }
 
       # Pass a non-existent ca_instance_id to trigger FK error in the transaction
-      assert {:error, _reason} = SyncCeremony.initiate(-999_999, params)
+      assert {:error, _reason} = SyncCeremony.initiate(Uniq.UUID.uuid7(), params)
     end
   end
 

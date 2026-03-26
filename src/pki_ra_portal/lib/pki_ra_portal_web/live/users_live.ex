@@ -17,8 +17,8 @@ defmodule PkiRaPortalWeb.UsersLive do
   end
 
   @impl true
-  def handle_event("create_user", %{"did" => did, "display_name" => name, "role" => role}, socket) do
-    attrs = %{did: did, display_name: name, role: role}
+  def handle_event("create_user", %{"username" => username, "display_name" => name, "role" => role}, socket) do
+    attrs = %{username: username, display_name: name, role: role}
 
     case RaEngineClient.create_user(attrs) do
       {:ok, user} ->
@@ -37,11 +37,9 @@ defmodule PkiRaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("delete_user", %{"id" => id}, socket) do
-    user_id = String.to_integer(id)
-
-    case RaEngineClient.delete_user(user_id) do
+    case RaEngineClient.delete_user(id) do
       {:ok, _} ->
-        users = Enum.reject(socket.assigns.users, &(&1.id == user_id))
+        users = Enum.reject(socket.assigns.users, &(&1.id == id))
         filtered = filter_users(users, socket.assigns.role_filter)
 
         {:noreply,
@@ -85,7 +83,7 @@ defmodule PkiRaPortalWeb.UsersLive do
         <table>
           <thead>
             <tr>
-              <th>DID</th>
+              <th>Username</th>
               <th>Name</th>
               <th>Role</th>
               <th>Status</th>
@@ -94,7 +92,7 @@ defmodule PkiRaPortalWeb.UsersLive do
           </thead>
           <tbody id="user-list">
             <tr :for={user <- @filtered_users} id={"user-#{user.id}"}>
-              <td>{user.did}</td>
+              <td>{user.username}</td>
               <td>{user.display_name}</td>
               <td>{user.role}</td>
               <td>{user.status}</td>
@@ -110,8 +108,8 @@ defmodule PkiRaPortalWeb.UsersLive do
         <h2>Create User</h2>
         <form phx-submit="create_user">
           <div>
-            <label for="did">DID:</label>
-            <input type="text" name="did" id="user-did" required />
+            <label for="username">Username:</label>
+            <input type="text" name="username" id="user-username" required />
           </div>
           <div>
             <label for="display_name">Display Name:</label>

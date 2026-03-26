@@ -8,8 +8,7 @@ defmodule PkiCaEngine.Api.IssuerKeyController do
 
   def index(conn) do
     case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id_str} ->
-        ca_instance_id = String.to_integer(ca_instance_id_str)
+      %{"ca_instance_id" => ca_instance_id} ->
         opts = if status = conn.query_params["status"], do: [status: status], else: []
         keys = IssuerKeyManagement.list_issuer_keys(ca_instance_id, opts)
         json(conn, 200, %{data: Enum.map(keys, &serialize_issuer_key/1)})

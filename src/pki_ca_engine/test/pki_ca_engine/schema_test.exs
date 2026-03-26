@@ -12,7 +12,7 @@ defmodule PkiCaEngine.SchemaTest do
     IssuedCertificate
   }
 
-  # ── CaInstance ──────────────────────────────────────────────────────
+  # -- CaInstance --
 
   describe "CaInstance" do
     @valid_attrs %{name: "test-ca", status: "active", created_by: "admin"}
@@ -42,9 +42,14 @@ defmodule PkiCaEngine.SchemaTest do
 
       assert %{name: ["has already been taken"]} = errors_on(changeset)
     end
+
+    test "generates UUIDv7 id" do
+      changeset = CaInstance.changeset(%CaInstance{}, @valid_attrs)
+      assert is_binary(Ecto.Changeset.get_field(changeset, :id))
+    end
   end
 
-  # ── CaUser ──────────────────────────────────────────────────────────
+  # -- CaUser --
 
   describe "CaUser" do
     setup do
@@ -53,7 +58,7 @@ defmodule PkiCaEngine.SchemaTest do
     end
 
     test "valid changeset", %{ca: ca} do
-      attrs = %{ca_instance_id: ca.id, did: "did:example:123", display_name: "Alice", role: "ca_admin"}
+      attrs = %{ca_instance_id: ca.id, display_name: "Alice", role: "ca_admin"}
       changeset = CaUser.changeset(%CaUser{}, attrs)
       assert changeset.valid?
     end
@@ -66,28 +71,27 @@ defmodule PkiCaEngine.SchemaTest do
     end
 
     test "invalid role rejected", %{ca: ca} do
-      attrs = %{ca_instance_id: ca.id, did: "did:example:123", role: "superadmin"}
+      attrs = %{ca_instance_id: ca.id, role: "superadmin"}
       changeset = CaUser.changeset(%CaUser{}, attrs)
       refute changeset.valid?
       assert %{role: [_]} = errors_on(changeset)
     end
 
     test "invalid status rejected", %{ca: ca} do
-      attrs = %{ca_instance_id: ca.id, did: "did:example:123", role: "ca_admin", status: "deleted"}
+      attrs = %{ca_instance_id: ca.id, role: "ca_admin", status: "deleted"}
       changeset = CaUser.changeset(%CaUser{}, attrs)
       refute changeset.valid?
       assert %{status: [_]} = errors_on(changeset)
     end
 
-    test "unique ca_instance_id + did constraint", %{ca: ca} do
-      attrs = %{ca_instance_id: ca.id, did: "did:example:123", role: "ca_admin"}
-      {:ok, _} = Repo.insert(CaUser.changeset(%CaUser{}, attrs))
-      {:error, changeset} = Repo.insert(CaUser.changeset(%CaUser{}, attrs))
-      assert %{ca_instance_id: ["has already been taken"]} = errors_on(changeset)
+    test "generates UUIDv7 id", %{ca: ca} do
+      attrs = %{ca_instance_id: ca.id, role: "ca_admin"}
+      changeset = CaUser.changeset(%CaUser{}, attrs)
+      assert is_binary(Ecto.Changeset.get_field(changeset, :id))
     end
   end
 
-  # ── Keystore ────────────────────────────────────────────────────────
+  # -- Keystore --
 
   describe "Keystore" do
     setup do
@@ -123,7 +127,7 @@ defmodule PkiCaEngine.SchemaTest do
     end
   end
 
-  # ── IssuerKey ───────────────────────────────────────────────────────
+  # -- IssuerKey --
 
   describe "IssuerKey" do
     setup do
@@ -159,13 +163,13 @@ defmodule PkiCaEngine.SchemaTest do
     end
   end
 
-  # ── KeypairAccess ───────────────────────────────────────────────────
+  # -- KeypairAccess --
 
   describe "KeypairAccess" do
     setup do
       {:ok, ca} = Repo.insert(CaInstance.changeset(%CaInstance{}, %{name: "kpa-ca", created_by: "admin"}))
-      {:ok, user} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, did: "did:kpa:1", role: "key_manager"}))
-      {:ok, granter} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, did: "did:kpa:2", role: "ca_admin"}))
+      {:ok, user} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, role: "key_manager"}))
+      {:ok, granter} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, role: "ca_admin"}))
       {:ok, key} = Repo.insert(IssuerKey.changeset(%IssuerKey{}, %{ca_instance_id: ca.id, key_alias: "kpa-key", algorithm: "ML-DSA-65"}))
       %{key: key, user: user, granter: granter}
     end
@@ -191,12 +195,12 @@ defmodule PkiCaEngine.SchemaTest do
     end
   end
 
-  # ── ThresholdShare ──────────────────────────────────────────────────
+  # -- ThresholdShare --
 
   describe "ThresholdShare" do
     setup do
       {:ok, ca} = Repo.insert(CaInstance.changeset(%CaInstance{}, %{name: "ts-ca", created_by: "admin"}))
-      {:ok, user} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, did: "did:ts:1", role: "key_manager"}))
+      {:ok, user} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, role: "key_manager"}))
       {:ok, key} = Repo.insert(IssuerKey.changeset(%IssuerKey{}, %{ca_instance_id: ca.id, key_alias: "ts-key", algorithm: "ML-DSA-65"}))
       %{key: key, user: user}
     end
@@ -236,12 +240,12 @@ defmodule PkiCaEngine.SchemaTest do
     end
   end
 
-  # ── KeyCeremony ─────────────────────────────────────────────────────
+  # -- KeyCeremony --
 
   describe "KeyCeremony" do
     setup do
       {:ok, ca} = Repo.insert(CaInstance.changeset(%CaInstance{}, %{name: "kc-ca", created_by: "admin"}))
-      {:ok, user} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, did: "did:kc:1", role: "ca_admin"}))
+      {:ok, user} = Repo.insert(CaUser.changeset(%CaUser{}, %{ca_instance_id: ca.id, role: "ca_admin"}))
       {:ok, ks} = Repo.insert(Keystore.changeset(%Keystore{}, %{ca_instance_id: ca.id, type: "software"}))
       %{ca: ca, user: user, keystore: ks}
     end
@@ -282,7 +286,7 @@ defmodule PkiCaEngine.SchemaTest do
     end
   end
 
-  # ── IssuedCertificate ───────────────────────────────────────────────
+  # -- IssuedCertificate --
 
   describe "IssuedCertificate" do
     setup do
@@ -338,7 +342,7 @@ defmodule PkiCaEngine.SchemaTest do
     end
   end
 
-  # ── Helper ──────────────────────────────────────────────────────────
+  # -- Helper --
 
   defp errors_on(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->

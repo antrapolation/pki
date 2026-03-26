@@ -4,6 +4,7 @@ defmodule PkiRaPortalWeb.ApiKeysLiveTest do
   import Phoenix.LiveViewTest
 
   @user %{id: 1, username: "raadmin1", role: "ra_admin"}
+  @apikey1_id "019577b0-0040-7000-8000-000000000040"
 
   setup %{conn: conn} do
     conn = init_test_session(conn, %{current_user: @user})
@@ -51,7 +52,7 @@ defmodule PkiRaPortalWeb.ApiKeysLiveTest do
 
     html =
       view
-      |> element("#api-key-1 button", "Revoke")
+      |> element("#api-key-#{@apikey1_id} button", "Revoke")
       |> render_click()
 
     # After revoking, the key status should change

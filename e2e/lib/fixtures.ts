@@ -13,11 +13,6 @@ export function uniqueUsername(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Backward compatibility alias
-export function uniqueDid(prefix: string): string {
-  return uniqueUsername(prefix);
-}
-
 export function uniqueName(prefix: string): string {
   return `${prefix}-${Date.now()}`;
 }

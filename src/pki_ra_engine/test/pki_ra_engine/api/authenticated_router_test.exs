@@ -19,7 +19,6 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
   defp create_user! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:auth_#{System.unique_integer([:positive])}",
         display_name: "Auth Test User",
         role: "ra_officer"
       })

@@ -7,7 +7,7 @@ defmodule PkiCaPortalWeb.PageControllerTest do
   end
 
   test "GET / renders home page when authenticated", %{conn: conn} do
-    user = %{did: "did:ssdid:admin1", role: "ca_admin", ca_instance_id: 1}
+    user = %{id: 1, username: "admin1", role: "ca_admin", ca_instance_id: 1}
 
     conn =
       conn

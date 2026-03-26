@@ -35,24 +35,18 @@ defmodule PkiRaEngine.Api.CsrController do
   end
 
   def show(conn, id) do
-    with {:ok, int_id} <- parse_id(id) do
-      case CsrValidation.get_csr(int_id) do
-        {:ok, csr} ->
-          json_resp(conn, 200, %{data: serialize_csr(csr)})
+    case CsrValidation.get_csr(id) do
+      {:ok, csr} ->
+        json_resp(conn, 200, %{data: serialize_csr(csr)})
 
-        {:error, :not_found} ->
-          not_found(conn)
-      end
-    else
-      :error ->
-        bad_request(conn, "invalid id: must be an integer")
+      {:error, :not_found} ->
+        not_found(conn)
     end
   end
 
   def approve(conn, id) do
-    with {:ok, int_id} <- parse_id(id),
-         {:ok, reviewer_user_id} <- fetch_param(conn.body_params, "reviewer_user_id") do
-      case CsrValidation.approve_csr(int_id, reviewer_user_id) do
+    with {:ok, reviewer_user_id} <- fetch_param(conn.body_params, "reviewer_user_id") do
+      case CsrValidation.approve_csr(id, reviewer_user_id) do
         {:ok, csr} ->
           json_resp(conn, 200, %{data: serialize_csr(csr)})
 
@@ -63,19 +57,15 @@ defmodule PkiRaEngine.Api.CsrController do
           unprocessable(conn, inspect(reason))
       end
     else
-      :error ->
-        bad_request(conn, "invalid id: must be an integer")
-
       {:error, missing_field} ->
         unprocessable(conn, "missing required field: #{missing_field}")
     end
   end
 
   def reject(conn, id) do
-    with {:ok, int_id} <- parse_id(id),
-         {:ok, reviewer_user_id} <- fetch_param(conn.body_params, "reviewer_user_id"),
+    with {:ok, reviewer_user_id} <- fetch_param(conn.body_params, "reviewer_user_id"),
          {:ok, reason} <- fetch_param(conn.body_params, "reason") do
-      case CsrValidation.reject_csr(int_id, reviewer_user_id, reason) do
+      case CsrValidation.reject_csr(id, reviewer_user_id, reason) do
         {:ok, csr} ->
           json_resp(conn, 200, %{data: serialize_csr(csr)})
 
@@ -86,22 +76,12 @@ defmodule PkiRaEngine.Api.CsrController do
           unprocessable(conn, inspect(reason))
       end
     else
-      :error ->
-        bad_request(conn, "invalid id: must be an integer")
-
       {:error, missing_field} ->
         unprocessable(conn, "missing required field: #{missing_field}")
     end
   end
 
-  # ── Private ─────────────────────────────────────────────────────────
-
-  defp parse_id(id) do
-    case Integer.parse(id) do
-      {int_id, ""} -> {:ok, int_id}
-      _ -> :error
-    end
-  end
+  # -- Private ---------------------------------------------------------------
 
   defp fetch_param(params, key) do
     case Map.fetch(params, key) do
@@ -113,7 +93,7 @@ defmodule PkiRaEngine.Api.CsrController do
   defp build_filters(query_params) do
     []
     |> maybe_add_filter(query_params, "status", :status)
-    |> maybe_add_filter(query_params, "cert_profile_id", :cert_profile_id, &String.to_integer/1)
+    |> maybe_add_filter(query_params, "cert_profile_id", :cert_profile_id)
   end
 
   defp maybe_add_filter(filters, params, key, filter_key, transform \\ & &1) do
@@ -155,6 +135,5 @@ defmodule PkiRaEngine.Api.CsrController do
   end
 
   defp not_found(conn), do: json_resp(conn, 404, %{error: "not_found"})
-  defp bad_request(conn, msg), do: json_resp(conn, 400, %{error: msg})
   defp unprocessable(conn, reason), do: json_resp(conn, 422, %{error: reason})
 end

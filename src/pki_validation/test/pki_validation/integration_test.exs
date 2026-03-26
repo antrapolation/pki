@@ -16,7 +16,7 @@ defmodule PkiValidation.IntegrationTest do
       # Insert test certificates
       insert_cert(%{
         serial_number: "INT001",
-        issuer_key_id: 1,
+        issuer_key_id: "019577a0-0000-7000-8000-000000000001",
         subject_dn: "CN=active.example.com,O=Test,C=MY",
         status: "active",
         not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -25,7 +25,7 @@ defmodule PkiValidation.IntegrationTest do
 
       insert_cert(%{
         serial_number: "INT002",
-        issuer_key_id: 1,
+        issuer_key_id: "019577a0-0000-7000-8000-000000000001",
         subject_dn: "CN=revoked.example.com,O=Test,C=MY",
         status: "revoked",
         not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -36,7 +36,7 @@ defmodule PkiValidation.IntegrationTest do
 
       insert_cert(%{
         serial_number: "INT003",
-        issuer_key_id: 1,
+        issuer_key_id: "019577a0-0000-7000-8000-000000000001",
         subject_dn: "CN=another-revoked.example.com,O=Test,C=MY",
         status: "revoked",
         not_before: ~U[2026-01-01 00:00:00.000000Z],

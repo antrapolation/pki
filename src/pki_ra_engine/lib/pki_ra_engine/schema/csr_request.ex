@@ -2,6 +2,9 @@ defmodule PkiRaEngine.Schema.CsrRequest do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: false}
+  @foreign_key_type :binary_id
+
   @statuses ["pending", "verified", "approved", "rejected", "issued"]
 
   schema "csr_requests" do
@@ -38,7 +41,16 @@ defmodule PkiRaEngine.Schema.CsrRequest do
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:cert_profile_id)
     |> foreign_key_constraint(:reviewed_by)
+    |> maybe_generate_id()
   end
 
   def statuses, do: @statuses
+
+  defp maybe_generate_id(changeset) do
+    if get_field(changeset, :id) do
+      changeset
+    else
+      put_change(changeset, :id, Uniq.UUID.uuid7())
+    end
+  end
 end

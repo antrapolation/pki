@@ -27,7 +27,6 @@ defmodule PkiCaEngine.KeyCeremony.ThresholdValidationTest do
     {:ok, initiator} =
       Repo.insert(CaUser.changeset(%CaUser{}, %{
         ca_instance_id: ca.id,
-        did: "did:example:threshold-initiator-#{System.unique_integer([:positive])}",
         role: "key_manager"
       }))
 

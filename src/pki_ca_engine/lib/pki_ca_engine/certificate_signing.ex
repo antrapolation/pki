@@ -118,7 +118,7 @@ defmodule PkiCaEngine.CertificateSigning do
     IssuedCertificate
     |> where([c], c.issuer_key_id == ^issuer_key_id)
     |> apply_eq_filters(filters)
-    |> order_by(asc: :id)
+    |> order_by(asc: :inserted_at)
     |> Repo.all()
   end
 

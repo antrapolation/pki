@@ -56,7 +56,7 @@ defmodule PkiRaEngine.CertProfileConfigTest do
     end
 
     test "returns error for non-existent id" do
-      assert {:error, :not_found} = CertProfileConfig.get_profile(999_999)
+      assert {:error, :not_found} = CertProfileConfig.get_profile(Uniq.UUID.uuid7())
     end
   end
 
@@ -89,7 +89,7 @@ defmodule PkiRaEngine.CertProfileConfigTest do
     end
 
     test "returns error for non-existent profile" do
-      assert {:error, :not_found} = CertProfileConfig.update_profile(999_999, %{key_usage: "x"})
+      assert {:error, :not_found} = CertProfileConfig.update_profile(Uniq.UUID.uuid7(), %{key_usage: "x"})
     end
   end
 
@@ -101,7 +101,7 @@ defmodule PkiRaEngine.CertProfileConfigTest do
     end
 
     test "returns error for non-existent profile" do
-      assert {:error, :not_found} = CertProfileConfig.delete_profile(999_999)
+      assert {:error, :not_found} = CertProfileConfig.delete_profile(Uniq.UUID.uuid7())
     end
   end
 end

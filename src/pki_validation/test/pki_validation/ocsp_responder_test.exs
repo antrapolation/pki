@@ -6,7 +6,7 @@ defmodule PkiValidation.OcspResponderTest do
 
   @active_cert_attrs %{
     serial_number: "OCSP001",
-    issuer_key_id: 1,
+    issuer_key_id: "019577a0-0000-7000-8000-000000000001",
     subject_dn: "CN=active.example.com,O=Test,C=MY",
     status: "active",
     not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -15,7 +15,7 @@ defmodule PkiValidation.OcspResponderTest do
 
   @revoked_cert_attrs %{
     serial_number: "OCSP002",
-    issuer_key_id: 1,
+    issuer_key_id: "019577a0-0000-7000-8000-000000000001",
     subject_dn: "CN=revoked.example.com,O=Test,C=MY",
     status: "revoked",
     not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -26,7 +26,7 @@ defmodule PkiValidation.OcspResponderTest do
 
   @expired_cert_attrs %{
     serial_number: "OCSP003",
-    issuer_key_id: 1,
+    issuer_key_id: "019577a0-0000-7000-8000-000000000001",
     subject_dn: "CN=expired.example.com,O=Test,C=MY",
     status: "active",
     not_before: ~U[2024-01-01 00:00:00.000000Z],

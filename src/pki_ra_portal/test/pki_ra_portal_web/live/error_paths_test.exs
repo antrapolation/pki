@@ -11,6 +11,10 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
   import Phoenix.LiveViewTest
 
   @user %{id: 1, username: "raadmin1", role: "ra_admin"}
+  @user1_id "019577b0-0001-7000-8000-000000000001"
+  @csr1_id "019577b0-0010-7000-8000-000000000010"
+  @profile1_id "019577b0-0020-7000-8000-000000000020"
+  @apikey1_id "019577b0-0040-7000-8000-000000000040"
 
   setup %{conn: conn} do
     conn = init_test_session(conn, %{current_user: @user})
@@ -31,7 +35,7 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
 
       html =
         view
-        |> element("#csr-1 button", "Approve")
+        |> element("#csr-#{@csr1_id} button", "Approve")
         |> render_click()
 
       # View still works, CSR list preserved
@@ -43,13 +47,13 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
       {:ok, view, _html} = live(conn, "/csrs")
 
       # Open detail first to access reject form
-      view |> element("#csr-1 button", "View") |> render_click()
+      view |> element("#csr-#{@csr1_id} button", "View") |> render_click()
 
       Application.put_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.ErrorMock)
 
       html =
         view
-        |> form("#reject-form", %{csr_id: "1", reason: "Bad request"})
+        |> form("#reject-form", %{csr_id: @csr1_id, reason: "Bad request"})
         |> render_submit()
 
       # View still works
@@ -66,7 +70,7 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
       html =
         view
         |> form("#create-user-form form", %{
-          did: "did:ssdid:fail",
+          username: "failuser",
           display_name: "Fail User",
           role: "ra_officer"
         })
@@ -85,7 +89,7 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
 
       html =
         view
-        |> element("#user-1 button", "Suspend")
+        |> element("#user-#{@user1_id} button", "Suspend")
         |> render_click()
 
       # View still works, user not removed
@@ -124,7 +128,7 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
 
       html =
         view
-        |> element("#profile-1 button", "Delete")
+        |> element("#profile-#{@profile1_id} button", "Delete")
         |> render_click()
 
       # View still works, profile not removed
@@ -183,7 +187,7 @@ defmodule PkiRaPortalWeb.ErrorPathsTest do
 
       html =
         view
-        |> element("#api-key-1 button", "Revoke")
+        |> element("#api-key-#{@apikey1_id} button", "Revoke")
         |> render_click()
 
       # View still works

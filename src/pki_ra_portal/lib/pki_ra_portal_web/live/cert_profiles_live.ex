@@ -41,8 +41,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("edit_profile", %{"id" => id}, socket) do
-    profile_id = String.to_integer(id)
-    profile = Enum.find(socket.assigns.profiles, &(&1.id == profile_id))
+    profile = Enum.find(socket.assigns.profiles, &(&1.id == id))
     {:noreply, assign(socket, editing: profile)}
   end
 
@@ -53,7 +52,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("update_profile", params, socket) do
-    profile_id = String.to_integer(params["profile_id"])
+    profile_id = params["profile_id"]
 
     attrs = %{
       name: params["name"],
@@ -82,11 +81,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("delete_profile", %{"id" => id}, socket) do
-    profile_id = String.to_integer(id)
-
-    case RaEngineClient.delete_cert_profile(profile_id) do
+    case RaEngineClient.delete_cert_profile(id) do
       {:ok, _} ->
-        profiles = Enum.reject(socket.assigns.profiles, &(&1.id == profile_id))
+        profiles = Enum.reject(socket.assigns.profiles, &(&1.id == id))
 
         {:noreply,
          socket

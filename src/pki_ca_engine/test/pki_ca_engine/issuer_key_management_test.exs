@@ -81,7 +81,7 @@ defmodule PkiCaEngine.IssuerKeyManagementTest do
     end
 
     test "returns error for non-existent key" do
-      assert {:error, :not_found} = IssuerKeyManagement.get_issuer_key(-1)
+      assert {:error, :not_found} = IssuerKeyManagement.get_issuer_key(Uniq.UUID.uuid7())
     end
   end
 

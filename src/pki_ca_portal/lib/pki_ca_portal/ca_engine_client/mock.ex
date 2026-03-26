@@ -8,21 +8,29 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
 
   @behaviour PkiCaPortal.CaEngineClient
 
+  # Fixed UUIDv7 constants for deterministic test data
+  @user1_id "019577a0-0001-7000-8000-000000000001"
+  @user2_id "019577a0-0002-7000-8000-000000000002"
+  @keystore1_id "019577a0-0003-7000-8000-000000000003"
+  @keystore2_id "019577a0-0004-7000-8000-000000000004"
+  @ceremony1_id "019577a0-0005-7000-8000-000000000005"
+  @issuer_key1_id "019577a0-0006-7000-8000-000000000006"
+
   # --- Agent helpers ---
 
   defp initial_state do
     %{
       users: [
         %{
-          id: 1,
-          did: "did:ssdid:admin1",
+          id: @user1_id,
+          username: "admin1",
           display_name: "Admin One",
           role: "ca_admin",
           status: "active"
         },
         %{
-          id: 2,
-          did: "did:ssdid:keymgr1",
+          id: @user2_id,
+          username: "keymgr1",
           display_name: "Key Manager One",
           role: "key_manager",
           status: "active"
@@ -30,20 +38,20 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
       ],
       keystores: [
         %{
-          id: 1,
+          id: @keystore1_id,
           type: "software",
           status: "active",
           provider_name: "StrapSoftPrivKeyStoreProvider"
         },
         %{
-          id: 2,
+          id: @keystore2_id,
           type: "hsm",
           status: "inactive",
           provider_name: "StrapSofthsmPrivKeyStoreProvider"
         }
       ],
       ceremonies: [
-        %{id: 1, ceremony_type: "sync", status: "completed", algorithm: "ML-DSA-65"}
+        %{id: @ceremony1_id, ceremony_type: "sync", status: "completed", algorithm: "ML-DSA-65"}
       ],
       last_ceremony: nil
     }
@@ -86,7 +94,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
 
   @impl true
   def create_user(_ca_instance_id, attrs) do
-    user = Map.merge(%{id: System.unique_integer([:positive]), status: "active"}, attrs)
+    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end
@@ -100,7 +108,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
         {:ok,
          %{
            id: id,
-           did: "did:ssdid:user#{id}",
+           username: "user-#{id}",
            display_name: "User #{id}",
            role: "ca_admin",
            status: "active"
@@ -128,7 +136,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
       "hsm" -> "StrapSofthsmPrivKeyStoreProvider"
       _ -> "StrapSoftPrivKeyStoreProvider"
     end
-    keystore = Map.merge(%{id: System.unique_integer([:positive]), status: "active", provider_name: provider}, attrs)
+    keystore = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", provider_name: provider}, attrs)
     update_state(:keystores, fn keystores -> keystores ++ [keystore] end)
     {:ok, keystore}
   end
@@ -137,7 +145,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def list_issuer_keys(_ca_instance_id) do
     {:ok,
      [
-       %{id: 1, key_alias: "root-1", algorithm: "ML-DSA-65", status: "active", is_root: true}
+       %{id: @issuer_key1_id, key_alias: "root-1", algorithm: "ML-DSA-65", status: "active", is_root: true}
      ]}
   end
 
@@ -149,7 +157,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   @impl true
   def initiate_ceremony(_ca_instance_id, params) do
     ceremony = %{
-      id: System.unique_integer([:positive]),
+      id: Uniq.UUID.uuid7(),
       status: "initiated",
       ceremony_type: params[:ceremony_type] || "sync",
       algorithm: params[:algorithm]
@@ -167,12 +175,12 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
 
   @impl true
   def authenticate(username, _password) do
-    {:ok, %{id: 1, username: username, role: "ca_admin", display_name: "Mock Admin"}}
+    {:ok, %{id: @user1_id, username: username, role: "ca_admin", display_name: "Mock Admin"}}
   end
 
   @impl true
   def register_user(_ca_instance_id, attrs) do
-    user = Map.merge(%{id: System.unique_integer([:positive]), status: "active", role: "ca_admin"}, attrs)
+    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", role: "ca_admin"}, attrs)
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end
@@ -190,13 +198,13 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
        %{
          event_id: "evt-1",
          action: "login",
-         actor_did: "did:ssdid:admin1",
+         actor: "admin1",
          timestamp: DateTime.utc_now()
        },
        %{
          event_id: "evt-2",
          action: "key_generated",
-         actor_did: "did:ssdid:keymgr1",
+         actor: "keymgr1",
          timestamp: DateTime.utc_now()
        }
      ]}

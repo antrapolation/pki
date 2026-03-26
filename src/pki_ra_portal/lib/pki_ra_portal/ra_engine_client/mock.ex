@@ -8,28 +8,45 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @behaviour PkiRaPortal.RaEngineClient
 
+  # Fixed UUIDv7 constants for deterministic test data
+  @user1_id "019577b0-0001-7000-8000-000000000001"
+  @user2_id "019577b0-0002-7000-8000-000000000002"
+  @user3_id "019577b0-0003-7000-8000-000000000003"
+  @csr1_id "019577b0-0010-7000-8000-000000000010"
+  @csr2_id "019577b0-0011-7000-8000-000000000011"
+  @csr3_id "019577b0-0012-7000-8000-000000000012"
+  @csr4_id "019577b0-0013-7000-8000-000000000013"
+  @csr5_id "019577b0-0014-7000-8000-000000000014"
+  @profile1_id "019577b0-0020-7000-8000-000000000020"
+  @profile2_id "019577b0-0021-7000-8000-000000000021"
+  @svc1_id "019577b0-0030-7000-8000-000000000030"
+  @svc2_id "019577b0-0031-7000-8000-000000000031"
+  @svc3_id "019577b0-0032-7000-8000-000000000032"
+  @apikey1_id "019577b0-0040-7000-8000-000000000040"
+  @apikey2_id "019577b0-0041-7000-8000-000000000041"
+
   # --- Agent helpers ---
 
   defp initial_state do
     %{
       users: [
         %{
-          id: 1,
-          did: "did:ssdid:raadmin1",
+          id: @user1_id,
+          username: "raadmin1",
           display_name: "RA Admin One",
           role: "ra_admin",
           status: "active"
         },
         %{
-          id: 2,
-          did: "did:ssdid:raofficer1",
+          id: @user2_id,
+          username: "raofficer1",
           display_name: "RA Officer One",
           role: "ra_officer",
           status: "active"
         },
         %{
-          id: 3,
-          did: "did:ssdid:auditor1",
+          id: @user3_id,
+          username: "auditor1",
           display_name: "Auditor One",
           role: "auditor",
           status: "active"
@@ -37,59 +54,59 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
       ],
       csrs: [
         %{
-          id: 1,
+          id: @csr1_id,
           subject: "CN=example.com,O=Example Corp",
           status: "pending",
           profile_name: "TLS Server",
           submitted_at: ~U[2026-03-15 10:00:00Z],
-          requestor_did: "did:ssdid:requester1",
+          requestor: "requester1",
           public_key_algorithm: "RSA-2048",
           extensions: %{san: ["example.com", "www.example.com"]}
         },
         %{
-          id: 2,
+          id: @csr2_id,
           subject: "CN=api.example.com,O=Example Corp",
           status: "approved",
           profile_name: "TLS Server",
           submitted_at: ~U[2026-03-14 08:30:00Z],
-          requestor_did: "did:ssdid:requester2",
+          requestor: "requester2",
           public_key_algorithm: "RSA-2048",
           extensions: %{san: ["api.example.com"]}
         },
         %{
-          id: 3,
+          id: @csr3_id,
           subject: "CN=John Doe,O=Example Corp",
           status: "rejected",
           profile_name: "Client Auth",
           submitted_at: ~U[2026-03-13 14:20:00Z],
-          requestor_did: "did:ssdid:requester3",
+          requestor: "requester3",
           public_key_algorithm: "RSA-2048",
           extensions: %{}
         },
         %{
-          id: 4,
+          id: @csr4_id,
           subject: "CN=mail.example.com,O=Example Corp",
           status: "pending",
           profile_name: "TLS Server",
           submitted_at: ~U[2026-03-12 11:00:00Z],
-          requestor_did: "did:ssdid:requester4",
+          requestor: "requester4",
           public_key_algorithm: "RSA-2048",
           extensions: %{san: ["mail.example.com"]}
         },
         %{
-          id: 5,
+          id: @csr5_id,
           subject: "CN=verified.example.com,O=Example Corp",
           status: "verified",
           profile_name: "TLS Server",
           submitted_at: ~U[2026-03-12 09:00:00Z],
-          requestor_did: "did:ssdid:requester5",
+          requestor: "requester5",
           public_key_algorithm: "ML-DSA-65",
           extensions: %{san: ["verified.example.com"]}
         }
       ],
       cert_profiles: [
         %{
-          id: 1,
+          id: @profile1_id,
           name: "TLS Server",
           key_usage: "digitalSignature,keyEncipherment",
           ext_key_usage: "serverAuth",
@@ -97,7 +114,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           validity_days: 365
         },
         %{
-          id: 2,
+          id: @profile2_id,
           name: "Client Auth",
           key_usage: "digitalSignature",
           ext_key_usage: "clientAuth",
@@ -107,7 +124,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
       ],
       service_configs: [
         %{
-          id: 1,
+          id: @svc1_id,
           service_type: "OCSP Responder",
           port: 8080,
           url: "http://ocsp.example.com",
@@ -117,7 +134,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           status: "active"
         },
         %{
-          id: 2,
+          id: @svc2_id,
           service_type: "CRL Distribution",
           port: 8081,
           url: "http://crl.example.com",
@@ -127,7 +144,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           status: "active"
         },
         %{
-          id: 3,
+          id: @svc3_id,
           service_type: "TSA",
           port: 8082,
           url: "http://tsa.example.com",
@@ -139,7 +156,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
       ],
       api_keys: [
         %{
-          id: 1,
+          id: @apikey1_id,
           name: "Production API Key",
           prefix: "ra_prod_",
           created_at: ~U[2026-01-15 10:00:00Z],
@@ -147,7 +164,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           last_used_at: ~U[2026-03-15 09:00:00Z]
         },
         %{
-          id: 2,
+          id: @apikey2_id,
           name: "Staging API Key",
           prefix: "ra_stg_",
           created_at: ~U[2026-02-01 08:00:00Z],
@@ -190,7 +207,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @impl true
   def create_user(attrs) do
-    user = Map.merge(%{id: System.unique_integer([:positive]), status: "active"}, attrs)
+    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end
@@ -227,7 +244,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
            status: "pending",
            profile_name: "TLS Server",
            submitted_at: ~U[2026-03-15 10:00:00Z],
-           requestor_did: "did:ssdid:requester1",
+           requestor: "requester1",
            public_key_algorithm: "RSA-2048",
            extensions: %{san: ["example.com", "www.example.com"]}
          }}
@@ -271,7 +288,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @impl true
   def create_cert_profile(attrs) do
-    profile = Map.merge(%{id: System.unique_integer([:positive])}, attrs)
+    profile = Map.merge(%{id: Uniq.UUID.uuid7()}, attrs)
     update_state(:cert_profiles, fn profiles -> profiles ++ [profile] end)
     {:ok, profile}
   end
@@ -307,7 +324,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
       case Enum.find_index(configs, &(&1.service_type == service_type)) do
         nil ->
           # New service - append
-          new_config = Map.merge(%{id: System.unique_integer([:positive]), status: "active"}, attrs)
+          new_config = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)
           configs ++ [new_config]
 
         idx ->
@@ -318,7 +335,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
       end
     end)
 
-    {:ok, Map.merge(%{id: System.unique_integer([:positive]), status: "active"}, attrs)}
+    {:ok, Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)}
   end
 
   @impl true
@@ -333,7 +350,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
     api_key =
       Map.merge(
         %{
-          id: System.unique_integer([:positive]),
+          id: Uniq.UUID.uuid7(),
           raw_key: raw_key,
           prefix: String.slice(raw_key, 0, 8),
           created_at: DateTime.utc_now(),
@@ -360,12 +377,12 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @impl true
   def authenticate(username, _password) do
-    {:ok, %{id: 1, username: username, role: "ra_admin", display_name: "Mock RA Admin"}}
+    {:ok, %{id: @user1_id, username: username, role: "ra_admin", display_name: "Mock RA Admin"}}
   end
 
   @impl true
   def register_user(attrs) do
-    user = Map.merge(%{id: System.unique_integer([:positive]), status: "active", role: "ra_admin"}, attrs)
+    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", role: "ra_admin"}, attrs)
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end

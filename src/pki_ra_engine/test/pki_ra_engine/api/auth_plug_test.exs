@@ -10,7 +10,6 @@ defmodule PkiRaEngine.Api.AuthPlugTest do
   defp create_user! do
     {:ok, user} =
       UserManagement.create_user(%{
-        did: "did:example:authplug_#{System.unique_integer([:positive])}",
         display_name: "Auth Plug User",
         role: "ra_officer"
       })

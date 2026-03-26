@@ -32,7 +32,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
     - `{:error, :invalid_threshold}` if k < 2 or k > n
     - `{:error, :not_found}` if keystore does not exist
   """
-  @spec initiate(integer(), map()) :: {:ok, {KeyCeremony.t(), IssuerKey.t()}} | {:error, term()}
+  @spec initiate(String.t(), map()) :: {:ok, {KeyCeremony.t(), IssuerKey.t()}} | {:error, term()}
   def initiate(ca_instance_id, params) do
     with :ok <- validate_threshold(params.threshold_k, params.threshold_n),
          {:ok, _keystore} <- KeystoreManagement.get_keystore(params.keystore_id) do
@@ -98,7 +98,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
     - `{:ok, share_count}` on success
     - `{:error, :wrong_custodian_count}` if custodian count != threshold_n
   """
-  @spec distribute_shares(KeyCeremony.t(), binary(), [{integer(), String.t()}], CryptoAdapter.t()) ::
+  @spec distribute_shares(KeyCeremony.t(), binary(), [{String.t(), String.t()}], CryptoAdapter.t()) ::
           {:ok, integer()} | {:error, term()}
   def distribute_shares(ceremony, private_key_material, custodian_passwords, crypto_adapter) do
     n = length(custodian_passwords)

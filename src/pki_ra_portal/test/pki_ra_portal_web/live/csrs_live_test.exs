@@ -4,6 +4,7 @@ defmodule PkiRaPortalWeb.CsrsLiveTest do
   import Phoenix.LiveViewTest
 
   @user %{id: 2, username: "raofficer1", role: "ra_officer"}
+  @csr1_id "019577b0-0010-7000-8000-000000000010"
 
   setup %{conn: conn} do
     conn = init_test_session(conn, %{current_user: @user})
@@ -36,7 +37,7 @@ defmodule PkiRaPortalWeb.CsrsLiveTest do
 
     html =
       view
-      |> element("#csr-1 button", "View")
+      |> element("#csr-#{@csr1_id} button", "View")
       |> render_click()
 
     assert html =~ "CSR Detail"
@@ -48,7 +49,7 @@ defmodule PkiRaPortalWeb.CsrsLiveTest do
 
     html =
       view
-      |> element("#csr-1 button", "Approve")
+      |> element("#csr-#{@csr1_id} button", "Approve")
       |> render_click()
 
     # After approval, the CSR list is refreshed from mock (which always returns same data)
@@ -59,7 +60,7 @@ defmodule PkiRaPortalWeb.CsrsLiveTest do
     {:ok, view, _html} = live(conn, "/csrs")
 
     # Open detail
-    view |> element("#csr-1 button", "View") |> render_click()
+    view |> element("#csr-#{@csr1_id} button", "View") |> render_click()
 
     # Close detail
     html = view |> element("button", "Close") |> render_click()
@@ -71,12 +72,12 @@ defmodule PkiRaPortalWeb.CsrsLiveTest do
     {:ok, view, _html} = live(conn, "/csrs")
 
     # First open the CSR detail to access the reject form
-    view |> element("#csr-1 button", "View") |> render_click()
+    view |> element("#csr-#{@csr1_id} button", "View") |> render_click()
 
     # Submit the reject form with a reason
     html =
       view
-      |> form("#reject-form", %{csr_id: "1", reason: "Invalid key usage"})
+      |> form("#reject-form", %{csr_id: @csr1_id, reason: "Invalid key usage"})
       |> render_submit()
 
     # After rejection, the CSR list is refreshed and detail is closed

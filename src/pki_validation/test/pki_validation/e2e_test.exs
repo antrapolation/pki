@@ -22,7 +22,7 @@ defmodule PkiValidation.E2ETest do
       # Step 1: Certificate issued - sync active cert to validation
       insert_cert(%{
         serial_number: serial,
-        issuer_key_id: 1,
+        issuer_key_id: "019577a0-0000-7000-8000-000000000001",
         subject_dn: "CN=e2e-test.example.com,O=Test,C=MY",
         status: "active",
         not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -67,7 +67,7 @@ defmodule PkiValidation.E2ETest do
 
       insert_cert(%{
         serial_number: serial,
-        issuer_key_id: 1,
+        issuer_key_id: "019577a0-0000-7000-8000-000000000001",
         subject_dn: "CN=expired.example.com,O=Test,C=MY",
         status: "active",
         not_before: ~U[2024-01-01 00:00:00.000000Z],
@@ -89,7 +89,7 @@ defmodule PkiValidation.E2ETest do
       # Insert the cert now (simulating late sync from CA)
       insert_cert(%{
         serial_number: serial,
-        issuer_key_id: 1,
+        issuer_key_id: "019577a0-0000-7000-8000-000000000001",
         subject_dn: "CN=late-arrival.example.com,O=Test,C=MY",
         status: "active",
         not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -107,7 +107,7 @@ defmodule PkiValidation.E2ETest do
 
         insert_cert(%{
           serial_number: serial,
-          issuer_key_id: 1,
+          issuer_key_id: "019577a0-0000-7000-8000-000000000001",
           subject_dn: "CN=multi-#{i}.example.com,O=Test,C=MY",
           status: "revoked",
           not_before: ~U[2026-01-01 00:00:00.000000Z],
@@ -133,7 +133,7 @@ defmodule PkiValidation.E2ETest do
 
       insert_cert(%{
         serial_number: serial,
-        issuer_key_id: 1,
+        issuer_key_id: "019577a0-0000-7000-8000-000000000001",
         subject_dn: "CN=http-e2e.example.com,O=Test,C=MY",
         status: "active",
         not_before: ~U[2026-01-01 00:00:00.000000Z],
