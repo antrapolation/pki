@@ -10,6 +10,15 @@ defmodule PkiPlatformEngine.Plug.TenantContext do
 
   If no tenant is resolved, the request continues without tenant context
   (for public/unauthenticated endpoints).
+
+  ## Wiring
+
+  This plug is **not** added to CA/RA portal routers yet. It is planned for
+  multi-tenant deployment (post-beta.2) once the Platform Engine database is
+  running and tenants are provisioned. The plug safely assigns
+  `current_tenant: nil` when no tenant is found, so adding it to a router
+  will not crash existing flows -- but downstream plugs/controllers that
+  require a tenant must guard on `conn.assigns.current_tenant`.
   """
 
   import Plug.Conn

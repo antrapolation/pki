@@ -4,7 +4,7 @@ defmodule PkiCaPortalWeb.SetupController do
   alias PkiCaPortal.CaEngineClient
 
   def new(conn, _params) do
-    if CaEngineClient.needs_setup?(1) do
+    if CaEngineClient.needs_setup?(ca_instance_id()) do
       render(conn, :setup, layout: false, error: nil)
     else
       conn
@@ -14,14 +14,14 @@ defmodule PkiCaPortalWeb.SetupController do
   end
 
   def create(conn, %{"setup" => params}) do
-    unless CaEngineClient.needs_setup?(1) do
+    unless CaEngineClient.needs_setup?(ca_instance_id()) do
       conn
       |> put_flash(:error, "System already configured.")
       |> redirect(to: "/login")
     else
       case validate_setup_params(params) do
         {:ok, attrs} ->
-          case CaEngineClient.register_user(1, attrs) do
+          case CaEngineClient.register_user(ca_instance_id(), attrs) do
             {:ok, _user} ->
               conn
               |> put_flash(:info, "Certificate Authority initialized. Admin account, ACL, and system keypairs created. Please sign in.")
@@ -54,6 +54,10 @@ defmodule PkiCaPortalWeb.SetupController do
   end
 
   defp validate_setup_params(_), do: {:error, "Password must be at least 8 characters"}
+
+  defp ca_instance_id do
+    Application.get_env(:pki_ca_portal, :ca_instance_id, "default")
+  end
 
   defp format_changeset_error(error), do: inspect(error)
 end

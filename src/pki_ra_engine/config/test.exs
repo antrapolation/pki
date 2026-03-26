@@ -14,4 +14,5 @@ config :logger, level: :warning
 config :pki_ra_engine, start_http: false
 
 config :pki_ra_engine,
-  internal_api_secret: "test-secret"
+  internal_api_secret: "test-secret",
+  ca_engine_module: PkiRaEngine.CsrValidation.DefaultCaClient

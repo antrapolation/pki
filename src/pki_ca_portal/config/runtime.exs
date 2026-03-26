@@ -40,9 +40,13 @@ if config_env() == :prod do
       """
 
   client_module =
-    if System.get_env("ENGINE_CLIENT_MODE") == "mock",
-      do: PkiCaPortal.CaEngineClient.Mock,
-      else: PkiCaPortal.CaEngineClient.Http
+    if System.get_env("ENGINE_CLIENT_MODE") == "mock" do
+      require Logger
+      Logger.warning("ENGINE_CLIENT_MODE=mock is active. Using mock engine client. NOT FOR PRODUCTION.")
+      PkiCaPortal.CaEngineClient.Mock
+    else
+      PkiCaPortal.CaEngineClient.Http
+    end
 
   config :pki_ca_portal,
     ca_engine_client: client_module,

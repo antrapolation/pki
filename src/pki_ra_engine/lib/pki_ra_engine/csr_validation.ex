@@ -112,7 +112,8 @@ defmodule PkiRaEngine.CsrValidation do
   @spec forward_to_ca(String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def forward_to_ca(csr_id) do
     ca_module =
-      Application.get_env(:pki_ra_engine, :ca_engine_module, __MODULE__.DefaultCaClient)
+      Application.get_env(:pki_ra_engine, :ca_engine_module) ||
+        raise "ca_engine_module not configured. Set CA_ENGINE_URL in environment."
 
     with {:ok, csr} <- get_csr(csr_id),
          :ok <- check_transition(csr.status, "issued") do
