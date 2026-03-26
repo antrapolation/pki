@@ -1,0 +1,3 @@
+%{
+  "uniq": {:hex, :uniq, "0.6.2", "51846518c037134c08bc5b773468007b155e543d53c8b39bafe95b0af487e406", [:mix], [{:ecto, "~> 3.0", [hex: :ecto, repo: "hexpm", optional: true]}], "hexpm", "95aa2a41ea331ef0a52d8ed12d3e730ef9af9dbc30f40646e6af334fbd7bc0fc"},
+}
