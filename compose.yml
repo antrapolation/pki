@@ -143,6 +143,29 @@ services:
     depends_on:
       - pki-ra-engine
 
+  # ── PKI Platform Portal ──────────────────────────────────────────────
+  # Platform Admin GUI — Tenant management
+  pki-platform-portal:
+    build:
+      context: .
+      dockerfile: src/pki_platform_portal/Containerfile
+    container_name: pki-platform-portal
+    environment:
+      PORT: "4006"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      PHX_HOST: "localhost"
+      PHX_SERVER: "true"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_platform"
+      PLATFORM_ADMIN_USERNAME: ${PLATFORM_ADMIN_USERNAME:-admin}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-admin}
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: pki_platform_portal@pki-platform-portal
+    ports:
+      - "4006:4006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # ── PKI Validation ─────────────────────────────────────────────────
   # OCSP responder + CRL publisher
   pki-validation:
