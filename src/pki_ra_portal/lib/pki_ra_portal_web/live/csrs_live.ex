@@ -13,7 +13,9 @@ defmodule PkiRaPortalWeb.CsrsLive do
        csrs: csrs,
        status_filter: "all",
        selected_csr: nil,
-       reject_reason: ""
+       reject_reason: "",
+       page: 1,
+       per_page: 10
      )}
   end
 
@@ -21,7 +23,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
   def handle_event("filter_status", %{"status" => status}, socket) do
     filters = if status == "all", do: [], else: [status: status]
     {:ok, csrs} = RaEngineClient.list_csrs(filters)
-    {:noreply, assign(socket, csrs: csrs, status_filter: status)}
+    {:noreply, assign(socket, csrs: csrs, status_filter: status, page: 1)}
   end
 
   @impl true
@@ -70,15 +72,32 @@ defmodule PkiRaPortalWeb.CsrsLive do
   end
 
   @impl true
-  def render(assigns) do
-    ~H"""
-    <div id="csrs-page">
-      <h1>CSR Management</h1>
+  def handle_event("change_page", %{"page" => page}, socket) do
+    {:noreply, assign(socket, page: String.to_integer(page))}
+  end
 
+  @impl true
+  def render(assigns) do
+    # Pagination applies AFTER status filtering (csrs is already filtered)
+    total = length(assigns.csrs)
+    total_pages = max(ceil(total / assigns.per_page), 1)
+    start_idx = (assigns.page - 1) * assigns.per_page
+    paged_csrs = assigns.csrs |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
+
+    assigns =
+      assigns
+      |> Map.put(:paged_csrs, paged_csrs)
+      |> Map.put(:total_pages, total_pages)
+
+    ~H"""
+    <div id="csrs-page" class="space-y-6">
+      <h1 class="text-2xl font-bold tracking-tight">CSR Management</h1>
+
+      <%!-- Status Filter --%>
       <section id="csr-filter">
-        <form phx-change="filter_status">
-          <label for="status">Filter by status:</label>
-          <select name="status" id="status-filter">
+        <form phx-change="filter_status" class="flex items-center gap-3">
+          <label for="status" class="text-sm font-medium text-base-content/60">Filter by status:</label>
+          <select name="status" id="status-filter" class="select select-sm select-bordered">
             <option value="all" selected={@status_filter == "all"}>All</option>
             <option value="pending" selected={@status_filter == "pending"}>Pending</option>
             <option value="approved" selected={@status_filter == "approved"}>Approved</option>
@@ -87,57 +106,137 @@ defmodule PkiRaPortalWeb.CsrsLive do
         </form>
       </section>
 
-      <section id="csr-table">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Subject</th>
-              <th>Profile</th>
-              <th>Status</th>
-              <th>Submitted</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="csr-list">
-            <tr :for={csr <- @csrs} id={"csr-#{csr.id}"}>
-              <td>{csr.id}</td>
-              <td>{csr.subject}</td>
-              <td>{csr.profile_name}</td>
-              <td>{csr.status}</td>
-              <td>{Calendar.strftime(csr.submitted_at, "%Y-%m-%d %H:%M")}</td>
-              <td>
-                <button phx-click="view_csr" phx-value-id={csr.id}>View</button>
-                <button :if={csr.status == "pending"} phx-click="approve_csr" phx-value-id={csr.id}>
-                  Approve
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <%!-- CSR Table --%>
+      <section id="csr-table" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="border-base-300">
+                  <th class="font-semibold text-xs uppercase tracking-wider">ID</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Subject</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Profile</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Submitted</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="csr-list">
+                <tr :for={csr <- @paged_csrs} id={"csr-#{csr.id}"} class="hover:bg-base-200/50 border-base-300">
+                  <td class="font-mono text-xs">{csr.id}</td>
+                  <td>{csr.subject}</td>
+                  <td>{csr.profile_name}</td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      csr.status == "pending" && "badge-warning",
+                      csr.status == "approved" && "badge-success",
+                      csr.status == "rejected" && "badge-error"
+                    ]}>
+                      {csr.status}
+                    </span>
+                  </td>
+                  <td class="text-xs text-base-content/60">{Calendar.strftime(csr.submitted_at, "%Y-%m-%d %H:%M")}</td>
+                  <td class="flex gap-1">
+                    <button phx-click="view_csr" phx-value-id={csr.id} class="btn btn-xs btn-ghost">
+                      View
+                    </button>
+                    <button
+                      :if={csr.status == "pending"}
+                      phx-click="approve_csr"
+                      phx-value-id={csr.id}
+                      class="btn btn-xs btn-success btn-outline"
+                    >
+                      Approve
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div :if={@total_pages > 1} class="flex justify-center mt-4">
+            <div class="join">
+              <button
+                :for={p <- 1..@total_pages}
+                phx-click="change_page"
+                phx-value-page={p}
+                class={["join-item btn btn-sm", p == @page && "btn-active"]}
+              >
+                {p}
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section :if={@selected_csr} id="csr-detail">
-        <h2>CSR Detail</h2>
-        <p>ID: {@selected_csr.id}</p>
-        <p>Subject: {@selected_csr.subject}</p>
-        <p>Status: <span id="csr-status">{@selected_csr.status}</span></p>
-        <p>Profile: {@selected_csr.profile_name}</p>
-        <p>Public Key Algorithm: {@selected_csr.public_key_algorithm}</p>
-        <p>Requestor: {@selected_csr.requestor}</p>
+      <%!-- CSR Detail Panel --%>
+      <section :if={@selected_csr} id="csr-detail" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">CSR Detail</h2>
+            <button phx-click="close_detail" class="btn btn-xs btn-ghost">
+              Close
+            </button>
+          </div>
 
-        <div :if={@selected_csr.status == "pending"} id="csr-actions">
-          <button phx-click="approve_csr" phx-value-id={@selected_csr.id}>Approve</button>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+            <div>
+              <span class="text-xs font-medium text-base-content/50 uppercase">ID</span>
+              <p class="font-mono text-sm">{@selected_csr.id}</p>
+            </div>
+            <div>
+              <span class="text-xs font-medium text-base-content/50 uppercase">Subject</span>
+              <p class="text-sm">{@selected_csr.subject}</p>
+            </div>
+            <div>
+              <span class="text-xs font-medium text-base-content/50 uppercase">Status</span>
+              <p>
+                <span id="csr-status" class={[
+                  "badge badge-sm",
+                  @selected_csr.status == "pending" && "badge-warning",
+                  @selected_csr.status == "approved" && "badge-success",
+                  @selected_csr.status == "rejected" && "badge-error"
+                ]}>
+                  {@selected_csr.status}
+                </span>
+              </p>
+            </div>
+            <div>
+              <span class="text-xs font-medium text-base-content/50 uppercase">Profile</span>
+              <p class="text-sm">{@selected_csr.profile_name}</p>
+            </div>
+            <div>
+              <span class="text-xs font-medium text-base-content/50 uppercase">Public Key Algorithm</span>
+              <p class="font-mono text-sm">{@selected_csr.public_key_algorithm}</p>
+            </div>
+            <div>
+              <span class="text-xs font-medium text-base-content/50 uppercase">Requestor</span>
+              <p class="text-sm">{@selected_csr.requestor}</p>
+            </div>
+          </div>
 
-          <form phx-submit="reject_csr" id="reject-form">
-            <input type="hidden" name="csr_id" value={@selected_csr.id} />
-            <label for="reason">Rejection Reason:</label>
-            <textarea name="reason" id="reject-reason" required></textarea>
-            <button type="submit">Reject</button>
-          </form>
+          <div :if={@selected_csr.status == "pending"} id="csr-actions" class="mt-4 pt-4 border-t border-base-300 space-y-4">
+            <button phx-click="approve_csr" phx-value-id={@selected_csr.id} class="btn btn-sm btn-success">
+              <.icon name="hero-check" class="size-4" /> Approve
+            </button>
+
+            <form phx-submit="reject_csr" id="reject-form" class="space-y-2">
+              <input type="hidden" name="csr_id" value={@selected_csr.id} />
+              <label for="reason" class="label text-xs font-medium">Rejection Reason</label>
+              <textarea
+                name="reason"
+                id="reject-reason"
+                required
+                rows="3"
+                class="textarea textarea-bordered w-full text-sm"
+                placeholder="Provide a reason for rejection..."
+              ></textarea>
+              <button type="submit" class="btn btn-sm btn-error btn-outline">
+                <.icon name="hero-x-mark" class="size-4" /> Reject
+              </button>
+            </form>
+          </div>
         </div>
-
-        <button phx-click="close_detail">Close</button>
       </section>
     </div>
     """

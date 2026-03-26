@@ -98,7 +98,18 @@
       "Bash(__NEW_LINE_dd8dadc2e92c6604__ echo:*)",
       "Bash(curl -s \"http://localhost:4001/api/v1/auth/needs-setup?ca_instance_id=1\")",
       "Bash(curl -s -X POST http://localhost:4001/api/v1/auth/register -H \"Content-Type: application/json\" -d '{\"\"ca_instance_id\"\":1,\"\"username\"\":\"\"caadmin\"\",\"\"password\"\":\"\"SecurePass123!\"\",\"\"display_name\"\":\"\"CA Administrator\"\",\"\"role\"\":\"\"ca_admin\"\"}')",
-      "Bash(curl -s -X POST http://localhost:4001/api/v1/auth/login -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"caadmin\"\",\"\"password\"\":\"\"SecurePass123!\"\"}')"
+      "Bash(curl -s -X POST http://localhost:4001/api/v1/auth/login -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"caadmin\"\",\"\"password\"\":\"\"SecurePass123!\"\"}')",
+      "Bash(node -e \":*)",
+      "Bash(ENGINE_CLIENT_MODE=mock podman-compose up -d pki-ca-portal pki-ra-portal)",
+      "Bash(curl -s http://localhost:4002/assets/css/app.css)",
+      "Bash(MIX_ENV=prod mix tailwind pki_ca_portal --minify)",
+      "Bash(sed -i '' 's/keystores = socket.assigns.keystores ++ \\\\[keystore\\\\]/keystores = [keystore | socket.assigns.keystores]/' /Users/amirrudinyahaya/Workspace/pki/src/pki_ca_portal/lib/pki_ca_portal_web/live/keystores_live.ex)",
+      "Bash(sed -i '' 's/profiles = socket.assigns.profiles ++ \\\\[profile\\\\]/profiles = [profile | socket.assigns.profiles]/' /Users/amirrudinyahaya/Workspace/pki/src/pki_ra_portal/lib/pki_ra_portal_web/live/cert_profiles_live.ex)",
+      "Bash(sed -i '' 's/nil -> socket.assigns.configs ++ \\\\[config\\\\]/nil -> [config | socket.assigns.configs]/' /Users/amirrudinyahaya/Workspace/pki/src/pki_ra_portal/lib/pki_ra_portal_web/live/service_configs_live.ex)",
+      "Bash(sed -i '' 's/keys = socket.assigns.api_keys ++ \\\\[Map.drop\\(key, \\\\[:raw_key\\\\]\\)\\\\]/keys = [Map.drop\\(key, [:raw_key]\\) | socket.assigns.api_keys]/' /Users/amirrudinyahaya/Workspace/pki/src/pki_ra_portal/lib/pki_ra_portal_web/live/api_keys_live.ex)",
+      "Bash(MIX_ENV=prod mix compile)",
+      "Bash(curl -s http://localhost:4004/assets/js/app.js)",
+      "Bash(node:*)"
     ]
   }
 }

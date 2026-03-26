@@ -10,8 +10,10 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
     {:ok,
      assign(socket,
-       page_title: "Keystores",
-       keystores: keystores
+       page_title: "Keystore Management",
+       keystores: keystores,
+       page: 1,
+       per_page: 10
      )}
   end
 
@@ -21,7 +23,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
     case CaEngineClient.configure_keystore(ca_id, %{type: type}) do
       {:ok, keystore} ->
-        keystores = socket.assigns.keystores ++ [keystore]
+        keystores = [keystore | socket.assigns.keystores]
 
         {:noreply,
          socket
@@ -34,43 +36,96 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   end
 
   @impl true
+  def handle_event("change_page", %{"page" => page}, socket) do
+    {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
+  defp type_badge_class(type) do
+    case type do
+      "software" -> "badge-info"
+      "hsm" -> "badge-warning"
+      _ -> "badge-ghost"
+    end
+  end
+
+  defp status_badge_class(status) do
+    case status do
+      "active" -> "badge-success"
+      "configured" -> "badge-info"
+      "inactive" -> "badge-ghost"
+      _ -> "badge-ghost"
+    end
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
-    <div id="keystores-page">
-      <h1>Keystore Management</h1>
-
-      <section id="keystore-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Provider</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="keystore-list">
-            <tr :for={ks <- @keystores} id={"keystore-#{ks.id}"}>
-              <td>{ks.type}</td>
-              <td>{Map.get(ks, :provider_name, "-")}</td>
-              <td>{ks.status}</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section id="configure-keystore-form">
-        <h2>Configure Keystore</h2>
-        <form phx-submit="configure_keystore">
-          <div>
-            <label for="type">Type:</label>
-            <select name="type" id="keystore-type">
-              <option value="software">Software</option>
-              <option value="hsm">HSM</option>
-            </select>
+    <div id="keystores-page" class="space-y-6">
+      <%!-- Keystores table --%>
+      <% paginated_keystores = @keystores |> Enum.drop((@page - 1) * @per_page) |> Enum.take(@per_page) %>
+      <% total_keystores = length(@keystores) %>
+      <% total_pages = max(ceil(total_keystores / @per_page), 1) %>
+      <% start_idx = min((@page - 1) * @per_page + 1, total_keystores) %>
+      <% end_idx = min(@page * @per_page, total_keystores) %>
+      <div id="keystore-table" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body p-0">
+          <div class="px-5 py-4 border-b border-base-300">
+            <h2 class="text-sm font-semibold text-base-content">Configured Keystores</h2>
           </div>
-          <button type="submit">Configure</button>
-        </form>
-      </section>
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="text-xs uppercase text-base-content/50">
+                  <th>Type</th>
+                  <th>Provider</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="keystore-list">
+                <tr :for={ks <- paginated_keystores} id={"keystore-#{ks.id}"} class="hover">
+                  <td>
+                    <span class={"badge badge-sm #{type_badge_class(ks.type)}"}>{ks.type}</span>
+                  </td>
+                  <td class="font-mono-data">{Map.get(ks, :provider_name, "-")}</td>
+                  <td>
+                    <span class={"badge badge-sm #{status_badge_class(ks.status)}"}>{ks.status}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div :if={total_keystores > 0} class="flex items-center justify-between px-5 py-3 border-t border-base-300 text-sm">
+            <span class="text-base-content/60">
+              Showing {start_idx}–{end_idx} of {total_keystores}
+            </span>
+            <div class="join">
+              <button class="join-item btn btn-sm" phx-click="change_page" phx-value-page={@page - 1} disabled={@page == 1}>«</button>
+              <button class="join-item btn btn-sm btn-active">{@page}</button>
+              <button class="join-item btn btn-sm" phx-click="change_page" phx-value-page={@page + 1} disabled={@page >= total_pages}>»</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Configure keystore form --%>
+      <div id="configure-keystore-form" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h2 class="text-sm font-semibold text-base-content mb-4">Configure Keystore</h2>
+          <form phx-submit="configure_keystore" class="flex items-end gap-4">
+            <div class="flex-1 max-w-xs">
+              <label for="type" class="block text-xs font-medium text-base-content/60 mb-1">Type</label>
+              <select name="type" id="keystore-type" class="select select-bordered select-sm w-full">
+                <option value="software">Software</option>
+                <option value="hsm">HSM</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="size-4" />
+              Configure
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
     """
   end

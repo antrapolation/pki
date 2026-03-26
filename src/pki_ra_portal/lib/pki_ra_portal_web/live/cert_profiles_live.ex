@@ -11,7 +11,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
      assign(socket,
        page_title: "Certificate Profiles",
        profiles: profiles,
-       editing: nil
+       editing: nil,
+       page: 1,
+       per_page: 50
      )}
   end
 
@@ -27,7 +29,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
     case RaEngineClient.create_cert_profile(attrs) do
       {:ok, profile} ->
-        profiles = socket.assigns.profiles ++ [profile]
+        profiles = [profile | socket.assigns.profiles]
 
         {:noreply,
          socket
@@ -95,6 +97,11 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
     end
   end
 
+  @impl true
+  def handle_event("change_page", %{"page" => page}, socket) do
+    {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {int, _} -> int
@@ -106,111 +113,141 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def render(assigns) do
+    total = length(assigns.profiles)
+    total_pages = max(ceil(total / assigns.per_page), 1)
+    start_idx = (assigns.page - 1) * assigns.per_page
+    paged_profiles = assigns.profiles |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
+
+    assigns =
+      assigns
+      |> Map.put(:paged_profiles, paged_profiles)
+      |> Map.put(:total_pages, total_pages)
+
     ~H"""
-    <div id="cert-profiles-page">
-      <h1>Certificate Profiles</h1>
+    <div id="cert-profiles-page" class="space-y-6">
+      <h1 class="text-2xl font-bold tracking-tight">Certificate Profiles</h1>
 
-      <section id="profile-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Key Usage</th>
-              <th>Ext Key Usage</th>
-              <th>Digest</th>
-              <th>Validity (days)</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="profile-list">
-            <tr :for={profile <- @profiles} id={"profile-#{profile.id}"}>
-              <td>{profile.name}</td>
-              <td>{profile.key_usage}</td>
-              <td>{profile.ext_key_usage}</td>
-              <td>{profile.digest_algo}</td>
-              <td>{profile.validity_days}</td>
-              <td>
-                <button phx-click="edit_profile" phx-value-id={profile.id}>Edit</button>
-                <button phx-click="delete_profile" phx-value-id={profile.id}>Delete</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <%!-- Profiles Table --%>
+      <section id="profile-table" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="border-base-300">
+                  <th class="font-semibold text-xs uppercase tracking-wider">Name</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Key Usage</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Ext Key Usage</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Digest</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Validity (days)</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="profile-list">
+                <tr :for={profile <- @paged_profiles} id={"profile-#{profile.id}"} class="hover:bg-base-200/50 border-base-300">
+                  <td class="font-medium">{profile.name}</td>
+                  <td class="font-mono text-xs">{profile.key_usage}</td>
+                  <td class="font-mono text-xs">{profile.ext_key_usage}</td>
+                  <td class="font-mono text-xs">{profile.digest_algo}</td>
+                  <td>{profile.validity_days}</td>
+                  <td class="flex gap-1">
+                    <button phx-click="edit_profile" phx-value-id={profile.id} class="btn btn-xs btn-ghost">
+                      Edit
+                    </button>
+                    <button phx-click="delete_profile" phx-value-id={profile.id} class="btn btn-xs btn-error btn-outline">
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div :if={@total_pages > 1} class="flex justify-center mt-4">
+            <div class="join">
+              <button
+                :for={p <- 1..@total_pages}
+                phx-click="change_page"
+                phx-value-page={p}
+                class={["join-item btn btn-sm", p == @page && "btn-active"]}
+              >
+                {p}
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section :if={@editing} id="edit-profile-form">
-        <h2>Edit Profile</h2>
-        <form phx-submit="update_profile">
-          <input type="hidden" name="profile_id" value={@editing.id} />
-          <div>
-            <label for="edit-name">Name:</label>
-            <input type="text" name="name" id="edit-name" value={@editing.name} required />
-          </div>
-          <div>
-            <label for="edit-key-usage">Key Usage:</label>
-            <input type="text" name="key_usage" id="edit-key-usage" value={@editing.key_usage} />
-          </div>
-          <div>
-            <label for="edit-ext-key-usage">Extended Key Usage:</label>
-            <input
-              type="text"
-              name="ext_key_usage"
-              id="edit-ext-key-usage"
-              value={@editing.ext_key_usage}
-            />
-          </div>
-          <div>
-            <label for="edit-digest-algo">Digest Algorithm:</label>
-            <select name="digest_algo" id="edit-digest-algo">
-              <option value="SHA-256" selected={@editing.digest_algo == "SHA-256"}>SHA-256</option>
-              <option value="SHA-384" selected={@editing.digest_algo == "SHA-384"}>SHA-384</option>
-              <option value="SHA-512" selected={@editing.digest_algo == "SHA-512"}>SHA-512</option>
-            </select>
-          </div>
-          <div>
-            <label for="edit-validity">Validity (days):</label>
-            <input
-              type="number"
-              name="validity_days"
-              id="edit-validity"
-              value={@editing.validity_days}
-              min="1"
-            />
-          </div>
-          <button type="submit">Update</button>
-          <button type="button" phx-click="cancel_edit">Cancel</button>
-        </form>
+      <%!-- Edit Profile Form --%>
+      <section :if={@editing} id="edit-profile-form" class="card bg-base-100 shadow-sm border border-primary/30">
+        <div class="card-body">
+          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Edit Profile</h2>
+          <form phx-submit="update_profile" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            <input type="hidden" name="profile_id" value={@editing.id} />
+            <div>
+              <label for="edit-name" class="label text-xs font-medium">Name</label>
+              <input type="text" name="name" id="edit-name" value={@editing.name} required class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="edit-key-usage" class="label text-xs font-medium">Key Usage</label>
+              <input type="text" name="key_usage" id="edit-key-usage" value={@editing.key_usage} class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="edit-ext-key-usage" class="label text-xs font-medium">Extended Key Usage</label>
+              <input type="text" name="ext_key_usage" id="edit-ext-key-usage" value={@editing.ext_key_usage} class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="edit-digest-algo" class="label text-xs font-medium">Digest Algorithm</label>
+              <select name="digest_algo" id="edit-digest-algo" class="select select-sm select-bordered w-full">
+                <option value="SHA-256" selected={@editing.digest_algo == "SHA-256"}>SHA-256</option>
+                <option value="SHA-384" selected={@editing.digest_algo == "SHA-384"}>SHA-384</option>
+                <option value="SHA-512" selected={@editing.digest_algo == "SHA-512"}>SHA-512</option>
+              </select>
+            </div>
+            <div>
+              <label for="edit-validity" class="label text-xs font-medium">Validity (days)</label>
+              <input type="number" name="validity_days" id="edit-validity" value={@editing.validity_days} min="1" class="input input-sm input-bordered w-full" />
+            </div>
+            <div class="flex items-end gap-2">
+              <button type="submit" class="btn btn-sm btn-primary">Update</button>
+              <button type="button" phx-click="cancel_edit" class="btn btn-sm btn-ghost">Cancel</button>
+            </div>
+          </form>
+        </div>
       </section>
 
-      <section id="create-profile-form">
-        <h2>Create Profile</h2>
-        <form phx-submit="create_profile">
-          <div>
-            <label for="profile-name">Name:</label>
-            <input type="text" name="name" id="profile-name" required />
-          </div>
-          <div>
-            <label for="profile-key-usage">Key Usage:</label>
-            <input type="text" name="key_usage" id="profile-key-usage" />
-          </div>
-          <div>
-            <label for="profile-ext-key-usage">Extended Key Usage:</label>
-            <input type="text" name="ext_key_usage" id="profile-ext-key-usage" />
-          </div>
-          <div>
-            <label for="profile-digest-algo">Digest Algorithm:</label>
-            <select name="digest_algo" id="profile-digest-algo">
-              <option value="SHA-256">SHA-256</option>
-              <option value="SHA-384">SHA-384</option>
-              <option value="SHA-512">SHA-512</option>
-            </select>
-          </div>
-          <div>
-            <label for="profile-validity">Validity (days):</label>
-            <input type="number" name="validity_days" id="profile-validity" value="365" min="1" />
-          </div>
-          <button type="submit">Create Profile</button>
-        </form>
+      <%!-- Create Profile Form --%>
+      <section id="create-profile-form" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Create Profile</h2>
+          <form phx-submit="create_profile" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            <div>
+              <label for="profile-name" class="label text-xs font-medium">Name</label>
+              <input type="text" name="name" id="profile-name" required class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="profile-key-usage" class="label text-xs font-medium">Key Usage</label>
+              <input type="text" name="key_usage" id="profile-key-usage" class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="profile-ext-key-usage" class="label text-xs font-medium">Extended Key Usage</label>
+              <input type="text" name="ext_key_usage" id="profile-ext-key-usage" class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="profile-digest-algo" class="label text-xs font-medium">Digest Algorithm</label>
+              <select name="digest_algo" id="profile-digest-algo" class="select select-sm select-bordered w-full">
+                <option value="SHA-256">SHA-256</option>
+                <option value="SHA-384">SHA-384</option>
+                <option value="SHA-512">SHA-512</option>
+              </select>
+            </div>
+            <div>
+              <label for="profile-validity" class="label text-xs font-medium">Validity (days)</label>
+              <input type="number" name="validity_days" id="profile-validity" value="365" min="1" class="input input-sm input-bordered w-full" />
+            </div>
+            <div class="flex items-end">
+              <button type="submit" class="btn btn-sm btn-primary">Create Profile</button>
+            </div>
+          </form>
+        </div>
       </section>
     </div>
     """

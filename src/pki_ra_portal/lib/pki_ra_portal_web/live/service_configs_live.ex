@@ -10,7 +10,9 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
     {:ok,
      assign(socket,
        page_title: "Service Configuration",
-       configs: configs
+       configs: configs,
+       page: 1,
+       per_page: 50
      )}
   end
 
@@ -29,7 +31,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
       {:ok, config} ->
         configs =
           case Enum.find_index(socket.assigns.configs, &(&1.service_type == config.service_type)) do
-            nil -> socket.assigns.configs ++ [config]
+            nil -> [config | socket.assigns.configs]
             idx -> List.replace_at(socket.assigns.configs, idx, Map.merge(Enum.at(socket.assigns.configs, idx), config))
           end
 
@@ -43,6 +45,11 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
     end
   end
 
+  @impl true
+  def handle_event("change_page", %{"page" => page}, socket) do
+    {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {int, _} -> int
@@ -54,70 +61,110 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   @impl true
   def render(assigns) do
-    ~H"""
-    <div id="service-configs-page">
-      <h1>Service Configuration</h1>
+    total = length(assigns.configs)
+    total_pages = max(ceil(total / assigns.per_page), 1)
+    start_idx = (assigns.page - 1) * assigns.per_page
+    paged_configs = assigns.configs |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
 
-      <section id="config-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Service Type</th>
-              <th>Port</th>
-              <th>URL</th>
-              <th>Rate Limit</th>
-              <th>IP Whitelist</th>
-              <th>IP Blacklist</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="config-list">
-            <tr :for={config <- @configs} id={"config-#{config.id}"}>
-              <td>{config.service_type}</td>
-              <td>{config.port}</td>
-              <td>{config.url}</td>
-              <td>{config.rate_limit}</td>
-              <td>{Map.get(config, :ip_whitelist, "")}</td>
-              <td>{Map.get(config, :ip_blacklist, "")}</td>
-              <td>{config.status}</td>
-            </tr>
-          </tbody>
-        </table>
+    assigns =
+      assigns
+      |> Map.put(:paged_configs, paged_configs)
+      |> Map.put(:total_pages, total_pages)
+
+    ~H"""
+    <div id="service-configs-page" class="space-y-6">
+      <h1 class="text-2xl font-bold tracking-tight">Service Configuration</h1>
+
+      <%!-- Config Table --%>
+      <section id="config-table" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="border-base-300">
+                  <th class="font-semibold text-xs uppercase tracking-wider">Service Type</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Port</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">URL</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Rate Limit</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">IP Whitelist</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">IP Blacklist</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody id="config-list">
+                <tr :for={config <- @paged_configs} id={"config-#{config.id}"} class="hover:bg-base-200/50 border-base-300">
+                  <td class="font-medium">{config.service_type}</td>
+                  <td class="font-mono text-xs">{config.port}</td>
+                  <td class="font-mono text-xs">{config.url}</td>
+                  <td>{config.rate_limit}</td>
+                  <td class="font-mono text-xs">{Map.get(config, :ip_whitelist, "")}</td>
+                  <td class="font-mono text-xs">{Map.get(config, :ip_blacklist, "")}</td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      config.status == "active" && "badge-success",
+                      config.status != "active" && "badge-warning"
+                    ]}>
+                      {config.status}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div :if={@total_pages > 1} class="flex justify-center mt-4">
+            <div class="join">
+              <button
+                :for={p <- 1..@total_pages}
+                phx-click="change_page"
+                phx-value-page={p}
+                class={["join-item btn btn-sm", p == @page && "btn-active"]}
+              >
+                {p}
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section id="configure-service-form">
-        <h2>Configure Service</h2>
-        <form phx-submit="configure_service">
-          <div>
-            <label for="service-type">Service Type:</label>
-            <select name="service_type" id="service-type">
-              <option value="OCSP Responder">OCSP Responder</option>
-              <option value="CRL Distribution">CRL Distribution</option>
-              <option value="TSA">TSA</option>
-            </select>
-          </div>
-          <div>
-            <label for="service-port">Port:</label>
-            <input type="number" name="port" id="service-port" value="8080" min="1" max="65535" />
-          </div>
-          <div>
-            <label for="service-url">URL:</label>
-            <input type="text" name="url" id="service-url" required />
-          </div>
-          <div>
-            <label for="service-rate-limit">Rate Limit:</label>
-            <input type="number" name="rate_limit" id="service-rate-limit" value="1000" min="1" />
-          </div>
-          <div>
-            <label for="service-ip-whitelist">IP Whitelist (CIDR):</label>
-            <input type="text" name="ip_whitelist" id="service-ip-whitelist" />
-          </div>
-          <div>
-            <label for="service-ip-blacklist">IP Blacklist (CIDR):</label>
-            <input type="text" name="ip_blacklist" id="service-ip-blacklist" />
-          </div>
-          <button type="submit">Configure</button>
-        </form>
+      <%!-- Configure Service Form --%>
+      <section id="configure-service-form" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Configure Service</h2>
+          <form phx-submit="configure_service" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            <div>
+              <label for="service-type" class="label text-xs font-medium">Service Type</label>
+              <select name="service_type" id="service-type" class="select select-sm select-bordered w-full">
+                <option value="OCSP Responder">OCSP Responder</option>
+                <option value="CRL Distribution">CRL Distribution</option>
+                <option value="TSA">TSA</option>
+              </select>
+            </div>
+            <div>
+              <label for="service-port" class="label text-xs font-medium">Port</label>
+              <input type="number" name="port" id="service-port" value="8080" min="1" max="65535" class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="service-url" class="label text-xs font-medium">URL</label>
+              <input type="text" name="url" id="service-url" required class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="service-rate-limit" class="label text-xs font-medium">Rate Limit</label>
+              <input type="number" name="rate_limit" id="service-rate-limit" value="1000" min="1" class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="service-ip-whitelist" class="label text-xs font-medium">IP Whitelist (CIDR)</label>
+              <input type="text" name="ip_whitelist" id="service-ip-whitelist" class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="service-ip-blacklist" class="label text-xs font-medium">IP Blacklist (CIDR)</label>
+              <input type="text" name="ip_blacklist" id="service-ip-blacklist" class="input input-sm input-bordered w-full" />
+            </div>
+            <div class="md:col-span-2">
+              <button type="submit" class="btn btn-sm btn-primary">Configure</button>
+            </div>
+          </form>
+        </div>
       </section>
     </div>
     """

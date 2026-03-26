@@ -1,57 +1,71 @@
-<div class="mx-auto max-w-sm mt-20">
-  <h1 class="text-2xl font-bold text-center mb-8">CA Admin Portal</h1>
+<div class="flex items-center justify-center min-h-screen bg-base-200">
+  <div class="card w-full max-w-sm bg-base-100 shadow-lg border border-base-300">
+    <div class="card-body">
+      <div class="text-center mb-6">
+        <div class="flex items-center justify-center w-12 h-12 rounded-xl mx-auto mb-3"
+             style="background-color: oklch(68% 0.16 65);">
+          <span class="hero-shield-check text-white text-xl" />
+        </div>
+        <h1 class="text-xl font-bold text-base-content">CA Admin Portal</h1>
+        <p class="text-sm text-base-content/50 mt-1">Sign in to manage your Certificate Authority</p>
+      </div>
 
-  <%= if @error do %>
-    <div class="mb-4 rounded bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-      <%= @error %>
+      <%= if @error do %>
+        <div class="alert alert-error text-sm mb-4">
+          <span class="hero-exclamation-circle text-lg" />
+          <span><%= @error %></span>
+        </div>
+      <% end %>
+
+      <.form for={%{}} action={~p"/login"} method="post" class="space-y-4">
+        <div>
+          <label for="session_username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
+          <input
+            type="text"
+            name="session[username]"
+            id="session_username"
+            required
+            autocomplete="username"
+            class="input input-bordered input-sm w-full"
+            placeholder="Enter username"
+          />
+        </div>
+
+        <div>
+          <label for="session_password" class="block text-xs font-medium text-base-content/60 mb-1">Password</label>
+          <input
+            type="password"
+            name="session[password]"
+            id="session_password"
+            required
+            autocomplete="current-password"
+            class="input input-bordered input-sm w-full"
+            placeholder="Enter password"
+          />
+        </div>
+
+        <div>
+          <label for="session_ca_instance_id" class="block text-xs font-medium text-base-content/60 mb-1">
+            CA Instance ID
+          </label>
+          <input
+            type="number"
+            name="session[ca_instance_id]"
+            id="session_ca_instance_id"
+            value="1"
+            min="1"
+            required
+            class="input input-bordered input-sm w-full"
+          />
+        </div>
+
+        <button
+          type="submit"
+          class="btn btn-primary btn-sm w-full mt-2"
+        >
+          Sign In
+        </button>
+      </.form>
     </div>
-  <% end %>
-
-  <.form for={%{}} action={~p"/login"} method="post" class="space-y-4">
-    <div>
-      <label for="session_username" class="block text-sm font-medium mb-1">Username</label>
-      <input
-        type="text"
-        name="session[username]"
-        id="session_username"
-        required
-        autocomplete="username"
-        class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-      />
-    </div>
-
-    <div>
-      <label for="session_password" class="block text-sm font-medium mb-1">Password</label>
-      <input
-        type="password"
-        name="session[password]"
-        id="session_password"
-        required
-        autocomplete="current-password"
-        class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-      />
-    </div>
-
-    <div>
-      <label for="session_ca_instance_id" class="block text-sm font-medium mb-1">
-        CA Instance ID
-      </label>
-      <input
-        type="number"
-        name="session[ca_instance_id]"
-        id="session_ca_instance_id"
-        value="1"
-        min="1"
-        required
-        class="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-      />
-    </div>
-
-    <button
-      type="submit"
-      class="w-full rounded bg-blue-600 px-4 py-2 text-white font-medium hover:bg-blue-700"
-    >
-      Sign In
-    </button>
-  </.form>
+  </div>
 </div>
