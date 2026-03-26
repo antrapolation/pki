@@ -1,0 +1,112 @@
+defmodule PkiTenancy.TenantRepo do
+  @moduledoc """
+  Dynamic Ecto repo for per-tenant database access.
+
+  Each tenant has its own PostgreSQL database. Within each database, schemas
+  (ca, ra, validation, audit) provide namespace isolation for different services.
+
+  ## Usage
+
+      PkiTenancy.TenantRepo.with_tenant("pki_tenant_abc123", "ca", fn ->
+        PkiTenancy.TenantRepo.all(SomeSchema)
+      end)
+
+  Or with a Tenant struct:
+
+      PkiTenancy.TenantRepo.with_tenant(tenant, "ra", fn ->
+        PkiTenancy.TenantRepo.insert(%RaUser{name: "alice"})
+      end)
+
+  For raw SQL:
+
+      PkiTenancy.TenantRepo.execute_sql("pki_tenant_abc123", "ca", "SELECT 1", [])
+  """
+
+  use Ecto.Repo,
+    otp_app: :pki_tenancy,
+    adapter: Ecto.Adapters.Postgres
+
+  @valid_prefixes ["ca", "ra", "validation", "audit", "public"]
+
+  @doc """
+  Execute a function in the context of a specific tenant's database.
+
+  Starts a dynamic repo instance connected to the tenant's database with the
+  given schema prefix, executes the function, then stops the instance.
+
+  The function receives no arguments -- use `PkiTenancy.TenantRepo` directly
+  inside the function body, as `put_dynamic_repo/1` routes calls to the
+  correct instance.
+
+  ## Parameters
+
+    * `tenant_or_db` - A `%PkiTenancy.Tenant{}` struct or a database name string
+    * `schema_prefix` - PostgreSQL schema: "ca", "ra", "validation", "audit", or "public"
+    * `fun` - Zero-arity function to execute in the tenant context
+
+  ## Examples
+
+      TenantRepo.with_tenant("pki_tenant_abc123", "ca", fn ->
+        TenantRepo.all(CaUser)
+      end)
+  """
+  def with_tenant(%PkiTenancy.Tenant{database_name: db_name}, schema_prefix, fun) do
+    with_tenant(db_name, schema_prefix, fun)
+  end
+
+  def with_tenant(database_name, schema_prefix, fun)
+      when is_binary(database_name) and schema_prefix in @valid_prefixes do
+    config = build_config(database_name, schema_prefix)
+
+    {:ok, pid} = __MODULE__.start_link(config)
+
+    previous = put_dynamic_repo(pid)
+
+    try do
+      fun.()
+    after
+      put_dynamic_repo(previous)
+      Supervisor.stop(pid)
+    end
+  end
+
+  @doc """
+  Execute raw SQL against a tenant's database with schema isolation.
+
+  Returns `{:ok, %Postgrex.Result{}}` or `{:error, %Postgrex.Error{}}`.
+
+  ## Parameters
+
+    * `tenant_or_db` - A `%PkiTenancy.Tenant{}` struct or a database name string
+    * `schema_prefix` - PostgreSQL schema: "ca", "ra", "validation", "audit", or "public"
+    * `sql` - SQL string to execute
+    * `params` - List of query parameters (default: [])
+  """
+  def execute_sql(tenant_or_db, schema_prefix, sql, params \\ [])
+
+  def execute_sql(%PkiTenancy.Tenant{database_name: db_name}, schema_prefix, sql, params) do
+    execute_sql(db_name, schema_prefix, sql, params)
+  end
+
+  def execute_sql(database_name, schema_prefix, sql, params)
+      when is_binary(database_name) and schema_prefix in @valid_prefixes do
+    with_tenant(database_name, schema_prefix, fn ->
+      __MODULE__.query(sql, params)
+    end)
+  end
+
+  defp build_config(database_name, schema_prefix) do
+    base = Application.get_env(:pki_tenancy, __MODULE__, [])
+
+    [
+      hostname: Keyword.get(base, :hostname, "localhost"),
+      port: Keyword.get(base, :port, 5434),
+      username: Keyword.get(base, :username, "postgres"),
+      password: Keyword.get(base, :password, "postgres"),
+      database: database_name,
+      pool_size: Keyword.get(base, :pool_size, 2),
+      after_connect: {Postgrex, :query!, ["SET search_path TO #{schema_prefix}", []]},
+      name: nil
+    ]
+  end
+end

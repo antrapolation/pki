@@ -9,4 +9,11 @@ config :pki_tenancy, PkiTenancy.PlatformRepo,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10
 
+config :pki_tenancy, PkiTenancy.TenantRepo,
+  hostname: "localhost",
+  port: 5434,
+  username: "postgres",
+  password: "postgres",
+  pool_size: 2
+
 config :logger, level: :warning
