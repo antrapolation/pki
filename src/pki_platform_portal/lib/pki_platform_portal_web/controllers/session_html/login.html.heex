@@ -1,0 +1,58 @@
+<div class="min-h-screen flex items-center justify-center bg-base-200">
+  <div class="card bg-base-100 shadow-xl w-full max-w-md">
+    <div class="card-body">
+      <div class="text-center mb-6">
+        <div class="flex items-center justify-center w-14 h-14 rounded-xl mx-auto mb-3"
+             style="background-color: oklch(55% 0.2 280);">
+          <span class="hero-server-stack size-7 text-white" />
+        </div>
+        <h2 class="text-2xl font-bold">Platform Admin</h2>
+        <p class="text-base-content/60 text-sm">Sign in to manage tenants</p>
+      </div>
+
+      <%= if @error do %>
+        <div class="alert alert-error mb-4">
+          <span class="hero-exclamation-circle size-5" />
+          <span><%= @error %></span>
+        </div>
+      <% end %>
+
+      <form action="/login" method="post">
+        <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+
+        <div class="fieldset mb-3">
+          <label for="username">
+            <span class="label mb-1">Username</span>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              class="w-full input"
+              placeholder="Enter your username"
+              required
+              autofocus
+            />
+          </label>
+        </div>
+
+        <div class="fieldset mb-4">
+          <label for="password">
+            <span class="label mb-1">Password</span>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              class="w-full input"
+              placeholder="Enter your password"
+              required
+            />
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-full">
+          Sign In
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
