@@ -528,7 +528,62 @@ Algorithm choice is configurable per tenant. Default: PQC.
 
 ---
 
-## 13. Security Properties
+## 13. Environment Configuration
+
+All secrets and infrastructure credentials are stored in `.env` files, never hardcoded. Separate files per environment:
+
+```
+.env.dev          — local development defaults
+.env.test         — CI/test environment
+.env.prod         — production (never committed to git)
+```
+
+### .env contents
+
+```ini
+# PostgreSQL (platform database)
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=<generated>
+
+# PostgreSQL roles (per-schema isolation)
+CA_DB_PASSWORD=<generated>
+RA_DB_PASSWORD=<generated>
+VAL_DB_PASSWORD=<generated>
+AUDIT_DB_PASSWORD=<generated>
+
+# Session signing
+SECRET_KEY_BASE=<generated-64-bytes>
+
+# Service-to-service (used during bootstrap, replaced by crypto auth after tenant init)
+INTERNAL_API_SECRET=<generated-32-bytes>
+
+# SoftHSM2
+SOFTHSM_TOKEN_LABEL=PkiCA
+SOFTHSM_SO_PIN=<generated>
+SOFTHSM_USER_PIN=<generated>
+
+# Platform admin (first platform superadmin)
+PLATFORM_ADMIN_USERNAME=<set-by-operator>
+PLATFORM_ADMIN_PASSWORD=<set-by-operator>
+```
+
+### Per-environment behavior
+
+| Secret | Development | Test | Production |
+|--------|------------|------|------------|
+| DB passwords | `postgres` / simple defaults | `test_*` prefixed | Strong generated values |
+| SECRET_KEY_BASE | Fixed dev value | Fixed test value | `openssl rand -base64 64` |
+| INTERNAL_API_SECRET | `dev-secret` | `test-secret` | `openssl rand -base64 32` |
+| HSM PINs | `1234` / `12345678` | Same as dev | Strong generated values |
+| Platform admin | `admin` / `admin` | N/A | Operator-chosen |
+
+### Loading
+
+Services read from `.env` via `env_file:` in compose.yml (containers) or `Config.Reader` in runtime.exs (bare metal). The `.env` file is in `.gitignore` — only `.env.example` is committed.
+
+---
+
+## 14. Security Properties
 
 | Property | How |
 |----------|-----|
