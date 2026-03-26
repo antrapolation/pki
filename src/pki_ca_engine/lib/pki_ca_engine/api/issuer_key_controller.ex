@@ -5,17 +5,13 @@ defmodule PkiCaEngine.Api.IssuerKeyController do
 
   import Plug.Conn
   alias PkiCaEngine.IssuerKeyManagement
+  alias PkiCaEngine.Api.Helpers
 
   def index(conn) do
-    case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id} ->
-        opts = if status = conn.query_params["status"], do: [status: status], else: []
-        keys = IssuerKeyManagement.list_issuer_keys(ca_instance_id, opts)
-        json(conn, 200, %{data: Enum.map(keys, &serialize_issuer_key/1)})
-
-      _ ->
-        json(conn, 400, %{error: "bad_request", message: "ca_instance_id query param required"})
-    end
+    ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
+    opts = if status = conn.query_params["status"], do: [status: status], else: []
+    keys = IssuerKeyManagement.list_issuer_keys(ca_instance_id, opts)
+    json(conn, 200, %{data: Enum.map(keys, &serialize_issuer_key/1)})
   end
 
   defp serialize_issuer_key(key) do

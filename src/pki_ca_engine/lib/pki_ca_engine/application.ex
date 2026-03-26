@@ -19,7 +19,29 @@ defmodule PkiCaEngine.Application do
       ] ++ http_children()
 
     opts = [strategy: :one_for_one, name: PkiCaEngine.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+    ensure_default_instance()
+    result
+  end
+
+  defp ensure_default_instance do
+    import Ecto.Query
+    alias PkiCaEngine.Schema.CaInstance
+
+    case PkiCaEngine.Repo.one(
+           from(i in CaInstance, where: i.name == "default", limit: 1)
+         ) do
+      nil ->
+        %CaInstance{}
+        |> CaInstance.changeset(%{name: "default", status: "active", created_by: "system"})
+        |> PkiCaEngine.Repo.insert!()
+
+      _exists ->
+        :ok
+    end
+  rescue
+    # DB not ready yet (migrations not run) — skip silently
+    _ -> :ok
   end
 
   defp http_children do

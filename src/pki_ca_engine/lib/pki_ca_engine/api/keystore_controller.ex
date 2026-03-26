@@ -5,32 +5,24 @@ defmodule PkiCaEngine.Api.KeystoreController do
 
   import Plug.Conn
   alias PkiCaEngine.KeystoreManagement
+  alias PkiCaEngine.Api.Helpers
 
   def index(conn) do
-    case conn.query_params do
-      %{"ca_instance_id" => ca_instance_id} ->
-        keystores = KeystoreManagement.list_keystores(ca_instance_id)
-        json(conn, 200, %{data: Enum.map(keystores, &serialize_keystore/1)})
-
-      _ ->
-        json(conn, 400, %{error: "bad_request", message: "ca_instance_id query param required"})
-    end
+    ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
+    keystores = KeystoreManagement.list_keystores(ca_instance_id)
+    json(conn, 200, %{data: Enum.map(keystores, &serialize_keystore/1)})
   end
 
   def create(conn) do
-    with %{"ca_instance_id" => ca_instance_id} <- conn.body_params do
-      attrs = build_attrs(conn.body_params)
+    ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
+    attrs = build_attrs(conn.body_params)
 
-      case KeystoreManagement.configure_keystore(ca_instance_id, attrs) do
-        {:ok, keystore} ->
-          json(conn, 201, serialize_keystore(keystore))
+    case KeystoreManagement.configure_keystore(ca_instance_id, attrs) do
+      {:ok, keystore} ->
+        json(conn, 201, serialize_keystore(keystore))
 
-        {:error, %Ecto.Changeset{} = changeset} ->
-          json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
-      end
-    else
-      _ ->
-        json(conn, 400, %{error: "bad_request", message: "ca_instance_id required"})
+      {:error, %Ecto.Changeset{} = changeset} ->
+        json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
     end
   end
 
