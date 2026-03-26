@@ -108,6 +108,7 @@ defmodule PkiRaPortalWeb.UsersLive do
                   <th class="font-semibold text-xs uppercase tracking-wider">Name</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Role</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Credentials</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -132,6 +133,15 @@ defmodule PkiRaPortalWeb.UsersLive do
                       user.status != "active" && "badge-warning"
                     ]}>
                       {user.status}
+                    </span>
+                  </td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      Map.get(user, :has_credentials, false) && "badge-success",
+                      !Map.get(user, :has_credentials, false) && "badge-ghost"
+                    ]}>
+                      {if Map.get(user, :has_credentials, false), do: "configured", else: "not set"}
                     </span>
                   </td>
                   <td>

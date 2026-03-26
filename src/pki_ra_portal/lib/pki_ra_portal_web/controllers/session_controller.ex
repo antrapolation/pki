@@ -9,8 +9,8 @@ defmodule PkiRaPortalWeb.SessionController do
   end
 
   def create(conn, %{"session" => %{"username" => username, "password" => password}}) do
-    case RaEngineClient.authenticate(username, password) do
-      {:ok, user} ->
+    case RaEngineClient.authenticate_with_session(username, password) do
+      {:ok, user, session} ->
         conn
         |> configure_session(renew: true)
         |> put_session(:current_user, %{
@@ -19,6 +19,7 @@ defmodule PkiRaPortalWeb.SessionController do
           role: user.role,
           display_name: user.display_name
         })
+        |> put_session(:session_key, session.session_key)
         |> redirect(to: "/")
 
       {:error, :invalid_credentials} ->

@@ -43,6 +43,31 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
+  def authenticate_with_session(username, password) do
+    case post("/api/v1/auth/login", %{username: username, password: password}) do
+      {:ok, %{status: 200, body: body}} ->
+        user = atomize_keys(body)
+        session = %{
+          session_key: Map.get(body, "session_key", nil),
+          session_salt: Map.get(body, "session_salt", nil)
+        }
+        {:ok, user, session}
+
+      {:ok, %{status: 401}} ->
+        {:error, :invalid_credentials}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_implemented}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
   def register_user(attrs) do
     payload = stringify_keys(attrs)
 
