@@ -10,6 +10,7 @@ defmodule PkiCaEngine.UserManagement do
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.CaUser
   alias PkiCaEngine.CredentialManager
+  alias PkiCaEngine.Bootstrap
 
   @role_permissions %{
     "ca_admin" => [:manage_ca_admins, :manage_auditors, :view_audit_log, :view_all],
@@ -24,23 +25,23 @@ defmodule PkiCaEngine.UserManagement do
   """
   @spec register_user(String.t(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
   def register_user(ca_instance_id, attrs) do
-    Repo.transaction(fn ->
-      # Re-check inside transaction to prevent TOCTOU race
-      count = Repo.one(from u in CaUser, where: u.ca_instance_id == ^ca_instance_id, select: count(u.id))
+    password = attrs[:password] || attrs["password"]
 
-      if count > 0 do
-        Repo.rollback(:setup_already_complete)
-      else
-        password = attrs[:password] || attrs["password"]
+    if needs_setup?(ca_instance_id) and password != nil do
+      # Full bootstrap: admin + ACL + system keypairs
+      user_attrs = Map.drop(attrs, [:password, "password", :ca_instance_id, "ca_instance_id"])
 
-        if password do
-          # Bootstrap flow: create user with credentials
-          user_attrs = Map.drop(attrs, [:password, "password", :ca_instance_id, "ca_instance_id"])
+      case Bootstrap.setup_tenant(ca_instance_id, user_attrs, password) do
+        {:ok, %{admin: admin}} -> {:ok, admin}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      Repo.transaction(fn ->
+        # Re-check inside transaction to prevent TOCTOU race
+        count = Repo.one(from u in CaUser, where: u.ca_instance_id == ^ca_instance_id, select: count(u.id))
 
-          case CredentialManager.create_user_with_credentials(ca_instance_id, user_attrs, password) do
-            {:ok, user} -> user
-            {:error, changeset} -> Repo.rollback(changeset)
-          end
+        if count > 0 do
+          Repo.rollback(:setup_already_complete)
         else
           # Legacy flow: create user without credentials
           full_attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
@@ -50,8 +51,8 @@ defmodule PkiCaEngine.UserManagement do
             {:error, changeset} -> Repo.rollback(changeset)
           end
         end
-      end
-    end)
+      end)
+    end
   end
 
   @doc """
