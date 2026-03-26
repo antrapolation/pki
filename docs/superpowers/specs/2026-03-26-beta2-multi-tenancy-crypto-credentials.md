@@ -751,3 +751,48 @@ Services read from `.env` via `env_file:` in compose.yml (containers) or `Config
 | Share confidentiality | Shares held by custodians, not in DB |
 | Audit integrity | Hash-chain audit trail, auditor-signed |
 | Session security | Password-derived key in encrypted cookie |
+
+---
+
+## 15. Development Practices
+
+### 15.1 Test-Driven Development (TDD)
+
+All beta.2 code must follow TDD — write failing tests before implementation.
+
+**Cycle per feature:**
+1. **Red** — Write a test for the expected behaviour. Run it. It must fail.
+2. **Green** — Write the minimum code to make the test pass.
+3. **Refactor** — Clean up while keeping tests green.
+
+**Test layers:**
+| Layer | What | Framework |
+|-------|------|-----------|
+| Unit | Individual modules (CredentialManager, KeyVault, Algorithm impls) | ExUnit |
+| Integration | Cross-module flows (bootstrap → credential → ceremony) | ExUnit with real DB |
+| E2E | Browser + API (tenant creation → login → ceremony → signing) | Playwright |
+
+**Requirements:**
+- Every public function has at least one test
+- Every error path has a test (not just happy path)
+- Crypto operations tested with known test vectors where available
+- Protocol implementations tested via shared test suite (one test module, all impls must pass)
+
+### 15.2 SOLID Principles (Adapted for Elixir)
+
+| Principle | Elixir Interpretation | Application in Beta.2 |
+|-----------|----------------------|----------------------|
+| **S** — Single Responsibility | Each module does one thing. One reason to change. | `CredentialManager` handles credentials, not ceremonies. `KeyVault` handles grants, not key generation. |
+| **O** — Open/Closed | Open for extension via protocols, closed for modification. | `PkiCrypto.Algorithm` protocol — add algorithms without changing core. New tenant DB schemas without modifying existing ones. |
+| **L** — Liskov Substitution | All protocol implementations are interchangeable. | Any `PkiCrypto.Algorithm` impl (RSA, ECC, ML-DSA) works anywhere an algorithm is expected. Mock clients substitute for Http clients without behaviour change. |
+| **I** — Interface Segregation | Small, focused protocols and behaviours. | `PkiCrypto.Algorithm` has only the methods algorithms need. Portal client behaviours don't force engines to implement portal-specific concerns. |
+| **D** — Dependency Inversion | Depend on protocols/behaviours, not concrete modules. | Engine depends on `PkiCrypto.Algorithm` protocol, not `RSA4096` module. Portal depends on `CaEngineClient` behaviour, not `Http` module. Tenant repo resolved at runtime, not compiled in. |
+
+### 15.3 Code Organization Rules
+
+- **Max module size**: ~300 lines. If larger, split by responsibility.
+- **Max function size**: ~20 lines. Extract helpers for clarity.
+- **No God modules**: A module that "does everything" must be decomposed.
+- **Explicit dependencies**: `alias` at the top, no deep nested module references.
+- **No side effects in pure functions**: Separate computation from I/O (DB, network, crypto).
+- **Context boundaries**: Each context (Credential, Ceremony, Vault) has a single public API module that delegates to private implementation modules.
