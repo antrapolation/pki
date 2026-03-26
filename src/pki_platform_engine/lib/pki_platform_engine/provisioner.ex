@@ -86,19 +86,22 @@ defmodule PkiPlatformEngine.Provisioner do
   defp with_admin_conn(fun) do
     config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
 
-    {:ok, conn} =
-      Postgrex.start_link(
-        hostname: Keyword.get(config, :hostname, "localhost"),
-        port: Keyword.get(config, :port, 5434),
-        username: Keyword.get(config, :username, "postgres"),
-        password: Keyword.get(config, :password, "postgres"),
-        database: "postgres"
-      )
+    case Postgrex.start_link(
+           hostname: Keyword.get(config, :hostname, "localhost"),
+           port: Keyword.get(config, :port, 5434),
+           username: Keyword.get(config, :username, "postgres"),
+           password: Keyword.get(config, :password, "postgres"),
+           database: "postgres"
+         ) do
+      {:ok, conn} ->
+        try do
+          fun.(conn)
+        after
+          GenServer.stop(conn)
+        end
 
-    try do
-      fun.(conn)
-    after
-      GenServer.stop(conn)
+      {:error, reason} ->
+        {:error, {:admin_conn_failed, reason}}
     end
   end
 

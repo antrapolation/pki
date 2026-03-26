@@ -20,12 +20,16 @@ if config_env() != :prod do
 end
 
 if config_env() == :prod do
+  admin_username =
+    System.get_env("PLATFORM_ADMIN_USERNAME") ||
+      raise "environment variable PLATFORM_ADMIN_USERNAME is missing"
+
   admin_password =
     System.get_env("PLATFORM_ADMIN_PASSWORD") ||
       raise "environment variable PLATFORM_ADMIN_PASSWORD is missing"
 
   config :pki_platform_portal,
-    admin_username: System.get_env("PLATFORM_ADMIN_USERNAME", "admin"),
+    admin_username: admin_username,
     admin_password: admin_password
 
   secret_key_base =

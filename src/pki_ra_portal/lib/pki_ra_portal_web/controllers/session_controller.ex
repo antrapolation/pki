@@ -20,6 +20,7 @@ defmodule PkiRaPortalWeb.SessionController do
           display_name: user.display_name
         })
         |> put_session(:session_key, session.session_key)
+        |> put_session(:session_salt, session.session_salt)
         |> redirect(to: "/")
 
       {:error, :invalid_credentials} ->

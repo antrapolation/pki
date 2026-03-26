@@ -55,7 +55,12 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   defp decode_session_value(nil), do: nil
-  defp decode_session_value(val) when is_binary(val), do: Base.decode64!(val)
+  defp decode_session_value(val) when is_binary(val) do
+    case Base.decode64(val) do
+      {:ok, bin} -> bin
+      :error -> val
+    end
+  end
   defp decode_session_value(val), do: val
 
   @impl true

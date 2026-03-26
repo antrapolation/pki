@@ -115,7 +115,12 @@
       "Bash(DATABASE_URL=\"ecto://postgres:postgres@localhost:5434/pki_ca_engine_dev\" mix ecto.migrate)",
       "Bash(MIX_ENV=test mix ecto.migrate)",
       "Bash(MIX_ENV=test mix test --no-start)",
-      "Bash(MIX_ENV=test mix run -e \"ExUnit.start\\(\\); Code.compile_file\\(\"\"test/test_helper.exs\"\"\\)\")"
+      "Bash(MIX_ENV=test mix run -e \"ExUnit.start\\(\\); Code.compile_file\\(\"\"test/test_helper.exs\"\"\\)\")",
+      "Bash(MIX_ENV=test mix test test/pki_ra_portal_web/live/users_live_test.exs:23 --trace)",
+      "Bash(cp:*)",
+      "Bash(mv lib/pki_tenancy lib/pki_platform_engine)",
+      "Bash(mv test/pki_tenancy test/pki_platform_engine)",
+      "Bash(/dev/null --include=*.exs)"
     ]
   }
 }
