@@ -671,3 +671,30 @@
 - Password too short → "Password must be at least 8 characters"
 - Admin session_key expired/invalid → "Session expired, please re-login"
 - Keypair generation failure → error with rollback
+
+---
+
+## UC-RA-37: RA Bootstrap with Credentials
+
+**Actor:** First user (becomes RA Admin)
+**Precondition:** Tenant database created (via Platform Portal), no RA users exist, service running
+**Trigger:** First admin registration via `/setup`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | First RA admin registers with username and password | User record created |
+| 2 | System hashes password with Argon2 | Password hash stored |
+| 3 | System generates signing keypair (algorithm per tenant config) | Signing public key stored plain |
+| 4 | System encrypts signing private key with password-derived key (PBKDF2 + HKDF) | Encrypted private key stored |
+| 5 | System generates KEM keypair | KEM public key stored plain |
+| 6 | System encrypts KEM private key with password-derived key | Encrypted private key stored |
+| 7 | System self-certifies admin's public keys | Certificates created |
+| 8 | Verify user has role `ra_admin` | Role correctly assigned |
+| 9 | Verify both signing and KEM credentials are configured | Credential badges show "configured" |
+| 10 | Redirected to `/login` | Success flash displayed |
+
+**Error Cases:**
+- Password too short (< 8 chars) → validation error
+- Username too short (< 3 chars) → validation error
+- Keypair generation failure → error with full rollback (no partial state)
+- Subsequent visits to `/setup` → redirected to `/login` with "System already configured."

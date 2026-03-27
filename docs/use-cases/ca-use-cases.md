@@ -808,3 +808,262 @@
 - Target keypair not found → `{:error, :keypair_not_found}`
 - ACL not activated → `{:error, :acl_not_active}`
 - Duplicate grant → `{:error, :grant_already_exists}`
+
+---
+
+## UC-CA-39: Start Key Ceremony via API
+
+**Actor:** Key Manager
+**Precondition:** CA instance running, multiple Key Managers exist (policy-driven), valid API authentication
+**Trigger:** POST `/api/v1/ceremonies/start`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/ceremonies/start` with body `{sessions: [{user_id, role, username}, ...], ca_instance_id}` | Request accepted |
+| 2 | System verifies all sessions have valid roles (at least one `key_manager`) | Role check passes |
+| 3 | System starts KeyCeremonyManager GenServer process | Process started |
+| 4 | System generates ceremony_id (UUID) and registers PID | Ceremony registered |
+| 5 | Response: 201 with `{ceremony_id: "<uuid>"}` | UUID returned |
+
+**Error Cases:**
+- Insufficient Key Managers for policy → `{:error, :insufficient_managers}`
+- Invalid session roles → 422 error
+- CA instance not found → 422 error
+
+---
+
+## UC-CA-40: Generate Keypair in Ceremony
+
+**Actor:** Key Manager
+**Precondition:** Ceremony started (UC-CA-39), ceremony GenServer running
+**Trigger:** POST `/api/v1/ceremonies/:id/generate-keypair`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/ceremonies/:id/generate-keypair` with body `{algorithm, protection_mode, threshold_k, threshold_n}` | Request accepted |
+| 2 | System validates protection_mode is one of: `credential_own`, `split_auth_token`, `split_key` | Validation passes |
+| 3 | System calls `KeyCeremonyManager.generate_keypair(pid, algorithm, protection_mode, opts)` | Keypair generated |
+| 4 | Keypair status set to "pending" | Status recorded |
+| 5 | Response: 200 with `{keypair_id, algorithm, public_key (base64)}` | Keypair data returned |
+
+**Error Cases:**
+- Ceremony not found → 404 `ceremony_not_found`
+- Invalid protection_mode → 422 `invalid_protection_mode`
+- Keypair generation failure → 422 error
+
+---
+
+## UC-CA-41: Self-Sign Certificate in Ceremony
+
+**Actor:** Key Manager
+**Precondition:** Keypair generated in ceremony (UC-CA-40)
+**Trigger:** POST `/api/v1/ceremonies/:id/self-sign`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/ceremonies/:id/self-sign` with body `{subject_info, cert_profile}` | Request accepted |
+| 2 | System calls `KeyCeremonyManager.gen_self_sign_cert(pid, subject_info, cert_profile)` | Self-signed root certificate generated |
+| 3 | Keypair status transitions to "active" | Status updated |
+| 4 | Response: 200 with `{certificate_pem}` | PEM-encoded certificate returned |
+
+**Error Cases:**
+- Ceremony not found → 404 `ceremony_not_found`
+- No keypair generated yet → 422 error
+- Invalid subject_info → 422 error
+
+---
+
+## UC-CA-42: Generate CSR in Ceremony
+
+**Actor:** Key Manager
+**Precondition:** Keypair generated in ceremony (UC-CA-40)
+**Trigger:** POST `/api/v1/ceremonies/:id/csr`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/ceremonies/:id/csr` with body `{subject_info}` | Request accepted |
+| 2 | System calls `KeyCeremonyManager.gen_csr(pid, subject_info)` | CSR generated for sub-CA issuer |
+| 3 | Keypair status remains "pending" (awaits external CA signing) | Status unchanged |
+| 4 | Response: 200 with `{csr_pem}` | PEM-encoded CSR returned |
+
+**Error Cases:**
+- Ceremony not found → 404 `ceremony_not_found`
+- No keypair generated yet → 422 error
+- Invalid subject_info → 422 error
+
+---
+
+## UC-CA-43: Assign Custodians in Ceremony
+
+**Actor:** Key Manager
+**Precondition:** Keypair generated in ceremony (UC-CA-40)
+**Trigger:** POST `/api/v1/ceremonies/:id/assign-custodians`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/ceremonies/:id/assign-custodians` with body `{custodians: [{user_id, password}, ...], threshold_k}` | Request accepted |
+| 2 | System splits keypair random password into shares (Shamir threshold scheme) | Shares created |
+| 3 | Each share encrypted with custodian's provided password | Per-custodian encryption |
+| 4 | Encrypted shares returned to custodians (NOT stored in DB) | Shares distributed |
+| 5 | Response: 200 with `{status: "custodians_assigned"}` | Assignment confirmed |
+
+**Error Cases:**
+- Ceremony not found → 404 `ceremony_not_found`
+- Wrong custodian count (< threshold_k) → 422 error
+- No keypair generated yet → 422 error
+
+---
+
+## UC-CA-44: Finalize Ceremony (Auditor)
+
+**Actor:** Auditor
+**Precondition:** Ceremony phases complete (keypair generated, certificate bound, custodians assigned)
+**Trigger:** POST `/api/v1/ceremonies/:id/finalize`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/ceremonies/:id/finalize` with body `{auditor_session: {user_id, role, username}}` | Request accepted |
+| 2 | System verifies auditor has "auditor" role | Role check passes |
+| 3 | System calls `KeyCeremonyManager.finalize(pid, auditor_session)` | Audit trail signed by Auditor |
+| 4 | Signed audit trail returned for safekeeping | Audit record created |
+| 5 | Ceremony marked complete | Status = "finalized" |
+| 6 | GenServer process stops | PID unregistered |
+| 7 | Response: 200 with `{status: "finalized", audit_trail_count}` | Finalization confirmed |
+
+**Error Cases:**
+- Ceremony not found → 404 `ceremony_not_found`
+- User does not have "auditor" role → 422 error
+- Ceremony not in finalizable state → 422 error
+
+---
+
+## UC-CA-45: Get Ceremony Status
+
+**Actor:** Key Manager / Auditor
+**Precondition:** Ceremony started (UC-CA-39), GenServer running
+**Trigger:** GET `/api/v1/ceremonies/:id/status`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | GET `/api/v1/ceremonies/:id/status` | Request accepted |
+| 2 | System calls `KeyCeremonyManager.get_status(pid)` | Status retrieved from GenServer state |
+| 3 | Response: 200 with `{phase, ca_instance_id, keypair_id, protection_mode, audit_trail_count}` | Current ceremony state returned |
+
+**Error Cases:**
+- Ceremony not found (invalid ID or GenServer stopped) → 404 `ceremony_not_found`
+
+---
+
+## UC-CA-46: Register Managed Keypair
+
+**Actor:** Key Manager
+**Precondition:** Key Vault initialized, valid API authentication
+**Trigger:** POST `/api/v1/keypairs/register`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/keypairs/register` with body `{name, algorithm, protection_mode, ca_instance_id}` | Request accepted |
+| 2 | For `credential_own` mode: body includes `acl_kem_public_key` (base64) | ACL key provided |
+| 3 | For `split_auth_token` / `split_key` modes: body includes `threshold_k`, `threshold_n` | Threshold params provided |
+| 4 | System calls appropriate `KeyVault.register_keypair*` function | Keypair generated and registered |
+| 5 | Response: 201 with keypair record `{id, name, algorithm, protection_mode, status, public_key}` | Keypair returned |
+| 6 | For split modes: `shares_generated: true` flag included | Shares created (distributed out-of-band) |
+
+**Error Cases:**
+- Invalid base64 for acl_kem_public_key → 422 `invalid_base64`
+- Validation error (missing name, algorithm) → 422 `validation_error`
+- Duplicate name within ca_instance → 422 error
+
+---
+
+## UC-CA-47: Grant Keypair Access
+
+**Actor:** CA Admin / Key Manager
+**Precondition:** Keypair registered (UC-CA-46), target credential exists
+**Trigger:** POST `/api/v1/keypairs/:id/grant`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/keypairs/:id/grant` with body `{credential_id, acl_signing_key (base64), acl_signing_algo}` | Request accepted |
+| 2 | System calls `KeyVault.grant_access(keypair_id, credential_id, acl_signing_key, acl_signing_algo)` | Signed grant envelope created |
+| 3 | Grant record stored in `keypair_grants` table | Grant persisted |
+| 4 | Response: 201 with `{id, managed_keypair_id, credential_id}` | Grant returned |
+
+**Error Cases:**
+- Invalid base64 for acl_signing_key → 422 `invalid_base64`
+- Keypair not found → 422 error
+- Credential not found → 422 error
+- Duplicate grant → 422 error
+
+---
+
+## UC-CA-48: Activate Keypair
+
+**Actor:** Key Manager / Custodians
+**Precondition:** Keypair registered, grant exists (for credential_own) or shares available (for split modes)
+**Trigger:** POST `/api/v1/keypairs/:id/activate`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1a | For `credential_own`: POST with `{protection_mode: "credential_own", acl_kem_private_key (base64)}` | KEM key provided |
+| 1b | For `split_auth_token` / `split_key`: POST with `{protection_mode: "split_auth_token", shares: [...] (base64)}` | Shares provided |
+| 2 | System calls appropriate `KeyVault.activate_*` function | Private key recovered |
+| 3 | Response: 200 with `{status: "activated"}` | Activation confirmed |
+| 4 | Private key NOT returned over HTTP | Security enforced |
+
+**Error Cases:**
+- Invalid base64 for shares or KEM key → 422 `invalid_base64`
+- Insufficient shares for threshold → 422 error
+- Invalid KEM private key → 422 error
+- Keypair not found → 422 error
+
+---
+
+## UC-CA-49: Revoke Keypair Grant
+
+**Actor:** CA Admin
+**Precondition:** Grant exists for keypair (UC-CA-47)
+**Trigger:** POST `/api/v1/keypairs/:id/revoke-grant`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | POST `/api/v1/keypairs/:id/revoke-grant` with body `{credential_id}` | Request accepted |
+| 2 | System calls `KeyVault.revoke_grant(keypair_id, credential_id)` | Grant soft-revoked |
+| 3 | Response: 200 with `{status: "revoked"}` | Revocation confirmed |
+
+**Error Cases:**
+- Grant not found → 404 `grant_not_found`
+- Keypair not found → 422 error
+
+---
+
+## UC-CA-50: List Managed Keypairs
+
+**Actor:** Key Manager / CA Admin
+**Precondition:** Keypairs registered for ca_instance
+**Trigger:** GET `/api/v1/keypairs?ca_instance_id=...`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | GET `/api/v1/keypairs?ca_instance_id=<id>` | Request accepted |
+| 2 | System calls `KeyVault.list_keypairs(ca_instance_id)` | Keypairs retrieved |
+| 3 | Response: 200 with `{data: [{id, name, algorithm, protection_mode, status, public_key}, ...]}` | List returned |
+| 4 | No private keys included in response | Security enforced |
+
+---
+
+## UC-CA-51: Get Managed Keypair
+
+**Actor:** Key Manager / CA Admin
+**Precondition:** Keypair exists
+**Trigger:** GET `/api/v1/keypairs/:id`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | GET `/api/v1/keypairs/:id` | Request accepted |
+| 2 | System calls `KeyVault.get_keypair(keypair_id)` | Keypair retrieved |
+| 3 | Response: 200 with keypair details `{id, name, algorithm, protection_mode, status, public_key}` | Keypair returned |
+| 4 | No private key included in response | Security enforced |
+
+**Error Cases:**
+- Keypair not found → 404 `not_found`

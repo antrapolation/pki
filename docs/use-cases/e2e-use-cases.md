@@ -370,13 +370,63 @@ These use cases span multiple modules and test the full system working together.
 
 ---
 
+## UC-E2E-20: Full Key Ceremony via API
+
+**Modules:** CA Engine API (CeremonyController)
+**Precondition:** CA instance running, multiple Key Managers and Auditor exist, valid API authentication
+**Actors:** Key Manager, Auditor
+
+| Step | Actor | Module | Action | Expected Result |
+|------|-------|--------|--------|-----------------|
+| 1 | Key Manager | CA API | POST `/api/v1/ceremonies/start` with sessions list | 201, `ceremony_id` returned |
+| 2 | Key Manager | CA API | POST `/api/v1/ceremonies/:id/generate-keypair` with `{algorithm: "RSA-4096", protection_mode: "split_auth_token", threshold_k: 2, threshold_n: 3}` | 200, `keypair_id` and `public_key` returned |
+| 3 | Key Manager | CA API | GET `/api/v1/ceremonies/:id/status` | 200, phase shows keypair generated |
+| 4 | Key Manager | CA API | POST `/api/v1/ceremonies/:id/self-sign` with `{subject_info: "/CN=Root CA"}` | 200, `certificate_pem` returned |
+| 5 | Key Manager | CA API | POST `/api/v1/ceremonies/:id/assign-custodians` with custodian list | 200, `custodians_assigned` status |
+| 6 | Auditor | CA API | POST `/api/v1/ceremonies/:id/finalize` with auditor session | 200, `finalized` status with `audit_trail_count` |
+| 7 | — | CA API | GET `/api/v1/ceremonies/:id/status` | 404 (GenServer stopped after finalization) |
+| 8 | — | System | Verify ceremony audit trail is signed | Audit trail contains signed entries |
+
+**Error Cases:**
+- Start ceremony with no Key Managers → 422 error
+- Generate keypair with invalid protection_mode → 422 error
+- Finalize without auditor role → 422 error
+- Access ceremony after finalization → 404
+
+---
+
+## UC-E2E-21: Key Vault Lifecycle via API
+
+**Modules:** CA Engine API (KeyVaultController)
+**Precondition:** CA instance running, Keypair ACL active, valid API authentication
+**Actors:** Key Manager, CA Admin
+
+| Step | Actor | Module | Action | Expected Result |
+|------|-------|--------|--------|-----------------|
+| 1 | Key Manager | CA API | POST `/api/v1/keypairs/register` with `{name: "leaf-issuer-1", algorithm: "ECC-P256", protection_mode: "credential_own", acl_kem_public_key: "<base64>"}` | 201, keypair record returned |
+| 2 | Key Manager | CA API | GET `/api/v1/keypairs?ca_instance_id=<id>` | 200, list includes new keypair |
+| 3 | Key Manager | CA API | GET `/api/v1/keypairs/:id` | 200, keypair details (no private key) |
+| 4 | CA Admin | CA API | POST `/api/v1/keypairs/:id/grant` with `{credential_id, acl_signing_key, acl_signing_algo}` | 201, grant record returned |
+| 5 | Key Manager | CA API | POST `/api/v1/keypairs/:id/activate` with `{protection_mode: "credential_own", acl_kem_private_key: "<base64>"}` | 200, `activated` status |
+| 6 | — | System | Verify private key NOT returned in response | Security enforced |
+| 7 | CA Admin | CA API | POST `/api/v1/keypairs/:id/revoke-grant` with `{credential_id}` | 200, `revoked` status |
+| 8 | Key Manager | CA API | POST `/api/v1/keypairs/:id/activate` (after grant revoked) | 422 error (grant revoked) |
+
+**Error Cases:**
+- Register with invalid base64 → 422 `invalid_base64`
+- Grant for non-existent keypair → 422 error
+- Activate with insufficient shares → 422 error
+- Revoke non-existent grant → 404 `grant_not_found`
+
+---
+
 ## Coverage Matrix
 
 | Module | Use Cases | Portal UI | API/Engine | State Machine | Error Cases |
 |--------|-----------|-----------|------------|---------------|-------------|
 | **Platform** | 8 | UC-PLT-01 to 06 | UC-PLT-07, 08 | UC-PLT-04, 05 (tenant status) | UC-PLT-03, 06, 07, 08 |
-| **CA** | 40 | UC-CA-00A/B/C, 01, 01A, 03, 03A, 04 to 09, 22, 26, 34 | UC-CA-10 to 21, 23-25, 27-28, 35-38 | UC-CA-21, 33 (key), UC-CA-08 (ceremony) | UC-CA-00A/C (validation), 29, 30, 31, 32, 35, 36, 38 |
-| **RA** | 41 | UC-RA-00A/B/C, 01, 01A, 03, 03A, 04 to 11, 15-19, 29 | UC-RA-12 to 14, 20-28, 33-35 | UC-RA-21, 30 (CSR) | UC-RA-00A/C (validation), 31, 32, 36 |
+| **CA** | 53 | UC-CA-00A/B/C, 01, 01A, 03, 03A, 04 to 09, 22, 26, 34 | UC-CA-10 to 21, 23-25, 27-28, 35-51 | UC-CA-21, 33 (key), UC-CA-08 (ceremony), UC-CA-40 (keypair status) | UC-CA-00A/C (validation), 29, 30, 31, 32, 35, 36, 38, 39-44, 46-49, 51 |
+| **RA** | 42 | UC-RA-00A/B/C, 01, 01A, 03, 03A, 04 to 11, 15-19, 29 | UC-RA-12 to 14, 20-28, 33-35, 37 | UC-RA-21, 30 (CSR) | UC-RA-00A/C (validation), 31, 32, 36, 37 |
 | **Validation** | 20 | — | UC-VAL-01 to 20 | UC-VAL-06, 15, 16 (lifecycle) | UC-VAL-13, 18, 20 |
-| **E2E** | 19 | UC-E2E-09, 10, 12, 17 | UC-E2E-01 to 08, 11, 13-19 | UC-E2E-01, 02, 03, 13, 17 (full chain) | UC-E2E-06, 07, 18 |
-| **Total** | **128** | | | | |
+| **E2E** | 21 | UC-E2E-09, 10, 12, 17 | UC-E2E-01 to 08, 11, 13-21 | UC-E2E-01, 02, 03, 13, 17 (full chain), UC-E2E-20, 21 (API lifecycle) | UC-E2E-06, 07, 18, 20, 21 |
+| **Total** | **144** | | | | |
