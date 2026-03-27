@@ -30,6 +30,13 @@ export default defineConfig({
       },
     },
     {
+      name: "ca-api",
+      testMatch: /ca-api\/.*\.spec\.ts/,
+      use: {
+        baseURL: process.env.CA_ENGINE_URL || "http://localhost:4001",
+      },
+    },
+    {
       name: "ra-api",
       testMatch: /ra-api\/.*\.spec\.ts/,
       use: {
