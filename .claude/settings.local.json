@@ -121,7 +121,8 @@
       "Bash(mv lib/pki_tenancy lib/pki_platform_engine)",
       "Bash(mv test/pki_tenancy test/pki_platform_engine)",
       "Bash(/dev/null --include=*.exs)",
-      "Bash(ENGINE_CLIENT_MODE=mock podman-compose up -d postgres softhsm2 pki-ca-engine pki-ra-engine pki-validation pki-ca-portal pki-ra-portal)"
+      "Bash(ENGINE_CLIENT_MODE=mock podman-compose up -d postgres softhsm2 pki-ca-engine pki-ra-engine pki-validation pki-ca-portal pki-ra-portal)",
+      "Bash(curl:*)"
     ]
   }
 }
