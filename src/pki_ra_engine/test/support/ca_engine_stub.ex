@@ -6,6 +6,9 @@ defmodule PkiRaEngine.Test.CaEngineStub do
   data without requiring the actual CA engine or its Postgres database.
   """
 
+  @behaviour PkiRaEngine.CaClient
+
+  @impl true
   def sign_certificate(_csr_pem, _cert_profile) do
     serial = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 

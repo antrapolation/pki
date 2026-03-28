@@ -11,7 +11,7 @@ defmodule PkiCaEngine.Api.UserController do
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
     opts = if role = conn.query_params["role"], do: [role: role], else: []
     users = UserManagement.list_users(ca_instance_id, opts)
-    json(conn, 200, %{data: Enum.map(users, &serialize_user/1)})
+    json(conn, 200, Enum.map(users, &serialize_user/1))
   end
 
   def create(conn) do
@@ -23,7 +23,8 @@ defmodule PkiCaEngine.Api.UserController do
       if password do
         # Create user with cryptographic credentials
         user_attrs = Map.drop(attrs, [:password, "password"])
-        UserManagement.create_user_with_credentials(ca_instance_id, user_attrs, password)
+        opts = build_admin_context(conn.body_params)
+        UserManagement.create_user_with_credentials(ca_instance_id, user_attrs, password, opts)
       else
         # Legacy: create user without credentials
         UserManagement.create_user(ca_instance_id, attrs)
@@ -66,6 +67,13 @@ defmodule PkiCaEngine.Api.UserController do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp build_admin_context(%{"admin_user_id" => admin_id, "admin_password" => admin_pw})
+       when is_binary(admin_id) and is_binary(admin_pw) do
+    [admin_context: %{user_id: admin_id, password: admin_pw}]
+  end
+
+  defp build_admin_context(_), do: []
 
   defp serialize_user(user) do
     %{

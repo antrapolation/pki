@@ -10,6 +10,7 @@ defmodule PkiRaPortal.RaEngineClient do
 
   @callback list_users() :: {:ok, [map()]} | {:error, term()}
   @callback create_user(map()) :: {:ok, map()} | {:error, term()}
+  @callback create_user(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback delete_user(String.t()) :: {:ok, map()} | {:error, term()}
   @callback list_csrs(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback get_csr(String.t()) :: {:ok, map()} | {:error, term()}
@@ -34,6 +35,7 @@ defmodule PkiRaPortal.RaEngineClient do
 
   def list_users, do: impl().list_users()
   def create_user(attrs), do: impl().create_user(attrs)
+  def create_user(attrs, admin_context), do: impl().create_user(attrs, admin_context)
   def delete_user(id), do: impl().delete_user(id)
   def list_csrs(filters \\ []), do: impl().list_csrs(filters)
   def get_csr(id), do: impl().get_csr(id)

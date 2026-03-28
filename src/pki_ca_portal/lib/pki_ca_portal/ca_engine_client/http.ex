@@ -142,6 +142,30 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def create_user(ca_instance_id, attrs, admin_context) do
+    payload =
+      attrs
+      |> stringify_keys()
+      |> Map.put("ca_instance_id", ca_instance_id)
+      |> Map.put("admin_user_id", admin_context[:user_id] || admin_context["user_id"])
+      |> Map.put("admin_password", admin_context[:password] || admin_context["password"])
+
+    case auth_post("/api/v1/users", payload) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 422, body: %{"details" => details}}} ->
+        {:error, {:validation_error, details}}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
   def get_user(id) do
     case auth_get("/api/v1/users/#{id}") do
       {:ok, %{status: 200, body: body}} ->
@@ -299,7 +323,7 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       raise "Missing :internal_api_secret configuration for :pki_ca_portal"
   end
 
-  defp get(path, opts) do
+  defp get(path, opts \\ []) do
     url = base_url() <> path
     params = Keyword.get(opts, :params, [])
 

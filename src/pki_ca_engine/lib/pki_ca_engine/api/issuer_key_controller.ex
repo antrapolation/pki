@@ -11,7 +11,7 @@ defmodule PkiCaEngine.Api.IssuerKeyController do
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
     opts = if status = conn.query_params["status"], do: [status: status], else: []
     keys = IssuerKeyManagement.list_issuer_keys(ca_instance_id, opts)
-    json(conn, 200, %{data: Enum.map(keys, &serialize_issuer_key/1)})
+    json(conn, 200, Enum.map(keys, &serialize_issuer_key/1))
   end
 
   defp serialize_issuer_key(key) do

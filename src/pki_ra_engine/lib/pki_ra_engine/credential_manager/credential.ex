@@ -15,6 +15,7 @@ defmodule PkiRaEngine.CredentialManager.Credential do
     field :encrypted_private_key, :binary
     field :salt, :binary
     field :certificate, :binary
+    field :attested_by_key, :binary
     field :status, :string, default: "active"
 
     belongs_to :user, PkiRaEngine.Schema.RaUser
@@ -24,7 +25,7 @@ defmodule PkiRaEngine.CredentialManager.Credential do
 
   def changeset(credential, attrs) do
     credential
-    |> cast(attrs, [:credential_type, :algorithm, :public_key, :encrypted_private_key, :salt, :certificate, :status, :user_id])
+    |> cast(attrs, [:credential_type, :algorithm, :public_key, :encrypted_private_key, :salt, :certificate, :attested_by_key, :status, :user_id])
     |> validate_required([:credential_type, :algorithm, :public_key, :encrypted_private_key, :salt, :user_id])
     |> validate_inclusion(:credential_type, @credential_types)
     |> validate_inclusion(:status, @statuses)

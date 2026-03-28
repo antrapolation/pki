@@ -219,6 +219,11 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
+  def create_user(attrs, _admin_context) do
+    create_user(attrs)
+  end
+
+  @impl true
   def delete_user(id) do
     update_state(:users, fn users -> Enum.reject(users, &(&1.id == id)) end)
     {:ok, %{id: id, status: "suspended"}}

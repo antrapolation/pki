@@ -37,7 +37,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
       from(c in KeyCeremony, where: c.ca_instance_id == ^ca_instance_id, order_by: [desc: c.inserted_at])
       |> Repo.all()
 
-    json(conn, 200, %{data: Enum.map(ceremonies, &serialize_ceremony/1)})
+    json(conn, 200, Enum.map(ceremonies, &serialize_ceremony/1))
   end
 
   def create(conn) do
@@ -203,13 +203,13 @@ defmodule PkiCaEngine.Api.CeremonyController do
   def status(conn, ceremony_id) do
     with {:ok, pid} <- lookup_ceremony(ceremony_id) do
       status = KeyCeremonyManager.get_status(pid)
-      json(conn, 200, %{data: %{
+      json(conn, 200, %{
         phase: status.phase,
         ca_instance_id: status.ca_instance_id,
         keypair_id: status.keypair_id,
         protection_mode: status.protection_mode,
         audit_trail_count: status.audit_trail_count
-      }})
+      })
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
     end

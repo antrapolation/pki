@@ -14,9 +14,11 @@ defmodule PkiRaEngine.Api.CsrController do
         {:ok, csr} ->
           # Auto-validate after submit (fire-and-forget style, but inline for now)
           CsrValidation.validate_csr(csr.id)
-          {:ok, fresh_csr} = CsrValidation.get_csr(csr.id)
 
-          json_resp(conn, 201, %{data: serialize_csr(fresh_csr)})
+          case CsrValidation.get_csr(csr.id) do
+            {:ok, fresh_csr} -> json_resp(conn, 201, serialize_csr(fresh_csr))
+            {:error, _} -> json_resp(conn, 201, serialize_csr(csr))
+          end
 
         {:error, changeset} ->
           unprocessable(conn, format_errors(changeset))
@@ -31,13 +33,13 @@ defmodule PkiRaEngine.Api.CsrController do
     filters = build_filters(conn.query_params)
     csrs = CsrValidation.list_csrs(filters)
 
-    json_resp(conn, 200, %{data: Enum.map(csrs, &serialize_csr/1)})
+    json_resp(conn, 200, Enum.map(csrs, &serialize_csr/1))
   end
 
   def show(conn, id) do
     case CsrValidation.get_csr(id) do
       {:ok, csr} ->
-        json_resp(conn, 200, %{data: serialize_csr(csr)})
+        json_resp(conn, 200, serialize_csr(csr))
 
       {:error, :not_found} ->
         not_found(conn)
@@ -48,7 +50,7 @@ defmodule PkiRaEngine.Api.CsrController do
     with {:ok, reviewer_user_id} <- fetch_param(conn.body_params, "reviewer_user_id") do
       case CsrValidation.approve_csr(id, reviewer_user_id) do
         {:ok, csr} ->
-          json_resp(conn, 200, %{data: serialize_csr(csr)})
+          json_resp(conn, 200, serialize_csr(csr))
 
         {:error, :not_found} ->
           not_found(conn)
@@ -67,13 +69,13 @@ defmodule PkiRaEngine.Api.CsrController do
          {:ok, reason} <- fetch_param(conn.body_params, "reason") do
       case CsrValidation.reject_csr(id, reviewer_user_id, reason) do
         {:ok, csr} ->
-          json_resp(conn, 200, %{data: serialize_csr(csr)})
+          json_resp(conn, 200, serialize_csr(csr))
 
         {:error, :not_found} ->
           not_found(conn)
 
-        {:error, reason} ->
-          unprocessable(conn, inspect(reason))
+        {:error, err} ->
+          unprocessable(conn, inspect(err))
       end
     else
       {:error, missing_field} ->

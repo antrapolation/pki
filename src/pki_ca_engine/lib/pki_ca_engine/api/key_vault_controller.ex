@@ -34,12 +34,12 @@ defmodule PkiCaEngine.Api.KeyVaultController do
 
     case result do
       {:ok, keypair} ->
-        json(conn, 201, %{data: serialize_keypair(keypair)})
+        json(conn, 201, serialize_keypair(keypair))
 
       {:ok, keypair, _shares} ->
         # For split modes, shares are returned but not exposed over HTTP
         # (they must be distributed to custodians via a secure channel)
-        json(conn, 201, %{data: serialize_keypair(keypair), shares_generated: true})
+        json(conn, 201, Map.put(serialize_keypair(keypair), :shares_generated, true))
 
       {:error, :invalid_base64} ->
         json(conn, 422, %{error: "invalid_base64"})
@@ -59,7 +59,7 @@ defmodule PkiCaEngine.Api.KeyVaultController do
     with {:ok, acl_signing_key} <- decode_binary(conn.body_params["acl_signing_key"]) do
       case KeyVault.grant_access(keypair_id, credential_id, acl_signing_key, acl_signing_algo) do
         {:ok, grant} ->
-          json(conn, 201, %{data: %{id: grant.id, managed_keypair_id: grant.managed_keypair_id, credential_id: grant.credential_id}})
+          json(conn, 201, %{id: grant.id, managed_keypair_id: grant.managed_keypair_id, credential_id: grant.credential_id})
 
         {:error, reason} ->
           json(conn, 422, %{error: inspect(reason)})
@@ -118,7 +118,7 @@ defmodule PkiCaEngine.Api.KeyVaultController do
   def list(conn) do
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
     keypairs = KeyVault.list_keypairs(ca_instance_id)
-    json(conn, 200, %{data: Enum.map(keypairs, &serialize_keypair/1)})
+    json(conn, 200, Enum.map(keypairs, &serialize_keypair/1))
   end
 
   def show(conn, keypair_id) do
@@ -127,7 +127,7 @@ defmodule PkiCaEngine.Api.KeyVaultController do
         json(conn, 404, %{error: "not_found"})
 
       keypair ->
-        json(conn, 200, %{data: serialize_keypair(keypair)})
+        json(conn, 200, serialize_keypair(keypair))
     end
   end
 

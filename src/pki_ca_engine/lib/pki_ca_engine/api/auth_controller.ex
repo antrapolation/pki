@@ -15,7 +15,9 @@ defmodule PkiCaEngine.Api.AuthController do
 
       response =
         if session_info != %{} do
-          Map.put(response, :session_key, Base.encode64(session_info.session_key))
+          response
+          |> Map.put(:session_key, Base.encode64(session_info.session_key))
+          |> Map.put(:session_salt, Base.encode64(session_info.session_salt))
         else
           response
         end

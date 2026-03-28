@@ -11,7 +11,7 @@ defmodule PkiCaEngine.Api.CertificateController do
       %{"issuer_key_id" => issuer_key_id} ->
         filters = build_filters(conn.query_params)
         certs = CertificateSigning.list_certificates(issuer_key_id, filters)
-        json(conn, 200, %{data: Enum.map(certs, &serialize_certificate/1)})
+        json(conn, 200, Enum.map(certs, &serialize_certificate/1))
 
       _ ->
         json(conn, 400, %{error: "bad_request", message: "issuer_key_id query param required"})

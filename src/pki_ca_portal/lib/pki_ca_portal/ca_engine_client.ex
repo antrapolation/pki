@@ -10,6 +10,7 @@ defmodule PkiCaPortal.CaEngineClient do
 
   @callback list_users(integer()) :: {:ok, [map()]} | {:error, term()}
   @callback create_user(integer(), map()) :: {:ok, map()} | {:error, term()}
+  @callback create_user(integer(), map(), map()) :: {:ok, map()} | {:error, term()}
   @callback get_user(String.t()) :: {:ok, map()} | {:error, term()}
   @callback delete_user(String.t()) :: {:ok, map()} | {:error, term()}
   @callback list_keystores(integer()) :: {:ok, [map()]} | {:error, term()}
@@ -29,6 +30,7 @@ defmodule PkiCaPortal.CaEngineClient do
 
   def list_users(ca_instance_id), do: impl().list_users(ca_instance_id)
   def create_user(ca_instance_id, attrs), do: impl().create_user(ca_instance_id, attrs)
+  def create_user(ca_instance_id, attrs, admin_context), do: impl().create_user(ca_instance_id, attrs, admin_context)
   def get_user(id), do: impl().get_user(id)
   def delete_user(id), do: impl().delete_user(id)
   def list_keystores(ca_instance_id), do: impl().list_keystores(ca_instance_id)

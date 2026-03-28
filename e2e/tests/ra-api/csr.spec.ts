@@ -16,8 +16,8 @@ test.describe("RA Engine — CSR REST API", () => {
     expect([201, 401, 422]).toContain(response.status());
     if (response.status() === 201) {
       const body = await response.json();
-      expect(body.data.status).toMatch(/pending|verified/);
-      expect(body.data.csr_pem).toBeTruthy();
+      expect(body.status).toMatch(/pending|verified/);
+      expect(body.csr_pem).toBeTruthy();
     }
   });
 
@@ -67,7 +67,7 @@ test.describe("RA Engine — CSR REST API", () => {
     expect([200, 401]).toContain(response.status());
     if (response.status() === 200) {
       const body = await response.json();
-      expect(Array.isArray(body.data)).toBeTruthy();
+      expect(Array.isArray(body)).toBeTruthy();
     }
   });
 
@@ -88,8 +88,7 @@ test.describe("RA Engine — CSR REST API", () => {
     // With a valid key, we expect 200; with test key, might get 401
     if (response.status() === 200) {
       const body = await response.json();
-      expect(body).toHaveProperty("data");
-      expect(Array.isArray(body.data)).toBeTruthy();
+      expect(Array.isArray(body)).toBeTruthy();
     } else {
       // If key is not provisioned, 401 is acceptable in test env
       expect(response.status()).toBe(401);
@@ -105,8 +104,8 @@ test.describe("RA Engine — CSR REST API", () => {
     });
 
     if (submitResponse.status() === 201) {
-      const { data } = await submitResponse.json();
-      const csrId = data.id;
+      const submitBody = await submitResponse.json();
+      const csrId = submitBody.id;
 
       const approveResponse = await request.post(`/api/v1/csr/${csrId}/approve`, {
         headers: { Authorization: `Bearer ${API_KEY}` },
@@ -116,7 +115,7 @@ test.describe("RA Engine — CSR REST API", () => {
       expect([200, 422, 404]).toContain(approveResponse.status());
       if (approveResponse.status() === 200) {
         const body = await approveResponse.json();
-        expect(body.data.status).toMatch(/approved|issued/);
+        expect(body.status).toMatch(/approved|issued/);
       }
     } else {
       // Cannot test approve without a submitted CSR; skip gracefully
@@ -141,8 +140,8 @@ test.describe("RA Engine — CSR REST API", () => {
     });
 
     if (submitResponse.status() === 201) {
-      const { data } = await submitResponse.json();
-      const csrId = data.id;
+      const submitBody = await submitResponse.json();
+      const csrId = submitBody.id;
 
       const rejectResponse = await request.post(`/api/v1/csr/${csrId}/reject`, {
         headers: { Authorization: `Bearer ${API_KEY}` },
@@ -153,7 +152,7 @@ test.describe("RA Engine — CSR REST API", () => {
       expect([200, 422, 404]).toContain(rejectResponse.status());
       if (rejectResponse.status() === 200) {
         const body = await rejectResponse.json();
-        expect(body.data.status).toMatch(/rejected/);
+        expect(body.status).toMatch(/rejected/);
       }
     } else {
       // Cannot test reject without a submitted CSR; skip gracefully

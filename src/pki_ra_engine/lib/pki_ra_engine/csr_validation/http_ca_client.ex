@@ -110,14 +110,6 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
     }}
   end
 
-  defp parse_success_response(resp) when is_map(resp) do
-    # Response may be nested under "data" key
-    case Map.get(resp, "data") do
-      %{"serial_number" => _} = data -> parse_success_response(data)
-      _ -> {:error, {:unexpected_response, resp}}
-    end
-  end
-
   defp parse_success_response(resp) do
     {:error, {:unexpected_response, resp}}
   end

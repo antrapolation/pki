@@ -11,8 +11,7 @@ test.describe("CA Engine — Key Vault API", () => {
 
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(body.data).toBeDefined();
-    expect(Array.isArray(body.data)).toBeTruthy();
+    expect(Array.isArray(body)).toBeTruthy();
   });
 
   // UC-CA-51: Get non-existent keypair

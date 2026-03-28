@@ -107,6 +107,13 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def create_user(_ca_instance_id, attrs, _admin_context) do
+    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)
+    update_state(:users, fn users -> users ++ [user] end)
+    {:ok, user}
+  end
+
+  @impl true
   def get_user(id) do
     users = get_state(:users)
 

@@ -69,6 +69,11 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def create_user(ca_instance_id, attrs, _admin_context) do
+    create_user(ca_instance_id, attrs)
+  end
+
+  @impl true
   def get_user(id) do
     case Agent.get(__MODULE__, fn state -> Enum.find(state.users, &(&1.id == id)) end) do
       nil -> {:error, :not_found}

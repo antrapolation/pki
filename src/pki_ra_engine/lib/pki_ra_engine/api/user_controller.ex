@@ -18,7 +18,8 @@ defmodule PkiRaEngine.Api.UserController do
 
     if password do
       # Create user with credential keypairs
-      case UserManagement.create_user_with_credentials(attrs, password) do
+      opts = build_admin_context(conn.body_params)
+      case UserManagement.create_user_with_credentials(attrs, password, opts) do
         {:ok, user} ->
           json(conn, 201, Map.merge(serialize_user(user), %{has_credentials: true}))
 
@@ -71,6 +72,13 @@ defmodule PkiRaEngine.Api.UserController do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp build_admin_context(%{"admin_user_id" => admin_id, "admin_password" => admin_pw})
+       when is_binary(admin_id) and is_binary(admin_pw) do
+    [admin_context: %{user_id: admin_id, password: admin_pw}]
+  end
+
+  defp build_admin_context(_), do: []
 
   defp serialize_user(user) do
     %{

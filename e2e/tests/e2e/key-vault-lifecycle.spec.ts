@@ -16,8 +16,7 @@ test.describe("E2E — Key Vault Lifecycle (UC-E2E-21)", () => {
     });
     expect(list.status()).toBe(200);
     const body = await list.json();
-    expect(body.data).toBeDefined();
-    expect(Array.isArray(body.data)).toBeTruthy();
+    expect(Array.isArray(body)).toBeTruthy();
 
     await caApi.dispose();
   });
