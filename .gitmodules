@@ -1,55 +1,55 @@
 [submodule "src/StrapPrivateKeystore"]
 	path = src/StrapPrivateKeystore
-	url = https://vcs.antrapol.tech:3800/Incubator/StrapPrivateKeystore.git
+	url = https://vcs.antrapol.tech:3800/MDP/StrapPrivateKeystore.git
 
 [submodule "src/StrapSoftPrivateKeystore"]
 	path = src/StrapSoftPrivateKeystore
-	url = https://vcs.antrapol.tech:3800/Incubator/StrapSoftPrivateKeystore.git
+	url = https://vcs.antrapol.tech:3800/MDP/StrapSoftPrivateKeystore.git
 
 [submodule "src/ap_java_crypto"]
 	path = src/ap_java_crypto
-	url = https://vcs.antrapol.tech:3800/Incubator/ap_java_crypto.git
+	url = https://vcs.antrapol.tech:3800/MDP/ApJavaCrypto.git
 
 [submodule "src/ex_ccrypto"]
 	path = src/ex_ccrypto
-	url = https://vcs.antrapol.tech:3800/Incubator/ex_ccrypto.git
+	url = https://vcs.antrapol.tech:3800/MDP/ExCcrypto.git
 
 [submodule "src/ex_jruby_port"]
 	path = src/ex_jruby_port
-	url = https://vcs.antrapol.tech:3800/Incubator/ex_jruby_port.git
+	url = https://vcs.antrapol.tech:3800/MDP/ExJrubyPort.git
 
 [submodule "src/keyx"]
 	path = src/keyx
-	url = https://vcs.antrapol.tech:3800/Incubator/keyx.git
+	url = https://vcs.antrapol.tech:3800/MDP/keyx.git
 
 [submodule "src/strap_ciphagile"]
 	path = src/strap_ciphagile
-	url = https://vcs.antrapol.tech:3800/Incubator/strap_ciphagile.git
+	url = https://vcs.antrapol.tech:3800/MDP/strap_ciphagile.git
 
 [submodule "src/strap_java_crypto_priv_key_store_provider"]
 	path = src/strap_java_crypto_priv_key_store_provider
-	url = https://vcs.antrapol.tech:3800/Incubator/strap_java_crypto_priv_key_store_provider.git
+	url = https://vcs.antrapol.tech:3800/MDP/strap_java_crypto_priv_key_store_provider.git
 
 [submodule "src/strap_priv_key_store_provider"]
 	path = src/strap_priv_key_store_provider
-	url = https://vcs.antrapol.tech:3800/Incubator/strap_priv_key_store_provider.git
+	url = https://vcs.antrapol.tech:3800/MDP/strap_priv_key_store_provider.git
 
 [submodule "src/strap_priv_key_store_provider_process_user"]
 	path = src/strap_priv_key_store_provider_process_user
-	url = https://vcs.antrapol.tech:3800/Incubator/strap_priv_key_store_provider_process_user.git
+	url = https://vcs.antrapol.tech:3800/MDP/strap_priv_key_store_provider_process_user.git
 
 [submodule "src/strap_proc_reg"]
 	path = src/strap_proc_reg
-	url = https://vcs.antrapol.tech:3800/Incubator/strap_proc_reg.git
+	url = https://vcs.antrapol.tech:3800/MDP/StrapProcReg.git
 
 [submodule "src/strap_soft_priv_key_store_provider"]
 	path = src/strap_soft_priv_key_store_provider
-	url = https://vcs.antrapol.tech:3800/Incubator/strap_soft_priv_key_store_provider.git
+	url = https://vcs.antrapol.tech:3800/MDP/strap_soft_priv_key_store_provider.git
 
 [submodule "src/strap_softhsm_priv_key_store_provider"]
 	path = src/strap_softhsm_priv_key_store_provider
-	url = https://vcs.antrapol.tech:3800/Incubator/strap_softhsm_priv_key_store_provider.git
+	url = https://vcs.antrapol.tech:3800/MDP/strap_softhsm_priv_key_store_provider.git
 
 [submodule "src/x509"]
 	path = src/x509
-	url = https://vcs.antrapol.tech:3800/Incubator/x509.git
+	url = https://vcs.antrapol.tech:3800/MDP/x509.git
