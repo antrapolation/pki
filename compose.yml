@@ -109,7 +109,7 @@ services:
     environment:
       PORT: "4002"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      PHX_HOST: "localhost"
+      PHX_HOST: ${CA_PORTAL_HOST:-localhost}
       PHX_SERVER: "true"
       CA_ENGINE_URL: "http://pki-ca-engine:4001"
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -131,7 +131,7 @@ services:
     environment:
       PORT: "4004"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      PHX_HOST: "localhost"
+      PHX_HOST: ${RA_PORTAL_HOST:-localhost}
       PHX_SERVER: "true"
       RA_ENGINE_URL: "http://pki-ra-engine:4003"
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -153,7 +153,7 @@ services:
     environment:
       PORT: "4006"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      PHX_HOST: "localhost"
+      PHX_HOST: ${PLATFORM_PORTAL_HOST:-localhost}
       PHX_SERVER: "true"
       DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_platform"
       PLATFORM_ADMIN_USERNAME: ${PLATFORM_ADMIN_USERNAME:-admin}
