@@ -165,8 +165,9 @@ sudo apt install caddy
 
 ```bash
 cd /home/pki
-git clone https://vcs.antrapol.tech:3800/Incubator/pki.git
+git -c http.sslVerify=false clone https://vcs.antrapol.tech:3800/Incubator/pki.git
 cd pki
+git config http.sslVerify false
 git checkout v1.0.0-beta.2
 ```
 
