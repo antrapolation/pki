@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Post-Quantum Certificate Authority — Antrapolation Technology</title>
+<meta name="description" content="Future-proof your PKI infrastructure with Malaysia's first PQC-ready Certificate Authority system. Supporting KAZ-SIGN, ML-DSA, RSA, and ECC.">
+<style>
+/* ═══════════════════════════════════════════════════════════
+   CIPHER NOIR — Design System
+   Deep black + luminous teal. Cryptographic precision.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --void: #05060a;
+  --surface: #0a0c12;
+  --surface-raised: #0f1219;
+  --surface-hover: #141820;
+  --border: #1a1f2e;
+  --border-glow: #0d3d3d;
+  --text: #e2e4e9;
+  --text-dim: #7a7f8e;
+  --text-muted: #4a4f5e;
+  --accent: #00d4aa;
+  --accent-dim: #00a888;
+  --accent-glow: rgba(0, 212, 170, 0.15);
+  --accent-glow-strong: rgba(0, 212, 170, 0.3);
+  --danger: #ff4d6a;
+  --font-display: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--void);
+  color: var(--text);
+  line-height: 1.7;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Noise texture overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Reveal animations ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Layout ── */
+.container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   NAVIGATION
+   ═══════════════════════════════════════════════════════════ */
+
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 0 24px;
+  background: rgba(5, 6, 10, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.3s;
+}
+
+nav .nav-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+
+.logo {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.logo span {
+  color: var(--accent);
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.lang-toggle {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.lang-toggle button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  transition: all 0.2s;
+  font-family: var(--font-mono);
+}
+
+.lang-toggle button.active {
+  background: var(--accent);
+  color: var(--void);
+}
+
+.nav-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: all 0.25s;
+}
+
+.nav-cta:hover {
+  background: var(--accent);
+  color: var(--void);
+  box-shadow: 0 0 24px var(--accent-glow);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HERO
+   ═══════════════════════════════════════════════════════════ */
+
+.hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  padding-top: 64px;
+}
+
+/* Radial glow behind hero */
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 800px;
+  height: 800px;
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Grid pattern */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 60px 60px;
+  opacity: 0.15;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 100%);
+  pointer-events: none;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 80px 24px;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--accent-glow);
+  border: 1px solid var(--border-glow);
+  border-radius: 100px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 32px;
+  font-family: var(--font-mono);
+}
+
+.hero-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--accent-glow-strong); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 8px transparent; }
+}
+
+.hero h1 {
+  font-size: clamp(2.4rem, 5.5vw, 4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin-bottom: 24px;
+  background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-sub {
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  color: var(--text-dim);
+  max-width: 560px;
+  margin: 0 auto 40px;
+  line-height: 1.7;
+}
+
+.hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 36px;
+  background: var(--accent);
+  color: var(--void);
+  text-decoration: none;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 8px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 40px var(--accent-glow), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.hero-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 60px var(--accent-glow-strong), 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.hero-cta svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.3s;
+}
+
+.hero-cta:hover svg {
+  transform: translateX(4px);
+}
+
+/* Supported algorithms strip */
+.hero-algos {
+  margin-top: 56px;
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.algo-tag {
+  padding: 6px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FEATURES
+   ═══════════════════════════════════════════════════════════ */
+
+.features {
+  padding: 120px 0;
+  position: relative;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: clamp(1.8rem, 3.5vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+  line-height: 1.2;
+}
+
+.section-desc {
+  color: var(--text-dim);
+  max-width: 520px;
+  margin-bottom: 56px;
+  font-size: 1.05rem;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.feature-card {
+  background: var(--surface);
+  padding: 36px 32px;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.feature-card:hover {
+  background: var(--surface-hover);
+}
+
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+
+.feature-card:hover::before {
+  opacity: 1;
+}
+
+.feature-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-glow);
+  border: 1px solid var(--border-glow);
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-size: 1.3rem;
+}
+
+.feature-card h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+
+.feature-card p {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  line-height: 1.65;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HOW IT WORKS
+   ═══════════════════════════════════════════════════════════ */
+
+.how-it-works {
+  padding: 120px 0;
+  border-top: 1px solid var(--border);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin-top: 56px;
+  position: relative;
+}
+
+/* Connecting line */
+.steps::before {
+  content: '';
+  position: absolute;
+  top: 28px;
+  left: 28px;
+  right: 28px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--accent-dim), var(--border-glow), var(--accent-dim), var(--border-glow));
+}
+
+.step {
+  text-align: center;
+  padding: 0 16px;
+  position: relative;
+}
+
+.step-num {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 2px solid var(--accent-dim);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--accent);
+  margin: 0 auto 20px;
+  position: relative;
+  z-index: 1;
+  transition: all 0.3s;
+}
+
+.step:hover .step-num {
+  background: var(--accent);
+  color: var(--void);
+  box-shadow: 0 0 32px var(--accent-glow);
+}
+
+.step h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.step p {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CONTACT / CTA
+   ═══════════════════════════════════════════════════════════ */
+
+.contact {
+  padding: 120px 0;
+  border-top: 1px solid var(--border);
+}
+
+.contact-inner {
+  text-align: center;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 64px 40px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.contact-inner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+.contact-inner h2 {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 800;
+  margin-bottom: 16px;
+  letter-spacing: -0.02em;
+}
+
+.contact-inner p {
+  color: var(--text-dim);
+  margin-bottom: 32px;
+  font-size: 1rem;
+}
+
+.contact-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 40px;
+  background: var(--accent);
+  color: var(--void);
+  text-decoration: none;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 8px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 40px var(--accent-glow);
+}
+
+.contact-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 60px var(--accent-glow-strong);
+}
+
+.contact-email {
+  margin-top: 20px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FOOTER
+   ═══════════════════════════════════════════════════════════ */
+
+footer {
+  padding: 40px 0;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+footer p {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+footer a {
+  color: var(--accent-dim);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+footer a:hover {
+  color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 900px) {
+  .features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .steps {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 40px 0;
+  }
+
+  .steps::before {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .steps {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .hero-algos {
+    gap: 12px;
+  }
+
+  .algo-tag {
+    font-size: 0.7rem;
+    padding: 4px 12px;
+  }
+
+  .nav-cta {
+    display: none;
+  }
+
+  .contact-inner {
+    padding: 40px 24px;
+  }
+
+  .feature-card {
+    padding: 28px 24px;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════ NAVIGATION ════════════════ -->
+<nav>
+  <div class="nav-inner">
+    <a href="https://antrapol.com" class="logo" target="_blank"><span>&lt;/&gt;</span> STRAPTrust</a>
+    <div class="nav-right">
+      <div class="lang-toggle">
+        <button id="btn-en" class="active" onclick="setLang('en')">EN</button>
+        <button id="btn-bm" onclick="setLang('bm')">BM</button>
+      </div>
+      <a href="mailto:info@antrapol.com?subject=PQC%20CA%20Demo%20Request" class="nav-cta" data-i18n="nav_cta">Request Demo</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ════════════════ HERO ════════════════ -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge" data-i18n="hero_badge">Quantum-Safe PKI</div>
+    <h1 data-i18n="hero_title">Post-Quantum Certificate Authority</h1>
+    <p class="hero-sub" data-i18n="hero_sub">Future-proof your PKI infrastructure with Malaysia's first PQC-ready CA system. Built for sovereign security, designed for scale.</p>
+    <a href="mailto:info@antrapol.com?subject=PQC%20CA%20Demo%20Request" class="hero-cta">
+      <span data-i18n="hero_cta">Request a Demo</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+    </a>
+    <div class="hero-algos">
+      <span class="algo-tag">KAZ-SIGN</span>
+      <span class="algo-tag">ML-DSA</span>
+      <span class="algo-tag">RSA-4096</span>
+      <span class="algo-tag">ECC-P256</span>
+      <span class="algo-tag">ECC-P384</span>
+      <span class="algo-tag">ECDH-P256</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ FEATURES ════════════════ -->
+<section class="features">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label" data-i18n="features_label">Capabilities</div>
+      <h2 class="section-title" data-i18n="features_title">Enterprise-grade PKI, quantum-safe by default</h2>
+      <p class="section-desc" data-i18n="features_desc">Every component is designed for sovereign deployment — air-gapped capable, multi-tenant, and cryptographically auditable.</p>
+    </div>
+
+    <div class="features-grid reveal">
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F510;</div>
+        <h3 data-i18n="f1_title">Post-Quantum Ready</h3>
+        <p data-i18n="f1_desc">Native support for KAZ-SIGN (Malaysia's local PQC algorithm) and NIST ML-DSA, with classical RSA and ECC for migration compatibility.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F3E2;</div>
+        <h3 data-i18n="f2_title">Multi-Tenant Architecture</h3>
+        <p data-i18n="f2_desc">Each tenant gets an isolated database with dedicated schemas. Complete data separation for government and enterprise compliance.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F511;</div>
+        <h3 data-i18n="f3_title">Cryptographic Credentials</h3>
+        <p data-i18n="f3_desc">Every user holds dual keypairs — signing and KEM. Private keys are password-encrypted. Public keys are attested by the creating admin.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F3DB;</div>
+        <h3 data-i18n="f4_title">Key Ceremony Manager</h3>
+        <p data-i18n="f4_desc">Multi-phase ceremony with threshold Shamir secret sharing. Requires multiple key managers and auditor sign-off. Full audit trail.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F5A5;</div>
+        <h3 data-i18n="f5_title">HSM Integration</h3>
+        <p data-i18n="f5_desc">PKCS#11 interface supports SoftHSM2 for testing and hardware HSMs (Thales Luna, AWS CloudHSM) for production key protection.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x2705;</div>
+        <h3 data-i18n="f6_title">OCSP/CRL Validation</h3>
+        <p data-i18n="f6_desc">Real-time certificate status via OCSP responder and CRL distribution. ETS-cached for high-throughput validation queries.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ HOW IT WORKS ════════════════ -->
+<section class="how-it-works">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label" data-i18n="how_label">How It Works</div>
+      <h2 class="section-title" data-i18n="how_title">From zero to issuing certificates in four steps</h2>
+    </div>
+
+    <div class="steps reveal">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3 data-i18n="s1_title">Platform Setup</h3>
+        <p data-i18n="s1_desc">Create a tenant with an isolated database and four dedicated schemas — CA, RA, validation, and audit.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3 data-i18n="s2_title">CA Bootstrap</h3>
+        <p data-i18n="s2_desc">Initialize the first admin with dual keypairs, Keypair ACL, and system keypairs via secure key ceremony.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3 data-i18n="s3_title">RA Configuration</h3>
+        <p data-i18n="s3_desc">Set up certificate profiles, validation policies, and API keys for CSR submission and processing.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">04</div>
+        <h3 data-i18n="s4_title">Issue Certificates</h3>
+        <p data-i18n="s4_desc">Submit CSRs via portal or REST API. Auto-validate, approve, sign with PQC or classical algorithms, and distribute.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ CONTACT ════════════════ -->
+<section class="contact">
+  <div class="container">
+    <div class="contact-inner reveal">
+      <h2 data-i18n="contact_title">Ready to secure your infrastructure?</h2>
+      <p data-i18n="contact_desc">Get a personalized demo of the PQC Certificate Authority system. Our team will walk you through deployment, key ceremony, and certificate issuance tailored to your organization.</p>
+      <a href="mailto:info@antrapol.com?subject=PQC%20CA%20Demo%20Request" class="contact-cta">
+        <span data-i18n="contact_cta">Request a Demo</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </a>
+      <div class="contact-email">info@antrapol.com</div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ FOOTER ════════════════ -->
+<footer>
+  <div class="container">
+    <p>&copy; 2026 <a href="https://antrapol.com" target="_blank">Antrapolation Technology Sdn Bhd</a>. <span data-i18n="footer_rights">All rights reserved.</span></p>
+  </div>
+</footer>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   INTERNATIONALIZATION
+   ═══════════════════════════════════════════════════════════ */
+
+const i18n = {
+  en: {
+    nav_cta: "Request Demo",
+    hero_badge: "Quantum-Safe PKI",
+    hero_title: "Post-Quantum Certificate Authority",
+    hero_sub: "Future-proof your PKI infrastructure with Malaysia\u2019s first PQC-ready CA system. Built for sovereign security, designed for scale.",
+    hero_cta: "Request a Demo",
+    features_label: "Capabilities",
+    features_title: "Enterprise-grade PKI, quantum-safe by default",
+    features_desc: "Every component is designed for sovereign deployment \u2014 air-gapped capable, multi-tenant, and cryptographically auditable.",
+    f1_title: "Post-Quantum Ready",
+    f1_desc: "Native support for KAZ-SIGN (Malaysia\u2019s local PQC algorithm) and NIST ML-DSA, with classical RSA and ECC for migration compatibility.",
+    f2_title: "Multi-Tenant Architecture",
+    f2_desc: "Each tenant gets an isolated database with dedicated schemas. Complete data separation for government and enterprise compliance.",
+    f3_title: "Cryptographic Credentials",
+    f3_desc: "Every user holds dual keypairs \u2014 signing and KEM. Private keys are password-encrypted. Public keys are attested by the creating admin.",
+    f4_title: "Key Ceremony Manager",
+    f4_desc: "Multi-phase ceremony with threshold Shamir secret sharing. Requires multiple key managers and auditor sign-off. Full audit trail.",
+    f5_title: "HSM Integration",
+    f5_desc: "PKCS#11 interface supports SoftHSM2 for testing and hardware HSMs (Thales Luna, AWS CloudHSM) for production key protection.",
+    f6_title: "OCSP/CRL Validation",
+    f6_desc: "Real-time certificate status via OCSP responder and CRL distribution. ETS-cached for high-throughput validation queries.",
+    how_label: "How It Works",
+    how_title: "From zero to issuing certificates in four steps",
+    s1_title: "Platform Setup",
+    s1_desc: "Create a tenant with an isolated database and four dedicated schemas \u2014 CA, RA, validation, and audit.",
+    s2_title: "CA Bootstrap",
+    s2_desc: "Initialize the first admin with dual keypairs, Keypair ACL, and system keypairs via secure key ceremony.",
+    s3_title: "RA Configuration",
+    s3_desc: "Set up certificate profiles, validation policies, and API keys for CSR submission and processing.",
+    s4_title: "Issue Certificates",
+    s4_desc: "Submit CSRs via portal or REST API. Auto-validate, approve, sign with PQC or classical algorithms, and distribute.",
+    contact_title: "Ready to secure your infrastructure?",
+    contact_desc: "Get a personalized demo of the PQC Certificate Authority system. Our team will walk you through deployment, key ceremony, and certificate issuance tailored to your organization.",
+    contact_cta: "Request a Demo",
+    footer_rights: "All rights reserved."
+  },
+  bm: {
+    nav_cta: "Mohon Demo",
+    hero_badge: "PKI Selamat Kuantum",
+    hero_title: "Pihak Berkuasa Sijil Pasca-Kuantum",
+    hero_sub: "Lindungi infrastruktur PKI anda dengan sistem CA sedia PQC pertama di Malaysia. Dibina untuk keselamatan kedaulatan, direka untuk skala.",
+    hero_cta: "Mohon Demo",
+    features_label: "Keupayaan",
+    features_title: "PKI gred perusahaan, selamat kuantum secara lalai",
+    features_desc: "Setiap komponen direka untuk pelaksanaan kedaulatan \u2014 berkemampuan air-gap, berbilang penyewa, dan boleh diaudit secara kriptografi.",
+    f1_title: "Sedia Pasca-Kuantum",
+    f1_desc: "Sokongan natif untuk KAZ-SIGN (algoritma PQC tempatan Malaysia) dan NIST ML-DSA, dengan RSA dan ECC klasikal untuk keserasian migrasi.",
+    f2_title: "Seni Bina Berbilang Penyewa",
+    f2_desc: "Setiap penyewa mendapat pangkalan data terpencil dengan skema khusus. Pengasingan data lengkap untuk pematuhan kerajaan dan perusahaan.",
+    f3_title: "Kelayakan Kriptografi",
+    f3_desc: "Setiap pengguna memegang pasangan kunci dwi \u2014 tandatangan dan KEM. Kunci persendirian disulitkan kata laluan. Kunci awam disahkan oleh pentadbir.",
+    f4_title: "Pengurus Upacara Kunci",
+    f4_desc: "Upacara berbilang fasa dengan perkongsian rahsia ambang Shamir. Memerlukan berbilang pengurus kunci dan pengesahan juruaudit. Jejak audit penuh.",
+    f5_title: "Integrasi HSM",
+    f5_desc: "Antara muka PKCS#11 menyokong SoftHSM2 untuk ujian dan HSM perkakasan (Thales Luna, AWS CloudHSM) untuk perlindungan kunci pengeluaran.",
+    f6_title: "Pengesahan OCSP/CRL",
+    f6_desc: "Status sijil masa nyata melalui responder OCSP dan pengedaran CRL. Cache ETS untuk pertanyaan pengesahan berthroughput tinggi.",
+    how_label: "Cara Ia Berfungsi",
+    how_title: "Dari sifar hingga mengeluarkan sijil dalam empat langkah",
+    s1_title: "Persediaan Platform",
+    s1_desc: "Cipta penyewa dengan pangkalan data terpencil dan empat skema khusus \u2014 CA, RA, pengesahan, dan audit.",
+    s2_title: "Bootstrap CA",
+    s2_desc: "Mulakan pentadbir pertama dengan pasangan kunci dwi, ACL Pasangan Kunci, dan kunci sistem melalui upacara kunci selamat.",
+    s3_title: "Konfigurasi RA",
+    s3_desc: "Sediakan profil sijil, dasar pengesahan, dan kunci API untuk penyerahan dan pemprosesan CSR.",
+    s4_title: "Keluarkan Sijil",
+    s4_desc: "Hantar CSR melalui portal atau API REST. Auto-sahkan, luluskan, tandatangan dengan algoritma PQC atau klasikal, dan edarkan.",
+    contact_title: "Bersedia untuk melindungi infrastruktur anda?",
+    contact_desc: "Dapatkan demo peribadi sistem Pihak Berkuasa Sijil PQC. Pasukan kami akan membimbing anda melalui pelaksanaan, upacara kunci, dan pengeluaran sijil yang disesuaikan untuk organisasi anda.",
+    contact_cta: "Mohon Demo",
+    footer_rights: "Hak cipta terpelihara."
+  }
+};
+
+let currentLang = localStorage.getItem('pki-lang') || 'en';
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('pki-lang', lang);
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (i18n[lang] && i18n[lang][key]) {
+      el.textContent = i18n[lang][key];
+    }
+  });
+
+  document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+  document.getElementById('btn-bm').classList.toggle('active', lang === 'bm');
+  document.documentElement.lang = lang === 'bm' ? 'ms' : 'en';
+}
+
+// Initialize
+setLang(currentLang);
+
+/* ═══════════════════════════════════════════════════════════
+   SCROLL REVEAL
+   ═══════════════════════════════════════════════════════════ */
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      entry.target.style.transitionDelay = `${i * 80}ms`;
+      entry.target.classList.add('visible');
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
