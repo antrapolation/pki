@@ -269,12 +269,12 @@ Point these domains to your VPS IP in your DNS provider:
 
 | Domain | Points To | Service |
 |--------|-----------|---------|
-| `yourdomain.com` | VPS IP | Marketing landing page |
-| `ca.yourdomain.com` | VPS IP | CA Portal |
-| `ra.yourdomain.com` | VPS IP | RA Portal |
-| `api.yourdomain.com` | VPS IP | RA Engine API |
-| `ocsp.yourdomain.com` | VPS IP | Validation (OCSP/CRL) |
-| `admin.yourdomain.com` | VPS IP | Platform Portal |
+| `straptrust.com` | VPS IP | Marketing landing page |
+| `ca.straptrust.com` | VPS IP | CA Portal |
+| `ra.straptrust.com` | VPS IP | RA Portal |
+| `api.straptrust.com` | VPS IP | RA Engine API |
+| `ocsp.straptrust.com` | VPS IP | Validation (OCSP/CRL) |
+| `admin.straptrust.com` | VPS IP | Platform Portal |
 
 ### 3.2 Configure Caddyfile
 
@@ -284,33 +284,33 @@ sudo nano /etc/caddy/Caddyfile
 
 ```
 # Marketing Landing Page (static HTML)
-yourdomain.com {
+straptrust.com {
     root * /home/pki/pki/landing
     file_server
 }
 
 # CA Admin Portal
-ca.yourdomain.com {
+ca.straptrust.com {
     reverse_proxy localhost:4002
 }
 
 # RA Admin Portal
-ra.yourdomain.com {
+ra.straptrust.com {
     reverse_proxy localhost:4004
 }
 
 # RA Engine REST API (for external CSR submission)
-api.yourdomain.com {
+api.straptrust.com {
     reverse_proxy localhost:4003
 }
 
 # OCSP Responder + CRL Publisher
-ocsp.yourdomain.com {
+ocsp.straptrust.com {
     reverse_proxy localhost:4005
 }
 
 # Platform Admin Portal (tenant management)
-admin.yourdomain.com {
+admin.straptrust.com {
     reverse_proxy localhost:4006
 }
 ```
@@ -325,10 +325,10 @@ sudo systemctl enable caddy
 Caddy automatically obtains Let's Encrypt certificates. Verify:
 
 ```bash
-curl -s https://yourdomain.com -o /dev/null -w "%{http_code}"               # 200 (landing page)
-curl -s https://ca.yourdomain.com/login -o /dev/null -w "%{http_code}"     # 200
-curl -s https://ocsp.yourdomain.com/health                                  # {"status":"ok"}
-curl -s https://admin.yourdomain.com/login -o /dev/null -w "%{http_code}"   # 200
+curl -s https://straptrust.com -o /dev/null -w "%{http_code}"               # 200 (landing page)
+curl -s https://ca.straptrust.com/login -o /dev/null -w "%{http_code}"     # 200
+curl -s https://ocsp.straptrust.com/health                                  # {"status":"ok"}
+curl -s https://admin.straptrust.com/login -o /dev/null -w "%{http_code}"   # 200
 ```
 
 ---
@@ -337,7 +337,7 @@ curl -s https://admin.yourdomain.com/login -o /dev/null -w "%{http_code}"   # 20
 
 ### 4.1 Platform Admin Login (Tenant Management)
 
-1. Navigate to `https://admin.yourdomain.com/login`
+1. Navigate to `https://admin.straptrust.com/login`
 2. Enter the `PLATFORM_ADMIN_USERNAME` and `PLATFORM_ADMIN_PASSWORD` from `.env`
 3. Dashboard shows: tenant count, active tenants
 
@@ -350,7 +350,7 @@ curl -s https://admin.yourdomain.com/login -o /dev/null -w "%{http_code}"   # 20
 
 ### 4.3 CA Portal — Bootstrap First Admin
 
-1. Navigate to `https://ca.yourdomain.com/setup`
+1. Navigate to `https://ca.straptrust.com/setup`
 2. Enter **Username** (min 3 characters)
 3. Enter **Display Name** (optional)
 4. Enter **Password** (min 8 characters)
@@ -364,7 +364,7 @@ curl -s https://admin.yourdomain.com/login -o /dev/null -w "%{http_code}"   # 20
 
 ### 4.4 RA Portal — Bootstrap First Admin
 
-1. Navigate to `https://ra.yourdomain.com/setup`
+1. Navigate to `https://ra.straptrust.com/setup`
 2. Same process — creates RA Admin with dual keypairs
 3. Redirected to login page
 
@@ -453,7 +453,7 @@ All internal API calls use `INTERNAL_API_SECRET` for Bearer token authentication
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PORT` | No | `4002/4004` | HTTP listen port |
-| `PHX_HOST` | Yes | — | Public hostname (e.g., `ca.yourdomain.com`) |
+| `PHX_HOST` | Yes | — | Public hostname (e.g., `ca.straptrust.com`) |
 | `PHX_SERVER` | Yes | — | Set to `true` |
 | `CA_ENGINE_URL` / `RA_ENGINE_URL` | Yes | — | Engine API base URL |
 
@@ -670,7 +670,7 @@ npx playwright test --project=e2e          # Cross-module flows
 - [ ] Firewall configured (only 22, 80, 443 open)
 - [ ] All health endpoints returning `{"status":"ok"}`
 - [ ] Database migrations run successfully
-- [ ] Platform admin can login at `admin.yourdomain.com`
+- [ ] Platform admin can login at `admin.straptrust.com`
 - [ ] Tenant created via Platform Portal
 - [ ] CA admin bootstrapped via `/setup` (creates credentials + ACL + system keypairs)
 - [ ] RA admin bootstrapped via `/setup` (creates credentials)
@@ -755,11 +755,11 @@ podman logs pki-ca-engine | grep -i "credential\|keypair\|error"
 | Port | Service | Protocol | External Access |
 |------|---------|----------|----------------|
 | 4001 | CA Engine | HTTP/JSON | **No** — internal only |
-| 4002 | CA Portal | HTTP (LiveView) | Via Caddy (`ca.yourdomain.com`) |
-| 4003 | RA Engine | HTTP/JSON (REST) | Via Caddy (`api.yourdomain.com`) |
-| 4004 | RA Portal | HTTP (LiveView) | Via Caddy (`ra.yourdomain.com`) |
-| 4005 | Validation | HTTP/JSON (OCSP/CRL) | Via Caddy (`ocsp.yourdomain.com`) |
-| 4006 | Platform Portal | HTTP (LiveView) | Via Caddy (`admin.yourdomain.com`) |
+| 4002 | CA Portal | HTTP (LiveView) | Via Caddy (`ca.straptrust.com`) |
+| 4003 | RA Engine | HTTP/JSON (REST) | Via Caddy (`api.straptrust.com`) |
+| 4004 | RA Portal | HTTP (LiveView) | Via Caddy (`ra.straptrust.com`) |
+| 4005 | Validation | HTTP/JSON (OCSP/CRL) | Via Caddy (`ocsp.straptrust.com`) |
+| 4006 | Platform Portal | HTTP (LiveView) | Via Caddy (`admin.straptrust.com`) |
 | 5432 | PostgreSQL | PostgreSQL | **No** — internal only |
 
 ---
