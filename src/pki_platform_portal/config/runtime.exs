@@ -21,7 +21,8 @@ end
 
 # PlatformRepo config — used by Provisioner for tenant database creation.
 # Shares the same DATABASE_URL as the portal's own repo.
-if database_url = System.get_env("DATABASE_URL") do
+database_url = System.get_env("PLATFORM_DATABASE_URL") || System.get_env("DATABASE_URL")
+if database_url do
   config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE", "5"))

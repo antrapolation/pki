@@ -2,9 +2,10 @@ import Config
 
 if config_env() == :prod do
   database_url =
-    System.get_env("DATABASE_URL") ||
+    System.get_env("VALIDATION_DATABASE_URL") ||
+      System.get_env("DATABASE_URL") ||
       raise """
-      environment variable DATABASE_URL is missing.
+      environment variable VALIDATION_DATABASE_URL or DATABASE_URL is missing.
       For example: ecto://USER:PASS@HOST/DATABASE
       """
 

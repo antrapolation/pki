@@ -1,6 +1,10 @@
 # PQC Certificate Authority System — Podman Compose
 # Usage: podman-compose up -d
 # Requires: podman, podman-compose
+#
+# podman-compose 1.0.6 does NOT support ${VAR} interpolation in
+# environment: blocks. All dynamic values must come from env_file.
+# Static per-service values go in environment: below.
 
 services:
   # ── PostgreSQL ──────────────────────────────────────────────────────
@@ -8,9 +12,6 @@ services:
     image: docker.io/library/postgres:17-alpine
     container_name: pki-postgres
     env_file: .env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5434:5432"
     volumes:
@@ -23,18 +24,11 @@ services:
       retries: 5
 
   # ── SoftHSM2 ───────────────────────────────────────────────────────
-  # PKCS#11 HSM simulator — owns the library and token storage.
-  # CA engine mounts both via shared volumes.
-  # Swap to real HSM by changing PKCS11_LIB_PATH on CA engine.
   softhsm2:
     build:
       context: ./softhsm2
     container_name: pki-softhsm2
     env_file: .env
-    environment:
-      SOFTHSM_TOKEN_LABEL: ${SOFTHSM_TOKEN_LABEL}
-      SOFTHSM_SO_PIN: ${SOFTHSM_SO_PIN}
-      SOFTHSM_USER_PIN: ${SOFTHSM_USER_PIN}
     volumes:
       - softhsm-tokens:/var/lib/softhsm/tokens
       - softhsm-lib:/shared/lib
@@ -45,24 +39,18 @@ services:
       retries: 3
 
   # ── PKI CA Engine ──────────────────────────────────────────────────
-  # Core CA — signing keys, key ceremonies, certificate issuance
-  # Mounts SoftHSM2 library + tokens for PKCS#11 operations
   pki-ca-engine:
     build:
       context: .
       dockerfile: src/pki_ca_engine/Containerfile
     container_name: pki-ca-engine
+    env_file: .env
     environment:
-      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_ca_engine"
       PORT: "4001"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ca_engine@pki-ca-engine
-      # HSM configuration — change these to swap to a real HSM
       PKCS11_LIB_PATH: "/hsm/lib/libsofthsm2.so"
       HSM_SLOT: "0"
-      HSM_PIN: ${SOFTHSM_USER_PIN}
       HSM_TOKEN_LABEL: "PkiCA"
       SOFTHSM2_CONF: "/hsm/softhsm2.conf"
       VALIDATION_URL: "http://pki-validation:4005"
@@ -79,17 +67,14 @@ services:
         condition: service_healthy
 
   # ── PKI RA Engine ──────────────────────────────────────────────────
-  # Registration Authority — CSR processing, REST API, CMP
   pki-ra-engine:
     build:
       context: .
       dockerfile: src/pki_ra_engine/Containerfile
     container_name: pki-ra-engine
+    env_file: .env
     environment:
-      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_ra_engine"
       PORT: "4003"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       CA_ENGINE_URL: "http://pki-ca-engine:4001"
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ra_engine@pki-ra-engine
@@ -100,7 +85,6 @@ services:
         condition: service_healthy
 
   # ── PKI CA Portal ──────────────────────────────────────────────────
-  # CA Admin GUI — Phoenix LiveView
   pki-ca-portal:
     build:
       context: .
@@ -109,12 +93,8 @@ services:
     env_file: .env
     environment:
       PORT: "4002"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      PHX_HOST: "ca.straptrust.com"
       PHX_SERVER: "true"
       CA_ENGINE_URL: "http://pki-ca-engine:4001"
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
-      ENGINE_CLIENT_MODE: ${ENGINE_CLIENT_MODE:-}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ca_portal@pki-ca-portal
     ports:
@@ -123,7 +103,6 @@ services:
       - pki-ca-engine
 
   # ── PKI RA Portal ──────────────────────────────────────────────────
-  # RA Admin GUI — Phoenix LiveView
   pki-ra-portal:
     build:
       context: .
@@ -132,12 +111,8 @@ services:
     env_file: .env
     environment:
       PORT: "4004"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      PHX_HOST: "ra.straptrust.com"
       PHX_SERVER: "true"
       RA_ENGINE_URL: "http://pki-ra-engine:4003"
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
-      ENGINE_CLIENT_MODE: ${ENGINE_CLIENT_MODE:-}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ra_portal@pki-ra-portal
     ports:
@@ -146,7 +121,6 @@ services:
       - pki-ra-engine
 
   # ── PKI Platform Portal ──────────────────────────────────────────────
-  # Platform Admin GUI — Tenant management
   pki-platform-portal:
     build:
       context: .
@@ -155,12 +129,7 @@ services:
     env_file: .env
     environment:
       PORT: "4006"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      PHX_HOST: "admin.straptrust.com"
       PHX_SERVER: "true"
-      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_platform"
-      PLATFORM_ADMIN_USERNAME: ${PLATFORM_ADMIN_USERNAME:-admin}
-      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-admin}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_platform_portal@pki-platform-portal
     ports:
@@ -170,19 +139,16 @@ services:
         condition: service_healthy
 
   # ── PKI Validation ─────────────────────────────────────────────────
-  # OCSP responder + CRL publisher
   pki-validation:
     build:
       context: .
       dockerfile: src/pki_validation/Containerfile
     container_name: pki-validation
+    env_file: .env
     environment:
-      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_validation"
       PORT: "4005"
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_validation@pki-validation
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
     ports:
       - "4005:4005"
     depends_on:
