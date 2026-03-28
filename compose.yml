@@ -106,6 +106,7 @@ services:
       context: .
       dockerfile: src/pki_ca_portal/Containerfile
     container_name: pki-ca-portal
+    env_file: .env
     environment:
       PORT: "4002"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
@@ -128,6 +129,7 @@ services:
       context: .
       dockerfile: src/pki_ra_portal/Containerfile
     container_name: pki-ra-portal
+    env_file: .env
     environment:
       PORT: "4004"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
@@ -150,6 +152,7 @@ services:
       context: .
       dockerfile: src/pki_platform_portal/Containerfile
     container_name: pki-platform-portal
+    env_file: .env
     environment:
       PORT: "4006"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
