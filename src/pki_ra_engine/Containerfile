@@ -10,11 +10,17 @@ RUN mix local.hex --force && mix local.rebar --force
 
 # Copy mix files for dependency resolution (including path deps)
 COPY src/pki_ra_engine/mix.exs src/pki_ra_engine/
+COPY src/pki_crypto/mix.exs src/pki_crypto/
+COPY src/pki_platform_engine/mix.exs src/pki_platform_engine/
 COPY src/keyx/mix.exs src/keyx/
 COPY src/x509/mix.exs src/x509/
 COPY src/ex_ccrypto/mix.exs src/ex_ccrypto/
 
 # Copy path dep source (needed before deps.get for path resolution)
+COPY src/pki_crypto/lib src/pki_crypto/lib
+COPY src/pki_platform_engine/lib src/pki_platform_engine/lib
+COPY src/pki_platform_engine/config src/pki_platform_engine/config
+COPY src/pki_platform_engine/priv src/pki_platform_engine/priv
 COPY src/keyx/lib src/keyx/lib
 COPY src/x509/lib src/x509/lib
 COPY src/ex_ccrypto/lib src/ex_ccrypto/lib

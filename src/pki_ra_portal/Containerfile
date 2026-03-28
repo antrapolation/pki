@@ -9,6 +9,12 @@ ENV MIX_ENV=prod
 RUN mix local.hex --force && mix local.rebar --force
 
 COPY src/pki_ra_portal/mix.exs src/pki_ra_portal/mix.lock src/pki_ra_portal/
+COPY src/pki_platform_engine/mix.exs src/pki_platform_engine/
+
+# Copy path dep source (needed before deps.get)
+COPY src/pki_platform_engine/lib src/pki_platform_engine/lib
+COPY src/pki_platform_engine/config src/pki_platform_engine/config
+COPY src/pki_platform_engine/priv src/pki_platform_engine/priv
 
 RUN cd src/pki_ra_portal && mix deps.get
 
