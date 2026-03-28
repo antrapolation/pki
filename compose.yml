@@ -53,7 +53,7 @@ services:
       dockerfile: src/pki_ca_engine/Containerfile
     container_name: pki-ca-engine
     environment:
-      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ca_engine"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_ca_engine"
       PORT: "4001"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -86,7 +86,7 @@ services:
       dockerfile: src/pki_ra_engine/Containerfile
     container_name: pki-ra-engine
     environment:
-      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ra_engine"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_ra_engine"
       PORT: "4003"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -174,7 +174,7 @@ services:
       dockerfile: src/pki_validation/Containerfile
     container_name: pki-validation
     environment:
-      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_validation"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_validation"
       PORT: "4005"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       RELEASE_DISTRIBUTION: name
