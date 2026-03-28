@@ -169,6 +169,7 @@ git -c http.sslVerify=false clone https://vcs.antrapol.tech:3800/Incubator/pki.g
 cd pki
 git config http.sslVerify false
 git checkout v1.0.0-beta.2
+git submodule update --init --recursive
 ```
 
 ### 2.2 Configure environment

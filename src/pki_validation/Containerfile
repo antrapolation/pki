@@ -9,6 +9,16 @@ ENV MIX_ENV=prod
 RUN mix local.hex --force && mix local.rebar --force
 
 COPY src/pki_validation/mix.exs src/pki_validation/
+COPY src/pki_crypto/mix.exs src/pki_crypto/
+COPY src/pki_platform_engine/mix.exs src/pki_platform_engine/
+COPY src/keyx/mix.exs src/keyx/
+
+# Copy path dep source (needed before deps.get)
+COPY src/pki_crypto/lib src/pki_crypto/lib
+COPY src/pki_platform_engine/lib src/pki_platform_engine/lib
+COPY src/pki_platform_engine/config src/pki_platform_engine/config
+COPY src/pki_platform_engine/priv src/pki_platform_engine/priv
+COPY src/keyx/lib src/keyx/lib
 
 RUN cd src/pki_validation && mix deps.get --only prod
 
