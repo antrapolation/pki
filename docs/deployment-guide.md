@@ -269,6 +269,7 @@ Point these domains to your VPS IP in your DNS provider:
 
 | Domain | Points To | Service |
 |--------|-----------|---------|
+| `yourdomain.com` | VPS IP | Marketing landing page |
 | `ca.yourdomain.com` | VPS IP | CA Portal |
 | `ra.yourdomain.com` | VPS IP | RA Portal |
 | `api.yourdomain.com` | VPS IP | RA Engine API |
@@ -282,6 +283,12 @@ sudo nano /etc/caddy/Caddyfile
 ```
 
 ```
+# Marketing Landing Page (static HTML)
+yourdomain.com {
+    root * /home/pki/pki/landing
+    file_server
+}
+
 # CA Admin Portal
 ca.yourdomain.com {
     reverse_proxy localhost:4002
@@ -318,6 +325,7 @@ sudo systemctl enable caddy
 Caddy automatically obtains Let's Encrypt certificates. Verify:
 
 ```bash
+curl -s https://yourdomain.com -o /dev/null -w "%{http_code}"               # 200 (landing page)
 curl -s https://ca.yourdomain.com/login -o /dev/null -w "%{http_code}"     # 200
 curl -s https://ocsp.yourdomain.com/health                                  # {"status":"ok"}
 curl -s https://admin.yourdomain.com/login -o /dev/null -w "%{http_code}"   # 200
