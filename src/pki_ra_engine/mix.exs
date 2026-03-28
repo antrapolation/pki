@@ -43,7 +43,8 @@ defmodule PkiRaEngine.MixProject do
       {:plug_cowboy, "~> 2.7"},
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"},
-      {:x509, path: "../x509"},
+      {:keyx, path: "../keyx", override: true},
+      {:x509, path: "../x509", override: true},
       {:ex_ccrypto, path: "../ex_ccrypto"},
       {:pki_crypto, path: "../pki_crypto"},
       {:pki_platform_engine, path: "../pki_platform_engine"}
