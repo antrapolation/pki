@@ -86,11 +86,14 @@ defmodule PkiPlatformEngine.Provisioner do
   defp with_admin_conn(fun) do
     config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
 
+    # Parse DATABASE_URL if config uses :url instead of individual fields
+    {hostname, port, username, password} = parse_conn_config(config)
+
     case Postgrex.start_link(
-           hostname: Keyword.get(config, :hostname, "localhost"),
-           port: Keyword.get(config, :port, 5434),
-           username: Keyword.get(config, :username, "postgres"),
-           password: Keyword.get(config, :password, "postgres"),
+           hostname: hostname,
+           port: port,
+           username: username,
+           password: password,
            database: "postgres"
          ) do
       {:ok, conn} ->
@@ -102,6 +105,28 @@ defmodule PkiPlatformEngine.Provisioner do
 
       {:error, reason} ->
         {:error, {:admin_conn_failed, reason}}
+    end
+  end
+
+  defp parse_conn_config(config) do
+    case Keyword.get(config, :url) do
+      nil ->
+        {
+          Keyword.get(config, :hostname, "localhost"),
+          Keyword.get(config, :port, 5432),
+          Keyword.get(config, :username, "postgres"),
+          Keyword.get(config, :password, "postgres")
+        }
+
+      url ->
+        uri = URI.parse(url)
+        userinfo = String.split(uri.userinfo || "postgres:postgres", ":", parts: 2)
+        {
+          uri.host || "localhost",
+          uri.port || 5432,
+          Enum.at(userinfo, 0, "postgres"),
+          Enum.at(userinfo, 1, "postgres") |> URI.decode()
+        }
     end
   end
 
