@@ -12,6 +12,8 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
   a matching `INTERNAL_API_SECRET`.
   """
 
+  @behaviour PkiRaEngine.CaClient
+
   require Logger
 
   @sign_path "/api/v1/certificates/sign"
@@ -24,6 +26,7 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
 
   Returns `{:ok, %{serial_number: serial}}` on success, or `{:error, reason}`.
   """
+  @impl true
   @spec sign_certificate(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def sign_certificate(csr_pem, cert_profile) do
     ca_url = ca_engine_url()
@@ -105,14 +108,6 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
       not_before: Map.get(resp, "not_before"),
       not_after: Map.get(resp, "not_after")
     }}
-  end
-
-  defp parse_success_response(resp) when is_map(resp) do
-    # Response may be nested under "data" key
-    case Map.get(resp, "data") do
-      %{"serial_number" => _} = data -> parse_success_response(data)
-      _ -> {:error, {:unexpected_response, resp}}
-    end
   end
 
   defp parse_success_response(resp) do

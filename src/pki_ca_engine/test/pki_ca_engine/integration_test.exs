@@ -3,8 +3,7 @@ defmodule PkiCaEngine.IntegrationTest do
   Layer 1 integration tests for pki_ca_engine.
 
   Chains together all engine modules in the correct order using REAL
-  implementations (no mocks) except for the CryptoAdapter (TestCryptoAdapter
-  since we don't have real crypto deps wired in).
+  implementations (no mocks). Crypto operations use PkiCrypto library.
 
   These tests verify end-to-end flows within a single service boundary.
   """
@@ -19,7 +18,7 @@ defmodule PkiCaEngine.IntegrationTest do
     UserManagement
   }
 
-  alias PkiCaEngine.KeyCeremony.{AsyncCeremony, SyncCeremony, DefaultCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.{AsyncCeremony, SyncCeremony}
   alias PkiCaEngine.Schema.{KeyCeremony, ThresholdShare}
 
   import PkiCaEngine.IntegrationHelpers
@@ -67,9 +66,8 @@ defmodule PkiCaEngine.IntegrationTest do
       assert KeypairAccessControl.has_access?(issuer_key.id, km2.id)
       assert KeypairAccessControl.has_access?(issuer_key.id, km3.id)
 
-      # 6. Generate real keypair via DefaultCryptoAdapter
-      adapter = %DefaultCryptoAdapter{}
-      {:ok, keypair} = SyncCeremony.generate_keypair(adapter, "RSA-4096")
+      # 6. Generate real keypair via PkiCrypto
+      {:ok, keypair} = SyncCeremony.generate_keypair("RSA-4096")
       assert is_binary(keypair.public_key)
       assert is_binary(keypair.private_key)
 
@@ -81,7 +79,7 @@ defmodule PkiCaEngine.IntegrationTest do
       ]
 
       {:ok, 3} =
-        SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords, adapter)
+        SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
 
       # Verify shares stored in DB
       shares =
@@ -108,7 +106,7 @@ defmodule PkiCaEngine.IntegrationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: activation_name, crypto_adapter: adapter, timeout_ms: 60_000},
+         name: activation_name, timeout_ms: 60_000},
         restart: :temporary
       )
 
@@ -185,7 +183,7 @@ defmodule PkiCaEngine.IntegrationTest do
       {:ok, pid} =
         AsyncCeremony.start_link(
           ceremony: ceremony,
-          crypto_adapter: setup.adapter,
+
           window_ms: 2_000
         )
 
@@ -235,7 +233,7 @@ defmodule PkiCaEngine.IntegrationTest do
       {:ok, pid} =
         AsyncCeremony.start_link(
           ceremony: ceremony,
-          crypto_adapter: setup.adapter,
+
           window_ms: 100
         )
 
@@ -257,7 +255,6 @@ defmodule PkiCaEngine.IntegrationTest do
   describe "key activation timeout" do
     test "key automatically deactivates after timeout, signing fails" do
       setup = create_full_ca_setup!()
-      adapter = setup.adapter
 
       # Run full ceremony
       ceremony_result = run_ceremony!(setup)
@@ -268,7 +265,7 @@ defmodule PkiCaEngine.IntegrationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: activation_name, crypto_adapter: adapter, timeout_ms: 200},
+         name: activation_name, timeout_ms: 200},
         restart: :temporary
       )
 

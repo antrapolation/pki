@@ -35,21 +35,24 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           username: "raadmin1",
           display_name: "RA Admin One",
           role: "ra_admin",
-          status: "active"
+          status: "active",
+          has_credentials: true
         },
         %{
           id: @user2_id,
           username: "raofficer1",
           display_name: "RA Officer One",
           role: "ra_officer",
-          status: "active"
+          status: "active",
+          has_credentials: true
         },
         %{
           id: @user3_id,
           username: "auditor1",
           display_name: "Auditor One",
           role: "auditor",
-          status: "active"
+          status: "active",
+          has_credentials: false
         }
       ],
       csrs: [
@@ -207,9 +210,17 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @impl true
   def create_user(attrs) do
-    user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)
+    has_creds = Map.has_key?(attrs, :password) or Map.has_key?(attrs, "password")
+    user = attrs
+      |> Map.drop([:password, "password"])
+      |> Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", has_credentials: has_creds})
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
+  end
+
+  @impl true
+  def create_user(attrs, _admin_context) do
+    create_user(attrs)
   end
 
   @impl true
@@ -378,6 +389,13 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   @impl true
   def authenticate(username, _password) do
     {:ok, %{id: @user1_id, username: username, role: "ra_admin", display_name: "Mock RA Admin"}}
+  end
+
+  @impl true
+  def authenticate_with_session(username, _password) do
+    user = %{id: @user1_id, username: username, role: "ra_admin", display_name: "Mock RA Admin"}
+    session = %{session_key: "mock_session_key_#{System.unique_integer([:positive])}", session_salt: "mock_salt"}
+    {:ok, user, session}
   end
 
   @impl true

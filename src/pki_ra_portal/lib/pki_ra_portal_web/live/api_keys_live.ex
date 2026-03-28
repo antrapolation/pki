@@ -8,13 +8,15 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
     {:ok, keys} = RaEngineClient.list_api_keys()
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "API Keys",
        api_keys: keys,
        new_raw_key: nil,
        page: 1,
        per_page: 50
-     )}
+     )
+     |> apply_pagination()}
   end
 
   @impl true
@@ -26,6 +28,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
         {:noreply,
          socket
          |> assign(api_keys: keys, new_raw_key: key.raw_key)
+         |> apply_pagination()
          |> put_flash(:info, "API key created. Copy the key now - it will not be shown again.")}
 
       {:error, reason} ->
@@ -50,6 +53,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
         {:noreply,
          socket
          |> assign(api_keys: keys)
+         |> apply_pagination()
          |> put_flash(:info, "API key revoked")}
 
       {:error, reason} ->
@@ -59,21 +63,23 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+  end
+
+  defp apply_pagination(socket) do
+    items = socket.assigns.api_keys
+    total = length(items)
+    per_page = socket.assigns.per_page
+    total_pages = max(ceil(total / per_page), 1)
+    page = min(socket.assigns.page, total_pages)
+    start_idx = (page - 1) * per_page
+    paged = items |> Enum.drop(start_idx) |> Enum.take(per_page)
+
+    assign(socket, paged_keys: paged, total_pages: total_pages, page: page)
   end
 
   @impl true
   def render(assigns) do
-    total = length(assigns.api_keys)
-    total_pages = max(ceil(total / assigns.per_page), 1)
-    start_idx = (assigns.page - 1) * assigns.per_page
-    paged_keys = assigns.api_keys |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
-
-    assigns =
-      assigns
-      |> Map.put(:paged_keys, paged_keys)
-      |> Map.put(:total_pages, total_pages)
-
     ~H"""
     <div id="api-keys-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">API Key Management</h1>

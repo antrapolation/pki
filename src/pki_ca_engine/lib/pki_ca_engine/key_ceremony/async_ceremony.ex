@@ -12,13 +12,12 @@ defmodule PkiCaEngine.KeyCeremony.AsyncCeremony do
   use GenServer
 
   alias PkiCaEngine.{Repo, Schema.KeyCeremony, Schema.ThresholdShare}
-  alias PkiCaEngine.KeyCeremony.{ShareEncryption, CryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.ShareEncryption
 
   defstruct [
     :ceremony_id,
     :issuer_key_id,
     :private_key_material,
-    :crypto_adapter,
     :threshold_k,
     :threshold_n,
     :shares_collected,
@@ -48,16 +47,15 @@ defmodule PkiCaEngine.KeyCeremony.AsyncCeremony do
   @impl true
   def init(opts) do
     ceremony = opts[:ceremony]
-    crypto_adapter = opts[:crypto_adapter]
     window_ms = opts[:window_ms] || 86_400_000
 
-    # Generate keypair - private key held in memory only
-    {:ok, keypair} = CryptoAdapter.generate_keypair(crypto_adapter, ceremony.algorithm)
+    # Generate keypair via PkiCrypto - private key held in memory only
+    algo_struct = PkiCrypto.Registry.get(ceremony.algorithm)
+    {:ok, keypair} = PkiCrypto.Algorithm.generate_keypair(algo_struct)
 
     # Split the secret ONCE upfront so all shares come from the same polynomial
     {:ok, all_shares} =
-      CryptoAdapter.split_secret(
-        crypto_adapter,
+      PkiCrypto.Shamir.split(
         keypair.private_key,
         ceremony.threshold_k,
         ceremony.threshold_n
@@ -69,7 +67,6 @@ defmodule PkiCaEngine.KeyCeremony.AsyncCeremony do
       ceremony_id: ceremony.id,
       issuer_key_id: ceremony.issuer_key_id,
       private_key_material: keypair.private_key,
-      crypto_adapter: crypto_adapter,
       threshold_k: ceremony.threshold_k,
       threshold_n: ceremony.threshold_n,
       shares_collected: 0,

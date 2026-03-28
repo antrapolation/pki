@@ -30,7 +30,7 @@ defmodule PkiCaEngine.Api.AuditLogController do
             }
           end)
 
-        json(conn, 200, %{data: data})
+        json(conn, 200, data)
 
       {:error, reason} ->
         Logger.error("Audit log query failed: #{inspect(reason)}")

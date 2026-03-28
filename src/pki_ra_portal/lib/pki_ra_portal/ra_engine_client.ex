@@ -10,6 +10,7 @@ defmodule PkiRaPortal.RaEngineClient do
 
   @callback list_users() :: {:ok, [map()]} | {:error, term()}
   @callback create_user(map()) :: {:ok, map()} | {:error, term()}
+  @callback create_user(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback delete_user(String.t()) :: {:ok, map()} | {:error, term()}
   @callback list_csrs(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback get_csr(String.t()) :: {:ok, map()} | {:error, term()}
@@ -25,6 +26,7 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback create_api_key(map()) :: {:ok, map()} | {:error, term()}
   @callback revoke_api_key(String.t()) :: {:ok, map()} | {:error, term()}
   @callback authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
+  @callback authenticate_with_session(String.t(), String.t()) :: {:ok, map(), map()} | {:error, term()}
   @callback register_user(map()) :: {:ok, map()} | {:error, term()}
   @callback needs_setup?() :: boolean()
 
@@ -33,6 +35,7 @@ defmodule PkiRaPortal.RaEngineClient do
 
   def list_users, do: impl().list_users()
   def create_user(attrs), do: impl().create_user(attrs)
+  def create_user(attrs, admin_context), do: impl().create_user(attrs, admin_context)
   def delete_user(id), do: impl().delete_user(id)
   def list_csrs(filters \\ []), do: impl().list_csrs(filters)
   def get_csr(id), do: impl().get_csr(id)
@@ -48,6 +51,7 @@ defmodule PkiRaPortal.RaEngineClient do
   def create_api_key(attrs), do: impl().create_api_key(attrs)
   def revoke_api_key(id), do: impl().revoke_api_key(id)
   def authenticate(username, password), do: impl().authenticate(username, password)
+  def authenticate_with_session(username, password), do: impl().authenticate_with_session(username, password)
   def register_user(attrs), do: impl().register_user(attrs)
   def needs_setup?, do: impl().needs_setup?()
 end

@@ -8,12 +8,14 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
     {:ok, configs} = RaEngineClient.list_service_configs()
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Service Configuration",
        configs: configs,
        page: 1,
        per_page: 50
-     )}
+     )
+     |> apply_pagination()}
   end
 
   @impl true
@@ -38,6 +40,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
         {:noreply,
          socket
          |> assign(configs: configs)
+         |> apply_pagination()
          |> put_flash(:info, "Service configured successfully")}
 
       {:error, reason} ->
@@ -47,7 +50,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
   end
 
   defp parse_int(val, default) when is_binary(val) do
@@ -59,18 +62,20 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   defp parse_int(_, default), do: default
 
+  defp apply_pagination(socket) do
+    items = socket.assigns.configs
+    total = length(items)
+    per_page = socket.assigns.per_page
+    total_pages = max(ceil(total / per_page), 1)
+    page = min(socket.assigns.page, total_pages)
+    start_idx = (page - 1) * per_page
+    paged = items |> Enum.drop(start_idx) |> Enum.take(per_page)
+
+    assign(socket, paged_configs: paged, total_pages: total_pages, page: page)
+  end
+
   @impl true
   def render(assigns) do
-    total = length(assigns.configs)
-    total_pages = max(ceil(total / assigns.per_page), 1)
-    start_idx = (assigns.page - 1) * assigns.per_page
-    paged_configs = assigns.configs |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
-
-    assigns =
-      assigns
-      |> Map.put(:paged_configs, paged_configs)
-      |> Map.put(:total_pages, total_pages)
-
     ~H"""
     <div id="service-configs-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">Service Configuration</h1>

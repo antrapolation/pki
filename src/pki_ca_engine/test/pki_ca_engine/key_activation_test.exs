@@ -2,7 +2,7 @@ defmodule PkiCaEngine.KeyActivationTest do
   use PkiCaEngine.DataCase, async: false
 
   alias PkiCaEngine.KeyActivation
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, TestCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.SyncCeremony
   alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore}
 
   setup do
@@ -40,12 +40,10 @@ defmodule PkiCaEngine.KeyActivationTest do
         user
       end
 
-    adapter = %TestCryptoAdapter{}
-
     # Create ceremony + issuer key
     {:ok, {ceremony, issuer_key}} =
       SyncCeremony.initiate(ca.id, %{
-        algorithm: "RSA-4096",
+        algorithm: "ECC-P256",
         keystore_id: keystore.id,
         threshold_k: 2,
         threshold_n: 3,
@@ -53,19 +51,18 @@ defmodule PkiCaEngine.KeyActivationTest do
       })
 
     # Generate keypair and distribute shares
-    {:ok, keypair} = SyncCeremony.generate_keypair(adapter, "RSA-4096")
+    {:ok, keypair} = SyncCeremony.generate_keypair("ECC-P256")
 
     custodian_passwords =
       Enum.map(custodians, fn user -> {user.id, "password-#{user.id}"} end)
 
     {:ok, 3} =
-      SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords, adapter)
+      SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
 
     %{
       ca: ca,
       issuer_key: issuer_key,
       custodians: custodians,
-      adapter: adapter,
       ceremony: ceremony,
       custodian_passwords: custodian_passwords
     }
@@ -78,7 +75,7 @@ defmodule PkiCaEngine.KeyActivationTest do
       {:ok, pid} =
         KeyActivation.start_link(
           name: name,
-          crypto_adapter: %TestCryptoAdapter{},
+
           timeout_ms: 5_000
         )
 
@@ -93,7 +90,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -109,7 +106,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -131,7 +128,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -153,7 +150,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -172,7 +169,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -186,7 +183,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 100},
+         name: name, timeout_ms: 100},
         restart: :temporary
       )
 
@@ -209,7 +206,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -230,7 +227,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -250,7 +247,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -268,7 +265,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -285,7 +282,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -298,7 +295,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 
@@ -321,7 +318,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       start_supervised!(
         {KeyActivation,
-         name: name, crypto_adapter: ctx.adapter, timeout_ms: 5_000},
+         name: name, timeout_ms: 5_000},
         restart: :temporary
       )
 

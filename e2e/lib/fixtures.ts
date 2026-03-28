@@ -3,6 +3,7 @@ import { test as base, expect, type Page, type APIRequestContext } from "@playwr
 // Shared test URLs
 export const URLS = {
   caPortal: process.env.CA_PORTAL_URL || "http://localhost:4002",
+  caApi: process.env.CA_ENGINE_URL || "http://localhost:4001",
   raPortal: process.env.RA_PORTAL_URL || "http://localhost:4004",
   raApi: process.env.RA_ENGINE_URL || "http://localhost:4003",
   validation: process.env.VALIDATION_URL || "http://localhost:4005",

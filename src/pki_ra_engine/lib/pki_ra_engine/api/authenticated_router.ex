@@ -47,6 +47,10 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     CertController.index(conn)
   end
 
+  get "/certificates/:serial" do
+    CertController.show(conn, serial)
+  end
+
   # --- User management routes ---
 
   get "/users" do

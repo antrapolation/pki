@@ -12,7 +12,8 @@ defmodule PkiCaEngine.Api.AuthenticatedRouter do
     StatusController,
     CeremonyController,
     CertificateController,
-    AuditLogController
+    AuditLogController,
+    KeyVaultController
   }
 
   plug PkiCaEngine.Api.AuthPlug
@@ -64,6 +65,35 @@ defmodule PkiCaEngine.Api.AuthenticatedRouter do
     CeremonyController.create(conn)
   end
 
+  # Ceremony lifecycle (multi-phase via KeyCeremonyManager)
+  post "/ceremonies/start" do
+    CeremonyController.start_ceremony(conn)
+  end
+
+  post "/ceremonies/:id/generate-keypair" do
+    CeremonyController.generate_keypair(conn, id)
+  end
+
+  post "/ceremonies/:id/self-sign" do
+    CeremonyController.self_sign(conn, id)
+  end
+
+  post "/ceremonies/:id/csr" do
+    CeremonyController.gen_csr(conn, id)
+  end
+
+  post "/ceremonies/:id/assign-custodians" do
+    CeremonyController.assign_custodians(conn, id)
+  end
+
+  post "/ceremonies/:id/finalize" do
+    CeremonyController.finalize(conn, id)
+  end
+
+  get "/ceremonies/:id/status" do
+    CeremonyController.status(conn, id)
+  end
+
   # Certificates
   get "/certificates" do
     CertificateController.index(conn)
@@ -79,6 +109,31 @@ defmodule PkiCaEngine.Api.AuthenticatedRouter do
 
   post "/certificates/revoke" do
     CertificateController.revoke(conn)
+  end
+
+  # Key Vault
+  post "/keypairs/register" do
+    KeyVaultController.register(conn)
+  end
+
+  post "/keypairs/:id/grant" do
+    KeyVaultController.grant_access(conn, id)
+  end
+
+  post "/keypairs/:id/activate" do
+    KeyVaultController.activate(conn, id)
+  end
+
+  post "/keypairs/:id/revoke-grant" do
+    KeyVaultController.revoke_grant(conn, id)
+  end
+
+  get "/keypairs" do
+    KeyVaultController.list(conn)
+  end
+
+  get "/keypairs/:id" do
+    KeyVaultController.show(conn, id)
   end
 
   # Audit Log

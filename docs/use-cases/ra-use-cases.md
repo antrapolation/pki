@@ -589,3 +589,112 @@
 | 6 | ra_officer | manage_api_keys | Unauthorized |
 | 7 | auditor | view_audit_log | Authorized |
 | 8 | auditor | process_csrs | Unauthorized |
+
+---
+
+## UC-RA-00C: RA Setup with Credentials (Beta.2)
+
+**Actor:** First user (becomes RA Admin)
+**Precondition:** Tenant database created (via Platform Portal), no RA users exist, service running
+**Trigger:** Navigate to `/setup`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to `/setup` | Setup form displayed with title "RA Portal Setup" |
+| 2 | Enter name, login (username), password, org name | Form populated |
+| 3 | Click "Create Admin Account" | Bootstrap process begins |
+| 4 | System creates RA Admin user with password hash (Argon2) | User record created with role `ra_admin` |
+| 5 | System generates signing keypair (algorithm per tenant config) | Signing public key stored plain |
+| 6 | System encrypts signing private key with password-derived key (PBKDF2 + HKDF) | Encrypted private key stored |
+| 7 | System generates KEM keypair | KEM public key stored plain |
+| 8 | System encrypts KEM private key with password-derived key | Encrypted private key stored |
+| 9 | System self-certifies admin's public keys | Certificates created |
+| 10 | Redirected to `/login` with flash "Admin account created. Please sign in." | Success |
+
+**Error Cases:**
+- Password too short (< 8 chars) → validation error
+- Username too short (< 3 chars) → validation error
+- Keypair generation failure → error with full rollback
+- Setup page visited after bootstrap → redirected to `/login` with "System already configured."
+
+---
+
+## UC-RA-01A: Login with Credentials (Beta.2)
+
+**Actor:** RA Admin / RA Officer / Auditor
+**Precondition:** User exists with credentials configured (signing + KEM keypairs)
+**Trigger:** Navigate to `/login`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to `/login` | Login form with username and password fields |
+| 2 | Enter username | Field populated |
+| 3 | Enter password | Field populated |
+| 4 | Click "Login" | Authentication begins |
+| 5 | System verifies password hash (Argon2) | Fast check passes |
+| 6 | System derives session_key from password (HKDF) | Session key derived |
+| 7 | System decrypts signing private key with session_key | Proves key ownership (decrypt test) |
+| 8 | session_key stored in encrypted session cookie | Cookie set |
+| 9 | Redirected to Dashboard (`/`) | User identity in nav bar |
+
+**Error Cases:**
+- Wrong password → "Invalid credentials" (Argon2 check fails)
+- Correct password but corrupt signing key → "Credential error" (decrypt test fails)
+- User status = "suspended" → "Account suspended"
+- User has no credentials configured → falls back to password-only login
+
+---
+
+## UC-RA-03A: Create RA User with Credentials (Beta.2)
+
+**Actor:** RA Admin
+**Precondition:** Logged in as `ra_admin` with active session_key
+**Trigger:** Navigate to `/users`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to `/users` | User list table and create form displayed |
+| 2 | Enter username | Username field populated |
+| 3 | Enter display name | Name field populated |
+| 4 | Select role (e.g., `ra_officer`) | Role dropdown set |
+| 5 | Enter password for new user | Password field populated |
+| 6 | Click "Create User" | User creation with credential generation begins |
+| 7 | System generates signing keypair (per tenant algorithm config) | Signing keypair created |
+| 8 | System generates KEM keypair | KEM keypair created |
+| 9 | System encrypts both private keys with new user's password-derived key (PBKDF2) | Private keys encrypted per-user |
+| 10 | Admin signs new user's public keys (attestation via admin's signing key) | Certificates created for new user |
+| 11 | User appears in table | Shows username, display name, role, active status |
+| 12 | User row shows "Credentials: configured" badge | Both signing and KEM keys present |
+
+**Error Cases:**
+- Duplicate username → changeset error displayed
+- Password too short → "Password must be at least 8 characters"
+- Admin session_key expired/invalid → "Session expired, please re-login"
+- Keypair generation failure → error with rollback
+
+---
+
+## UC-RA-37: RA Bootstrap with Credentials
+
+**Actor:** First user (becomes RA Admin)
+**Precondition:** Tenant database created (via Platform Portal), no RA users exist, service running
+**Trigger:** First admin registration via `/setup`
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | First RA admin registers with username and password | User record created |
+| 2 | System hashes password with Argon2 | Password hash stored |
+| 3 | System generates signing keypair (algorithm per tenant config) | Signing public key stored plain |
+| 4 | System encrypts signing private key with password-derived key (PBKDF2 + HKDF) | Encrypted private key stored |
+| 5 | System generates KEM keypair | KEM public key stored plain |
+| 6 | System encrypts KEM private key with password-derived key | Encrypted private key stored |
+| 7 | System self-certifies admin's public keys | Certificates created |
+| 8 | Verify user has role `ra_admin` | Role correctly assigned |
+| 9 | Verify both signing and KEM credentials are configured | Credential badges show "configured" |
+| 10 | Redirected to `/login` | Success flash displayed |
+
+**Error Cases:**
+- Password too short (< 8 chars) → validation error
+- Username too short (< 3 chars) → validation error
+- Keypair generation failure → error with full rollback (no partial state)
+- Subsequent visits to `/setup` → redirected to `/login` with "System already configured."

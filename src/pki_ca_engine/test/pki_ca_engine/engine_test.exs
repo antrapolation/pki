@@ -3,7 +3,7 @@ defmodule PkiCaEngine.EngineTest do
 
   alias PkiCaEngine.Engine
   alias PkiCaEngine.KeyActivation
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, DefaultCryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.SyncCeremony
   alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore}
 
   setup do
@@ -118,8 +118,6 @@ defmodule PkiCaEngine.EngineTest do
           user
         end
 
-      adapter = %DefaultCryptoAdapter{}
-
       {:ok, {ceremony, issuer_key}} =
         SyncCeremony.initiate(ctx.ca.id, %{
           algorithm: "RSA-4096",
@@ -129,13 +127,13 @@ defmodule PkiCaEngine.EngineTest do
           initiated_by: initiator.id
         })
 
-      {:ok, keypair} = SyncCeremony.generate_keypair(adapter, "RSA-4096")
+      {:ok, keypair} = SyncCeremony.generate_keypair("RSA-4096")
 
       custodian_passwords =
         Enum.map(custodians, fn user -> {user.id, "password-#{user.id}"} end)
 
       {:ok, 3} =
-        SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords, adapter)
+        SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
 
       # Complete ceremony as root with real self-signed certificate
       {cert_der, cert_pem} =
@@ -147,7 +145,7 @@ defmodule PkiCaEngine.EngineTest do
 
       start_supervised!(
         {KeyActivation,
-         name: activation_name, crypto_adapter: adapter, timeout_ms: 60_000},
+         name: activation_name, timeout_ms: 60_000},
         restart: :temporary
       )
 

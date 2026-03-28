@@ -53,7 +53,7 @@ services:
       dockerfile: src/pki_ca_engine/Containerfile
     container_name: pki-ca-engine
     environment:
-      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ca_engine"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_ca_engine"
       PORT: "4001"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -86,7 +86,7 @@ services:
       dockerfile: src/pki_ra_engine/Containerfile
     container_name: pki-ra-engine
     environment:
-      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_ra_engine"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_ra_engine"
       PORT: "4003"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -143,6 +143,29 @@ services:
     depends_on:
       - pki-ra-engine
 
+  # ── PKI Platform Portal ──────────────────────────────────────────────
+  # Platform Admin GUI — Tenant management
+  pki-platform-portal:
+    build:
+      context: .
+      dockerfile: src/pki_platform_portal/Containerfile
+    container_name: pki-platform-portal
+    environment:
+      PORT: "4006"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      PHX_HOST: "localhost"
+      PHX_SERVER: "true"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_platform"
+      PLATFORM_ADMIN_USERNAME: ${PLATFORM_ADMIN_USERNAME:-admin}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-admin}
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: pki_platform_portal@pki-platform-portal
+    ports:
+      - "4006:4006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # ── PKI Validation ─────────────────────────────────────────────────
   # OCSP responder + CRL publisher
   pki-validation:
@@ -151,7 +174,7 @@ services:
       dockerfile: src/pki_validation/Containerfile
     container_name: pki-validation
     environment:
-      DATABASE_URL: "ecto://postgres:postgres@postgres:5432/pki_validation"
+      DATABASE_URL: "ecto://postgres:${POSTGRES_PASSWORD}@postgres:5432/pki_validation"
       PORT: "4005"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       RELEASE_DISTRIBUTION: name

@@ -9,7 +9,7 @@ defmodule PkiCaEngine.KeyActivation do
   use GenServer
 
   alias PkiCaEngine.{Repo, Schema.ThresholdShare}
-  alias PkiCaEngine.KeyCeremony.{ShareEncryption, CryptoAdapter}
+  alias PkiCaEngine.KeyCeremony.ShareEncryption
   import Ecto.Query
 
   # ── Client API ────────────────────────────────────────────────
@@ -49,15 +49,13 @@ defmodule PkiCaEngine.KeyActivation do
   @impl true
   def init(opts) do
     timeout_ms = opts[:timeout_ms] || 3_600_000
-    crypto_adapter = opts[:crypto_adapter]
 
     {:ok,
      %{
        active_keys: %{},
        pending_shares: %{},
        custodians_submitted: %{},
-       timeout_ms: timeout_ms,
-       crypto_adapter: crypto_adapter
+       timeout_ms: timeout_ms
      }}
   end
 
@@ -99,21 +97,26 @@ defmodule PkiCaEngine.KeyActivation do
 
               if length(new_pending) >= record.min_shares do
                 # Threshold met - reconstruct secret
-                {:ok, secret} = CryptoAdapter.recover_secret(state.crypto_adapter, new_pending)
-                timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
+                case PkiCrypto.Shamir.recover(new_pending) do
+                  {:ok, secret} ->
+                    timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
 
-                new_state = %{
-                  state
-                  | active_keys:
-                      Map.put(state.active_keys, issuer_key_id, %{
-                        secret: secret,
-                        timer_ref: timer_ref
-                      }),
-                    pending_shares: Map.delete(state.pending_shares, issuer_key_id),
-                    custodians_submitted: new_submitted
-                }
+                    new_state = %{
+                      state
+                      | active_keys:
+                          Map.put(state.active_keys, issuer_key_id, %{
+                            secret: secret,
+                            timer_ref: timer_ref
+                          }),
+                        pending_shares: Map.delete(state.pending_shares, issuer_key_id),
+                        custodians_submitted: new_submitted
+                    }
 
-                {:reply, {:ok, :key_activated}, new_state}
+                    {:reply, {:ok, :key_activated}, new_state}
+
+                  {:error, reason} ->
+                    {:reply, {:error, {:reconstruction_failed, reason}}, state}
+                end
               else
                 new_state = %{
                   state

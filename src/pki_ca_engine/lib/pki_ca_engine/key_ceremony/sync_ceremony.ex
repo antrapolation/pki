@@ -4,7 +4,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
 
   Orchestrates the full ceremony flow:
   1. `initiate/2` - creates ceremony + issuer_key records
-  2. `generate_keypair/2` - generates keypair via CryptoAdapter protocol
+  2. `generate_keypair/1` - generates keypair via PkiCrypto.Algorithm protocol
   3. `distribute_shares/4` - splits private key, encrypts shares, stores in DB
   4. `complete_as_root/3` - for independent root CA (activates key with cert)
   5. `complete_as_sub_ca/3` - for sub-CA (key stays pending, generates real PKCS#10 CSR)
@@ -15,7 +15,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.{KeyCeremony, IssuerKey, ThresholdShare}
   alias PkiCaEngine.{KeystoreManagement, IssuerKeyManagement}
-  alias PkiCaEngine.KeyCeremony.{CryptoAdapter, ShareEncryption}
+  alias PkiCaEngine.KeyCeremony.ShareEncryption
 
   @doc """
   Initiates a synchronous key ceremony.
@@ -72,66 +72,75 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   end
 
   @doc """
-  Generates a keypair using the given CryptoAdapter.
+  Generates a keypair for the given algorithm string via PkiCrypto.
 
   Returns `{:ok, %{public_key: binary, private_key: binary}}`.
   The private key material is returned in memory only -- it must NOT be persisted to DB.
   """
-  @spec generate_keypair(CryptoAdapter.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def generate_keypair(crypto_adapter, algorithm) do
-    CryptoAdapter.generate_keypair(crypto_adapter, algorithm)
+  @spec generate_keypair(String.t()) :: {:ok, map()} | {:error, term()}
+  def generate_keypair(algorithm) do
+    case PkiCrypto.Registry.get(algorithm) do
+      nil -> {:error, {:unsupported_algorithm, algorithm}}
+      algo_struct -> PkiCrypto.Algorithm.generate_keypair(algo_struct)
+    end
   end
 
   @doc """
   Distributes private key shares to custodians.
 
-  Splits the private key into N shares using the CryptoAdapter, encrypts each share
+  Splits the private key into N shares using PkiCrypto.Shamir, encrypts each share
   with the corresponding custodian's password, and stores encrypted shares in the DB.
 
   ## Parameters
     - `ceremony` - the KeyCeremony record (must have threshold_n, threshold_k, issuer_key_id)
     - `private_key_material` - the raw private key binary (NOT stored in DB)
     - `custodian_passwords` - list of `{custodian_user_id, password}` tuples
-    - `crypto_adapter` - CryptoAdapter implementation for splitting
 
   ## Returns
     - `{:ok, share_count}` on success
     - `{:error, :wrong_custodian_count}` if custodian count != threshold_n
   """
-  @spec distribute_shares(KeyCeremony.t(), binary(), [{String.t(), String.t()}], CryptoAdapter.t()) ::
+  @spec distribute_shares(KeyCeremony.t(), binary(), [{String.t(), String.t()}]) ::
           {:ok, integer()} | {:error, term()}
-  def distribute_shares(ceremony, private_key_material, custodian_passwords, crypto_adapter) do
+  def distribute_shares(ceremony, private_key_material, custodian_passwords) do
     n = length(custodian_passwords)
 
     if n != ceremony.threshold_n do
       {:error, :wrong_custodian_count}
     else
-      {:ok, shares} =
-        CryptoAdapter.split_secret(crypto_adapter, private_key_material, ceremony.threshold_k, n)
+      case PkiCrypto.Shamir.split(private_key_material, ceremony.threshold_k, n) do
+        {:ok, shares} ->
+          Repo.transaction(fn ->
+            Enum.zip(custodian_passwords, shares)
+            |> Enum.with_index(1)
+            |> Enum.each(fn {{{user_id, password}, share}, index} ->
+              case ShareEncryption.encrypt_share(share, password) do
+                {:ok, encrypted} ->
+                  case %ThresholdShare{}
+                       |> ThresholdShare.changeset(%{
+                         issuer_key_id: ceremony.issuer_key_id,
+                         custodian_user_id: user_id,
+                         share_index: index,
+                         encrypted_share: encrypted,
+                         min_shares: ceremony.threshold_k,
+                         total_shares: n
+                       })
+                       |> Repo.insert() do
+                    {:ok, _} -> :ok
+                    {:error, reason} -> Repo.rollback(reason)
+                  end
 
-      Repo.transaction(fn ->
-        Enum.zip(custodian_passwords, shares)
-        |> Enum.with_index(1)
-        |> Enum.each(fn {{{user_id, password}, share}, index} ->
-          {:ok, encrypted} = ShareEncryption.encrypt_share(share, password)
+                {:error, reason} ->
+                  Repo.rollback({:encryption_failed, reason})
+              end
+            end)
 
-          case %ThresholdShare{}
-               |> ThresholdShare.changeset(%{
-                 issuer_key_id: ceremony.issuer_key_id,
-                 custodian_user_id: user_id,
-                 share_index: index,
-                 encrypted_share: encrypted,
-                 min_shares: ceremony.threshold_k,
-                 total_shares: n
-               })
-               |> Repo.insert() do
-            {:ok, _} -> :ok
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        end)
+            n
+          end)
 
-        n
-      end)
+        {:error, reason} ->
+          {:error, {:share_split_failed, reason}}
+      end
     end
   end
 
@@ -149,18 +158,21 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
     Repo.transaction(fn ->
       issuer_key = Repo.get!(IssuerKey, ceremony.issuer_key_id)
 
-      {:ok, _key} =
-        IssuerKeyManagement.activate_by_certificate(issuer_key, %{
-          certificate_der: cert_der,
-          certificate_pem: cert_pem
-        })
+      case IssuerKeyManagement.activate_by_certificate(issuer_key, %{
+             certificate_der: cert_der,
+             certificate_pem: cert_pem
+           }) do
+        {:ok, _key} ->
+          case ceremony
+               |> Ecto.Changeset.change(status: "completed")
+               |> Repo.update() do
+            {:ok, updated} -> updated
+            {:error, reason} -> Repo.rollback({:operation_failed, reason})
+          end
 
-      {:ok, updated} =
-        ceremony
-        |> Ecto.Changeset.change(status: "completed")
-        |> Repo.update()
-
-      updated
+        {:error, reason} ->
+          Repo.rollback({:operation_failed, reason})
+      end
     end)
   end
 
@@ -192,13 +204,16 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
         "/CN=Sub-CA-#{ceremony.ca_instance_id}"
 
     Repo.transaction(fn ->
-      {:ok, updated} =
-        ceremony
-        |> Ecto.Changeset.change(status: "completed")
-        |> Repo.update()
+      case ceremony
+           |> Ecto.Changeset.change(status: "completed")
+           |> Repo.update() do
+        {:ok, updated} ->
+          csr_pem = generate_csr(private_key, subject)
+          {updated, csr_pem}
 
-      csr_pem = generate_csr(private_key, subject)
-      {updated, csr_pem}
+        {:error, reason} ->
+          Repo.rollback({:operation_failed, reason})
+      end
     end)
   end
 

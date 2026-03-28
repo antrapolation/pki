@@ -16,6 +16,7 @@ defmodule PkiRaEngine.Schema.RaUser do
     field :role, :string
     field :status, :string, default: "active"
 
+    has_many :credentials, PkiRaEngine.CredentialManager.Credential, foreign_key: :user_id
     has_many :api_keys, PkiRaEngine.Schema.RaApiKey
     has_many :reviewed_requests, PkiRaEngine.Schema.CsrRequest, foreign_key: :reviewed_by
 

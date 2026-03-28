@@ -40,9 +40,13 @@ if config_env() == :prod do
       """
 
   client_module =
-    if System.get_env("ENGINE_CLIENT_MODE") == "mock",
-      do: PkiRaPortal.RaEngineClient.Mock,
-      else: PkiRaPortal.RaEngineClient.Http
+    if System.get_env("ENGINE_CLIENT_MODE") == "mock" do
+      require Logger
+      Logger.warning("ENGINE_CLIENT_MODE=mock is active. Using mock engine client. NOT FOR PRODUCTION.")
+      PkiRaPortal.RaEngineClient.Mock
+    else
+      PkiRaPortal.RaEngineClient.Http
+    end
 
   config :pki_ra_portal,
     ra_engine_client: client_module,

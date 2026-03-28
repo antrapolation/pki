@@ -9,6 +9,8 @@ defmodule PkiCaEngine.UserManagement do
 
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.CaUser
+  alias PkiCaEngine.CredentialManager
+  alias PkiCaEngine.Bootstrap
 
   @role_permissions %{
     "ca_admin" => [:manage_ca_admins, :manage_auditors, :view_audit_log, :view_all],
@@ -18,26 +20,39 @@ defmodule PkiCaEngine.UserManagement do
   }
 
   @doc """
-  Registers a new user with username and password.
-  Used for bootstrap setup and admin-created users.
+  Registers a new user with username and password (bootstrap flow).
+  Also creates cryptographic credentials (signing + KEM keypairs) when a password is provided.
   """
   @spec register_user(String.t(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
   def register_user(ca_instance_id, attrs) do
-    attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
+    password = attrs[:password] || attrs["password"]
 
-    Repo.transaction(fn ->
-      # Re-check inside transaction to prevent TOCTOU race
-      count = Repo.one(from u in CaUser, where: u.ca_instance_id == ^ca_instance_id, select: count(u.id))
+    if needs_setup?(ca_instance_id) and password != nil do
+      # Full bootstrap: admin + ACL + system keypairs
+      user_attrs = Map.drop(attrs, [:password, "password", :ca_instance_id, "ca_instance_id"])
 
-      if count > 0 do
-        Repo.rollback(:setup_already_complete)
-      else
-        case %CaUser{} |> CaUser.registration_changeset(attrs) |> Repo.insert() do
-          {:ok, user} -> user
-          {:error, changeset} -> Repo.rollback(changeset)
-        end
+      case Bootstrap.setup_tenant(ca_instance_id, user_attrs, password) do
+        {:ok, %{admin: admin}} -> {:ok, admin}
+        {:error, reason} -> {:error, reason}
       end
-    end)
+    else
+      Repo.transaction(fn ->
+        # Re-check inside transaction to prevent TOCTOU race
+        count = Repo.one(from u in CaUser, where: u.ca_instance_id == ^ca_instance_id, select: count(u.id))
+
+        if count > 0 do
+          Repo.rollback(:setup_already_complete)
+        else
+          # Legacy flow: create user without credentials
+          full_attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
+
+          case %CaUser{} |> CaUser.registration_changeset(full_attrs) |> Repo.insert() do
+            {:ok, user} -> user
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+        end
+      end)
+    end
   end
 
   @doc """
@@ -58,6 +73,39 @@ defmodule PkiCaEngine.UserManagement do
           {:error, :invalid_credentials}
         end
     end
+  end
+
+  @doc """
+  Authenticates a user with credentials, returning session info.
+  Delegates to CredentialManager for full credential-aware authentication.
+  Returns {:ok, user, session_info} on success.
+
+  Falls back to password-only authentication if the user has no credentials.
+  """
+  @spec authenticate_with_credentials(String.t(), String.t()) ::
+          {:ok, CaUser.t(), map()} | {:error, :invalid_credentials}
+  def authenticate_with_credentials(username, password) do
+    case CredentialManager.authenticate(username, password) do
+      {:ok, user, session_info} ->
+        {:ok, user, session_info}
+
+      {:error, :invalid_credentials} ->
+        # Fall back to password-only auth for users without credentials
+        case authenticate(username, password) do
+          {:ok, user} -> {:ok, user, %{}}
+          error -> error
+        end
+    end
+  end
+
+  @doc """
+  Creates a user with cryptographic credentials (signing + KEM keypairs).
+  Delegates to CredentialManager.create_user_with_credentials/4.
+  """
+  @spec create_user_with_credentials(String.t(), map(), String.t(), keyword()) ::
+          {:ok, CaUser.t()} | {:error, term()}
+  def create_user_with_credentials(ca_instance_id, attrs, password, opts \\ []) do
+    CredentialManager.create_user_with_credentials(ca_instance_id, attrs, password, opts)
   end
 
   @doc """

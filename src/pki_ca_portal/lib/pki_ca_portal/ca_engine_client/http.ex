@@ -31,6 +31,39 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def authenticate_with_session(username, password) do
+    case post("/api/v1/auth/login", %{username: username, password: password}) do
+      {:ok, %{status: 200, body: body}} ->
+        user = atomize_keys(Map.drop(body, ["session_key", "session_salt"]))
+
+        session_info = %{
+          session_key: decode_session_value(body["session_key"]),
+          session_salt: decode_session_value(body["session_salt"])
+        }
+
+        {:ok, user, session_info}
+
+      {:ok, %{status: 401}} ->
+        {:error, :invalid_credentials}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  defp decode_session_value(nil), do: nil
+  defp decode_session_value(val) when is_binary(val) do
+    case Base.decode64(val) do
+      {:ok, bin} -> bin
+      :error -> val
+    end
+  end
+  defp decode_session_value(val), do: val
+
+  @impl true
   def register_user(ca_instance_id, attrs) do
     payload =
       attrs
@@ -92,6 +125,30 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       attrs
       |> stringify_keys()
       |> Map.put("ca_instance_id", ca_instance_id)
+
+    case auth_post("/api/v1/users", payload) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 422, body: %{"details" => details}}} ->
+        {:error, {:validation_error, details}}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def create_user(ca_instance_id, attrs, admin_context) do
+    payload =
+      attrs
+      |> stringify_keys()
+      |> Map.put("ca_instance_id", ca_instance_id)
+      |> Map.put("admin_user_id", admin_context[:user_id] || admin_context["user_id"])
+      |> Map.put("admin_password", admin_context[:password] || admin_context["password"])
 
     case auth_post("/api/v1/users", payload) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
@@ -266,7 +323,7 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       raise "Missing :internal_api_secret configuration for :pki_ca_portal"
   end
 
-  defp get(path, opts) do
+  defp get(path, opts \\ []) do
     url = base_url() <> path
     params = Keyword.get(opts, :params, [])
 
@@ -321,7 +378,7 @@ defmodule PkiCaPortal.CaEngineClient.Http do
 
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
-      {k, v} when is_binary(k) -> {String.to_atom(k), atomize_value(v)}
+      {k, v} when is_binary(k) -> {safe_to_atom(k), atomize_value(v)}
       {k, v} -> {k, atomize_value(v)}
     end)
   end
@@ -331,6 +388,12 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   defp atomize_value(v) when is_map(v), do: atomize_keys(v)
   defp atomize_value(v) when is_list(v), do: Enum.map(v, &atomize_value/1)
   defp atomize_value(v), do: v
+
+  defp safe_to_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> key
+  end
 
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn

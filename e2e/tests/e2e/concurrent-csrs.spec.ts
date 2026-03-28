@@ -41,7 +41,7 @@ test.describe("E2E — Concurrent CSR Processing (UC-E2E-11)", () => {
     // If all returned 201, verify each has a unique ID
     if (statuses[0] === 201) {
       const bodies = await Promise.all(submissions.map((r) => r.json()));
-      const ids = bodies.map((b) => b.data.id);
+      const ids = bodies.map((b) => b.id);
 
       for (const id of ids) {
         expect(id).toBeTruthy();

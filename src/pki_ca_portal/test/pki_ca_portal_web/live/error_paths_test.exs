@@ -42,7 +42,7 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
         |> render_submit()
 
       # View is still alive and renders the ceremony page with existing data
-      assert html =~ "Key Ceremony"
+      assert html =~ "ceremony-page"
       assert html =~ "ML-DSA-65"
       # No ceremony status section should appear (error means no result)
       refute html =~ "ceremony-state"
@@ -65,7 +65,7 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
         |> render_submit()
 
       # View still works, existing users preserved
-      assert html =~ "User Management"
+      assert html =~ "users-page"
       assert html =~ "Admin One"
       assert html =~ "Key Manager One"
       # Failed user was not added
@@ -83,7 +83,7 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
         |> render_click()
 
       # View still works, user was not removed
-      assert html =~ "User Management"
+      assert html =~ "users-page"
       assert html =~ "Admin One"
     end
   end
@@ -102,7 +102,7 @@ defmodule PkiCaPortalWeb.ErrorPathsTest do
         |> render_submit()
 
       # View still works, no new keystore was added
-      assert html =~ "Keystore Management"
+      assert html =~ "keystores-page"
       new_count = length(Regex.scan(~r/<tr id="keystore-/, html))
       assert new_count == initial_count
     end

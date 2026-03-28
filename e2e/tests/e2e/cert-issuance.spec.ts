@@ -21,8 +21,8 @@ test.describe("E2E — Certificate Issuance Flow (UC-E2E-01)", () => {
     // If API key is valid and profile exists, CSR should be created
     if (submitRes.status() === 201) {
       const csrData = await submitRes.json();
-      expect(csrData.data.id).toBeTruthy();
-      expect(csrData.data.status).toMatch(/pending|verified/);
+      expect(csrData.id).toBeTruthy();
+      expect(csrData.status).toMatch(/pending|verified/);
 
       // Step 2: List CSRs to verify it exists
       const listRes = await raRequest.get("/api/v1/csr", {
@@ -30,7 +30,7 @@ test.describe("E2E — Certificate Issuance Flow (UC-E2E-01)", () => {
       });
       expect(listRes.status()).toBe(200);
       const csrList = await listRes.json();
-      expect(csrList.data.length).toBeGreaterThan(0);
+      expect(csrList.length).toBeGreaterThan(0);
     }
 
     // Step 3: Query validation service for unknown cert (baseline)

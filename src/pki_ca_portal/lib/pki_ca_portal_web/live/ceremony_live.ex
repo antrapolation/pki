@@ -85,7 +85,8 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       <div id="ceremony-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
           <div class="px-5 py-4 border-b border-base-300">
-            <h2 class="text-sm font-semibold text-base-content">Past Ceremonies</h2>
+            <h2 class="text-sm font-semibold text-base-content">Ceremony History</h2>
+            <p class="text-xs text-base-content/50 mt-0.5">Ceremonies require auditor attestation before finalization.</p>
           </div>
           <div class="overflow-x-auto">
             <table class="table table-sm">
@@ -125,7 +126,17 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       <%!-- Initiate ceremony form --%>
       <div id="initiate-ceremony-form" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
-          <h2 class="text-sm font-semibold text-base-content mb-4">Initiate Ceremony</h2>
+          <h2 class="text-sm font-semibold text-base-content mb-4">Initiate Key Ceremony</h2>
+          <div class="alert alert-info text-sm mb-4">
+            <span class="hero-information-circle text-lg" />
+            <div>
+              <p class="font-medium">Multi-manager ceremony with auditor finalization</p>
+              <p class="text-xs mt-1">
+                Requires multiple Key Managers to contribute shares (threshold K of N).
+                An Auditor must finalize and attest the ceremony before the root key becomes active.
+              </p>
+            </div>
+          </div>
           <form phx-submit="initiate_ceremony" class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -144,11 +155,11 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                 </select>
               </div>
               <div>
-                <label for="threshold_k" class="block text-xs font-medium text-base-content/60 mb-1">Threshold K</label>
+                <label for="threshold_k" class="block text-xs font-medium text-base-content/60 mb-1">Threshold K (min. managers to reconstruct)</label>
                 <input type="number" name="threshold_k" id="ceremony-k" min="1" value="2" class="input input-bordered input-sm w-full" />
               </div>
               <div>
-                <label for="threshold_n" class="block text-xs font-medium text-base-content/60 mb-1">Threshold N</label>
+                <label for="threshold_n" class="block text-xs font-medium text-base-content/60 mb-1">Threshold N (total key managers)</label>
                 <input type="number" name="threshold_n" id="ceremony-n" min="1" value="3" class="input input-bordered input-sm w-full" />
               </div>
             </div>
@@ -159,7 +170,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             <div class="pt-2">
               <button type="submit" class="btn btn-primary btn-sm">
                 <.icon name="hero-shield-check" class="size-4" />
-                Initiate Ceremony
+                Initiate Key Ceremony
               </button>
             </div>
           </form>

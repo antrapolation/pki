@@ -20,19 +20,32 @@ defmodule PkiRaEngine.UserManagement do
     "auditor" => [:view_audit_log]
   }
 
-  @doc "Register a new RA user with username and password."
+  @doc "Register a new RA user with username and password. Creates cryptographic credentials when a password is provided."
   @spec register_user(map()) :: {:ok, RaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
   def register_user(attrs) do
     import Ecto.Query
+    password = attrs[:password] || attrs["password"]
+
     Repo.transaction(fn ->
       count = Repo.one(from u in RaUser, select: count(u.id))
 
       if count > 0 do
         Repo.rollback(:setup_already_complete)
       else
-        case %RaUser{} |> RaUser.registration_changeset(attrs) |> Repo.insert() do
-          {:ok, user} -> user
-          {:error, changeset} -> Repo.rollback(changeset)
+        if password != nil do
+          # Full flow: create user with cryptographic credentials (signing + KEM keypairs)
+          user_attrs = Map.drop(attrs, [:password, "password"])
+
+          case PkiRaEngine.CredentialManager.create_user_with_credentials(user_attrs, password) do
+            {:ok, user} -> user
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        else
+          # Legacy flow: create user without credentials
+          case %RaUser{} |> RaUser.registration_changeset(attrs) |> Repo.insert() do
+            {:ok, user} -> user
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
         end
       end
     end)
@@ -62,6 +75,21 @@ defmodule PkiRaEngine.UserManagement do
     import Ecto.Query
     count = Repo.one(from u in RaUser, select: count(u.id))
     count == 0
+  end
+
+  @doc "Create a new RA user with credentials (password + dual keypairs)."
+  @spec create_user_with_credentials(map(), String.t(), keyword()) :: {:ok, RaUser.t()} | {:error, term()}
+  def create_user_with_credentials(attrs, password, opts \\ []) do
+    PkiRaEngine.CredentialManager.create_user_with_credentials(attrs, password, opts)
+  end
+
+  @doc """
+  Authenticate with credential verification (password + key ownership).
+  Returns {:ok, user, session_info} or {:error, :invalid_credentials}.
+  """
+  @spec authenticate_with_credentials(String.t(), String.t()) :: {:ok, RaUser.t(), map()} | {:error, :invalid_credentials}
+  def authenticate_with_credentials(username, password) do
+    PkiRaEngine.CredentialManager.authenticate(username, password)
   end
 
   @doc "Create a new RA user (without password, for admin-created users)."

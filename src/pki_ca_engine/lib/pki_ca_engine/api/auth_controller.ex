@@ -10,8 +10,19 @@ defmodule PkiCaEngine.Api.AuthController do
 
   def login(conn) do
     with %{"username" => username, "password" => password} <- conn.body_params,
-         {:ok, user} <- UserManagement.authenticate(username, password) do
-      json(conn, 200, serialize_user(user))
+         {:ok, user, session_info} <- UserManagement.authenticate_with_credentials(username, password) do
+      response = serialize_user(user)
+
+      response =
+        if session_info != %{} do
+          response
+          |> Map.put(:session_key, Base.encode64(session_info.session_key))
+          |> Map.put(:session_salt, Base.encode64(session_info.session_salt))
+        else
+          response
+        end
+
+      json(conn, 200, response)
     else
       {:error, :invalid_credentials} ->
         json(conn, 401, %{error: "invalid_credentials"})

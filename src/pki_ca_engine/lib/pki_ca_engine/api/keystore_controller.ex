@@ -10,7 +10,7 @@ defmodule PkiCaEngine.Api.KeystoreController do
   def index(conn) do
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
     keystores = KeystoreManagement.list_keystores(ca_instance_id)
-    json(conn, 200, %{data: Enum.map(keystores, &serialize_keystore/1)})
+    json(conn, 200, Enum.map(keystores, &serialize_keystore/1))
   end
 
   def create(conn) do

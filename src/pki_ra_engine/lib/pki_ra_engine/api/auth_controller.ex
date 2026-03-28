@@ -9,11 +9,25 @@ defmodule PkiRaEngine.Api.AuthController do
 
   def login(conn) do
     with %{"username" => username, "password" => password} <- conn.body_params,
-         {:ok, user} <- UserManagement.authenticate(username, password) do
-      json(conn, 200, serialize_user(user))
+         {:ok, user, session_info} <- UserManagement.authenticate_with_credentials(username, password) do
+      json(conn, 200, Map.merge(serialize_user(user), %{
+        session_key: Base.encode64(session_info.session_key),
+        session_salt: Base.encode64(session_info.session_salt),
+        has_credentials: true
+      }))
     else
       {:error, :invalid_credentials} ->
-        json(conn, 401, %{error: "invalid_credentials"})
+        # Fallback to password-only auth for users without credentials
+        with %{"username" => username, "password" => password} <- conn.body_params,
+             {:ok, user} <- UserManagement.authenticate(username, password) do
+          json(conn, 200, Map.merge(serialize_user(user), %{has_credentials: false}))
+        else
+          {:error, :invalid_credentials} ->
+            json(conn, 401, %{error: "invalid_credentials"})
+
+          _ ->
+            json(conn, 401, %{error: "invalid_credentials"})
+        end
 
       _ ->
         json(conn, 400, %{error: "bad_request", message: "username and password required"})

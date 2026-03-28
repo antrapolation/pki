@@ -30,12 +30,14 @@ defmodule PkiCaEngine.MixProject do
       {:jason, "~> 1.4"},
       {:plug, "~> 1.16"},
       {:plug_cowboy, "~> 2.7"},
-      {:keyx, path: "../keyx"},
-      {:x509, path: "../x509"},
+      {:keyx, path: "../keyx", override: true},
+      {:x509, path: "../x509", override: true},
       {:ex_ccrypto, path: "../ex_ccrypto"},
+      {:pki_crypto, path: "../pki_crypto"},
       {:pki_audit_trail, path: "../pki_audit_trail", runtime: false},
       {:req, "~> 0.5"},
-      {:uniq, "~> 0.6"}
+      {:uniq, "~> 0.6"},
+      {:pki_platform_engine, path: "../pki_platform_engine"}
     ]
   end
 

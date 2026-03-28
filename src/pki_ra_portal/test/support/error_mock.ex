@@ -56,4 +56,19 @@ defmodule PkiRaPortal.RaEngineClient.ErrorMock do
 
   @impl true
   def revoke_api_key(_id), do: {:error, :already_revoked}
+
+  @impl true
+  def authenticate(username, _password), do: {:ok, %{id: "1", username: username, role: "ra_admin", display_name: "Error Mock Admin"}}
+
+  @impl true
+  def authenticate_with_session(username, _password) do
+    user = %{id: "1", username: username, role: "ra_admin", display_name: "Error Mock Admin"}
+    {:ok, user, %{session_key: "mock_key", session_salt: "mock_salt"}}
+  end
+
+  @impl true
+  def register_user(_attrs), do: {:error, :registration_disabled}
+
+  @impl true
+  def needs_setup?, do: false
 end

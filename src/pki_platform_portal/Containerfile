@@ -1,0 +1,49 @@
+# ── Stage 1: Build ────────────────────────────────────────────────────
+FROM docker.io/hexpm/elixir:1.18.4-erlang-27.3.4.6-debian-trixie-20260223 AS build
+
+RUN apt-get update && apt-get install -y git make gcc nodejs npm && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+ENV MIX_ENV=prod
+
+RUN mix local.hex --force && mix local.rebar --force
+
+# Copy mix files for dep resolution
+COPY src/pki_platform_portal/mix.exs src/pki_platform_portal/mix.lock src/pki_platform_portal/
+COPY src/pki_platform_engine/mix.exs src/pki_platform_engine/
+
+RUN cd src/pki_platform_portal && mix deps.get
+
+# Copy source
+COPY src/pki_platform_portal/lib src/pki_platform_portal/lib
+COPY src/pki_platform_portal/config src/pki_platform_portal/config
+COPY src/pki_platform_portal/priv src/pki_platform_portal/priv
+COPY src/pki_platform_portal/assets src/pki_platform_portal/assets
+COPY src/pki_platform_engine/lib src/pki_platform_engine/lib
+COPY src/pki_platform_engine/config src/pki_platform_engine/config
+COPY src/pki_platform_engine/priv src/pki_platform_engine/priv
+
+# Compile first (generates phoenix-colocated hooks)
+RUN cd src/pki_platform_portal && mix compile
+# Build assets
+RUN cd src/pki_platform_portal && mix assets.deploy
+RUN cd src/pki_platform_portal && mix release
+
+# ── Stage 2: Runtime ─────────────────────────────────────────────────
+FROM docker.io/debian:trixie-20260223-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libstdc++6 openssl ca-certificates tini && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -r pki && useradd -r -g pki -d /app -s /usr/sbin/nologin pki
+
+WORKDIR /app
+COPY --from=build --chown=pki:pki /app/src/pki_platform_portal/_build/prod/rel/pki_platform_portal ./
+
+USER pki
+ENV RELEASE_DISTRIBUTION=name
+ENV PORT=4006
+EXPOSE 4006
+
+ENTRYPOINT ["tini", "--"]
+CMD ["bin/pki_platform_portal", "start"]

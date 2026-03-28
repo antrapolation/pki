@@ -8,19 +8,21 @@ defmodule PkiRaPortalWeb.UsersLive do
     {:ok, users} = RaEngineClient.list_users()
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Users",
        users: users,
        filtered_users: users,
        role_filter: "all",
        page: 1,
        per_page: 50
-     )}
+     )
+     |> apply_pagination()}
   end
 
   @impl true
-  def handle_event("create_user", %{"username" => username, "display_name" => name, "role" => role}, socket) do
-    attrs = %{username: username, display_name: name, role: role}
+  def handle_event("create_user", %{"username" => username, "password" => password, "display_name" => name, "role" => role}, socket) do
+    attrs = %{username: username, password: password, display_name: name, role: role}
 
     case RaEngineClient.create_user(attrs) do
       {:ok, user} ->
@@ -30,6 +32,7 @@ defmodule PkiRaPortalWeb.UsersLive do
         {:noreply,
          socket
          |> assign(users: users, filtered_users: filtered, page: 1)
+         |> apply_pagination()
          |> put_flash(:info, "User created successfully")}
 
       {:error, reason} ->
@@ -47,6 +50,7 @@ defmodule PkiRaPortalWeb.UsersLive do
         {:noreply,
          socket
          |> assign(users: users, filtered_users: filtered)
+         |> apply_pagination()
          |> put_flash(:info, "User suspended")}
 
       {:error, reason} ->
@@ -57,29 +61,31 @@ defmodule PkiRaPortalWeb.UsersLive do
   @impl true
   def handle_event("filter_role", %{"role" => role}, socket) do
     filtered = filter_users(socket.assigns.users, role)
-    {:noreply, assign(socket, role_filter: role, filtered_users: filtered, page: 1)}
+    {:noreply, socket |> assign(role_filter: role, filtered_users: filtered, page: 1) |> apply_pagination()}
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
   end
 
   defp filter_users(users, "all"), do: users
   defp filter_users(users, role), do: Enum.filter(users, &(&1.role == role))
 
+  defp apply_pagination(socket) do
+    items = socket.assigns.filtered_users
+    total = length(items)
+    per_page = socket.assigns.per_page
+    total_pages = max(ceil(total / per_page), 1)
+    page = min(socket.assigns.page, total_pages)
+    start_idx = (page - 1) * per_page
+    paged = items |> Enum.drop(start_idx) |> Enum.take(per_page)
+
+    assign(socket, paged_users: paged, total_pages: total_pages, page: page)
+  end
+
   @impl true
   def render(assigns) do
-    total = length(assigns.filtered_users)
-    total_pages = max(ceil(total / assigns.per_page), 1)
-    start_idx = (assigns.page - 1) * assigns.per_page
-    paged_users = assigns.filtered_users |> Enum.drop(start_idx) |> Enum.take(assigns.per_page)
-
-    assigns =
-      assigns
-      |> Map.put(:paged_users, paged_users)
-      |> Map.put(:total_pages, total_pages)
-
     ~H"""
     <div id="users-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">User Management</h1>
@@ -108,6 +114,7 @@ defmodule PkiRaPortalWeb.UsersLive do
                   <th class="font-semibold text-xs uppercase tracking-wider">Name</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Role</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Credentials</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -132,6 +139,15 @@ defmodule PkiRaPortalWeb.UsersLive do
                       user.status != "active" && "badge-warning"
                     ]}>
                       {user.status}
+                    </span>
+                  </td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      Map.get(user, :has_credentials, false) && "badge-success",
+                      !Map.get(user, :has_credentials, false) && "badge-ghost"
+                    ]}>
+                      {if Map.get(user, :has_credentials, false), do: "configured", else: "not set"}
                     </span>
                   </td>
                   <td>
@@ -162,10 +178,14 @@ defmodule PkiRaPortalWeb.UsersLive do
       <section id="create-user-form" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Create User</h2>
-          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-2">
+          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-5 gap-4 mt-2">
             <div>
               <label for="username" class="label text-xs font-medium">Username</label>
               <input type="text" name="username" id="user-username" required class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="password" class="label text-xs font-medium">Password</label>
+              <input type="password" name="password" id="user-password" required minlength="8" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label for="display_name" class="label text-xs font-medium">Display Name</label>
