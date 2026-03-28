@@ -4,7 +4,7 @@
 
 | Component | Specification |
 |-----------|--------------|
-| **VPS Provider** | Contabo Cloud VPS L (8 vCPU, 30 GB RAM, 400 GB NVMe) |
+| **VPS Provider** | Contabo Cloud VPS (8 vCPU, 24 GB RAM, 500 GB NVMe) |
 | **OS** | Ubuntu 24.04 LTS |
 | **Runtime** | Podman (rootless containers) |
 | **Reverse Proxy** | Caddy (automatic HTTPS via Let's Encrypt) |
@@ -18,7 +18,7 @@
 ### 1.1 Order VPS
 
 1. Go to [contabo.com](https://contabo.com) → Cloud VPS
-2. Select **VPS L** (8 vCPU, 30 GB RAM, 400 GB NVMe, ~€18/mo)
+2. Select **Cloud VPS** (8 vCPU, 24 GB RAM, 500 GB NVMe)
 3. Choose **Ubuntu 24.04** as OS
 4. Choose region closest to your testers (EU-DE or Asia-SG)
 5. Complete order — you'll receive root credentials via email
@@ -37,24 +37,88 @@ usermod -aG sudo pki
 su - pki
 ```
 
-### 1.4 Secure SSH (recommended)
+### 1.4 Set up SSH key authentication
+
+**Do this BEFORE disabling password login, or you will lock yourself out.**
+
+#### Step 1: Generate an SSH key (on your local machine)
+
+Skip this if you already have a key at `~/.ssh/id_ed25519.pub`.
 
 ```bash
-# Disable root login and password auth
-sudo nano /etc/ssh/sshd_config
-# Set: PermitRootLogin no
-# Set: PasswordAuthentication no (after adding your SSH key)
-sudo systemctl restart sshd
+ssh-keygen -t ed25519 -C "your-email@example.com"
 ```
 
-### 1.5 Update system
+When prompted:
+- **File location** — press Enter to accept the default (`~/.ssh/id_ed25519`)
+- **Passphrase** — enter a strong passphrase (recommended) or press Enter for none
+
+This creates two files:
+- `~/.ssh/id_ed25519` — your **private key** (never share this)
+- `~/.ssh/id_ed25519.pub` — your **public key** (this goes on the server)
+
+#### Step 2: Copy the public key to the VPS
+
+```bash
+ssh-copy-id pki@your-vps-ip
+```
+
+You'll be prompted for the `pki` user's password one last time. After this, your key is added to `~/.ssh/authorized_keys` on the VPS.
+
+If `ssh-copy-id` is not available (e.g., on Windows), do it manually:
+
+```bash
+# Show your public key
+cat ~/.ssh/id_ed25519.pub
+
+# SSH into VPS as root, then set up the pki user's key
+ssh root@your-vps-ip
+su - pki
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+echo "paste-your-public-key-here" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+exit
+exit
+```
+
+#### Step 3: Test key-based login
+
+```bash
+ssh pki@your-vps-ip
+```
+
+If this connects **without asking for a password** (or only asks for your key passphrase), it's working.
+
+#### Adding teammates
+
+Each person generates their own key on their machine and sends you the `.pub` file. On the VPS:
+
+```bash
+echo "ssh-ed25519 AAAA...their-key... teammate@email.com" >> ~/.ssh/authorized_keys
+```
+
+To revoke access, remove their line from `~/.ssh/authorized_keys`.
+
+### 1.5 Secure SSH (recommended)
+
+Only do this AFTER confirming `ssh pki@your-vps-ip` works with your key:
+
+```bash
+sudo nano /etc/ssh/sshd_config
+# Set: PermitRootLogin no
+# Set: PasswordAuthentication no
+sudo systemctl restart ssh
+```
+
+### 1.6 Update system
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y curl git ufw
 ```
 
-### 1.6 Configure firewall
+### 1.7 Configure firewall
 
 ```bash
 sudo ufw default deny incoming
@@ -67,7 +131,7 @@ sudo ufw enable
 
 Only ports 22, 80, and 443 are exposed. All PKI services (4001-4006) are internal only.
 
-### 1.7 Install Podman
+### 1.8 Install Podman
 
 ```bash
 sudo apt install -y podman podman-compose
@@ -77,10 +141,13 @@ podman --version   # should be 4.x+
 If `podman-compose` is not available via apt:
 
 ```bash
-pip3 install podman-compose
+sudo apt install -y pipx
+pipx install podman-compose
+pipx ensurepath
+source ~/.bashrc
 ```
 
-### 1.8 Install Caddy
+### 1.9 Install Caddy
 
 ```bash
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
