@@ -284,6 +284,15 @@ Point these domains to your VPS IP in your DNS provider:
 sudo nano /etc/caddy/Caddyfile
 ```
 
+Set file permissions so Caddy can serve the landing page:
+
+```bash
+chmod o+x /home/pki
+chmod o+x /home/pki/pki
+chmod o+x /home/pki/pki/landing
+chmod o+r /home/pki/pki/landing/index.html
+```
+
 ```
 # Marketing Landing Page (static HTML)
 straptrust.com {
