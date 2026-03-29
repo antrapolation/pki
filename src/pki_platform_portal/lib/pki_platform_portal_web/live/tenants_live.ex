@@ -18,8 +18,14 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   end
 
   @impl true
-  def handle_event("create_tenant", %{"name" => name, "slug" => slug}, socket) do
-    case PkiPlatformEngine.Provisioner.create_tenant(name, slug) do
+  def handle_event("create_tenant", %{"name" => name, "slug" => slug} = params, socket) do
+    opts =
+      case Map.get(params, "signing_algorithm", "") do
+        "" -> []
+        algo -> [signing_algorithm: algo]
+      end
+
+    case PkiPlatformEngine.Provisioner.create_tenant(name, slug, opts) do
       {:ok, _tenant} ->
         tenants = list_tenants()
 
@@ -142,7 +148,26 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                 title="Lowercase alphanumeric with hyphens"
               />
             </div>
-            <button type="submit" class="btn btn-primary btn-sm">
+            <div class="flex-1">
+              <label for="signing-algo" class="block text-xs font-medium text-base-content/60 mb-1">Signing Algorithm</label>
+              <select name="signing_algorithm" id="signing-algo" class="select select-bordered select-sm w-full">
+                <optgroup label="Classical">
+                  <option value="ECC-P256" selected>ECC-P256</option>
+                  <option value="ECC-P384">ECC-P384</option>
+                  <option value="RSA-2048">RSA-2048</option>
+                  <option value="RSA-4096">RSA-4096</option>
+                </optgroup>
+                <optgroup label="Post-Quantum">
+                  <option value="KAZ-SIGN-128">KAZ-SIGN-128</option>
+                  <option value="KAZ-SIGN-192">KAZ-SIGN-192</option>
+                  <option value="KAZ-SIGN-256">KAZ-SIGN-256</option>
+                  <option value="ML-DSA-44">ML-DSA-44</option>
+                  <option value="ML-DSA-65">ML-DSA-65</option>
+                  <option value="ML-DSA-87">ML-DSA-87</option>
+                </optgroup>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
               <.icon name="hero-plus" class="size-4" />
               Create
             </button>
