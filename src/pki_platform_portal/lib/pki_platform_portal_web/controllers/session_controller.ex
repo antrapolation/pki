@@ -5,7 +5,7 @@ defmodule PkiPlatformPortalWeb.SessionController do
     render(conn, :login, layout: false, error: nil)
   end
 
-  def create(conn, %{"username" => username, "password" => password}) do
+  def create(conn, %{"session" => %{"username" => username, "password" => password}}) do
     case PkiPlatformEngine.AdminManagement.authenticate(username, password) do
       {:ok, admin} ->
         conn
