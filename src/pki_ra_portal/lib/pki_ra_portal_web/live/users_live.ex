@@ -21,8 +21,12 @@ defmodule PkiRaPortalWeb.UsersLive do
   end
 
   @impl true
-  def handle_event("create_user", %{"username" => username, "password" => password, "display_name" => name, "role" => role}, socket) do
-    attrs = %{username: username, password: password, display_name: name, role: role}
+  def handle_event("create_user", params, socket) do
+    attrs = %{
+      username: params["username"],
+      display_name: params["display_name"],
+      role: params["role"]
+    }
 
     case RaEngineClient.create_user(attrs) do
       {:ok, user} ->
@@ -178,14 +182,10 @@ defmodule PkiRaPortalWeb.UsersLive do
       <section id="create-user-form" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Create User</h2>
-          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-5 gap-4 mt-2">
+          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-2">
             <div>
               <label for="username" class="label text-xs font-medium">Username</label>
               <input type="text" name="username" id="user-username" required class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="password" class="label text-xs font-medium">Password</label>
-              <input type="password" name="password" id="user-password" required minlength="8" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label for="display_name" class="label text-xs font-medium">Display Name</label>

@@ -60,6 +60,13 @@ config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :pki_ra_portal, dev_routes: true
 
+# RA Engine client for local dev — override with env vars
+config :pki_ra_portal,
+  ra_engine_client: PkiRaPortal.RaEngineClient.Http,
+  ra_engine_url: System.get_env("RA_ENGINE_URL", "http://localhost:4003"),
+  internal_api_secret: System.get_env("INTERNAL_API_SECRET", "dev-secret"),
+  cookie_secure: false
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

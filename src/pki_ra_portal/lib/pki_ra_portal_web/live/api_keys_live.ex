@@ -11,7 +11,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
      socket
      |> assign(
        page_title: "API Keys",
-       api_keys: keys,
+       api_keys: Enum.map(keys, &normalize_key/1),
        new_raw_key: nil,
        page: 1,
        per_page: 50
@@ -21,13 +21,17 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("create_api_key", %{"name" => name}, socket) do
-    case RaEngineClient.create_api_key(%{name: name}) do
+    user_id = get_in(socket.assigns, [:current_user, "id"]) ||
+              get_in(socket.assigns, [:current_user, :id])
+
+    case RaEngineClient.create_api_key(%{name: name, ra_user_id: user_id}) do
       {:ok, key} ->
-        keys = [Map.drop(key, [:raw_key]) | socket.assigns.api_keys]
+        normalized = normalize_key(key)
+        keys = [Map.drop(normalized, [:raw_key]) | socket.assigns.api_keys]
 
         {:noreply,
          socket
-         |> assign(api_keys: keys, new_raw_key: key.raw_key)
+         |> assign(api_keys: keys, new_raw_key: key[:raw_key] || key["raw_key"])
          |> apply_pagination()
          |> put_flash(:info, "API key created. Copy the key now - it will not be shown again.")}
 
@@ -35,6 +39,18 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
         {:noreply, put_flash(socket, :error, "Failed to create API key: #{inspect(reason)}")}
     end
   end
+
+  defp normalize_key(key) do
+    name = key[:name] || key[:label] || key["name"] || key["label"] || ""
+    created_at = key[:created_at] || key[:inserted_at] || key["created_at"] || key["inserted_at"]
+    prefix = key[:prefix] || key["prefix"] || String.slice(name, 0, 8)
+    Map.merge(key, %{name: name, created_at: format_date(created_at), prefix: prefix})
+  end
+
+  defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_date(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_date(s) when is_binary(s), do: String.slice(s, 0, 10)
+  defp format_date(_), do: ""
 
   @impl true
   def handle_event("dismiss_raw_key", _params, socket) do
@@ -127,7 +143,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
                       {key.status}
                     </span>
                   </td>
-                  <td class="text-xs text-base-content/60">{Calendar.strftime(key.created_at, "%Y-%m-%d")}</td>
+                  <td class="text-xs text-base-content/60">{key.created_at}</td>
                   <td>
                     <button
                       :if={key.status == "active"}

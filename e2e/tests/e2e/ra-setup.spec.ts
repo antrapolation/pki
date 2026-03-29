@@ -1,5 +1,5 @@
 import { test, expect } from "../../lib/fixtures";
-import { loginRaPortal, uniqueUsername, uniqueName } from "../../lib/fixtures";
+import { loginRaPortal, uniqueUsername, uniqueName, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
   test("UC-E2E-10: full RA initial setup", async ({ page }) => {
@@ -9,6 +9,7 @@ test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
 
     // 2. Create RA officer
     await page.goto("/users");
+    await waitForLiveView(page);
     const officerUsername = uniqueUsername("ra-officer");
     await page.fill("#user-username", officerUsername);
     await page.fill("#user-display-name", "RA Officer");
@@ -18,6 +19,7 @@ test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
 
     // 3. Create cert profile
     await page.goto("/cert-profiles");
+    await waitForLiveView(page);
     const profileName = uniqueName("TLS-Server");
     await page.fill("#profile-name", profileName);
     await page.fill("#profile-key-usage", "digitalSignature,keyEncipherment");
@@ -29,6 +31,7 @@ test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
 
     // 4-5. Configure services
     await page.goto("/service-configs");
+    await waitForLiveView(page);
     await page.selectOption("#service-type", "OCSP Responder");
     await page.fill("#service-port", "4005");
     await page.fill("#service-url", "http://pki-validation:4005/ocsp");
@@ -37,6 +40,7 @@ test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
 
     // 6. Create API key
     await page.goto("/api-keys");
+    await waitForLiveView(page);
     await page.fill("#api-key-name", uniqueName("integration-key"));
     await page.click('#create-api-key-form button[type="submit"]');
     await expect(page.locator("#raw-key-display")).toBeVisible();
@@ -48,6 +52,7 @@ test.describe("E2E — RA Setup from Scratch (UC-E2E-10)", () => {
 
     // 7. Verify dashboard reflects setup
     await page.goto("/");
+    await waitForLiveView(page);
     await expect(page.locator("#dashboard")).toBeVisible();
   });
 });

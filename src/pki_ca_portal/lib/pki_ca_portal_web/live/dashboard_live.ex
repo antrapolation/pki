@@ -5,11 +5,25 @@ defmodule PkiCaPortalWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    ca_id = socket.assigns.current_user["ca_instance_id"] || 1
+    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
 
-    {:ok, status} = CaEngineClient.get_engine_status(ca_id)
-    {:ok, keys} = CaEngineClient.list_issuer_keys(ca_id)
-    {:ok, ceremonies} = CaEngineClient.list_ceremonies(ca_id)
+    status =
+      case CaEngineClient.get_engine_status(ca_id) do
+        {:ok, s} -> s
+        {:error, _} -> %{status: "unknown", uptime_seconds: 0, active_keys: 0}
+      end
+
+    keys =
+      case CaEngineClient.list_issuer_keys(ca_id) do
+        {:ok, k} -> k
+        {:error, _} -> []
+      end
+
+    ceremonies =
+      case CaEngineClient.list_ceremonies(ca_id) do
+        {:ok, c} -> c
+        {:error, _} -> []
+      end
 
     {:ok,
      assign(socket,

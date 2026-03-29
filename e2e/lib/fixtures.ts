@@ -18,6 +18,12 @@ export function uniqueName(prefix: string): string {
   return `${prefix}-${Date.now()}`;
 }
 
+// Wait for Phoenix LiveView WebSocket to connect and become interactive.
+// The [data-phx-main] element gets .phx-connected once the socket is up.
+export async function waitForLiveView(page: Page): Promise<void> {
+  await page.locator("[data-phx-main].phx-connected").waitFor({ timeout: 10_000 });
+}
+
 // CA Portal helpers
 export async function loginCaPortal(
   page: Page,
@@ -29,6 +35,7 @@ export async function loginCaPortal(
   await page.fill("#session_password", password);
   await page.click('button[type="submit"]');
   await page.waitForURL("/");
+  await waitForLiveView(page);
 }
 
 // RA Portal helpers
@@ -42,6 +49,7 @@ export async function loginRaPortal(
   await page.fill("#session_password", password);
   await page.click('button[type="submit"]');
   await page.waitForURL("/");
+  await waitForLiveView(page);
 }
 
 // Logout helper (no logout button in portal templates, must use DELETE /logout)

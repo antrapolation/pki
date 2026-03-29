@@ -97,6 +97,7 @@ services:
       CA_ENGINE_URL: "http://pki-ca-engine:4001"
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ca_portal@pki-ca-portal
+      COOKIE_SECURE: "false"
     ports:
       - "4002:4002"
     depends_on:
@@ -115,6 +116,7 @@ services:
       RA_ENGINE_URL: "http://pki-ra-engine:4003"
       RELEASE_DISTRIBUTION: name
       RELEASE_NODE: pki_ra_portal@pki-ra-portal
+      COOKIE_SECURE: "false"
     ports:
       - "4004:4004"
     depends_on:

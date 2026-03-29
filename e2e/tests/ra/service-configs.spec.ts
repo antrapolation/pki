@@ -1,10 +1,11 @@
 import { test, expect } from "../../lib/fixtures";
-import { loginRaPortal } from "../../lib/fixtures";
+import { loginRaPortal, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("RA Portal — Service Configuration", () => {
   test.beforeEach(async ({ page }) => {
     await loginRaPortal(page, "admin");
     await page.goto("/service-configs");
+    await waitForLiveView(page);
   });
 
   // UC-RA-09: Configure OCSP Service

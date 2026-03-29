@@ -46,8 +46,8 @@ defmodule PkiCaEngine.Api.CeremonyController do
     params = %{
       algorithm: conn.body_params["algorithm"],
       keystore_id: conn.body_params["keystore_id"],
-      threshold_k: conn.body_params["threshold_k"],
-      threshold_n: conn.body_params["threshold_n"],
+      threshold_k: parse_int(conn.body_params["threshold_k"]),
+      threshold_n: parse_int(conn.body_params["threshold_n"]),
       initiated_by: conn.body_params["initiated_by"],
       domain_info: conn.body_params["domain_info"] || %{},
       key_alias: conn.body_params["key_alias"],
@@ -232,6 +232,15 @@ defmodule PkiCaEngine.Api.CeremonyController do
       updated_at: ceremony.updated_at
     }
   end
+
+  defp parse_int(v) when is_integer(v), do: v
+  defp parse_int(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+  defp parse_int(_), do: nil
 
   defp parse_protection_mode(nil), do: {:ok, :split_auth_token}
   defp parse_protection_mode("credential_own"), do: {:ok, :credential_own}

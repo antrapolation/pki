@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from "@playwright/test";
-import { URLS, SAMPLE_CSR_PEM, uniqueName } from "../../lib/fixtures";
+import { URLS, SAMPLE_CSR_PEM, uniqueName, waitForLiveView } from "../../lib/fixtures";
 
 // UC-RA-24 / UC-E2E-08: API Key Lifecycle with CSR Operations
 // Combines portal browser interaction (key management) with API calls (CSR submission).
@@ -21,9 +21,11 @@ test.describe("E2E — API Key Lifecycle (UC-RA-24 / UC-E2E-08)", () => {
     await page.fill("#session_password", "password123");
     await page.click('button[type="submit"]');
     await page.waitForURL("/");
+    await waitForLiveView(page);
 
     // Navigate to API keys page
     await page.goto("/api-keys");
+    await waitForLiveView(page);
     await expect(page.locator("#api-keys-page")).toBeVisible();
 
     // Step 1: Create first API key "client-v1"

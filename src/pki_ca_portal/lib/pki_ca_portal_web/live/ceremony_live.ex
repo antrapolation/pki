@@ -5,7 +5,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    ca_id = socket.assigns.current_user["ca_instance_id"] || 1
+    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
     {:ok, ceremonies} = CaEngineClient.list_ceremonies(ca_id)
     {:ok, keystores} = CaEngineClient.list_keystores(ca_id)
 
@@ -22,7 +22,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   @impl true
   def handle_event("initiate_ceremony", params, socket) do
-    ca_id = socket.assigns.current_user["ca_instance_id"] || 1
+    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
 
     ceremony_params = [
       algorithm: params["algorithm"],

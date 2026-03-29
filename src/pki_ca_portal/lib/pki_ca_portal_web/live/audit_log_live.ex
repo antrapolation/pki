@@ -5,7 +5,11 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, events} = CaEngineClient.query_audit_log([])
+    events =
+      case CaEngineClient.query_audit_log([]) do
+        {:ok, events} -> events
+        {:error, _} -> []
+      end
 
     {:ok,
      assign(socket,
@@ -29,7 +33,11 @@ defmodule PkiCaPortalWeb.AuditLogLive do
       |> maybe_add_filter(:date_from, params["date_from"])
       |> maybe_add_filter(:date_to, params["date_to"])
 
-    {:ok, events} = CaEngineClient.query_audit_log(filters)
+    events =
+      case CaEngineClient.query_audit_log(filters) do
+        {:ok, events} -> events
+        {:error, _} -> []
+      end
 
     {:noreply,
      assign(socket,

@@ -23,6 +23,8 @@ end
 config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+config :pki_ca_portal, cookie_secure: System.get_env("COOKIE_SECURE", "true") == "true"
+
 if config_env() == :prod do
   # CA Engine HTTP client configuration
   ca_engine_url =

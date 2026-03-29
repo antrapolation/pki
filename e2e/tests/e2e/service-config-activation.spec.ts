@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from "@playwright/test";
-import { URLS } from "../../lib/fixtures";
+import { URLS, waitForLiveView } from "../../lib/fixtures";
 
 // UC-E2E-16: Service Config Activation — OCSP/CRL
 // Configures services via RA Portal, then verifies validation endpoints respond.
@@ -18,9 +18,11 @@ test.describe("E2E — Service Config Activation (UC-E2E-16)", () => {
     await page.fill("#session_password", "password123");
     await page.click('button[type="submit"]');
     await page.waitForURL("/");
+    await waitForLiveView(page);
 
     // Navigate to service configs and configure OCSP
     await page.goto("/service-configs");
+    await waitForLiveView(page);
     await expect(page.locator("#service-configs-page")).toBeVisible();
 
     await page.selectOption("#service-type", "OCSP Responder");

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { URLS, uniqueUsername } from "../../lib/fixtures";
+import { URLS, uniqueUsername, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("E2E — CA Setup from Scratch (UC-E2E-09)", () => {
   test("UC-E2E-09: full CA initial setup", async ({ browser }) => {
@@ -16,6 +16,7 @@ test.describe("E2E — CA Setup from Scratch (UC-E2E-09)", () => {
 
     // 2-4. Create 3 key manager users
     await page.goto("/users");
+    await waitForLiveView(page);
     for (let i = 1; i <= 3; i++) {
       const kmUsername = uniqueUsername(`km-${i}`);
       await page.fill("#user-username", kmUsername);
@@ -35,12 +36,14 @@ test.describe("E2E — CA Setup from Scratch (UC-E2E-09)", () => {
 
     // 6. Configure software keystore
     await page.goto("/keystores");
+    await waitForLiveView(page);
     await page.selectOption("#keystore-type", "software");
     await page.click('#configure-keystore-form button[type="submit"]');
     await expect(page.locator("#keystore-list")).toContainText("software");
 
     // 7. Initiate ceremony
     await page.goto("/ceremony");
+    await waitForLiveView(page);
     await page.selectOption("#ceremony-algorithm", "RSA-4096");
     await page.locator("#ceremony-keystore").selectOption({ index: 0 });
     await page.fill("#ceremony-k", "2");
@@ -50,6 +53,7 @@ test.describe("E2E — CA Setup from Scratch (UC-E2E-09)", () => {
 
     // 8. Verify dashboard reflects setup
     await page.goto("/");
+    await waitForLiveView(page);
     await expect(page.locator("#dashboard")).toBeVisible();
 
     await context.close();

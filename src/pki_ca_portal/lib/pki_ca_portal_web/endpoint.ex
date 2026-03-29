@@ -10,7 +10,6 @@ defmodule PkiCaPortalWeb.Endpoint do
     signing_salt: "4NBE6/4H",
     encryption_salt: "pki_ca_enc",
     same_site: "Strict",
-    secure: true,
     http_only: true
   ]
 
@@ -48,6 +47,12 @@ defmodule PkiCaPortalWeb.Endpoint do
 
   plug Plug.MethodOverride
   plug Plug.Head
-  plug Plug.Session, @session_options
+  plug :session_plug
   plug PkiCaPortalWeb.Router
+
+  defp session_plug(conn, _opts) do
+    secure = Application.get_env(:pki_ca_portal, :cookie_secure, true)
+    opts = Plug.Session.init(Keyword.put(@session_options, :secure, secure))
+    Plug.Session.call(conn, opts)
+  end
 end

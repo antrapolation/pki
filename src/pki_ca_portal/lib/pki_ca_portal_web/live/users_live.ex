@@ -72,7 +72,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   defp filter_users(users, role), do: Enum.filter(users, &(&1.role == role))
 
   defp ca_instance_id(socket) do
-    socket.assigns.current_user["ca_instance_id"] || 1
+    socket.assigns.current_user[:ca_instance_id] || "default"
   end
 
   defp role_badge_class(role) do

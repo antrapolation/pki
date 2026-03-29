@@ -12,7 +12,7 @@ defmodule PkiRaEngine.Api.CertProfileController do
   end
 
   def create(conn) do
-    attrs = conn.body_params
+    attrs = normalize_profile_attrs(conn.body_params)
 
     case CertProfileConfig.create_profile(attrs) do
       {:ok, profile} ->
@@ -24,7 +24,7 @@ defmodule PkiRaEngine.Api.CertProfileController do
   end
 
   def update(conn, id) do
-    case CertProfileConfig.update_profile(id, conn.body_params) do
+    case CertProfileConfig.update_profile(id, normalize_profile_attrs(conn.body_params)) do
       {:ok, profile} ->
         json(conn, 200, serialize_profile(profile))
 
@@ -46,7 +46,22 @@ defmodule PkiRaEngine.Api.CertProfileController do
     end
   end
 
+  defp normalize_profile_attrs(params) do
+    case Map.get(params, "validity_days") do
+      nil -> params
+      days ->
+        days_int = case days do
+          d when is_integer(d) -> d
+          d when is_binary(d) -> case Integer.parse(d) do {n, _} -> n; :error -> 365 end
+          _ -> 365
+        end
+        Map.put(params, "validity_policy", Map.merge(Map.get(params, "validity_policy", %{}), %{"days" => days_int}))
+    end
+  end
+
   defp serialize_profile(profile) do
+    validity_days = get_in(profile.validity_policy, ["days"])
+
     %{
       id: profile.id,
       name: profile.name,
@@ -55,6 +70,7 @@ defmodule PkiRaEngine.Api.CertProfileController do
       key_usage: profile.key_usage,
       ext_key_usage: profile.ext_key_usage,
       digest_algo: profile.digest_algo,
+      validity_days: validity_days,
       validity_policy: profile.validity_policy,
       timestamping_policy: profile.timestamping_policy,
       crl_policy: profile.crl_policy,

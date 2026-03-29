@@ -1,10 +1,11 @@
 import { test, expect } from "../../lib/fixtures";
-import { loginCaPortal } from "../../lib/fixtures";
+import { loginCaPortal, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("CA Portal — Keystore Management", () => {
   test.beforeEach(async ({ page }) => {
     await loginCaPortal(page, "key_manager");
     await page.goto("/keystores");
+    await waitForLiveView(page);
   });
 
   // UC-CA-06: Configure Software Keystore

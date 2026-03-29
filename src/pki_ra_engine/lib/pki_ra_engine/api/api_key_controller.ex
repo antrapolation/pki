@@ -47,9 +47,10 @@ defmodule PkiRaEngine.Api.ApiKeyController do
   end
 
   defp build_attrs(params) do
+    label = params["label"] || params["name"]
     %{}
     |> maybe_put(:ra_user_id, params["ra_user_id"])
-    |> maybe_put(:label, params["label"])
+    |> maybe_put(:label, label)
     |> maybe_put(:expiry, params["expiry"])
     |> maybe_put(:rate_limit, params["rate_limit"])
   end
@@ -58,10 +59,14 @@ defmodule PkiRaEngine.Api.ApiKeyController do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp serialize_key(api_key) do
+    prefix = if api_key.label, do: String.slice(api_key.label, 0, 8), else: "key_" <> String.slice(api_key.id || "", 0, 4)
     %{
       id: api_key.id,
       ra_user_id: api_key.ra_user_id,
+      name: api_key.label,
       label: api_key.label,
+      prefix: prefix,
+      created_at: api_key.inserted_at,
       expiry: api_key.expiry,
       rate_limit: api_key.rate_limit,
       status: api_key.status,

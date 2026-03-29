@@ -1,10 +1,11 @@
 import { test, expect } from "../../lib/fixtures";
-import { loginRaPortal, uniqueName } from "../../lib/fixtures";
+import { loginRaPortal, uniqueName, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("RA Portal — Certificate Profiles", () => {
   test.beforeEach(async ({ page }) => {
     await loginRaPortal(page, "admin");
     await page.goto("/cert-profiles");
+    await waitForLiveView(page);
   });
 
   // UC-RA-06: Create Certificate Profile

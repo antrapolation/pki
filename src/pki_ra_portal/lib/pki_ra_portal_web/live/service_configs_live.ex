@@ -24,9 +24,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
       service_type: params["service_type"],
       port: parse_int(params["port"], 8080),
       url: params["url"],
-      rate_limit: parse_int(params["rate_limit"], 1000),
-      ip_whitelist: params["ip_whitelist"] || "",
-      ip_blacklist: params["ip_blacklist"] || ""
+      rate_limit: parse_int(params["rate_limit"], 1000)
     }
 
     case RaEngineClient.configure_service(attrs) do
@@ -52,6 +50,11 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
   end
+
+  defp format_ip_field(v) when is_map(v) and map_size(v) == 0, do: ""
+  defp format_ip_field(v) when is_map(v), do: Jason.encode!(v)
+  defp format_ip_field(v) when is_binary(v), do: v
+  defp format_ip_field(_), do: ""
 
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
@@ -102,8 +105,8 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
                   <td class="font-mono text-xs">{config.port}</td>
                   <td class="font-mono text-xs">{config.url}</td>
                   <td>{config.rate_limit}</td>
-                  <td class="font-mono text-xs">{Map.get(config, :ip_whitelist, "")}</td>
-                  <td class="font-mono text-xs">{Map.get(config, :ip_blacklist, "")}</td>
+                  <td class="font-mono text-xs">{format_ip_field(Map.get(config, :ip_whitelist, ""))}</td>
+                  <td class="font-mono text-xs">{format_ip_field(Map.get(config, :ip_blacklist, ""))}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

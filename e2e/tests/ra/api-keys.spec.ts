@@ -1,10 +1,11 @@
 import { test, expect } from "../../lib/fixtures";
-import { loginRaPortal, uniqueName } from "../../lib/fixtures";
+import { loginRaPortal, uniqueName, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("RA Portal — API Key Management", () => {
   test.beforeEach(async ({ page }) => {
     await loginRaPortal(page, "admin");
     await page.goto("/api-keys");
+    await waitForLiveView(page);
   });
 
   // UC-RA-10: Create API Key

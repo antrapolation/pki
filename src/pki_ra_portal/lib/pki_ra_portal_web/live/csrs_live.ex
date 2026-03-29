@@ -41,7 +41,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("approve_csr", %{"id" => id}, socket) do
-    case RaEngineClient.approve_csr(id, %{approved_by: socket.assigns.current_user["username"]}) do
+    case RaEngineClient.approve_csr(id, %{approved_by: socket.assigns.current_user[:username]}) do
       {:ok, _} ->
         filters = if socket.assigns.status_filter == "all", do: [], else: [status: socket.assigns.status_filter]
         {:ok, csrs} = RaEngineClient.list_csrs(filters)
@@ -59,7 +59,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("reject_csr", %{"csr_id" => id, "reason" => reason}, socket) do
-    case RaEngineClient.reject_csr(id, reason, %{rejected_by: socket.assigns.current_user["username"]}) do
+    case RaEngineClient.reject_csr(id, reason, %{rejected_by: socket.assigns.current_user[:username]}) do
       {:ok, _} ->
         filters = if socket.assigns.status_filter == "all", do: [], else: [status: socket.assigns.status_filter]
         {:ok, csrs} = RaEngineClient.list_csrs(filters)

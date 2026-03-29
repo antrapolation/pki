@@ -44,20 +44,7 @@
           />
         </div>
 
-        <div>
-          <label for="session_ca_instance_id" class="block text-xs font-medium text-base-content/60 mb-1">
-            CA Instance ID
-          </label>
-          <input
-            type="number"
-            name="session[ca_instance_id]"
-            id="session_ca_instance_id"
-            value="1"
-            min="1"
-            required
-            class="input input-bordered input-sm w-full"
-          />
-        </div>
+        <input type="hidden" name="session[ca_instance_id]" value="default" />
 
         <button
           type="submit"

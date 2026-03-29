@@ -38,7 +38,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
          {:ok, _keystore} <- KeystoreManagement.get_keystore(params.keystore_id) do
       Repo.transaction(fn ->
         case IssuerKeyManagement.create_issuer_key(ca_instance_id, %{
-               key_alias: Map.get(params, :key_alias, "root-#{System.unique_integer([:positive])}"),
+               key_alias: Map.get(params, :key_alias) || "root-#{System.unique_integer([:positive])}",
                algorithm: params.algorithm,
                is_root: Map.get(params, :is_root, true),
                threshold_config: %{k: params.threshold_k, n: params.threshold_n}

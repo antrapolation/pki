@@ -14,6 +14,10 @@ defmodule PkiCaEngine.Api.KeyVaultController do
     algorithm = conn.body_params["algorithm"]
     protection_mode = conn.body_params["protection_mode"] || "split_auth_token"
 
+    if is_nil(name) or is_nil(algorithm) do
+      json(conn, 422, %{error: "validation_error", details: "name and algorithm are required"})
+    else
+
     result =
       case protection_mode do
         "credential_own" ->
@@ -50,6 +54,7 @@ defmodule PkiCaEngine.Api.KeyVaultController do
       {:error, reason} ->
         json(conn, 422, %{error: inspect(reason)})
     end
+    end  # closes is_nil guard
   end
 
   def grant_access(conn, keypair_id) do
@@ -94,6 +99,9 @@ defmodule PkiCaEngine.Api.KeyVaultController do
 
       {:error, :invalid_base64} ->
         json(conn, 422, %{error: "invalid_base64"})
+
+      {:error, :not_found} ->
+        json(conn, 404, %{error: "not_found"})
 
       {:error, reason} ->
         json(conn, 422, %{error: inspect(reason)})

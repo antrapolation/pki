@@ -41,11 +41,14 @@ defmodule PkiRaEngine.Api.AuthController do
       {:ok, user} ->
         json(conn, 201, serialize_user(user))
 
-      {:error, :setup_already_complete} ->
-        json(conn, 409, %{error: "setup_already_complete"})
+      {:error, :username_taken} ->
+        json(conn, 409, %{error: "username_taken"})
 
       {:error, %Ecto.Changeset{} = changeset} ->
         json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+
+      {:error, reason} ->
+        json(conn, 422, %{error: inspect(reason)})
     end
   end
 

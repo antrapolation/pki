@@ -32,6 +32,7 @@ defmodule PkiRaEngine.Api.ServiceConfigController do
       ip_blacklist: config.ip_blacklist,
       connection_security: config.connection_security,
       ca_engine_ref: config.ca_engine_ref,
+      status: "active",
       inserted_at: config.inserted_at,
       updated_at: config.updated_at
     }

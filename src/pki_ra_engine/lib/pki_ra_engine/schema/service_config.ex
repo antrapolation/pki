@@ -5,7 +5,7 @@ defmodule PkiRaEngine.Schema.ServiceConfig do
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
 
-  @service_types ["csr_web", "crl", "ldap", "ocsp"]
+  @service_types ["csr_web", "crl", "ldap", "ocsp", "OCSP Responder", "CRL Distribution", "TSA"]
 
   schema "service_configs" do
     field :service_type, :string

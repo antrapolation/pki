@@ -1,5 +1,5 @@
 import { test, expect, type Browser } from "@playwright/test";
-import { URLS, logoutPortal } from "../../lib/fixtures";
+import { URLS, logoutPortal, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("E2E — Cross-Portal (UC-E2E-12)", () => {
   // UC-E2E-12: Sessions are independent across portals
@@ -15,6 +15,7 @@ test.describe("E2E — Cross-Portal (UC-E2E-12)", () => {
     await caPage.fill("#session_password", "password123");
     await caPage.click('button[type="submit"]');
     await caPage.waitForURL("/");
+    await waitForLiveView(caPage);
     await expect(caPage.locator("#dashboard")).toBeVisible();
 
     // Open RA portal in separate context
@@ -26,13 +27,16 @@ test.describe("E2E — Cross-Portal (UC-E2E-12)", () => {
     await raPage.fill("#session_password", "password123");
     await raPage.click('button[type="submit"]');
     await raPage.waitForURL("/");
+    await waitForLiveView(raPage);
     await expect(raPage.locator("#dashboard")).toBeVisible();
 
     // Both are logged in independently
     await caPage.goto("/users");
+    await waitForLiveView(caPage);
     await expect(caPage.locator("#users-page")).toBeVisible();
 
     await raPage.goto("/csrs");
+    await waitForLiveView(raPage);
     await expect(raPage.locator("#csrs-page")).toBeVisible();
 
     // Logout from CA portal doesn't affect RA portal
@@ -40,6 +44,7 @@ test.describe("E2E — Cross-Portal (UC-E2E-12)", () => {
 
     // RA portal still logged in
     await raPage.goto("/cert-profiles");
+    await waitForLiveView(raPage);
     await expect(raPage.locator("#cert-profiles-page")).toBeVisible();
 
     await caContext.close();

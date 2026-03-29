@@ -5,7 +5,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    ca_id = socket.assigns.current_user["ca_instance_id"] || 1
+    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
     {:ok, keystores} = CaEngineClient.list_keystores(ca_id)
 
     {:ok,
@@ -19,7 +19,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def handle_event("configure_keystore", %{"type" => type}, socket) do
-    ca_id = socket.assigns.current_user["ca_instance_id"] || 1
+    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
 
     case CaEngineClient.configure_keystore(ca_id, %{type: type}) do
       {:ok, keystore} ->

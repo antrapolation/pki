@@ -21,33 +21,37 @@ defmodule PkiRaEngine.UserManagement do
   }
 
   @doc "Register a new RA user with username and password. Creates cryptographic credentials when a password is provided."
-  @spec register_user(map()) :: {:ok, RaUser.t()} | {:error, Ecto.Changeset.t() | :setup_already_complete}
+  @spec register_user(map()) :: {:ok, RaUser.t()} | {:error, Ecto.Changeset.t() | :username_taken}
   def register_user(attrs) do
-    import Ecto.Query
     password = attrs[:password] || attrs["password"]
 
-    Repo.transaction(fn ->
-      count = Repo.one(from u in RaUser, select: count(u.id))
-
-      if count > 0 do
-        Repo.rollback(:setup_already_complete)
+    result =
+      if password != nil do
+        user_attrs = Map.drop(attrs, [:password, "password"])
+        PkiRaEngine.CredentialManager.create_user_with_credentials(user_attrs, password)
       else
-        if password != nil do
-          # Full flow: create user with cryptographic credentials (signing + KEM keypairs)
-          user_attrs = Map.drop(attrs, [:password, "password"])
-
-          case PkiRaEngine.CredentialManager.create_user_with_credentials(user_attrs, password) do
-            {:ok, user} -> user
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        else
-          # Legacy flow: create user without credentials
-          case %RaUser{} |> RaUser.registration_changeset(attrs) |> Repo.insert() do
-            {:ok, user} -> user
-            {:error, changeset} -> Repo.rollback(changeset)
-          end
+        case %RaUser{} |> RaUser.registration_changeset(attrs) |> Repo.insert() do
+          {:ok, user} -> {:ok, user}
+          {:error, changeset} -> {:error, changeset}
         end
       end
+
+    case result do
+      {:ok, user} -> {:ok, user}
+      {:error, %Ecto.Changeset{} = changeset} ->
+        if username_taken?(changeset) do
+          {:error, :username_taken}
+        else
+          {:error, changeset}
+        end
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp username_taken?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {:username, {_, [constraint: :unique, constraint_name: _]}} -> true
+      _ -> false
     end)
   end
 

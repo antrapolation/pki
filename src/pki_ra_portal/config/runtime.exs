@@ -23,6 +23,8 @@ end
 config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+config :pki_ra_portal, cookie_secure: System.get_env("COOKIE_SECURE", "true") == "true"
+
 if config_env() == :prod do
   # RA Engine HTTP client configuration
   ra_engine_url =

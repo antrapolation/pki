@@ -1,6 +1,24 @@
 import { defineConfig } from "@playwright/test";
+import * as fs from "fs";
+import * as path from "path";
+
+// Load .env so INTERNAL_API_SECRET and other secrets are available in test workers.
+// This runs in both the config process and worker processes.
+(function loadDotEnv() {
+  const envPath = path.join(__dirname, "..", ".env");
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    if (!process.env[key]) process.env[key] = trimmed.slice(eqIdx + 1).trim();
+  }
+})();
 
 export default defineConfig({
+  globalSetup: "./global-setup",
   testDir: "./tests",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

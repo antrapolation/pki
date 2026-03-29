@@ -60,6 +60,13 @@ config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :pki_ca_portal, dev_routes: true
 
+# CA Engine client for local dev — override with env vars
+config :pki_ca_portal,
+  ca_engine_client: PkiCaPortal.CaEngineClient.Http,
+  ca_engine_url: System.get_env("CA_ENGINE_URL", "http://localhost:4001"),
+  internal_api_secret: System.get_env("INTERNAL_API_SECRET", "dev-secret"),
+  cookie_secure: false
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

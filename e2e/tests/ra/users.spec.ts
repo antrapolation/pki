@@ -1,10 +1,11 @@
 import { test, expect } from "../../lib/fixtures";
-import { loginRaPortal, uniqueUsername } from "../../lib/fixtures";
+import { loginRaPortal, uniqueUsername, waitForLiveView } from "../../lib/fixtures";
 
 test.describe("RA Portal — User Management", () => {
   test.beforeEach(async ({ page }) => {
     await loginRaPortal(page, "admin");
     await page.goto("/users");
+    await waitForLiveView(page);
     await expect(page.locator("#users-page")).toBeVisible();
   });
 

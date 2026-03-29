@@ -250,7 +250,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   def get_engine_status(ca_instance_id) do
     case auth_get("/api/v1/status", params: [ca_instance_id: ca_instance_id]) do
       {:ok, %{status: 200, body: body}} ->
-        {:ok, atomize_keys(body)}
+        status = atomize_keys(body)
+        {:ok, Map.put(status, :active_keys, get_in(status, [:issuer_keys, :active]) || 0)}
 
       {:ok, %{status: status, body: body}} ->
         {:error, {:unexpected_status, status, body}}
@@ -268,6 +269,9 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       |> Map.put("ca_instance_id", ca_instance_id)
 
     case auth_post("/api/v1/ceremonies", payload) do
+      {:ok, %{status: status, body: %{"ceremony" => ceremony}}} when status in [200, 201] ->
+        {:ok, atomize_keys(ceremony)}
+
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -397,6 +401,13 @@ defmodule PkiCaPortal.CaEngineClient.Http do
 
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn
+      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+      {k, v} -> {k, v}
+    end)
+  end
+
+  defp stringify_keys(kw) when is_list(kw) do
+    Map.new(kw, fn
       {k, v} when is_atom(k) -> {Atom.to_string(k), v}
       {k, v} -> {k, v}
     end)
