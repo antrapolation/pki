@@ -12,42 +12,8 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
        page_title: "Tenants",
        tenants: tenants,
        page: 1,
-       per_page: @per_page,
-       form_error: nil
+       per_page: @per_page
      )}
-  end
-
-  @impl true
-  def handle_event("create_tenant", %{"name" => name, "slug" => slug} = params, socket) do
-    opts =
-      case Map.get(params, "signing_algorithm", "") do
-        "" -> []
-        algo -> [signing_algorithm: algo]
-      end
-
-    case PkiPlatformEngine.Provisioner.create_tenant(name, slug, opts) do
-      {:ok, _tenant} ->
-        tenants = list_tenants()
-
-        {:noreply,
-         socket
-         |> assign(tenants: tenants, form_error: nil)
-         |> put_flash(:info, "Tenant \"#{name}\" created successfully.")}
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        errors =
-          Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-            Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-              opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-            end)
-          end)
-
-        error_msg = errors |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end) |> Enum.join("; ")
-        {:noreply, assign(socket, form_error: error_msg)}
-
-      {:error, reason} ->
-        {:noreply, assign(socket, form_error: "Failed to create tenant: #{inspect(reason)}")}
-    end
   end
 
   def handle_event("suspend_tenant", %{"id" => id}, socket) do
@@ -111,81 +77,21 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
 
     ~H"""
     <div id="tenants-page" class="space-y-6">
-      <%!-- Create Tenant Form --%>
-      <div class="card bg-base-100 shadow-sm border border-base-300">
-        <div class="card-body p-5">
-          <h2 class="text-sm font-semibold text-base-content mb-3">Create New Tenant</h2>
-
-          <%= if @form_error do %>
-            <div class="alert alert-error text-sm mb-3">
-              <.icon name="hero-exclamation-circle" class="size-4" />
-              <span>{@form_error}</span>
-            </div>
-          <% end %>
-
-          <form id="create-tenant-form" phx-submit="create_tenant" class="space-y-3">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label for="tenant-name" class="block text-xs font-medium text-base-content/60 mb-1">Name</label>
-                <input
-                  type="text"
-                  name="name"
-                  id="tenant-name"
-                  required
-                  class="input input-bordered input-sm w-full"
-                  placeholder="Organization Name"
-                />
-              </div>
-              <div>
-                <label for="tenant-slug" class="block text-xs font-medium text-base-content/60 mb-1">Slug</label>
-                <input
-                  type="text"
-                  name="slug"
-                  id="tenant-slug"
-                  required
-                  class="input input-bordered input-sm w-full"
-                  placeholder="org-name"
-                  pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
-                  title="Lowercase alphanumeric with hyphens"
-                />
-              </div>
-              <div>
-                <label for="signing-algo" class="block text-xs font-medium text-base-content/60 mb-1">Signing Algorithm</label>
-                <select name="signing_algorithm" id="signing-algo" class="select select-bordered select-sm w-full">
-                  <optgroup label="Classical">
-                    <option value="ECC-P256" selected>ECC-P256</option>
-                    <option value="ECC-P384">ECC-P384</option>
-                    <option value="RSA-2048">RSA-2048</option>
-                    <option value="RSA-4096">RSA-4096</option>
-                  </optgroup>
-                  <optgroup label="Post-Quantum">
-                    <option value="KAZ-SIGN-128">KAZ-SIGN-128</option>
-                    <option value="KAZ-SIGN-192">KAZ-SIGN-192</option>
-                    <option value="KAZ-SIGN-256">KAZ-SIGN-256</option>
-                    <option value="ML-DSA-44">ML-DSA-44</option>
-                    <option value="ML-DSA-65">ML-DSA-65</option>
-                    <option value="ML-DSA-87">ML-DSA-87</option>
-                  </optgroup>
-                </select>
-              </div>
-            </div>
-            <div class="flex justify-end">
-              <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
-                <.icon name="hero-plus" class="size-4" />
-                Create Tenant
-              </button>
-            </div>
-          </form>
+      <%!-- Header bar --%>
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-lg font-semibold text-base-content">Tenants</h1>
+          <p class="text-sm text-base-content/50 mt-0.5">{@total} total</p>
         </div>
+        <.link navigate="/tenants/new" class="btn btn-primary btn-sm">
+          <.icon name="hero-plus" class="size-4" />
+          New Tenant
+        </.link>
       </div>
 
       <%!-- Tenant List --%>
       <div class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
-          <div class="px-5 py-4 border-b border-base-300 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-base-content">All Tenants</h2>
-            <span class="text-xs text-base-content/50">{@total} total</span>
-          </div>
           <div class="overflow-x-auto">
             <table id="tenant-list" class="table table-sm">
               <thead>
@@ -200,10 +106,17 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
               </thead>
               <tbody>
                 <tr :if={@paginated_tenants == []}>
-                  <td colspan="6" class="text-center text-base-content/50 py-8">No tenants yet. Create one above.</td>
+                  <td colspan="6" class="text-center text-base-content/50 py-8">
+                    No tenants yet.
+                    <.link navigate="/tenants/new" class="text-primary hover:underline">Create your first tenant</.link>
+                  </td>
                 </tr>
                 <tr :for={tenant <- @paginated_tenants} id={"tenant-#{tenant.id}"} class="hover">
-                  <td class="font-medium">{tenant.name}</td>
+                  <td class="font-medium">
+                    <.link navigate={"/tenants/#{tenant.id}"} class="hover:text-primary transition-colors">
+                      {tenant.name}
+                    </.link>
+                  </td>
                   <td class="font-mono text-sm">{tenant.slug}</td>
                   <td>
                     <span class={[
