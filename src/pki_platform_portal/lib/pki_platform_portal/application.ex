@@ -16,23 +16,12 @@ defmodule PkiPlatformPortal.Application do
     ]
 
     opts = [strategy: :one_for_one, name: PkiPlatformPortal.Supervisor]
-    Supervisor.start_link(children, opts)
-  end
+    result = Supervisor.start_link(children, opts)
 
-  # Hash the plaintext admin password at startup so it never sits in app config
-  # as cleartext beyond the first request. If PLATFORM_ADMIN_PASSWORD_HASH was
-  # set directly (pre-hashed), we skip hashing.
-  defp hash_admin_password do
-    case Application.get_env(:pki_platform_portal, :admin_password_hash) do
-      hash when is_binary(hash) ->
-        :ok
+    # Seed first admin from env vars if DB has no admins (backward compatibility)
+    PkiPlatformEngine.AdminManagement.seed_from_env()
 
-      _ ->
-        plain = Application.get_env(:pki_platform_portal, :admin_password, "admin")
-        hash = Argon2.hash_pwd_salt(plain)
-        Application.put_env(:pki_platform_portal, :admin_password_hash, hash)
-        Application.delete_env(:pki_platform_portal, :admin_password)
-    end
+    result
   end
 
   @impl true
