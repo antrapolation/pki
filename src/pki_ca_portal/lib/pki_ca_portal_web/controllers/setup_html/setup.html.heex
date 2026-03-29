@@ -10,6 +10,10 @@
         <p class="text-sm text-base-content/50 mt-1">
           Initialize the Certificate Authority by creating the first admin account.
         </p>
+        <div class="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-base-200 text-xs text-base-content/60">
+          <span class="hero-building-office text-sm" />
+          <span>Tenant: <span class="font-semibold text-base-content/80"><%= @tenant.name %></span></span>
+        </div>
       </div>
 
       <%= if @error do %>
@@ -20,6 +24,8 @@
       <% end %>
 
       <.form for={%{}} action={~p"/setup"} method="post" class="space-y-4">
+        <input type="hidden" name="tenant_slug" value={@tenant.slug} />
+
         <div>
           <label for="setup_username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
           <input

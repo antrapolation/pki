@@ -3,40 +3,64 @@ defmodule PkiCaPortalWeb.SetupController do
 
   alias PkiCaPortal.CaEngineClient
 
-  def new(conn, _params) do
-    if CaEngineClient.needs_setup?(ca_instance_id()) do
-      render(conn, :setup, layout: false, error: nil)
-    else
-      conn
-      |> put_flash(:info, "System already configured.")
-      |> redirect(to: "/login")
+  def new(conn, params) do
+    case validate_tenant(params) do
+      {:ok, tenant} ->
+        if CaEngineClient.needs_setup?(ca_instance_id()) do
+          render(conn, :setup, layout: false, error: nil, tenant: tenant)
+        else
+          conn
+          |> put_flash(:info, "System already configured.")
+          |> redirect(to: "/login")
+        end
+
+      {:error, message} ->
+        render(conn, :setup_error, layout: false, message: message)
     end
   end
 
-  def create(conn, %{"setup" => params}) do
-    unless CaEngineClient.needs_setup?(ca_instance_id()) do
-      conn
-      |> put_flash(:error, "System already configured.")
-      |> redirect(to: "/login")
-    else
-      case validate_setup_params(params) do
-        {:ok, attrs} ->
-          case CaEngineClient.register_user(ca_instance_id(), attrs) do
-            {:ok, _user} ->
-              conn
-              |> put_flash(:info, "Certificate Authority initialized. Admin account, ACL, and system keypairs created. Please sign in.")
-              |> redirect(to: "/login")
+  def create(conn, %{"setup" => params, "tenant_slug" => slug}) do
+    case validate_tenant(%{"tenant" => slug}) do
+      {:ok, tenant} ->
+        unless CaEngineClient.needs_setup?(ca_instance_id()) do
+          conn
+          |> put_flash(:error, "System already configured.")
+          |> redirect(to: "/login")
+        else
+          case validate_setup_params(params) do
+            {:ok, attrs} ->
+              case CaEngineClient.register_user(ca_instance_id(), Map.put(attrs, :tenant_id, tenant.id)) do
+                {:ok, _user} ->
+                  render(conn, :setup_complete, layout: false, tenant: tenant)
 
-            {:error, changeset} ->
-              error = format_changeset_error(changeset)
-              render(conn, :setup, layout: false, error: error)
+                {:error, changeset} ->
+                  error = format_changeset_error(changeset)
+                  render(conn, :setup, layout: false, error: error, tenant: tenant)
+              end
+
+            {:error, message} ->
+              render(conn, :setup, layout: false, error: message, tenant: tenant)
           end
+        end
 
-        {:error, message} ->
-          render(conn, :setup, layout: false, error: message)
-      end
+      {:error, message} ->
+        render(conn, :setup_error, layout: false, message: message)
     end
   end
+
+  def create(conn, _params) do
+    render(conn, :setup_error, layout: false, message: "Tenant not specified. Contact your platform administrator.")
+  end
+
+  defp validate_tenant(%{"tenant" => slug}) when is_binary(slug) and slug != "" do
+    case PkiPlatformEngine.Provisioner.get_tenant_by_slug(slug) do
+      nil -> {:error, "Tenant not found."}
+      %{status: "suspended"} -> {:error, "Tenant is suspended."}
+      tenant -> {:ok, tenant}
+    end
+  end
+
+  defp validate_tenant(_), do: {:error, "Tenant not specified. Contact your platform administrator."}
 
   defp validate_setup_params(%{"password" => pw, "password_confirmation" => confirm} = params)
        when pw == confirm and byte_size(pw) >= 8 do
