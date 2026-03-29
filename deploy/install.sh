@@ -5,9 +5,9 @@
 #   sudo bash deploy/install.sh
 #
 # What this does:
-#   1. Installs system packages (Erlang/OTP, Elixir, PostgreSQL, SoftHSM2, Caddy)
-#   2. Creates the 'pki' OS user
-#   3. Sets up /opt/pki/ directory structure
+#   1. Creates the 'pki' OS user
+#   2. Sets up /opt/pki/ directory structure
+#   3. Installs system packages (Erlang/OTP 25 via apt, Elixir 1.18 via GitHub, PostgreSQL, SoftHSM2, Caddy)
 #   4. Generates per-service Erlang cookies
 #   5. Configures SoftHSM2 token directory permissions
 #   6. Enables and starts PostgreSQL
@@ -21,23 +21,44 @@ die()     { echo -e "${RED}[install] ERROR:${NC} $*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Run as root: sudo bash deploy/install.sh"
 
-# ── 1. System packages ───────────────────────────────────────────────────────
+# ── 1. Create pki user ───────────────────────────────────────────────────────
+if ! id pki &>/dev/null; then
+  info "Creating 'pki' system user..."
+  useradd --system --shell /bin/bash --home /opt/pki --create-home pki
+else
+  info "'pki' user already exists, skipping."
+fi
+
+# ── 2. Directory structure ───────────────────────────────────────────────────
+info "Creating /opt/pki directory structure..."
+mkdir -p /opt/pki/{releases/{ca_engine,ra_engine,ca_portal,ra_portal,platform_portal,validation},.cookies,logs}
+chown -R pki:pki /opt/pki
+chmod 750 /opt/pki/.cookies
+
+# ── 3. System packages ───────────────────────────────────────────────────────
 info "Installing system packages..."
 apt-get update -qq
-
-# Erlang/OTP + Elixir via Erlang Solutions repo
-if ! command -v erl &>/dev/null; then
-  wget -q https://packages.erlang-solutions.com/erlang-solutions_2.0_all.deb
-  dpkg -i erlang-solutions_2.0_all.deb
-  rm erlang-solutions_2.0_all.deb
-  apt-get update -qq
-fi
 apt-get install -y --no-install-recommends \
-  esl-erlang elixir \
+  curl ca-certificates gnupg wget unzip \
+  erlang-nox \
   postgresql postgresql-client \
   softhsm2 \
-  libssl-dev \
-  curl ca-certificates
+  libssl-dev
+
+# Elixir 1.18.x from GitHub releases (Ubuntu 24.04 ships Elixir 1.14 — too old)
+ELIXIR_VSN="1.18.4"
+OTP_MAJOR="25"   # matches Ubuntu 24.04's erlang-nox (OTP 25.3)
+if ! command -v elixir &>/dev/null || \
+   ! elixir --version 2>/dev/null | grep -q "^Elixir 1\.1[89]\|^Elixir 1\.[2-9]"; then
+  info "Installing Elixir ${ELIXIR_VSN} (OTP ${OTP_MAJOR}) from GitHub releases..."
+  ELIXIR_ZIP="elixir-otp-${OTP_MAJOR}.zip"
+  ELIXIR_URL="https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VSN}/${ELIXIR_ZIP}"
+  ELIXIR_TMP=$(mktemp -d)
+  curl -fsSL "$ELIXIR_URL" -o "${ELIXIR_TMP}/${ELIXIR_ZIP}"
+  unzip -q -o "${ELIXIR_TMP}/${ELIXIR_ZIP}" -d /usr/local
+  rm -rf "$ELIXIR_TMP"
+  info "Elixir $(elixir --version | head -1) installed."
+fi
 
 # Caddy
 if ! command -v caddy &>/dev/null; then
@@ -49,20 +70,6 @@ if ! command -v caddy &>/dev/null; then
     > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -qq && apt-get install -y caddy
 fi
-
-# ── 2. Create pki user ───────────────────────────────────────────────────────
-if ! id pki &>/dev/null; then
-  info "Creating 'pki' system user..."
-  useradd --system --shell /bin/bash --home /opt/pki --create-home pki
-else
-  info "'pki' user already exists, skipping."
-fi
-
-# ── 3. Directory structure ───────────────────────────────────────────────────
-info "Creating /opt/pki directory structure..."
-mkdir -p /opt/pki/{releases/{ca_engine,ra_engine,ca_portal,ra_portal,platform_portal,validation},.cookies,logs}
-chown -R pki:pki /opt/pki
-chmod 750 /opt/pki/.cookies
 
 # ── 4. Per-service Erlang cookies ────────────────────────────────────────────
 info "Generating Erlang cookies..."

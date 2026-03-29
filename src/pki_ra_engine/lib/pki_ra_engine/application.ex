@@ -9,7 +9,6 @@ defmodule PkiRaEngine.Application do
   def start(_type, _args) do
     children =
       [
-        {Hammer.Supervisor, [strategy: :one_for_all]},
         PkiRaEngine.Repo,
         PkiRaEngine.CaEngineConfig
       ] ++ http_children()

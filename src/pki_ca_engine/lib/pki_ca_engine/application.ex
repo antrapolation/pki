@@ -7,7 +7,6 @@ defmodule PkiCaEngine.Application do
   def start(_type, _args) do
     children =
       [
-        {Hammer.Supervisor, [strategy: :one_for_all]},
         PkiCaEngine.Repo,
         %{id: :ceremony_pid_registry, start: {Agent, :start_link, [fn -> %{} end, [name: :ceremony_pid_registry]]}},
         {PkiCaEngine.KeyActivation,

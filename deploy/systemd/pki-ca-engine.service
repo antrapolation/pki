@@ -14,9 +14,8 @@ EnvironmentFile=/opt/pki/.env
 Environment=PHX_SERVER=true
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_ca_engine@127.0.0.1
-Environment=RELEASE_COOKIE_FILE=/opt/pki/.cookies/ca_engine
 # Limit to 2 schedulers per VM — prevents 6 VMs from saturating all cores
-Environment=ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2
+Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
 
 ExecStart=/opt/pki/releases/ca_engine/bin/pki_ca_engine start
 ExecStop=/opt/pki/releases/ca_engine/bin/pki_ca_engine stop

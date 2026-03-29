@@ -14,8 +14,7 @@ EnvironmentFile=/opt/pki/.env
 Environment=PHX_SERVER=true
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_validation@127.0.0.1
-Environment=RELEASE_COOKIE_FILE=/opt/pki/.cookies/validation
-Environment=ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2
+Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
 
 ExecStart=/opt/pki/releases/validation/bin/pki_validation start
 ExecStop=/opt/pki/releases/validation/bin/pki_validation stop

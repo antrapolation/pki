@@ -42,15 +42,23 @@ declare -A SVC_TARBALL=(
   [validation]=pki_validation
 )
 
+svc_to_module() {
+  # pki_ca_engine → PkiCaEngine
+  python3 -c "print(''.join(w.capitalize() for w in '${1}'.split('_')))"
+}
+
 run_migrations() {
   local svc="$1"       # e.g. ca_engine
   local bin="${INSTALL_BASE}/${svc}/bin/${SVC_TARBALL[$svc]}"
 
   [[ -x "$bin" ]] || { warn "Binary not found: $bin — skipping migrations"; return; }
 
+  local module
+  module=$(svc_to_module "${SVC_TARBALL[$svc]}")
+
   info "  Running migrations for $svc..."
   sudo -u pki env $(grep -v '^#' /opt/pki/.env | xargs) \
-    "$bin" eval "${SVC_TARBALL[$svc]^}.Release.migrate()" 2>&1 \
+    "$bin" eval "${module}.Release.migrate()" 2>&1 \
     || warn "Migration returned non-zero for $svc (may be normal if already applied)"
 }
 
@@ -67,10 +75,13 @@ deploy_service() {
 
   info "Deploying $svc from $(basename "$tarball")..."
 
-  # Stop service
-  if systemctl is-active --quiet "$systemd_name" 2>/dev/null; then
+  # Stop service (|| true: service may be in restart cycle, stop job gets cancelled)
+  if systemctl is-active --quiet "$systemd_name" 2>/dev/null || \
+     systemctl is-activating "$systemd_name" 2>/dev/null; then
     info "  Stopping $systemd_name..."
-    systemctl stop "$systemd_name"
+    systemctl stop "$systemd_name" 2>/dev/null || true
+    # Wait for OS to release ports — BEAM sockets can linger briefly after process exit
+    sleep 3
   fi
 
   # Backup current release
@@ -88,8 +99,22 @@ deploy_service() {
   chown -R pki:pki "$install_dir"
   info "  Extracted to $install_dir"
 
-  # Run migrations
-  run_migrations "$svc"
+  # Inject Erlang cookie from /opt/pki/.cookies/ into the release
+  local cookie_file="/opt/pki/.cookies/${svc}"
+  if [[ -f "$cookie_file" ]]; then
+    cp "$cookie_file" "${install_dir}/releases/COOKIE"
+    chown pki:pki "${install_dir}/releases/COOKIE"
+    chmod 400 "${install_dir}/releases/COOKIE"
+    info "  Injected Erlang cookie"
+  else
+    warn "  No cookie file at $cookie_file — release will use build-time cookie"
+  fi
+
+  # Run migrations (skip portals — they share engine databases)
+  case "$svc" in
+    ca_portal|ra_portal) info "  Skipping migrations for $svc (no own database)" ;;
+    *) run_migrations "$svc" ;;
+  esac
 
   # Start service
   systemctl enable "$systemd_name"
@@ -135,6 +160,7 @@ case "$TARGET" in
 
   migrate)
     info "Running all DB migrations..."
+    # Only services that own a database — portals share the engine DBs
     for svc in ca_engine ra_engine validation platform_portal; do
       run_migrations "$svc"
     done

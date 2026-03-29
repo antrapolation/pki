@@ -14,8 +14,7 @@ EnvironmentFile=/opt/pki/.env
 Environment=PHX_SERVER=true
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_ca_portal@127.0.0.1
-Environment=RELEASE_COOKIE_FILE=/opt/pki/.cookies/ca_portal
-Environment=ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2
+Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
 
 ExecStart=/opt/pki/releases/ca_portal/bin/pki_ca_portal start
 ExecStop=/opt/pki/releases/ca_portal/bin/pki_ca_portal stop

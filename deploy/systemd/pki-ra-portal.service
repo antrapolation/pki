@@ -14,8 +14,7 @@ EnvironmentFile=/opt/pki/.env
 Environment=PHX_SERVER=true
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_ra_portal@127.0.0.1
-Environment=RELEASE_COOKIE_FILE=/opt/pki/.cookies/ra_portal
-Environment=ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2
+Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
 
 ExecStart=/opt/pki/releases/ra_portal/bin/pki_ra_portal start
 ExecStop=/opt/pki/releases/ra_portal/bin/pki_ra_portal stop

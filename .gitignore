@@ -2,6 +2,11 @@
 deps/
 _build/
 .elixir_ls/
+.dev-logs/
+deploy/releases/
+**/test-results/
+**/priv/static/**/*.gz
+**/priv/static/cache_manifest.json
 
 # Generated
 *.beam
