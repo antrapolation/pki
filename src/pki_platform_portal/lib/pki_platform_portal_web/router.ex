@@ -11,6 +11,7 @@ defmodule PkiPlatformPortalWeb.Router do
   end
 
   pipeline :require_auth do
+    plug PkiPlatformPortalWeb.Plugs.RequireSetup
     plug PkiPlatformPortalWeb.Plugs.RequireAuth
   end
 
@@ -18,22 +19,27 @@ defmodule PkiPlatformPortalWeb.Router do
     plug :accepts, ["json"]
   end
 
-  # Public routes (no auth required)
+  # Setup route (no auth, no setup check)
   scope "/", PkiPlatformPortalWeb do
     pipe_through :browser
 
+    live "/setup", SetupLive
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     delete "/logout", SessionController, :delete
   end
 
-  # Protected routes (auth required)
+  # Protected routes
   scope "/", PkiPlatformPortalWeb do
     pipe_through [:browser, :require_auth]
 
     live_session :authenticated, on_mount: PkiPlatformPortalWeb.Live.AuthHook do
       live "/", DashboardLive
       live "/tenants", TenantsLive
+      live "/tenants/new", TenantNewLive
+      live "/tenants/:id", TenantDetailLive
+      live "/system", SystemLive
+      live "/admins", AdminsLive
     end
   end
 end

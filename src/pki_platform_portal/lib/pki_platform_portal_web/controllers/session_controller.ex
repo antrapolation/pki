@@ -1,28 +1,24 @@
 defmodule PkiPlatformPortalWeb.SessionController do
   use PkiPlatformPortalWeb, :controller
-  import Plug.Conn
 
   def new(conn, _params) do
     render(conn, :login, layout: false, error: nil)
   end
 
-  def create(conn, %{"session" => %{"username" => username, "password" => password}}) do
-    expected_user = Application.get_env(:pki_platform_portal, :admin_username, "admin")
-    expected_hash = Application.get_env(:pki_platform_portal, :admin_password_hash)
+  def create(conn, %{"username" => username, "password" => password}) do
+    case PkiPlatformEngine.AdminManagement.authenticate(username, password) do
+      {:ok, admin} ->
+        conn
+        |> put_session(:current_user, %{
+          id: admin.id,
+          username: admin.username,
+          display_name: admin.display_name,
+          role: admin.role
+        })
+        |> redirect(to: "/")
 
-    if Plug.Crypto.secure_compare(username, expected_user) and
-         is_binary(expected_hash) and Argon2.verify_pass(password, expected_hash) do
-      conn
-      |> configure_session(renew: true)
-      |> put_session(:current_user, %{
-        "username" => username,
-        "display_name" => "Platform Admin",
-        "role" => "platform_admin"
-      })
-      |> put_session(:platform_admin, true)
-      |> redirect(to: "/")
-    else
-      render(conn, :login, layout: false, error: "Invalid credentials")
+      {:error, _} ->
+        render(conn, :login, layout: false, error: "Invalid credentials")
     end
   end
 
