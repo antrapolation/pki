@@ -80,7 +80,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
 
         <%!-- Page content --%>
         <main class="flex-1 p-6">
-          {render_slot(@inner_block)}
+          {@inner_content}
         </main>
       </div>
     </div>
