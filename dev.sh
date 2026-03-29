@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# dev.sh — Start all PKI services directly on the host (no containers for Elixir apps)
-# PostgreSQL still runs in its container (localhost:5434)
-# SoftHSM2 still runs in its container
+# dev.sh — Start all PKI services directly on the host (no containers)
+#
+# Prerequisites: start infrastructure first:
+#   podman-compose -f dev-infra.yml up -d
 #
 # Usage:
 #   ./dev.sh              — start all services

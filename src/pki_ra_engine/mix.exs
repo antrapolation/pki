@@ -43,6 +43,7 @@ defmodule PkiRaEngine.MixProject do
       {:plug_cowboy, "~> 2.7"},
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"},
+      {:hammer, "~> 6.2"},
       {:keyx, path: "../keyx", override: true},
       {:x509, path: "../x509", override: true},
       {:ex_ccrypto, path: "../ex_ccrypto"},

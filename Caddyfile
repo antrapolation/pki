@@ -1,0 +1,57 @@
+# Caddy reverse proxy for PKI Certificate Authority System
+#
+# Required environment variables (set in .env):
+#   CA_PORTAL_HOST     - domain for CA Portal    (e.g. ca.pki.example.com)
+#   RA_PORTAL_HOST     - domain for RA Portal    (e.g. ra.pki.example.com)
+#   PLATFORM_HOST      - domain for Platform Admin (e.g. admin.pki.example.com)
+#   CADDY_ACME_EMAIL   - email for Let's Encrypt ACME registration
+#
+# Caddy auto-provisions TLS via Let's Encrypt when serving real domain names.
+# For internal/air-gapped setups, see: https://caddyserver.com/docs/automatic-https
+
+{
+    admin off
+    email {$CADDY_ACME_EMAIL:admin@example.com}
+}
+
+{$CA_PORTAL_HOST:ca.pki.local} {
+    reverse_proxy pki-ca-portal:4002 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+{$RA_PORTAL_HOST:ra.pki.local} {
+    reverse_proxy pki-ra-portal:4004 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+{$PLATFORM_HOST:admin.pki.local} {
+    reverse_proxy pki-platform-portal:4006 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}

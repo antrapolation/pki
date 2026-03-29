@@ -5,25 +5,10 @@ defmodule PkiRaPortalWeb.Layouts do
   """
   use PkiRaPortalWeb, :html
 
-  # Embed all files in layouts/* within this module.
-  # The default root.html.heex file contains the HTML
-  # skeleton of your application, namely HTML headers
-  # and other static content.
   embed_templates "layouts/*"
 
   @doc """
-  Renders your app layout.
-
-  This function is typically invoked from every template,
-  and it often contains your application menu, sidebar,
-  or similar.
-
-  ## Examples
-
-      <Layouts.app flash={@flash}>
-        <h1>Content</h1>
-      </Layouts.app>
-
+  Renders your app layout with sidebar navigation and topbar.
   """
   attr :flash, :map, required: true, doc: "the map of flash messages"
 
@@ -34,68 +19,111 @@ defmodule PkiRaPortalWeb.Layouts do
   slot :inner_block, required: true
 
   def app(assigns) do
+    assigns = assign_new(assigns, :current_user, fn -> nil end)
+    assigns = assign_new(assigns, :page_title, fn -> nil end)
+
     ~H"""
-    <div class="flex h-screen bg-base-200">
+    <div class="flex min-h-screen bg-base-200">
       <%!-- Sidebar --%>
-      <aside class="w-64 bg-slate-800 text-slate-100 flex flex-col flex-shrink-0">
-        <div class="px-6 py-5 border-b border-slate-700">
-          <div class="flex items-center gap-2">
-            <.icon name="hero-shield-check" class="size-5 text-teal-400" />
-            <h1 class="text-lg font-bold tracking-tight text-teal-400">RA Portal</h1>
+      <aside class="fixed top-0 left-0 h-screen w-64 flex flex-col bg-base-100 border-r border-base-300">
+        <%!-- Logo --%>
+        <div class="flex items-center gap-3 px-4 py-4 border-b border-base-300">
+          <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
+            <.icon name="hero-shield-check" class="size-4 text-primary-content" />
           </div>
-          <p class="text-xs text-slate-400 mt-0.5">Registration Authority</p>
+          <div>
+            <span class="text-sm font-bold text-base-content">RA Portal</span>
+            <span class="block text-xs text-base-content/40">Registration Authority</span>
+          </div>
         </div>
 
-        <nav class="flex-1 px-3 py-4 space-y-1">
-          <.sidebar_link href="/" icon="hero-home" label="Dashboard" />
-          <.sidebar_link href="/users" icon="hero-users" label="Users" />
-          <.sidebar_link href="/csrs" icon="hero-document-check" label="CSRs" />
-          <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Cert Profiles" />
-          <.sidebar_link href="/service-configs" icon="hero-cog-6-tooth" label="Service Configs" />
-          <.sidebar_link href="/api-keys" icon="hero-key" label="API Keys" />
+        <%!-- Navigation --%>
+        <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+          <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
+          <.sidebar_link href="/users" icon="hero-users" label="Users" current={@page_title} />
+          <.sidebar_link href="/csrs" icon="hero-document-check" label="CSRs" current={@page_title} />
+          <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Cert Profiles" current={@page_title} />
+          <.sidebar_link href="/service-configs" icon="hero-cog-6-tooth" label="Service Configs" current={@page_title} />
+          <.sidebar_link href="/api-keys" icon="hero-key" label="API Keys" current={@page_title} />
         </nav>
 
-        <div class="px-3 py-4 border-t border-slate-700">
+        <%!-- Sidebar footer --%>
+        <div class="px-4 py-3 border-t border-base-300 flex items-center justify-between">
+          <p class="text-xs text-base-content/30">PQC Registration Authority</p>
           <.theme_toggle />
         </div>
       </aside>
 
       <%!-- Main content area --%>
-      <div class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex-1 ml-64 flex flex-col min-h-screen">
         <%!-- Topbar --%>
-        <header class="bg-base-100 border-b border-base-300 px-6 py-3 flex items-center justify-between flex-shrink-0">
-          <span class="text-sm font-semibold text-base-content/70">Registration Authority Management</span>
-          <a href="/logout" method="post" class="btn btn-ghost btn-sm text-base-content/60 hover:text-base-content">
-            <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Logout
-          </a>
+        <header class="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-base-100 border-b border-base-300">
+          <h1 class="text-sm font-semibold text-base-content">
+            {@page_title || "RA Portal"}
+          </h1>
+          <div class="flex items-center gap-3">
+            <%= if @current_user do %>
+              <span class="text-xs text-base-content/50">
+                <.icon name="hero-user-circle" class="size-3.5 inline -mt-0.5" />
+                {@current_user[:display_name] || @current_user[:username]}
+              </span>
+              <form method="delete" action="/logout">
+                <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+                <input type="hidden" name="_method" value="delete" />
+                <button type="submit" class="btn btn-ghost btn-xs text-base-content/50 hover:text-error">
+                  <.icon name="hero-arrow-right-on-rectangle" class="size-3.5" />
+                  Sign out
+                </button>
+              </form>
+            <% end %>
+          </div>
         </header>
 
+        <%!-- Flash messages --%>
+        <.flash_group flash={@flash} />
+
         <%!-- Page content --%>
-        <main class="flex-1 overflow-y-auto p-6">
+        <main class="flex-1 p-6">
           {render_slot(@inner_block)}
         </main>
       </div>
     </div>
-
-    <.flash_group flash={@flash} />
     """
   end
 
   attr :href, :string, required: true
   attr :icon, :string, required: true
   attr :label, :string, required: true
+  attr :current, :string, default: nil
 
   defp sidebar_link(assigns) do
+    active = is_active?(assigns.label, assigns.current)
+    assigns = assign(assigns, :active, active)
+
     ~H"""
     <a
       href={@href}
-      class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-teal-400 transition-colors"
+      class={[
+        "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+        if(@active,
+          do: "bg-primary/10 text-primary",
+          else: "text-base-content/60 hover:bg-base-200 hover:text-base-content"
+        )
+      ]}
     >
-      <.icon name={@icon} class="size-5" />
-      {@label}
+      <.icon name={@icon} class="size-5 shrink-0" />
+      <span>{@label}</span>
     </a>
     """
   end
+
+  defp is_active?("Dashboard", "Dashboard"), do: true
+  defp is_active?("Users", page) when page in ["Users", "User Management"], do: true
+  defp is_active?("CSRs", page) when page in ["CSRs", "CSR Management"], do: true
+  defp is_active?("Cert Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true
+  defp is_active?("Service Configs", page) when page in ["Service Configs", "Service Configuration"], do: true
+  defp is_active?("API Keys", page) when page in ["API Keys", "API Key Management"], do: true
+  defp is_active?(_, _), do: false
 
   @doc """
   Shows the flash group with standard titles and content.
@@ -109,7 +137,7 @@ defmodule PkiRaPortalWeb.Layouts do
 
   def flash_group(assigns) do
     ~H"""
-    <div id={@id} aria-live="polite">
+    <div id={@id} aria-live="polite" class="px-6 pt-4">
       <.flash kind={:info} flash={@flash} />
       <.flash kind={:error} flash={@flash} />
 
@@ -147,8 +175,8 @@ defmodule PkiRaPortalWeb.Layouts do
   """
   def theme_toggle(assigns) do
     ~H"""
-    <div class="card relative flex flex-row items-center border-2 border-slate-700 bg-slate-700 rounded-full">
-      <div class="absolute w-1/3 h-full rounded-full border-1 border-slate-600 bg-slate-500 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
+    <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
+      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
 
       <button
         class="flex p-2 cursor-pointer w-1/3"

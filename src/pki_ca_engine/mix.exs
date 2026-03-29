@@ -32,11 +32,13 @@ defmodule PkiCaEngine.MixProject do
       {:plug_cowboy, "~> 2.7"},
       {:keyx, path: "../keyx", override: true},
       {:x509, path: "../x509", override: true},
-      {:ex_ccrypto, path: "../ex_ccrypto"},
+      {:ex_ccrypto, path: "../ex_ccrypto", override: true},
+      {:ap_java_crypto, path: "../ap_java_crypto"},
       {:pki_crypto, path: "../pki_crypto"},
       {:pki_audit_trail, path: "../pki_audit_trail"},
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"},
+      {:hammer, "~> 6.2"},
       {:pki_platform_engine, path: "../pki_platform_engine"}
     ]
   end

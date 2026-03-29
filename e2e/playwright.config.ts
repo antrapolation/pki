@@ -19,6 +19,7 @@ import * as path from "path";
 
 export default defineConfig({
   globalSetup: "./global-setup",
+  globalTeardown: "./global-teardown",
   testDir: "./tests",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

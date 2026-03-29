@@ -8,10 +8,10 @@ defmodule PkiPlatformPortalWeb.SessionController do
 
   def create(conn, %{"session" => %{"username" => username, "password" => password}}) do
     expected_user = Application.get_env(:pki_platform_portal, :admin_username, "admin")
-    expected_pass = Application.get_env(:pki_platform_portal, :admin_password, "admin")
+    expected_hash = Application.get_env(:pki_platform_portal, :admin_password_hash)
 
     if Plug.Crypto.secure_compare(username, expected_user) and
-         Plug.Crypto.secure_compare(password, expected_pass) do
+         is_binary(expected_hash) and Argon2.verify_pass(password, expected_hash) do
       conn
       |> configure_session(renew: true)
       |> put_session(:current_user, %{

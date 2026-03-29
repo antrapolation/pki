@@ -1,0 +1,54 @@
+# PKI CA System — Local Dev Infrastructure
+# Runs PostgreSQL and SoftHSM2 for local development.
+# Elixir services run directly on the host via dev.sh.
+#
+# Usage:
+#   podman-compose -f dev-infra.yml up -d
+#   podman-compose -f dev-infra.yml down
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────
+  postgres:
+    image: docker.io/library/postgres:17-alpine
+    container_name: pki-postgres
+    env_file: .env
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - pki-postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  # ── SoftHSM2 ───────────────────────────────────────────────────────
+  softhsm2:
+    build:
+      context: ./softhsm2
+    container_name: pki-softhsm2
+    env_file: .env
+    volumes:
+      - softhsm-tokens:/var/lib/softhsm/tokens
+      - softhsm-lib:/shared/lib
+    healthcheck:
+      test: ["CMD-SHELL", "softhsm2-util --show-slots | grep -q 'Slot'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+volumes:
+  pki-postgres-data:
+  softhsm-tokens:
+  softhsm-lib:

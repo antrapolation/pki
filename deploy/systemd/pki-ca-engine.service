@@ -1,0 +1,40 @@
+[Unit]
+Description=PKI CA Engine
+Documentation=https://github.com/straptrust/pki
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=pki
+Group=pki
+WorkingDirectory=/opt/pki/releases/ca_engine
+
+EnvironmentFile=/opt/pki/.env
+Environment=PHX_SERVER=true
+Environment=RELEASE_DISTRIBUTION=name
+Environment=RELEASE_NODE=pki_ca_engine@127.0.0.1
+Environment=RELEASE_COOKIE_FILE=/opt/pki/.cookies/ca_engine
+# Limit to 2 schedulers per VM — prevents 6 VMs from saturating all cores
+Environment=ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2
+
+ExecStart=/opt/pki/releases/ca_engine/bin/pki_ca_engine start
+ExecStop=/opt/pki/releases/ca_engine/bin/pki_ca_engine stop
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Basic hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pki/releases/ca_engine /var/lib/softhsm /tmp
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pki-ca-engine
+
+[Install]
+WantedBy=multi-user.target

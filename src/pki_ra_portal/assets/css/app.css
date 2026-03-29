@@ -99,11 +99,13 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
-/* RA Portal — Precision Utility theme */
-body {
-  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+/* Custom utility classes for PKI RA portal */
+.font-mono-data {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
 }
 
-.font-mono, code, pre, .mono {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+/* Table row hover */
+.table tr:hover td {
+  background-color: var(--color-base-200);
 }

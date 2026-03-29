@@ -4,10 +4,14 @@ defmodule PkiCaPortalWeb.Endpoint do
   # The session will be stored in the cookie and signed,
   # this means its contents can be read but not tampered with.
   # Set :encryption_salt if you would also like to encrypt it.
+  # signing_salt prevents cookie reuse across apps with the same secret_key_base.
+  # Falls back to the compile-time default; set CA_PORTAL_SIGNING_SALT in .env for production.
+  @signing_salt Application.compile_env(:pki_ca_portal, :signing_salt, "4NBE6/4H")
+
   @session_options [
     store: :cookie,
     key: "_pki_ca_portal_key",
-    signing_salt: "4NBE6/4H",
+    signing_salt: @signing_salt,
     encryption_salt: "pki_ca_enc",
     same_site: "Strict",
     http_only: true

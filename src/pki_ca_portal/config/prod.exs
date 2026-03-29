@@ -20,8 +20,18 @@ config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
     ]
   ]
 
-# Do not print debug messages in production
+# Signing salt — read at BUILD time (compile_env in endpoint.ex).
+# Set CA_PORTAL_SIGNING_SALT in the build environment or source .env before mix release.
+if salt = System.get_env("CA_PORTAL_SIGNING_SALT") do
+  config :pki_ca_portal, signing_salt: salt
+end
+
+# Structured production logging: info level with metadata for log aggregators
 config :logger, level: :info
+
+config :logger, :console,
+  format: "[$level] $time request_id=$metadata{request_id} remote_ip=$metadata{remote_ip} $message\n",
+  metadata: [:request_id, :remote_ip, :module, :function]
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

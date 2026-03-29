@@ -13,7 +13,7 @@ config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4006"))]
 
 if config_env() != :prod do
-  # Dev/test: allow defaults for convenience
+  # Dev/test: allow defaults for convenience (hashed at Application.start)
   config :pki_platform_portal,
     admin_username: System.get_env("PLATFORM_ADMIN_USERNAME", "admin"),
     admin_password: System.get_env("PLATFORM_ADMIN_PASSWORD", "admin")
@@ -33,13 +33,23 @@ if config_env() == :prod do
     System.get_env("PLATFORM_ADMIN_USERNAME") ||
       raise "environment variable PLATFORM_ADMIN_USERNAME is missing"
 
-  admin_password =
-    System.get_env("PLATFORM_ADMIN_PASSWORD") ||
-      raise "environment variable PLATFORM_ADMIN_PASSWORD is missing"
+  # Accept either a pre-hashed Argon2 value (PLATFORM_ADMIN_PASSWORD_HASH)
+  # or a plaintext value (PLATFORM_ADMIN_PASSWORD) that will be hashed at startup.
+  # Prefer the hash to keep the plaintext out of application config entirely.
+  admin_password_hash = System.get_env("PLATFORM_ADMIN_PASSWORD_HASH")
+  admin_password = System.get_env("PLATFORM_ADMIN_PASSWORD")
 
-  config :pki_platform_portal,
-    admin_username: admin_username,
-    admin_password: admin_password
+  unless admin_password_hash || admin_password do
+    raise "either PLATFORM_ADMIN_PASSWORD_HASH or PLATFORM_ADMIN_PASSWORD must be set"
+  end
+
+  config :pki_platform_portal, admin_username: admin_username
+
+  if admin_password_hash do
+    config :pki_platform_portal, admin_password_hash: admin_password_hash
+  else
+    config :pki_platform_portal, admin_password: admin_password
+  end
 
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
@@ -48,7 +58,7 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  host = System.get_env("PLATFORM_HOST") || System.get_env("PHX_HOST") || "example.com"
 
   config :pki_platform_portal, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 

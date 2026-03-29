@@ -23,31 +23,30 @@ defmodule PkiPlatformPortalWeb.Layouts do
     assigns = assign_new(assigns, :page_title, fn -> nil end)
 
     ~H"""
-    <div class="flex min-h-screen">
+    <div class="flex min-h-screen bg-base-200">
       <%!-- Sidebar --%>
-      <aside class="fixed top-0 left-0 h-screen w-64 flex flex-col"
-             style="background-color: oklch(22% 0.025 280);">
+      <aside class="fixed top-0 left-0 h-screen w-64 flex flex-col bg-base-100 border-r border-base-300">
         <%!-- Logo --%>
-        <div class="flex items-center gap-3 px-5 py-5 border-b border-white/10">
-          <div class="flex items-center justify-center w-9 h-9 rounded-lg"
-               style="background-color: oklch(55% 0.2 280);">
-            <.icon name="hero-server-stack" class="size-5 text-white" />
+        <div class="flex items-center gap-3 px-4 py-4 border-b border-base-300">
+          <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
+            <.icon name="hero-server-stack" class="size-4 text-primary-content" />
           </div>
           <div>
-            <span class="text-base font-bold text-white tracking-tight">Platform Admin</span>
-            <span class="block text-xs text-white/50">Tenant Management</span>
+            <span class="text-sm font-bold text-base-content">Platform Admin</span>
+            <span class="block text-xs text-base-content/40">Tenant Management</span>
           </div>
         </div>
 
         <%!-- Navigation --%>
-        <nav class="flex-1 px-3 py-4 space-y-1">
+        <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
           <.sidebar_link href="/tenants" icon="hero-building-office-2" label="Tenants" current={@page_title} />
         </nav>
 
         <%!-- Sidebar footer --%>
-        <div class="px-4 py-3 border-t border-white/10">
-          <p class="text-xs text-white/40">PQC Platform Administration</p>
+        <div class="px-4 py-3 border-t border-base-300 flex items-center justify-between">
+          <p class="text-xs text-base-content/30">PQC Platform Administration</p>
+          <.theme_toggle />
         </div>
       </aside>
 
@@ -55,21 +54,21 @@ defmodule PkiPlatformPortalWeb.Layouts do
       <div class="flex-1 ml-64 flex flex-col min-h-screen">
         <%!-- Topbar --%>
         <header class="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-base-100 border-b border-base-300">
-          <h1 class="text-lg font-semibold text-base-content">
+          <h1 class="text-sm font-semibold text-base-content">
             {@page_title || "Platform Admin"}
           </h1>
           <div class="flex items-center gap-3">
             <%= if @current_user do %>
-              <span class="text-sm text-base-content/60">
-                <.icon name="hero-user-circle" class="size-4 inline -mt-0.5" />
+              <span class="text-xs text-base-content/50">
+                <.icon name="hero-user-circle" class="size-3.5 inline -mt-0.5" />
                 {@current_user[:display_name] || @current_user[:username]}
               </span>
               <form method="delete" action="/logout">
                 <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
                 <input type="hidden" name="_method" value="delete" />
-                <button type="submit" class="btn btn-ghost btn-sm text-base-content/60 hover:text-error">
-                  <.icon name="hero-arrow-right-on-rectangle" class="size-4" />
-                  Logout
+                <button type="submit" class="btn btn-ghost btn-xs text-base-content/50 hover:text-error">
+                  <.icon name="hero-arrow-right-on-rectangle" class="size-3.5" />
+                  Sign out
                 </button>
               </form>
             <% end %>
@@ -98,8 +97,17 @@ defmodule PkiPlatformPortalWeb.Layouts do
     assigns = assign(assigns, :active, active)
 
     ~H"""
-    <a href={@href} class={"nav-link #{if @active, do: "nav-link-active", else: ""}"}>
-      <.icon name={@icon} class="size-5" />
+    <a
+      href={@href}
+      class={[
+        "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+        if(@active,
+          do: "bg-primary/10 text-primary",
+          else: "text-base-content/60 hover:bg-base-200 hover:text-base-content"
+        )
+      ]}
+    >
+      <.icon name={@icon} class="size-5 shrink-0" />
       <span>{@label}</span>
     </a>
     """
@@ -148,6 +156,43 @@ defmodule PkiPlatformPortalWeb.Layouts do
         {gettext("Attempting to reconnect")}
         <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
       </.flash>
+    </div>
+    """
+  end
+
+  @doc """
+  Provides dark vs light theme toggle based on themes defined in app.css.
+
+  See <head> in root.html.heex which applies the theme before page load.
+  """
+  def theme_toggle(assigns) do
+    ~H"""
+    <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
+      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
+
+      <button
+        class="flex p-2 cursor-pointer w-1/3"
+        phx-click={JS.dispatch("phx:set-theme")}
+        data-phx-theme="system"
+      >
+        <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
+      </button>
+
+      <button
+        class="flex p-2 cursor-pointer w-1/3"
+        phx-click={JS.dispatch("phx:set-theme")}
+        data-phx-theme="light"
+      >
+        <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
+      </button>
+
+      <button
+        class="flex p-2 cursor-pointer w-1/3"
+        phx-click={JS.dispatch("phx:set-theme")}
+        data-phx-theme="dark"
+      >
+        <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
+      </button>
     </div>
     """
   end

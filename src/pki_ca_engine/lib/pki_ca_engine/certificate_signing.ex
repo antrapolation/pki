@@ -127,19 +127,94 @@ defmodule PkiCaEngine.CertificateSigning do
   defp do_sign(issuer_key_record, private_key_der, csr_pem, subject_dn, validity_days, serial) do
     algorithm = issuer_key_record.algorithm
 
-    with {:ok, native_private_key} <- decode_private_key(private_key_der, algorithm) do
-      serial_int = hex_serial_to_integer(serial)
+    case normalize_algo(algorithm) do
+      kaz when kaz in [:kaz_sign_128, :kaz_sign_192, :kaz_sign_256] ->
+        issuer_dn = issuer_dn_string(issuer_key_record)
+        do_sign_kaz(private_key_der, kaz, csr_pem, subject_dn, issuer_dn, validity_days, serial)
 
-      case issuer_key_record.certificate_der do
-        nil ->
-          # Self-signed: no issuer cert available
-          sign_self_signed(native_private_key, csr_pem, subject_dn, validity_days, serial_int)
+      _ ->
+        with {:ok, native_private_key} <- decode_private_key(private_key_der, algorithm) do
+          serial_int = hex_serial_to_integer(serial)
 
-        issuer_cert_der when is_binary(issuer_cert_der) ->
-          issuer_cert = X509.Certificate.from_der!(issuer_cert_der)
-          sign_with_issuer(native_private_key, issuer_cert, csr_pem, subject_dn, validity_days, serial_int)
-      end
+          case issuer_key_record.certificate_der do
+            nil ->
+              sign_self_signed(native_private_key, csr_pem, subject_dn, validity_days, serial_int)
+
+            issuer_cert_der when is_binary(issuer_cert_der) ->
+              issuer_cert = X509.Certificate.from_der!(issuer_cert_der)
+              sign_with_issuer(native_private_key, issuer_cert, csr_pem, subject_dn, validity_days, serial_int)
+          end
+        end
     end
+  end
+
+  defp do_sign_kaz(key_bytes, variant, csr_pem, subject_dn, issuer_dn, validity_days, serial) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    not_after = DateTime.add(now, validity_days * 86400, :second)
+
+    tbs = %{
+      version: 3,
+      serial: serial,
+      algorithm: to_string(variant),
+      issuer: issuer_dn,
+      not_before: DateTime.to_iso8601(now),
+      not_after: DateTime.to_iso8601(not_after),
+      subject: subject_dn,
+      public_key: extract_public_key_bytes_from_csr(csr_pem)
+    }
+
+    tbs_json = Jason.encode!(tbs)
+    digest = :crypto.hash(:sha3_256, tbs_json)
+
+    case ApJavaCrypto.sign(digest, {variant, :private_key, key_bytes}) do
+      {:ok, signature} ->
+        cert_map = Map.put(tbs, :signature, Base.encode64(signature))
+        cert_json = Jason.encode!(cert_map)
+        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_json)}\n-----END PKI CERTIFICATE-----\n"
+        {:ok, cert_json, cert_pem}
+
+      {:error, reason} ->
+        Logger.error("KAZ-SIGN certificate signing failed: #{inspect(reason)}")
+        {:error, {:kaz_sign_failed, reason}}
+    end
+  rescue
+    e ->
+      Logger.error("KAZ-SIGN signing raised: #{inspect(e)}")
+      {:error, {:signing_failed, e}}
+  end
+
+  defp extract_public_key_bytes_from_csr(csr_pem) when is_binary(csr_pem) do
+    case X509.CSR.from_pem(csr_pem) do
+      {:ok, csr} -> csr |> X509.CSR.public_key() |> encode_public_key_bytes()
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp extract_public_key_bytes_from_csr(_), do: nil
+
+  defp encode_public_key_bytes(nil), do: nil
+
+  defp encode_public_key_bytes(pub_key) do
+    :public_key.der_encode(:SubjectPublicKeyInfo, pub_key) |> Base.encode64()
+  rescue
+    _ -> nil
+  end
+
+  defp issuer_dn_string(issuer_key_record) do
+    case issuer_key_record.certificate_der do
+      nil ->
+        "CN=#{issuer_key_record.id}"
+
+      cert_der when is_binary(cert_der) ->
+        cert_der
+        |> X509.Certificate.from_der!()
+        |> X509.Certificate.subject()
+        |> X509.RDNSequence.to_string()
+    end
+  rescue
+    _ -> "CN=#{issuer_key_record.id}"
   end
 
   defp sign_with_issuer(issuer_key, issuer_cert, csr_pem, subject_dn, validity_days, serial) do
@@ -242,6 +317,11 @@ defmodule PkiCaEngine.CertificateSigning do
     case String.downcase(algo) do
       a when a in ["rsa", "rsa-2048", "rsa-4096"] -> :rsa
       a when a in ["ecc", "ec-p256", "ec-p384", "ecdsa"] -> :ec
+      "kaz_sign_128" -> :kaz_sign_128
+      "kaz_sign_192" -> :kaz_sign_192
+      "kaz_sign_256" -> :kaz_sign_256
+      a when a in ["kaz_sign", "kaz-sign"] -> :kaz_sign_128
+      "ml_dsa_44" -> :kaz_sign_128
       _ -> :unknown
     end
   end

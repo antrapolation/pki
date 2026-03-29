@@ -1,0 +1,38 @@
+[Unit]
+Description=PKI Validation Service
+Documentation=https://github.com/straptrust/pki
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=pki
+Group=pki
+WorkingDirectory=/opt/pki/releases/validation
+
+EnvironmentFile=/opt/pki/.env
+Environment=PHX_SERVER=true
+Environment=RELEASE_DISTRIBUTION=name
+Environment=RELEASE_NODE=pki_validation@127.0.0.1
+Environment=RELEASE_COOKIE_FILE=/opt/pki/.cookies/validation
+Environment=ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2
+
+ExecStart=/opt/pki/releases/validation/bin/pki_validation start
+ExecStop=/opt/pki/releases/validation/bin/pki_validation stop
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pki/releases/validation /tmp
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pki-validation
+
+[Install]
+WantedBy=multi-user.target

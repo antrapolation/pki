@@ -4,10 +4,14 @@ defmodule PkiRaPortalWeb.Endpoint do
   # The session will be stored in the cookie and signed,
   # this means its contents can be read but not tampered with.
   # Set :encryption_salt if you would also like to encrypt it.
+  # signing_salt prevents cookie reuse across apps with the same secret_key_base.
+  # Falls back to the compile-time default; set RA_PORTAL_SIGNING_SALT in .env for production.
+  @signing_salt Application.compile_env(:pki_ra_portal, :signing_salt, "j2RIRQGu")
+
   @session_options [
     store: :cookie,
     key: "_pki_ra_portal_key",
-    signing_salt: "j2RIRQGu",
+    signing_salt: @signing_salt,
     encryption_salt: "pki_ra_enc",
     same_site: "Strict",
     http_only: true
