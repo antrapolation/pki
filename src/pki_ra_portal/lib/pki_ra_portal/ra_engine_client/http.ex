@@ -92,6 +92,24 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     end
   end
 
+  @impl true
+  def needs_setup?(tenant_id) do
+    case get("/api/v1/auth/needs-setup?tenant_id=#{tenant_id}") do
+      {:ok, %{status: 200, body: %{"needs_setup" => value}}} ->
+        value
+
+      {:ok, %{status: 404}} ->
+        true
+
+      {:ok, _} ->
+        true
+
+      {:error, reason} ->
+        Logger.error("Failed to check needs_setup for tenant #{tenant_id}: #{inspect(reason)}")
+        true
+    end
+  end
+
   # --- User management ---
 
   @impl true

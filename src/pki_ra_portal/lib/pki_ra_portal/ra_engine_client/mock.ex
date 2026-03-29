@@ -410,5 +410,11 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
     users = get_state(:users)
     Enum.empty?(users)
   end
+
+  @impl true
+  def needs_setup?(_tenant_id) do
+    users = get_state(:users)
+    Enum.empty?(users)
+  end
 end
 # Cache buster: 1774526096

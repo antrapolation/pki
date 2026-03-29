@@ -29,6 +29,7 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback authenticate_with_session(String.t(), String.t()) :: {:ok, map(), map()} | {:error, term()}
   @callback register_user(map()) :: {:ok, map()} | {:error, term()}
   @callback needs_setup?() :: boolean()
+  @callback needs_setup?(String.t()) :: boolean()
 
   defp impl,
     do: Application.get_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.Mock)
@@ -54,4 +55,5 @@ defmodule PkiRaPortal.RaEngineClient do
   def authenticate_with_session(username, password), do: impl().authenticate_with_session(username, password)
   def register_user(attrs), do: impl().register_user(attrs)
   def needs_setup?, do: impl().needs_setup?()
+  def needs_setup?(tenant_id), do: impl().needs_setup?(tenant_id)
 end

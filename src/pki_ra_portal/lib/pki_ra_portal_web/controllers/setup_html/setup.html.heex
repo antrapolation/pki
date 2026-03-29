@@ -7,7 +7,9 @@
           <span class="hero-cog-6-tooth text-primary-content text-xl" />
         </div>
         <h1 class="text-2xl font-bold text-base-content">RA Portal Setup</h1>
-        <p class="text-sm text-base-content/50 mt-1">Create the first admin account to get started.</p>
+        <p class="text-sm text-base-content/50 mt-1">
+          Setting up <span class="font-semibold text-base-content/70"><%= @tenant.name %></span> — create the first admin account to get started.
+        </p>
       </div>
 
       <%= if @error do %>
@@ -18,6 +20,7 @@
       <% end %>
 
       <.form for={%{}} action={~p"/setup"} method="post" class="space-y-4">
+        <input type="hidden" name="setup[tenant]" value={@tenant.slug} />
         <div>
           <label for="setup_username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
           <input

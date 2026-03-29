@@ -3,40 +3,62 @@ defmodule PkiRaPortalWeb.SetupController do
 
   alias PkiRaPortal.RaEngineClient
 
-  def new(conn, _params) do
-    if RaEngineClient.needs_setup? do
-      render(conn, :setup, layout: false, error: nil)
-    else
-      conn
-      |> put_flash(:info, "System already configured.")
-      |> redirect(to: "/login")
+  def new(conn, params) do
+    case validate_tenant(params) do
+      {:ok, tenant} ->
+        if RaEngineClient.needs_setup?(tenant.id) do
+          render(conn, :setup, layout: false, error: nil, tenant: tenant)
+        else
+          conn
+          |> put_flash(:info, "System already configured.")
+          |> redirect(to: "/login")
+        end
+
+      {:error, message} ->
+        render(conn, :setup_error, layout: false, message: message)
     end
   end
 
   def create(conn, %{"setup" => params}) do
-    unless RaEngineClient.needs_setup? do
-      conn
-      |> put_flash(:error, "System already configured.")
-      |> redirect(to: "/login")
-    else
-      case validate_setup_params(params) do
-        {:ok, attrs} ->
-          case RaEngineClient.register_user(attrs) do
-            {:ok, _user} ->
-              conn
-              |> put_flash(:info, "Admin account created. Please sign in.")
-              |> redirect(to: "/login")
+    case validate_tenant(params) do
+      {:ok, tenant} ->
+        unless RaEngineClient.needs_setup?(tenant.id) do
+          conn
+          |> put_flash(:error, "System already configured.")
+          |> redirect(to: "/login")
+        else
+          case validate_setup_params(params) do
+            {:ok, attrs} ->
+              case RaEngineClient.register_user(Map.put(attrs, :tenant_id, tenant.id)) do
+                {:ok, _user} ->
+                  conn
+                  |> put_flash(:info, "Admin account created. Please sign in.")
+                  |> redirect(to: "/login")
 
-            {:error, changeset} ->
-              error = format_changeset_error(changeset)
-              render(conn, :setup, layout: false, error: error)
+                {:error, changeset} ->
+                  error = format_changeset_error(changeset)
+                  render(conn, :setup, layout: false, error: error, tenant: tenant)
+              end
+
+            {:error, message} ->
+              render(conn, :setup, layout: false, error: message, tenant: tenant)
           end
+        end
 
-        {:error, message} ->
-          render(conn, :setup, layout: false, error: message)
-      end
+      {:error, message} ->
+        render(conn, :setup_error, layout: false, message: message)
     end
   end
+
+  defp validate_tenant(%{"tenant" => slug}) when is_binary(slug) and slug != "" do
+    case PkiPlatformEngine.Provisioner.get_tenant_by_slug(slug) do
+      nil -> {:error, "Tenant not found."}
+      %{status: "suspended"} -> {:error, "Tenant is suspended."}
+      tenant -> {:ok, tenant}
+    end
+  end
+
+  defp validate_tenant(_), do: {:error, "Tenant not specified. Contact your platform administrator."}
 
   defp validate_setup_params(%{"password" => pw, "password_confirmation" => confirm} = params)
        when pw == confirm and byte_size(pw) >= 8 do
