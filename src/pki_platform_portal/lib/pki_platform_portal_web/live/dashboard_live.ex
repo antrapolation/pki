@@ -6,6 +6,10 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
     tenants = list_tenants()
     active = Enum.count(tenants, &(&1.status == "active"))
     suspended = Enum.count(tenants, &(&1.status == "suspended"))
+    initialized = Enum.count(tenants, &(&1.status == "initialized"))
+    services = PkiPlatformEngine.SystemHealth.check_all()
+    healthy_services = Enum.count(services, &(&1.status == :healthy))
+    total_services = length(services)
 
     {:ok,
      assign(socket,
@@ -13,6 +17,9 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
        total_tenants: length(tenants),
        active_tenants: active,
        suspended_tenants: suspended,
+       initialized_tenants: initialized,
+       healthy_services: healthy_services,
+       total_services: total_services,
        recent_tenants: Enum.take(tenants, 5)
      )}
   end
@@ -27,7 +34,7 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <div id="dashboard" class="space-y-6">
-      <%!-- Stat cards row --%>
+      <%!-- Stat cards — top row --%>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div class="card bg-base-100 shadow-sm border border-base-300">
           <div class="card-body p-5">
@@ -84,6 +91,48 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
             </div>
           </div>
         </.link>
+      </div>
+
+      <%!-- Stat cards — second row --%>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="card bg-base-100 shadow-sm border border-base-300">
+          <div class="card-body p-5">
+            <div class="flex items-center gap-3">
+              <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-info/10">
+                <.icon name="hero-clock" class="size-5 text-info" />
+              </div>
+              <div>
+                <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider">Pending Setup</p>
+                <p class="text-xl font-bold">{@initialized_tenants}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-sm border border-base-300">
+          <div class="card-body p-5">
+            <div class="flex items-center gap-3">
+              <div class={[
+                "flex items-center justify-center w-10 h-10 rounded-lg",
+                @healthy_services == @total_services && "bg-success/10",
+                @healthy_services != @total_services && "bg-warning/10"
+              ]}>
+                <.icon
+                  name="hero-server-stack"
+                  class={[
+                    "size-5",
+                    @healthy_services == @total_services && "text-success",
+                    @healthy_services != @total_services && "text-warning"
+                  ]}
+                />
+              </div>
+              <div>
+                <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider">Services</p>
+                <p class="text-xl font-bold">{@healthy_services}/{@total_services}</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <%!-- Recent Tenants --%>
