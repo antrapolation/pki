@@ -52,6 +52,7 @@ defmodule PkiRaEngine.Api.UserController do
     []
     |> maybe_add_filter(query_params, "role", :role)
     |> maybe_add_filter(query_params, "status", :status)
+    |> maybe_add_filter(query_params, "tenant_id", :tenant_id)
   end
 
   defp maybe_add_filter(filters, params, key, filter_key) do
@@ -68,6 +69,7 @@ defmodule PkiRaEngine.Api.UserController do
     |> maybe_put(:display_name, params["display_name"])
     |> maybe_put(:role, params["role"])
     |> maybe_put(:status, params["status"])
+    |> maybe_put(:tenant_id, params["tenant_id"])
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -87,6 +89,7 @@ defmodule PkiRaEngine.Api.UserController do
       display_name: user.display_name,
       role: user.role,
       status: user.status,
+      tenant_id: user.tenant_id,
       inserted_at: user.inserted_at,
       updated_at: user.updated_at
     }

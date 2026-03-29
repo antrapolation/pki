@@ -73,12 +73,13 @@ defmodule PkiRaEngine.UserManagement do
     end
   end
 
-  @doc "Returns true if no RA users exist."
-  @spec needs_setup?() :: boolean()
-  def needs_setup? do
+  @doc "Returns true if no RA admin users exist (optionally scoped to a tenant)."
+  @spec needs_setup?(String.t() | nil) :: boolean()
+  def needs_setup?(tenant_id \\ nil) do
     import Ecto.Query
-    count = Repo.one(from u in RaUser, select: count(u.id))
-    count == 0
+    query = from(u in RaUser, where: u.role == "ra_admin")
+    query = if tenant_id, do: from(u in query, where: u.tenant_id == ^tenant_id), else: query
+    Repo.aggregate(query, :count) == 0
   end
 
   @doc "Create a new RA user with credentials (password + dual keypairs)."
@@ -104,12 +105,22 @@ defmodule PkiRaEngine.UserManagement do
     |> Repo.insert()
   end
 
-  @doc "List users with optional keyword filters (:role, :status)."
+  @doc "List users with optional keyword filters (:role, :status, :tenant_id)."
   @spec list_users(keyword()) :: [RaUser.t()]
   def list_users(filters) do
-    RaUser
-    |> apply_eq_filters(filters)
-    |> Repo.all()
+    import Ecto.Query
+
+    query =
+      RaUser
+      |> apply_eq_filters(Keyword.delete(filters, :tenant_id))
+
+    query =
+      case Keyword.get(filters, :tenant_id) do
+        nil -> query
+        tid -> from(u in query, where: u.tenant_id == ^tid)
+      end
+
+    Repo.all(query)
   end
 
   @doc "Get a user by ID."
