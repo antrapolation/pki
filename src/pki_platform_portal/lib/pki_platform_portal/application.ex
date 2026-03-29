@@ -5,8 +5,6 @@ defmodule PkiPlatformPortal.Application do
 
   @impl true
   def start(_type, _args) do
-    hash_admin_password()
-
     children = [
       PkiPlatformPortalWeb.Telemetry,
       {DNSCluster,

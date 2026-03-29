@@ -29,7 +29,9 @@ defmodule PkiPlatformEngine.MixProject do
       {:postgrex, "~> 0.18"},
       {:jason, "~> 1.4"},
       {:uniq, "~> 0.6"},
-      {:plug, "~> 1.14"}
+      {:plug, "~> 1.14"},
+      {:argon2_elixir, "~> 4.0"},
+      {:req, "~> 0.5"}
     ]
   end
 
