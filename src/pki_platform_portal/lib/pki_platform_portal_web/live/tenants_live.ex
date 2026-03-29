@@ -118,59 +118,63 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
 
           <%= if @form_error do %>
             <div class="alert alert-error text-sm mb-3">
-              <span class="hero-exclamation-circle text-lg" />
+              <.icon name="hero-exclamation-circle" class="size-4" />
               <span>{@form_error}</span>
             </div>
           <% end %>
 
-          <form id="create-tenant-form" phx-submit="create_tenant" class="flex items-end gap-3">
-            <div class="flex-1">
-              <label for="tenant-name" class="block text-xs font-medium text-base-content/60 mb-1">Name</label>
-              <input
-                type="text"
-                name="name"
-                id="tenant-name"
-                required
-                class="input input-bordered input-sm w-full"
-                placeholder="Organization Name"
-              />
+          <form id="create-tenant-form" phx-submit="create_tenant" class="space-y-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label for="tenant-name" class="block text-xs font-medium text-base-content/60 mb-1">Name</label>
+                <input
+                  type="text"
+                  name="name"
+                  id="tenant-name"
+                  required
+                  class="input input-bordered input-sm w-full"
+                  placeholder="Organization Name"
+                />
+              </div>
+              <div>
+                <label for="tenant-slug" class="block text-xs font-medium text-base-content/60 mb-1">Slug</label>
+                <input
+                  type="text"
+                  name="slug"
+                  id="tenant-slug"
+                  required
+                  class="input input-bordered input-sm w-full"
+                  placeholder="org-name"
+                  pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
+                  title="Lowercase alphanumeric with hyphens"
+                />
+              </div>
+              <div>
+                <label for="signing-algo" class="block text-xs font-medium text-base-content/60 mb-1">Signing Algorithm</label>
+                <select name="signing_algorithm" id="signing-algo" class="select select-bordered select-sm w-full">
+                  <optgroup label="Classical">
+                    <option value="ECC-P256" selected>ECC-P256</option>
+                    <option value="ECC-P384">ECC-P384</option>
+                    <option value="RSA-2048">RSA-2048</option>
+                    <option value="RSA-4096">RSA-4096</option>
+                  </optgroup>
+                  <optgroup label="Post-Quantum">
+                    <option value="KAZ-SIGN-128">KAZ-SIGN-128</option>
+                    <option value="KAZ-SIGN-192">KAZ-SIGN-192</option>
+                    <option value="KAZ-SIGN-256">KAZ-SIGN-256</option>
+                    <option value="ML-DSA-44">ML-DSA-44</option>
+                    <option value="ML-DSA-65">ML-DSA-65</option>
+                    <option value="ML-DSA-87">ML-DSA-87</option>
+                  </optgroup>
+                </select>
+              </div>
             </div>
-            <div class="flex-1">
-              <label for="tenant-slug" class="block text-xs font-medium text-base-content/60 mb-1">Slug</label>
-              <input
-                type="text"
-                name="slug"
-                id="tenant-slug"
-                required
-                class="input input-bordered input-sm w-full"
-                placeholder="org-name"
-                pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
-                title="Lowercase alphanumeric with hyphens"
-              />
+            <div class="flex justify-end">
+              <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
+                <.icon name="hero-plus" class="size-4" />
+                Create Tenant
+              </button>
             </div>
-            <div class="flex-1">
-              <label for="signing-algo" class="block text-xs font-medium text-base-content/60 mb-1">Signing Algorithm</label>
-              <select name="signing_algorithm" id="signing-algo" class="select select-bordered select-sm w-full">
-                <optgroup label="Classical">
-                  <option value="ECC-P256" selected>ECC-P256</option>
-                  <option value="ECC-P384">ECC-P384</option>
-                  <option value="RSA-2048">RSA-2048</option>
-                  <option value="RSA-4096">RSA-4096</option>
-                </optgroup>
-                <optgroup label="Post-Quantum">
-                  <option value="KAZ-SIGN-128">KAZ-SIGN-128</option>
-                  <option value="KAZ-SIGN-192">KAZ-SIGN-192</option>
-                  <option value="KAZ-SIGN-256">KAZ-SIGN-256</option>
-                  <option value="ML-DSA-44">ML-DSA-44</option>
-                  <option value="ML-DSA-65">ML-DSA-65</option>
-                  <option value="ML-DSA-87">ML-DSA-87</option>
-                </optgroup>
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
-              <.icon name="hero-plus" class="size-4" />
-              Create
-            </button>
           </form>
         </div>
       </div>

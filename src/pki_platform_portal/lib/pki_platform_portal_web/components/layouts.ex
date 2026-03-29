@@ -97,8 +97,8 @@ defmodule PkiPlatformPortalWeb.Layouts do
     assigns = assign(assigns, :active, active)
 
     ~H"""
-    <a
-      href={@href}
+    <.link
+      navigate={@href}
       class={[
         "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors",
         if(@active,
@@ -109,7 +109,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
     >
       <.icon name={@icon} class="size-5 shrink-0" />
       <span>{@label}</span>
-    </a>
+    </.link>
     """
   end
 
