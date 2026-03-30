@@ -275,18 +275,36 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   # --- Direct engine calls for admin management ---
 
   defp create_ca_admin(tenant, ca_instance_id, username, password) do
-    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+    alias PkiPlatformEngine.PlatformAuth
 
-    # Use register_user which hashes the password via registration_changeset
-    case PkiCaEngine.UserManagement.register_user(tenant.id, ca_instance_id, %{
-           username: username,
-           password: password,
-           role: "ca_admin",
-           display_name: "#{tenant.name} CA Admin",
-           must_change_password: true,
-           credential_expires_at: expires_at
-         }) do
-      {:ok, _user} -> :ok
+    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+    display_name = "#{tenant.name} CA Admin"
+
+    with {:ok, profile} <-
+           PlatformAuth.find_or_create_user_profile(%{
+             username: username,
+             password: password,
+             display_name: display_name,
+             email: tenant.email,
+             must_change_password: true
+           }),
+         {:ok, _role} <-
+           PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
+             role: "ca_admin",
+             portal: "ca",
+             ca_instance_id: ca_instance_id
+           }),
+         {:ok, _user} <-
+           PkiCaEngine.UserManagement.register_user(tenant.id, ca_instance_id, %{
+             username: username,
+             password: password,
+             role: "ca_admin",
+             display_name: display_name,
+             must_change_password: true,
+             credential_expires_at: expires_at
+           }) do
+      :ok
+    else
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -294,19 +312,36 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   end
 
   defp create_ra_admin(tenant, username, password) do
-    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+    alias PkiPlatformEngine.PlatformAuth
 
-    # Use register_user which hashes the password via registration_changeset
-    case PkiRaEngine.UserManagement.register_user(tenant.id, %{
-           username: username,
-           password: password,
-           role: "ra_admin",
-           display_name: "#{tenant.name} RA Admin",
-           tenant_id: tenant.id,
-           must_change_password: true,
-           credential_expires_at: expires_at
-         }) do
-      {:ok, _user} -> :ok
+    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+    display_name = "#{tenant.name} RA Admin"
+
+    with {:ok, profile} <-
+           PlatformAuth.find_or_create_user_profile(%{
+             username: username,
+             password: password,
+             display_name: display_name,
+             email: tenant.email,
+             must_change_password: true
+           }),
+         {:ok, _role} <-
+           PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
+             role: "ra_admin",
+             portal: "ra"
+           }),
+         {:ok, _user} <-
+           PkiRaEngine.UserManagement.register_user(tenant.id, %{
+             username: username,
+             password: password,
+             role: "ra_admin",
+             display_name: display_name,
+             tenant_id: tenant.id,
+             must_change_password: true,
+             credential_expires_at: expires_at
+           }) do
+      :ok
+    else
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -330,6 +365,14 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
           end
 
         user ->
+          # Reset platform profile password and reactivate if needed
+          case PkiPlatformEngine.PlatformAuth.get_by_username(username) do
+            {:ok, profile} ->
+              PkiPlatformEngine.PlatformAuth.reset_password(profile.id, password)
+              if profile.status == "suspended", do: PkiPlatformEngine.PlatformAuth.reactivate(profile.id)
+            {:error, _} -> :ok
+          end
+
           # Reactivate if suspended and reset password
           if user.status == "suspended" do
             PkiCaEngine.UserManagement.update_user(tenant.id, user.id, %{status: "active"})
@@ -418,6 +461,14 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         end
 
       user ->
+        # Reset platform profile password and reactivate if needed
+        case PkiPlatformEngine.PlatformAuth.get_by_username(username) do
+          {:ok, profile} ->
+            PkiPlatformEngine.PlatformAuth.reset_password(profile.id, password)
+            if profile.status == "suspended", do: PkiPlatformEngine.PlatformAuth.reactivate(profile.id)
+          {:error, _} -> :ok
+        end
+
         if user.status == "suspended" do
           PkiRaEngine.UserManagement.update_user(tenant.id, user.id, %{status: "active"})
         end
