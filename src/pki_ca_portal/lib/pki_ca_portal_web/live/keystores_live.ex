@@ -8,10 +8,18 @@ defmodule PkiCaPortalWeb.KeystoresLive do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
     {:ok, keystores} = CaEngineClient.list_keystores(ca_id)
 
+    ca_instances =
+      case CaEngineClient.list_ca_instances() do
+        {:ok, instances} -> instances
+        {:error, _} -> []
+      end
+
     {:ok,
      assign(socket,
        page_title: "Keystore Management",
        keystores: keystores,
+       ca_instances: ca_instances,
+       selected_ca_instance_id: "",
        page: 1,
        per_page: 10
      )}
@@ -33,6 +41,18 @@ defmodule PkiCaPortalWeb.KeystoresLive do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
     end
+  end
+
+  @impl true
+  def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
+    ca_id =
+      if ca_instance_id == "",
+        do: socket.assigns.current_user[:ca_instance_id] || "default",
+        else: ca_instance_id
+
+    {:ok, keystores} = CaEngineClient.list_keystores(ca_id)
+
+    {:noreply, assign(socket, keystores: keystores, selected_ca_instance_id: ca_instance_id, page: 1)}
   end
 
   @impl true
@@ -61,6 +81,23 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   def render(assigns) do
     ~H"""
     <div id="keystores-page" class="space-y-6">
+      <%!-- CA Instance filter --%>
+      <div class="flex items-center gap-3">
+        <label for="ca-instance-filter" class="text-xs font-medium text-base-content/60">Filter by CA Instance</label>
+        <form phx-change="filter_ca_instance">
+          <select name="ca_instance_id" id="ca-instance-filter" class="select select-bordered select-sm">
+            <option value="">All</option>
+            <option
+              :for={inst <- @ca_instances}
+              value={inst.id}
+              selected={@selected_ca_instance_id == inst.id}
+            >
+              {inst.name}
+            </option>
+          </select>
+        </form>
+      </div>
+
       <%!-- Keystores table --%>
       <% paginated_keystores = @keystores |> Enum.drop((@page - 1) * @per_page) |> Enum.take(@per_page) %>
       <% total_keystores = length(@keystores) %>

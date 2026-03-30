@@ -11,10 +11,18 @@ defmodule PkiCaPortalWeb.AuditLogLive do
         {:error, _} -> []
       end
 
+    ca_instances =
+      case CaEngineClient.list_ca_instances() do
+        {:ok, instances} -> instances
+        {:error, _} -> []
+      end
+
     {:ok,
      assign(socket,
        page_title: "Audit Log",
        events: events,
+       ca_instances: ca_instances,
+       selected_ca_instance_id: "",
        filter_action: "",
        filter_actor: "",
        filter_date_from: "",
@@ -25,9 +33,34 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   end
 
   @impl true
+  def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
+    filters =
+      []
+      |> maybe_add_filter(:ca_instance_id, ca_instance_id)
+      |> maybe_add_filter(:action, socket.assigns.filter_action)
+      |> maybe_add_filter(:actor, socket.assigns.filter_actor)
+      |> maybe_add_filter(:date_from, socket.assigns.filter_date_from)
+      |> maybe_add_filter(:date_to, socket.assigns.filter_date_to)
+
+    events =
+      case CaEngineClient.query_audit_log(filters) do
+        {:ok, events} -> events
+        {:error, _} -> []
+      end
+
+    {:noreply,
+     assign(socket,
+       events: events,
+       selected_ca_instance_id: ca_instance_id,
+       page: 1
+     )}
+  end
+
+  @impl true
   def handle_event("filter", params, socket) do
     filters =
       []
+      |> maybe_add_filter(:ca_instance_id, socket.assigns.selected_ca_instance_id)
       |> maybe_add_filter(:action, params["action"])
       |> maybe_add_filter(:actor, params["actor"])
       |> maybe_add_filter(:date_from, params["date_from"])
@@ -63,6 +96,23 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   def render(assigns) do
     ~H"""
     <div id="audit-log-page" class="space-y-6">
+      <%!-- CA Instance filter --%>
+      <div class="flex items-center gap-3">
+        <label for="ca-instance-filter" class="text-xs font-medium text-base-content/60">Filter by CA Instance</label>
+        <form phx-change="filter_ca_instance">
+          <select name="ca_instance_id" id="ca-instance-filter" class="select select-bordered select-sm">
+            <option value="">All</option>
+            <option
+              :for={inst <- @ca_instances}
+              value={inst.id}
+              selected={@selected_ca_instance_id == inst.id}
+            >
+              {inst.name}
+            </option>
+          </select>
+        </form>
+      </div>
+
       <%!-- Filter form --%>
       <div id="audit-filter" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-4">
