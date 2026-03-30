@@ -33,6 +33,10 @@ defmodule PkiCaEngine.Api.AuthenticatedRouter do
     UserController.show(conn, id)
   end
 
+  put "/users/:id/password" do
+    UserController.update_password(conn, id)
+  end
+
   delete "/users/:id" do
     UserController.delete(conn, id)
   end

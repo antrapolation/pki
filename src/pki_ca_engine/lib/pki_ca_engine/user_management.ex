@@ -174,6 +174,16 @@ defmodule PkiCaEngine.UserManagement do
   end
 
   @doc """
+  Updates a user's password and optionally clears must_change_password.
+  """
+  @spec update_user_password(CaUser.t(), map()) :: {:ok, CaUser.t()} | {:error, Ecto.Changeset.t()}
+  def update_user_password(%CaUser{} = user, attrs) do
+    user
+    |> CaUser.password_changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
   Soft-deletes a user by setting status to "suspended".
   """
   @spec delete_user(String.t()) :: {:ok, CaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}

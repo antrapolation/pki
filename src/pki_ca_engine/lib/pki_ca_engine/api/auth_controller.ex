@@ -71,6 +71,8 @@ defmodule PkiCaEngine.Api.AuthController do
       display_name: user.display_name,
       role: user.role,
       status: user.status,
+      must_change_password: user.must_change_password,
+      credential_expires_at: user.credential_expires_at,
       ca_instance_id: user.ca_instance_id,
       inserted_at: user.inserted_at,
       updated_at: user.updated_at

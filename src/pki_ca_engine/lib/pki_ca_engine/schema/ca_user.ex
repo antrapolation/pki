@@ -57,6 +57,23 @@ defmodule PkiCaEngine.Schema.CaUser do
     |> validate_inclusion(:status, @statuses)
   end
 
+  def password_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:password, :must_change_password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 8)
+    |> hash_password_and_clear_expiry()
+  end
+
+  defp hash_password_and_clear_expiry(%{valid?: true, changes: %{password: password}} = changeset) do
+    changeset
+    |> put_change(:password_hash, Argon2.hash_pwd_salt(password))
+    |> put_change(:credential_expires_at, nil)
+    |> delete_change(:password)
+  end
+
+  defp hash_password_and_clear_expiry(changeset), do: changeset
+
   defp hash_password(%{valid?: true, changes: %{password: password}} = changeset) do
     put_change(changeset, :password_hash, Argon2.hash_pwd_salt(password))
   end

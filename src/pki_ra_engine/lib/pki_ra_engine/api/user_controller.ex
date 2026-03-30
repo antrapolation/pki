@@ -41,6 +41,25 @@ defmodule PkiRaEngine.Api.UserController do
     end
   end
 
+  def update_password(conn, id) do
+    password = conn.body_params["password"]
+    must_change = conn.body_params["must_change_password"]
+
+    case UserManagement.get_user(id) do
+      {:error, :not_found} ->
+        json(conn, 404, %{error: "not_found"})
+
+      {:ok, user} ->
+        attrs = %{password: password}
+        attrs = if must_change != nil, do: Map.put(attrs, :must_change_password, must_change), else: attrs
+
+        case UserManagement.update_user_password(user, attrs) do
+          {:ok, _user} -> json(conn, 200, %{status: "ok"})
+          {:error, changeset} -> json(conn, 422, %{errors: changeset_errors(changeset)})
+        end
+    end
+  end
+
   def delete(conn, id) do
     case UserManagement.delete_user(id) do
       {:ok, user} -> json(conn, 200, serialize_user(user))

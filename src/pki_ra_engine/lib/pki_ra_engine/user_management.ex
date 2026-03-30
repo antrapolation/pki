@@ -144,6 +144,14 @@ defmodule PkiRaEngine.UserManagement do
     end
   end
 
+  @doc "Update a user's password and optionally clear must_change_password."
+  @spec update_user_password(RaUser.t(), map()) :: {:ok, RaUser.t()} | {:error, Ecto.Changeset.t()}
+  def update_user_password(%RaUser{} = user, attrs) do
+    user
+    |> RaUser.password_changeset(attrs)
+    |> Repo.update()
+  end
+
   @doc "Soft-delete a user by setting status to suspended."
   @spec delete_user(String.t()) :: {:ok, RaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def delete_user(id) do

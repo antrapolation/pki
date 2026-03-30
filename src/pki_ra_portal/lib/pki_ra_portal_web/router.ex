@@ -27,6 +27,8 @@ defmodule PkiRaPortalWeb.Router do
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     delete "/logout", SessionController, :delete
+    get "/change-password", PasswordController, :edit
+    put "/change-password", PasswordController, :update
   end
 
   # Protected routes (auth required)
