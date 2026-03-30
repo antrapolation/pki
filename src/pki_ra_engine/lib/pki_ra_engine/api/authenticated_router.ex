@@ -12,7 +12,8 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     UserController,
     CertProfileController,
     ServiceConfigController,
-    ApiKeyController
+    ApiKeyController,
+    RaInstanceController
   }
 
   plug PkiRaEngine.Api.AuthPlug
@@ -113,6 +114,29 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
 
   post "/api-keys/:id/revoke" do
     ApiKeyController.revoke(conn, id)
+  end
+
+  # --- RA instance routes ---
+
+  get "/ra-instances" do
+    RaInstanceController.index(conn)
+  end
+
+  post "/ra-instances" do
+    RaInstanceController.create(conn)
+  end
+
+  get "/ra-instances/:id" do
+    RaInstanceController.show(conn, id)
+  end
+
+  patch "/ra-instances/:id" do
+    RaInstanceController.update(conn, id)
+  end
+
+  # Available issuer keys (proxy to CA engine)
+  get "/available-issuer-keys" do
+    RaInstanceController.available_issuer_keys(conn)
   end
 
   match _ do
