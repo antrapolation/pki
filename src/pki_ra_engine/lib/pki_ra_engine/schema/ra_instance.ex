@@ -1,4 +1,4 @@
-defmodule PkiCaEngine.Schema.CaInstance do
+defmodule PkiRaEngine.Schema.RaInstance do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -7,36 +7,28 @@ defmodule PkiCaEngine.Schema.CaInstance do
 
   @statuses ["initialized", "active", "suspended"]
 
-  schema "ca_instances" do
+  schema "ra_instances" do
     field :name, :string
     field :status, :string, default: "initialized"
-    field :domain_info, :map, default: %{}
     field :created_by, :string
-    field :parent_id, :binary_id
 
-    belongs_to :parent, PkiCaEngine.Schema.CaInstance,
-      foreign_key: :parent_id,
-      define_field: false
-
-    has_many :children, PkiCaEngine.Schema.CaInstance, foreign_key: :parent_id
-
-    has_many :ca_users, PkiCaEngine.Schema.CaUser
-    has_many :keystores, PkiCaEngine.Schema.Keystore
-    has_many :issuer_keys, PkiCaEngine.Schema.IssuerKey
-    has_many :key_ceremonies, PkiCaEngine.Schema.KeyCeremony
+    has_many :ra_users, PkiRaEngine.Schema.RaUser
+    has_many :cert_profiles, PkiRaEngine.Schema.CertProfile
+    has_many :ra_api_keys, PkiRaEngine.Schema.RaApiKey
 
     timestamps()
   end
 
   def changeset(instance, attrs) do
     instance
-    |> cast(attrs, [:name, :status, :domain_info, :created_by, :parent_id])
+    |> cast(attrs, [:name, :status, :created_by])
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:name)
-    |> foreign_key_constraint(:parent_id)
     |> maybe_generate_id()
   end
+
+  def statuses, do: @statuses
 
   defp maybe_generate_id(changeset) do
     if get_field(changeset, :id) do

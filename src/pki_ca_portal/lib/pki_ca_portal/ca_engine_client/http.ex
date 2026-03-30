@@ -321,6 +321,39 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def list_ca_instances do
+    case auth_get("/api/v1/ca-instances") do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, Enum.map(body, &atomize_keys/1)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def create_ca_instance(attrs) do
+    payload = stringify_keys(attrs)
+
+    case auth_post("/api/v1/ca-instances", payload) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 422, body: %{"details" => details}}} ->
+        {:error, {:validation_error, details}}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
   def query_audit_log(filters) do
     params =
       filters

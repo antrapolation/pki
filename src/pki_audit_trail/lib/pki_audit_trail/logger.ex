@@ -56,6 +56,7 @@ defmodule PkiAuditTrail.Logger do
       resource_type: resource.resource_type,
       resource_id: resource.resource_id,
       details: Map.get(resource, :details, %{}),
+      ca_instance_id: Map.get(resource, :ca_instance_id),
       prev_hash: state.prev_hash
     }
 

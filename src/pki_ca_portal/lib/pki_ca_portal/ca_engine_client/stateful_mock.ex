@@ -194,6 +194,34 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def list_ca_instances do
+    {:ok, Agent.get(__MODULE__, fn state -> Map.get(state, :ca_instances, []) end)}
+  end
+
+  @impl true
+  def create_ca_instance(attrs) do
+    id = next_id()
+
+    role =
+      if attrs[:parent_id] || attrs["parent_id"],
+        do: "intermediate",
+        else: "root"
+
+    instance =
+      Map.merge(
+        %{id: id, status: "active", role: role, issuer_key_count: 0},
+        attrs
+      )
+
+    Agent.update(__MODULE__, fn state ->
+      instances = Map.get(state, :ca_instances, [])
+      Map.put(state, :ca_instances, instances ++ [instance])
+    end)
+
+    {:ok, instance}
+  end
+
+  @impl true
   def query_audit_log(_filters) do
     {:ok, Agent.get(__MODULE__, & &1.audit_events)}
   end

@@ -25,6 +25,9 @@ defmodule PkiRaEngine.Schema.CertProfile do
 
     has_many :csr_requests, PkiRaEngine.Schema.CsrRequest
 
+    belongs_to :ra_instance, PkiRaEngine.Schema.RaInstance
+    field :issuer_key_id, :string
+
     timestamps()
   end
 
@@ -44,7 +47,9 @@ defmodule PkiRaEngine.Schema.CertProfile do
     :included_extensions,
     :renewal_policy,
     :notification_profile,
-    :cert_publish_policy
+    :cert_publish_policy,
+    :ra_instance_id,
+    :issuer_key_id
   ]
 
   def changeset(cert_profile, attrs) do

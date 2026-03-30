@@ -85,9 +85,11 @@ defmodule PkiCaEngine.IssuerKeyManagement do
     current = key.status
 
     if valid_transition?(current, new_status) do
-      key
-      |> IssuerKey.update_status_changeset(%{status: new_status})
-      |> Repo.update()
+      with :ok <- maybe_pre_archive_check(key, new_status) do
+        key
+        |> IssuerKey.update_status_changeset(%{status: new_status})
+        |> Repo.update()
+      end
     else
       {:error, {:invalid_transition, current, new_status}}
     end
@@ -119,6 +121,30 @@ defmodule PkiCaEngine.IssuerKeyManagement do
     key
     |> IssuerKey.certificate_changeset(cert_attrs)
     |> Repo.update()
+  end
+
+  # Cross-engine integration point: cert profiles live in the RA database,
+  # so the CA engine cannot directly query whether active profiles reference
+  # this issuer key.  Configure :pki_ca_engine, :archive_check_fn with a
+  # 1-arity function (receives key id) that returns :ok or {:error, reason}.
+  # When wired up, the RA engine adapter will check for active cert profile
+  # references and block archival if any exist.  Until then, the permissive
+  # default allows archival unconditionally.
+  defp maybe_pre_archive_check(_key, status) when status != "archived", do: :ok
+
+  defp maybe_pre_archive_check(%IssuerKey{} = key, "archived") do
+    pre_archive_check(key)
+  end
+
+  defp pre_archive_check(%IssuerKey{} = key) do
+    case Application.get_env(:pki_ca_engine, :archive_check_fn) do
+      nil ->
+        # No check configured — allow (will be wired to RA engine later)
+        :ok
+
+      check_fn when is_function(check_fn, 1) ->
+        check_fn.(key.id)
+    end
   end
 
   defp valid_transition?(from, to) do

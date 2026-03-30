@@ -7,11 +7,19 @@ defmodule PkiRaPortalWeb.CsrsLive do
   def mount(_params, _session, socket) do
     {:ok, csrs} = RaEngineClient.list_csrs()
 
+    ra_instances =
+      case RaEngineClient.list_ra_instances() do
+        {:ok, instances} -> instances
+        {:error, _} -> []
+      end
+
     {:ok,
      socket
      |> assign(
        page_title: "CSR Management",
        csrs: csrs,
+       ra_instances: ra_instances,
+       selected_ra_instance_id: "",
        status_filter: "all",
        selected_csr: nil,
        reject_reason: "",
@@ -22,8 +30,15 @@ defmodule PkiRaPortalWeb.CsrsLive do
   end
 
   @impl true
+  def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
+    filters = build_filters(socket.assigns.status_filter, ra_instance_id)
+    {:ok, csrs} = RaEngineClient.list_csrs(filters)
+    {:noreply, socket |> assign(csrs: csrs, selected_ra_instance_id: ra_instance_id, page: 1) |> apply_pagination()}
+  end
+
+  @impl true
   def handle_event("filter_status", %{"status" => status}, socket) do
-    filters = if status == "all", do: [], else: [status: status]
+    filters = build_filters(status, socket.assigns.selected_ra_instance_id)
     {:ok, csrs} = RaEngineClient.list_csrs(filters)
     {:noreply, socket |> assign(csrs: csrs, status_filter: status, page: 1) |> apply_pagination()}
   end
@@ -43,7 +58,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
   def handle_event("approve_csr", %{"id" => id}, socket) do
     case RaEngineClient.approve_csr(id, %{approved_by: socket.assigns.current_user[:username]}) do
       {:ok, _} ->
-        filters = if socket.assigns.status_filter == "all", do: [], else: [status: socket.assigns.status_filter]
+        filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
         {:ok, csrs} = RaEngineClient.list_csrs(filters)
 
         {:noreply,
@@ -61,7 +76,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
   def handle_event("reject_csr", %{"csr_id" => id, "reason" => reason}, socket) do
     case RaEngineClient.reject_csr(id, reason, %{rejected_by: socket.assigns.current_user[:username]}) do
       {:ok, _} ->
-        filters = if socket.assigns.status_filter == "all", do: [], else: [status: socket.assigns.status_filter]
+        filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
         {:ok, csrs} = RaEngineClient.list_csrs(filters)
 
         {:noreply,
@@ -78,6 +93,11 @@ defmodule PkiRaPortalWeb.CsrsLive do
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+  end
+
+  defp build_filters(status, ra_instance_id) do
+    filters = if status == "all", do: [], else: [status: status]
+    if ra_instance_id != "", do: filters ++ [ra_instance_id: ra_instance_id], else: filters
   end
 
   defp apply_pagination(socket) do
@@ -98,8 +118,21 @@ defmodule PkiRaPortalWeb.CsrsLive do
     <div id="csrs-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">CSR Management</h1>
 
-      <%!-- Status Filter --%>
-      <section id="csr-filter">
+      <%!-- Filters --%>
+      <section id="csr-filter" class="flex items-center gap-6">
+        <form phx-change="filter_ra_instance" class="flex items-center gap-3">
+          <label for="ra-instance-filter" class="text-xs font-medium text-base-content/60">Filter by RA Instance</label>
+          <select name="ra_instance_id" id="ra-instance-filter" class="select select-bordered select-sm">
+            <option value="">All</option>
+            <option
+              :for={inst <- @ra_instances}
+              value={inst.id}
+              selected={@selected_ra_instance_id == inst.id}
+            >
+              {inst.name}
+            </option>
+          </select>
+        </form>
         <form phx-change="filter_status" class="flex items-center gap-3">
           <label for="status" class="text-sm font-medium text-base-content/60">Filter by status:</label>
           <select name="status" id="status-filter" class="select select-sm select-bordered">

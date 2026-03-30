@@ -8,10 +8,27 @@ defmodule PkiCaEngine.Api.IssuerKeyController do
   alias PkiCaEngine.Api.Helpers
 
   def index(conn) do
-    ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
-    opts = if status = conn.query_params["status"], do: [status: status], else: []
-    keys = IssuerKeyManagement.list_issuer_keys(ca_instance_id, opts)
-    json(conn, 200, Enum.map(keys, &serialize_issuer_key/1))
+    keys =
+      if conn.query_params["leaf_only"] == "true" do
+        PkiCaEngine.CaInstanceManagement.active_leaf_issuer_keys()
+      else
+        ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
+
+        if is_nil(ca_instance_id) do
+          :missing_ca_instance_id
+        else
+          opts = if status = conn.query_params["status"], do: [status: status], else: []
+          IssuerKeyManagement.list_issuer_keys(ca_instance_id, opts)
+        end
+      end
+
+    case keys do
+      :missing_ca_instance_id ->
+        json(conn, 400, %{error: "ca_instance_id is required"})
+
+      keys ->
+        json(conn, 200, Enum.map(keys, &serialize_issuer_key/1))
+    end
   end
 
   defp serialize_issuer_key(key) do

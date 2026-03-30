@@ -25,8 +25,9 @@ defmodule PkiCaEngine.CertificateSigning do
   def sign_certificate(issuer_key_id, csr_pem, cert_profile_map, opts \\ []) do
     activation_server = opts[:activation_server] || KeyActivation
 
-    with {:ok, private_key_der} <- KeyActivation.get_active_key(activation_server, issuer_key_id),
-         {:ok, issuer_key_record} <- get_issuer_key(issuer_key_id) do
+    with {:ok, issuer_key_record} <- get_issuer_key(issuer_key_id),
+         :ok <- check_leaf_ca(issuer_key_record),
+         {:ok, private_key_der} <- KeyActivation.get_active_key(activation_server, issuer_key_id) do
       serial = generate_serial()
       now = DateTime.utc_now() |> DateTime.truncate(:second)
       validity_days = Map.get(cert_profile_map, :validity_days, 365)
@@ -350,6 +351,18 @@ defmodule PkiCaEngine.CertificateSigning do
   end
 
   defp extract_subject_from_csr(_), do: "CN=unknown"
+
+  defp check_leaf_ca(%{ca_instance_id: nil}), do: :ok
+
+  defp check_leaf_ca(%{ca_instance_id: ca_id}) do
+    case PkiCaEngine.Repo.get(PkiCaEngine.Schema.CaInstance, ca_id) do
+      nil -> {:error, :ca_instance_not_found}
+      ca ->
+        if PkiCaEngine.CaInstanceManagement.is_leaf?(ca),
+          do: :ok,
+          else: {:error, :non_leaf_ca_cannot_issue}
+    end
+  end
 
   defp get_issuer_key(issuer_key_id) do
     case Repo.get(IssuerKey, issuer_key_id) do
