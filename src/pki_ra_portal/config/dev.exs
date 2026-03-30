@@ -68,6 +68,39 @@ config :pki_ra_portal,
   internal_api_secret: System.get_env("INTERNAL_API_SECRET", "dev-secret"),
   cookie_secure: false
 
+# RA Engine + CA Engine database config (needed when running Direct mode in-process)
+config :pki_ra_engine, PkiRaEngine.Repo,
+  username: "postgres",
+  password: System.get_env("POSTGRES_PASSWORD", "postgres"),
+  hostname: "localhost",
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+  database: "pki_ra_engine_dev",
+  pool_size: 5
+
+config :pki_ca_engine, PkiCaEngine.Repo,
+  username: "postgres",
+  password: System.get_env("POSTGRES_PASSWORD", "postgres"),
+  hostname: "localhost",
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+  database: "pki_ca_engine_dev",
+  pool_size: 2
+
+config :pki_audit_trail, PkiAuditTrail.Repo,
+  username: "postgres",
+  password: System.get_env("POSTGRES_PASSWORD", "postgres"),
+  hostname: "localhost",
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+  database: "pki_ca_engine_dev",
+  pool_size: 2
+
+# Disable engine HTTP servers (portal runs Direct, not HTTP)
+config :pki_ra_engine, start_http: false
+config :pki_ca_engine, :start_http, false
+
+# Hammer rate limiter config (pulled in via engine dependencies)
+config :hammer,
+  backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 
