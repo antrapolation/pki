@@ -170,7 +170,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
             {:error, reason} -> ["Failed to send credentials email: #{inspect(reason)}"]
           end
         else
-          errors ++ ["Credentials email not sent due to admin creation errors."]
+          errors ++ ["Credentials email not sent — admin accounts must be created first. Use the tenant detail page after deploying the engines."]
         end
 
       error_msg = if errors == [], do: nil, else: Enum.join(errors, "\n")
@@ -200,7 +200,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
            headers: [{"authorization", "Bearer #{secret}"}]
          ) do
       {:ok, %{status: status}} when status in 200..299 -> []
-      {:ok, %{status: status}} -> ["CA admin creation failed (HTTP #{status})"]
+      {:ok, %{status: status}} -> ["CA admin creation failed (HTTP #{status}). You can create the admin later from the tenant detail page after the CA engine is deployed."]
+      {:error, %Req.TransportError{reason: :econnrefused}} -> ["CA engine is not running (port 4001). Deploy the CA engine for this tenant first, then create admin from the tenant detail page."]
       {:error, reason} -> ["CA admin creation failed: #{inspect(reason)}"]
     end
   end
@@ -221,7 +222,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
            headers: [{"authorization", "Bearer #{secret}"}]
          ) do
       {:ok, %{status: status}} when status in 200..299 -> []
-      {:ok, %{status: status}} -> ["RA admin creation failed (HTTP #{status})"]
+      {:ok, %{status: status}} -> ["RA admin creation failed (HTTP #{status}). You can create the admin later from the tenant detail page after the RA engine is deployed."]
+      {:error, %Req.TransportError{reason: :econnrefused}} -> ["RA engine is not running (port 4003). Deploy the RA engine for this tenant first, then create admin from the tenant detail page."]
       {:error, reason} -> ["RA admin creation failed: #{inspect(reason)}"]
     end
   end
