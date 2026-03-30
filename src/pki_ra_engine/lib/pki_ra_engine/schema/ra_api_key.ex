@@ -16,12 +16,13 @@ defmodule PkiRaEngine.Schema.RaApiKey do
     field :revoked_at, :utc_datetime_usec
 
     belongs_to :ra_user, PkiRaEngine.Schema.RaUser
+    belongs_to :ra_instance, PkiRaEngine.Schema.RaInstance
 
     timestamps()
   end
 
   @required_fields [:hashed_key, :ra_user_id]
-  @optional_fields [:label, :expiry, :rate_limit, :status, :revoked_at]
+  @optional_fields [:label, :expiry, :rate_limit, :status, :revoked_at, :ra_instance_id]
 
   def changeset(api_key, attrs) do
     api_key

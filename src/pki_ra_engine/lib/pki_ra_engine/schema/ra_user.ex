@@ -24,12 +24,14 @@ defmodule PkiRaEngine.Schema.RaUser do
     has_many :api_keys, PkiRaEngine.Schema.RaApiKey
     has_many :reviewed_requests, PkiRaEngine.Schema.CsrRequest, foreign_key: :reviewed_by
 
+    belongs_to :ra_instance, PkiRaEngine.Schema.RaInstance
+
     timestamps()
   end
 
   def changeset(ra_user, attrs) do
     ra_user
-    |> cast(attrs, [:username, :display_name, :role, :status, :tenant_id, :must_change_password, :credential_expires_at, :email])
+    |> cast(attrs, [:username, :display_name, :role, :status, :tenant_id, :must_change_password, :credential_expires_at, :email, :ra_instance_id])
     |> validate_required([:role])
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
@@ -39,7 +41,7 @@ defmodule PkiRaEngine.Schema.RaUser do
 
   def registration_changeset(ra_user, attrs) do
     ra_user
-    |> cast(attrs, [:username, :password, :display_name, :role, :tenant_id, :must_change_password, :credential_expires_at, :email])
+    |> cast(attrs, [:username, :password, :display_name, :role, :tenant_id, :must_change_password, :credential_expires_at, :email, :ra_instance_id])
     |> validate_required([:username, :password, :role])
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:password, min: 8, max: 100)
