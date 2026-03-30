@@ -40,6 +40,7 @@ defmodule PkiRaPortalWeb.Router do
 
     live_session :authenticated, on_mount: PkiRaPortalWeb.Live.AuthHook do
       live "/", DashboardLive
+      live "/ra-instances", RaInstancesLive
       live "/users", UsersLive
       live "/csrs", CsrsLive
       live "/cert-profiles", CertProfilesLive
