@@ -14,6 +14,7 @@ defmodule PkiRaPortalWeb.Endpoint do
     signing_salt: @signing_salt,
     encryption_salt: "pki_ra_enc",
     same_site: "Lax",
+    secure: Application.compile_env(:pki_ra_portal, :cookie_secure, false),
     http_only: true
   ]
 
@@ -51,12 +52,6 @@ defmodule PkiRaPortalWeb.Endpoint do
 
   plug Plug.MethodOverride
   plug Plug.Head
-  plug :session_plug
+  plug Plug.Session, @session_options
   plug PkiRaPortalWeb.Router
-
-  defp session_plug(conn, _opts) do
-    secure = Application.get_env(:pki_ra_portal, :cookie_secure, true)
-    opts = Plug.Session.init(Keyword.put(@session_options, :secure, secure))
-    Plug.Session.call(conn, opts)
-  end
 end
