@@ -34,7 +34,9 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
   end
 
   def create(conn, _params) do
-    render(conn, :new, layout: false, error: "Username is required.")
+    conn
+    |> configure_session(renew: true)
+    |> render(:new, layout: false, error: "Username is required.")
   end
 
   def update(conn, %{"code" => code, "password" => password, "password_confirmation" => confirmation}) do
