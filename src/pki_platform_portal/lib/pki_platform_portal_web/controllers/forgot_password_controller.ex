@@ -54,6 +54,8 @@ defmodule PkiPlatformPortalWeb.ForgotPasswordController do
           :ok ->
             case AdminManagement.reset_admin_password(reset_user_id, password) do
               {:ok, _} ->
+                Logger.info("password_reset_completed user_id=#{reset_user_id} remote_ip=#{:inet.ntoa(conn.remote_ip)}")
+
                 conn
                 |> delete_session(:reset_user_id)
                 |> delete_session(:reset_email)
@@ -65,6 +67,8 @@ defmodule PkiPlatformPortalWeb.ForgotPasswordController do
             end
 
           {:error, :too_many_attempts} ->
+            Logger.warning("password_reset_too_many_attempts remote_ip=#{:inet.ntoa(conn.remote_ip)}")
+
             conn
             |> delete_session(:reset_user_id)
             |> delete_session(:reset_email)

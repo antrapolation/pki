@@ -16,7 +16,7 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
         code = EmailVerification.generate_code(email)
         html = EmailTemplates.password_reset_code(code)
         Mailer.send_email(email, "Password Reset Code", html)
-        Logger.info("password_reset_initiated user_id=\#{id} remote_ip=\#{:inet.ntoa(conn.remote_ip)}")
+        Logger.info("password_reset_initiated user_id=#{id} remote_ip=#{:inet.ntoa(conn.remote_ip)}")
 
         conn
         |> configure_session(renew: true)
@@ -55,7 +55,7 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
           :ok ->
             case update_user_password(reset_user_id, password) do
               :ok ->
-                Logger.info("password_reset_completed user_id=\#{reset_user_id} remote_ip=\#{:inet.ntoa(conn.remote_ip)}")
+                Logger.info("password_reset_completed user_id=#{reset_user_id} remote_ip=#{:inet.ntoa(conn.remote_ip)}")
 
                 conn
                 |> delete_session(:reset_user_id)
@@ -68,7 +68,7 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
             end
 
           {:error, :too_many_attempts} ->
-            Logger.warning("password_reset_too_many_attempts remote_ip=\#{:inet.ntoa(conn.remote_ip)}")
+            Logger.warning("password_reset_too_many_attempts remote_ip=#{:inet.ntoa(conn.remote_ip)}")
 
             conn
             |> delete_session(:reset_user_id)
