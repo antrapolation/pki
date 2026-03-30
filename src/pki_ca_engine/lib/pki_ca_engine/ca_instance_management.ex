@@ -19,7 +19,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
   def create_ca_instance(attrs, opts \\ []) do
     max_depth = Keyword.get(opts, :max_ca_depth, 2)
 
-    case Map.get(attrs, :parent_id) do
+    case Map.get(attrs, :parent_id) || Map.get(attrs, "parent_id") do
       nil ->
         %CaInstance{} |> CaInstance.changeset(attrs) |> Repo.insert()
 
@@ -60,10 +60,15 @@ defmodule PkiCaEngine.CaInstanceManagement do
 
   @doc "Returns the depth of a CA instance (root = 1). Walks up the parent chain."
   def depth(%CaInstance{parent_id: nil}), do: 1
+  def depth(%CaInstance{parent_id: parent_id}), do: do_depth(parent_id, 2)
 
-  def depth(%CaInstance{parent_id: parent_id}) do
-    parent = Repo.get!(CaInstance, parent_id)
-    1 + depth(parent)
+  defp do_depth(_parent_id, acc) when acc > 20, do: acc
+  defp do_depth(parent_id, acc) do
+    case Repo.get(CaInstance, parent_id) do
+      nil -> acc
+      %CaInstance{parent_id: nil} -> acc
+      %CaInstance{parent_id: next_parent} -> do_depth(next_parent, acc + 1)
+    end
   end
 
   @doc "Returns the role: `:root`, `:intermediate`, or `:issuing`."

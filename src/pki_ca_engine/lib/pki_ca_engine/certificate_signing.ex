@@ -355,12 +355,12 @@ defmodule PkiCaEngine.CertificateSigning do
   defp check_leaf_ca(%{ca_instance_id: nil}), do: :ok
 
   defp check_leaf_ca(%{ca_instance_id: ca_id}) do
-    alias PkiCaEngine.Schema.CaInstance
-
-    if PkiCaEngine.CaInstanceManagement.is_leaf?(Repo.get!(CaInstance, ca_id)) do
-      :ok
-    else
-      {:error, :non_leaf_ca_cannot_issue}
+    case PkiCaEngine.Repo.get(PkiCaEngine.Schema.CaInstance, ca_id) do
+      nil -> {:error, :ca_instance_not_found}
+      ca ->
+        if PkiCaEngine.CaInstanceManagement.is_leaf?(ca),
+          do: :ok,
+          else: {:error, :non_leaf_ca_cannot_issue}
     end
   end
 

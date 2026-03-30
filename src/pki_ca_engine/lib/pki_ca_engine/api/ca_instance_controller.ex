@@ -83,8 +83,19 @@ defmodule PkiCaEngine.Api.CaInstanceController do
       name: ca.name,
       status: ca.status,
       parent_id: ca.parent_id,
-      role: CaInstanceManagement.role(ca)
+      role: infer_role(ca)
     }
+  end
+
+  defp infer_role(ca) do
+    children_loaded = if Ecto.assoc_loaded?(ca.children), do: ca.children, else: nil
+
+    cond do
+      is_nil(ca.parent_id) -> :root
+      children_loaded != nil and children_loaded == [] -> :issuing
+      children_loaded != nil and children_loaded != [] -> :intermediate
+      true -> CaInstanceManagement.role(ca)
+    end
   end
 
   defp serialize_tree(ca) do
