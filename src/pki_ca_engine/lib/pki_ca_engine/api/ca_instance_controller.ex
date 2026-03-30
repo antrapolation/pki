@@ -3,7 +3,7 @@ defmodule PkiCaEngine.Api.CaInstanceController do
   alias PkiCaEngine.CaInstanceManagement
 
   def create(conn) do
-    attrs = conn.body_params
+    attrs = Map.drop(conn.body_params, ["id", "status"])
 
     case CaInstanceManagement.create_ca_instance(attrs) do
       {:ok, ca} ->

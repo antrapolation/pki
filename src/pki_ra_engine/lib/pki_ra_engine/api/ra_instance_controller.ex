@@ -8,7 +8,7 @@ defmodule PkiRaEngine.Api.RaInstanceController do
   alias PkiRaEngine.RaInstanceManagement
 
   def create(conn) do
-    attrs = conn.body_params
+    attrs = Map.drop(conn.body_params, ["id", "status"])
 
     case RaInstanceManagement.create_ra_instance(attrs) do
       {:ok, ra} ->
@@ -55,20 +55,11 @@ defmodule PkiRaEngine.Api.RaInstanceController do
   end
 
   def available_issuer_keys(conn) do
-    ca_url = Application.get_env(:pki_ra_engine, :ca_engine_url)
-    secret = Application.get_env(:pki_ra_engine, :internal_api_secret)
-
-    if is_nil(ca_url) or ca_url == "" do
-      json(conn, 503, %{error: "ca_engine_url_not_configured"})
-    else
-      url = String.trim_trailing(ca_url, "/") <> "/api/v1/issuer-keys?leaf_only=true"
-      headers = if secret, do: [{"authorization", "Bearer #{secret}"}], else: []
-
-      case Req.get(url, headers: headers, receive_timeout: 10_000) do
-        {:ok, %{status: 200, body: body}} -> json(conn, 200, body)
-        {:ok, %{status: status}} -> json(conn, 502, %{error: "ca_engine_returned_#{status}"})
-        {:error, reason} -> json(conn, 502, %{error: inspect(reason)})
-      end
+    case PkiRaEngine.CsrValidation.HttpCaClient.list_leaf_issuer_keys() do
+      {:ok, keys} -> json(conn, 200, keys)
+      {:error, :ca_engine_url_not_configured} -> json(conn, 503, %{error: "ca_engine_url_not_configured"})
+      {:error, {:ca_engine_error, status, detail}} -> json(conn, 502, %{error: "ca_engine_returned_#{status}", detail: detail})
+      {:error, reason} -> json(conn, 502, %{error: inspect(reason)})
     end
   end
 

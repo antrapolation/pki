@@ -6,8 +6,16 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   @impl true
   def mount(_params, _session, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
-    {:ok, ceremonies} = CaEngineClient.list_ceremonies(ca_id)
-    {:ok, keystores} = CaEngineClient.list_keystores(ca_id)
+
+    ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
+
+    keystores = case CaEngineClient.list_keystores(ca_id) do
+      {:ok, ks} -> ks
+      {:error, _} -> []
+    end
 
     ca_instances =
       case CaEngineClient.list_ca_instances() do
@@ -42,7 +50,10 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
     case CaEngineClient.initiate_ceremony(ca_id, ceremony_params) do
       {:ok, result} ->
-        {:ok, ceremonies} = CaEngineClient.list_ceremonies(ca_id)
+        ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+          {:ok, c} -> c
+          {:error, _} -> []
+        end
 
         {:noreply,
          socket
@@ -61,8 +72,15 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         do: socket.assigns.current_user[:ca_instance_id] || "default",
         else: ca_instance_id
 
-    {:ok, ceremonies} = CaEngineClient.list_ceremonies(ca_id)
-    {:ok, keystores} = CaEngineClient.list_keystores(ca_id)
+    ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
+
+    keystores = case CaEngineClient.list_keystores(ca_id) do
+      {:ok, ks} -> ks
+      {:error, _} -> []
+    end
 
     {:noreply,
      assign(socket,
