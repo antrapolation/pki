@@ -44,13 +44,20 @@ defmodule PkiPlatformEngine.EmailVerification do
           {:error, :expired}
         end
 
-      [{^key, _other_code, _expires_at, attempts}] when attempts + 1 >= @max_attempts ->
-        :ets.delete(@table, key)
-        {:error, :too_many_attempts}
-
       [{^key, stored_code, expires_at, attempts}] ->
-        :ets.insert(@table, {key, stored_code, expires_at, attempts + 1})
-        {:error, :invalid_code}
+        cond do
+          System.system_time(:second) > expires_at ->
+            :ets.delete(@table, key)
+            {:error, :expired}
+
+          attempts + 1 >= @max_attempts ->
+            :ets.delete(@table, key)
+            {:error, :too_many_attempts}
+
+          true ->
+            :ets.insert(@table, {key, stored_code, expires_at, attempts + 1})
+            {:error, :invalid_code}
+        end
 
       [] ->
         {:error, :no_code}
