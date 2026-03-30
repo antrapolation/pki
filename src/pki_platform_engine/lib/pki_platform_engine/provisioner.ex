@@ -8,8 +8,6 @@ defmodule PkiPlatformEngine.Provisioner do
     attrs = %{
       name: name,
       slug: slug,
-      signing_algorithm: Keyword.get(opts, :signing_algorithm, "ECC-P256"),
-      kem_algorithm: Keyword.get(opts, :kem_algorithm, "ECDH-P256"),
       email: Keyword.get(opts, :email)
     }
 
