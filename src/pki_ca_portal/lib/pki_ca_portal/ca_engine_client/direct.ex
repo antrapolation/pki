@@ -77,13 +77,19 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
-  def needs_setup?(ca_instance_id, opts \\ []) do
+  def needs_setup?(_ca_instance_id, opts \\ []) do
     tenant_id = opts[:tenant_id]
-    UserManagement.needs_setup?(tenant_id, ca_instance_id)
-  rescue
-    e ->
-      Logger.error("Failed to check needs_setup: #{Exception.message(e)}")
+
+    if tenant_id do
+      count = PkiPlatformEngine.PlatformRepo.one(
+        from r in PkiPlatformEngine.UserTenantRole,
+          where: r.tenant_id == ^tenant_id and r.portal == "ca" and r.status == "active",
+          select: count(r.id)
+      )
+      count == 0
+    else
       true
+    end
   end
 
   @impl true
@@ -98,17 +104,17 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
 
   @impl true
   def reset_password(user_id, new_password, opts \\ []) do
-    tenant_id = opts[:tenant_id]
-
-    case UserManagement.get_user(tenant_id, user_id) do
-      {:ok, user} ->
-        case UserManagement.update_user_password(tenant_id, user, %{password: new_password}) do
-          {:ok, _user} -> :ok
-          {:error, _reason} = err -> err
+    # Try platform DB first
+    case PkiPlatformEngine.PlatformAuth.reset_password(user_id, new_password, must_change_password: false) do
+      {:ok, _} -> :ok
+      {:error, :not_found} ->
+        # Fallback: try tenant DB for legacy users
+        tenant_id = opts[:tenant_id]
+        with {:ok, user} <- UserManagement.get_user(tenant_id, user_id),
+             {:ok, _} <- UserManagement.update_user_password(tenant_id, user, %{password: new_password}) do
+          :ok
         end
-
-      {:error, _reason} = err ->
-        err
+      {:error, _} = err -> err
     end
   end
 
