@@ -3,7 +3,8 @@ defmodule PkiPlatformEngine.Application do
 
   def start(_type, _args) do
     children = [
-      PkiPlatformEngine.PlatformRepo
+      PkiPlatformEngine.PlatformRepo,
+      PkiPlatformEngine.EmailVerification
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: PkiPlatformEngine.Supervisor)
