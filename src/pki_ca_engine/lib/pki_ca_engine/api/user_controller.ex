@@ -8,13 +8,15 @@ defmodule PkiCaEngine.Api.UserController do
   alias PkiCaEngine.Api.Helpers
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
     opts = if role = conn.query_params["role"], do: [role: role], else: []
-    users = UserManagement.list_users(ca_instance_id, opts)
+    users = UserManagement.list_users(tenant_id, ca_instance_id, opts)
     json(conn, 200, Enum.map(users, &serialize_user/1))
   end
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
     attrs = build_attrs(conn.body_params)
     password = conn.body_params["password"]
@@ -24,10 +26,10 @@ defmodule PkiCaEngine.Api.UserController do
         # Create user with cryptographic credentials
         user_attrs = Map.drop(attrs, [:password, "password"])
         opts = build_admin_context(conn.body_params)
-        UserManagement.create_user_with_credentials(ca_instance_id, user_attrs, password, opts)
+        UserManagement.create_user_with_credentials(tenant_id, ca_instance_id, user_attrs, password, opts)
       else
         # Legacy: create user without credentials
-        UserManagement.create_user(ca_instance_id, attrs)
+        UserManagement.create_user(tenant_id, ca_instance_id, attrs)
       end
 
     case result do
@@ -43,17 +45,20 @@ defmodule PkiCaEngine.Api.UserController do
   end
 
   def show(conn, id) do
-    case UserManagement.get_user(id) do
+    tenant_id = conn.assigns[:tenant_id]
+
+    case UserManagement.get_user(tenant_id, id) do
       {:ok, user} -> json(conn, 200, serialize_user(user))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
   end
 
   def update_password(conn, id) do
+    tenant_id = conn.assigns[:tenant_id]
     password = conn.body_params["password"]
     must_change = conn.body_params["must_change_password"]
 
-    case UserManagement.get_user(id) do
+    case UserManagement.get_user(tenant_id, id) do
       {:error, :not_found} ->
         json(conn, 404, %{error: "not_found"})
 
@@ -61,7 +66,7 @@ defmodule PkiCaEngine.Api.UserController do
         attrs = %{password: password}
         attrs = if must_change != nil, do: Map.put(attrs, :must_change_password, must_change), else: attrs
 
-        case UserManagement.update_user_password(user, attrs) do
+        case UserManagement.update_user_password(tenant_id, user, attrs) do
           {:ok, _user} -> json(conn, 200, %{status: "ok"})
           {:error, changeset} -> json(conn, 422, %{errors: changeset_errors(changeset)})
         end
@@ -69,16 +74,19 @@ defmodule PkiCaEngine.Api.UserController do
   end
 
   def delete(conn, id) do
-    case UserManagement.delete_user(id) do
+    tenant_id = conn.assigns[:tenant_id]
+
+    case UserManagement.delete_user(tenant_id, id) do
       {:ok, user} -> json(conn, 200, serialize_user(user))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
   end
 
   def by_username(conn, username) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = conn.query_params["ca_instance_id"] || "default"
 
-    case UserManagement.get_user_by_username(username, ca_instance_id) do
+    case UserManagement.get_user_by_username(tenant_id, username, ca_instance_id) do
       {:ok, user} ->
         json(conn, 200, %{id: user.id, email: user.email})
 

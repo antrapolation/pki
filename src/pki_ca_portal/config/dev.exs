@@ -60,9 +60,10 @@ config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :pki_ca_portal, dev_routes: true
 
-# CA Engine client for local dev — override with env vars
+# CA Engine client for local dev — Direct calls engine modules in-process (no HTTP)
+# Switch to PkiCaPortal.CaEngineClient.Http for remote/separate deployment
 config :pki_ca_portal,
-  ca_engine_client: PkiCaPortal.CaEngineClient.Http,
+  ca_engine_client: PkiCaPortal.CaEngineClient.Direct,
   ca_engine_url: System.get_env("CA_ENGINE_URL", "http://localhost:4001"),
   internal_api_secret: System.get_env("INTERNAL_API_SECRET", "dev-secret"),
   cookie_secure: false

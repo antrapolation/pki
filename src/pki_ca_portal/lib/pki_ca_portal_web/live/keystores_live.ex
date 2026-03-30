@@ -22,14 +22,15 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   @impl true
   def handle_info(:load_data, socket) do
     ca_id = nil  # load all keystores initially; filter via dropdown
+    opts = tenant_opts(socket)
 
-    keystores = case CaEngineClient.list_keystores(ca_id) do
+    keystores = case CaEngineClient.list_keystores(ca_id, opts) do
       {:ok, ks} -> ks
       {:error, _} -> []
     end
 
     ca_instances =
-      case CaEngineClient.list_ca_instances() do
+      case CaEngineClient.list_ca_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
@@ -46,7 +47,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   def handle_event("configure_keystore", %{"type" => type, "ca_instance_id" => ca_instance_id}, socket) do
     ca_id = if ca_instance_id == "", do: socket.assigns.current_user[:ca_instance_id] || "default", else: ca_instance_id
 
-    case CaEngineClient.configure_keystore(ca_id, %{type: type}) do
+    case CaEngineClient.configure_keystore(ca_id, %{type: type}, tenant_opts(socket)) do
       {:ok, keystore} ->
         keystores = [keystore | socket.assigns.keystores]
 
@@ -67,7 +68,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
         do: socket.assigns.current_user[:ca_instance_id] || "default",
         else: ca_instance_id
 
-    keystores = case CaEngineClient.list_keystores(ca_id) do
+    keystores = case CaEngineClient.list_keystores(ca_id, tenant_opts(socket)) do
       {:ok, ks} -> ks
       {:error, _} -> []
     end
@@ -78,6 +79,13 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
+  defp tenant_opts(socket) do
+    case socket.assigns[:tenant_id] do
+      nil -> []
+      tid -> [tenant_id: tid]
+    end
   end
 
   defp type_badge_class(type) do

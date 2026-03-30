@@ -10,8 +10,16 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
 
   def on_mount(:default, _params, session, socket) do
     case session["current_user"] do
-      nil -> {:halt, redirect(socket, to: "/login")}
-      user -> {:cont, assign(socket, :current_user, user)}
+      nil ->
+        {:halt, redirect(socket, to: "/login")}
+
+      user ->
+        tenant_id = session["tenant_id"] || user[:tenant_id]
+
+        {:cont,
+         socket
+         |> assign(:current_user, user)
+         |> assign(:tenant_id, tenant_id)}
     end
   end
 end

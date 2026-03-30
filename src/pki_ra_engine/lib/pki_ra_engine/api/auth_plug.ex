@@ -6,7 +6,7 @@ defmodule PkiRaEngine.Api.AuthPlug do
   1. **Internal API secret** — used by the RA Portal for portal-to-engine calls.
      Configured via `config :pki_ra_engine, :internal_api_secret`.
   2. **API key** — used by external clients (base64-encoded raw key).
-     Verified via `ApiKeyManagement.verify_key/1`.
+     Verified via `ApiKeyManagement.verify_key/2`.
 
   The internal secret is checked first for efficiency. If neither matches,
   the request is rejected with 401.
@@ -19,16 +19,21 @@ defmodule PkiRaEngine.Api.AuthPlug do
   def call(conn, _opts) do
     case get_req_header(conn, "authorization") do
       ["Bearer " <> token] ->
+        tenant_id = List.first(Plug.Conn.get_req_header(conn, "x-tenant-id"))
+
         cond do
           valid_internal_secret?(token) ->
-            assign(conn, :auth_type, :internal)
+            conn
+            |> assign(:auth_type, :internal)
+            |> assign(:tenant_id, tenant_id)
 
           true ->
-            case PkiRaEngine.ApiKeyManagement.verify_key(token) do
+            case PkiRaEngine.ApiKeyManagement.verify_key(tenant_id, token) do
               {:ok, api_key} ->
                 conn
                 |> assign(:auth_type, :api_key)
                 |> assign(:current_api_key, api_key)
+                |> assign(:tenant_id, tenant_id)
 
               _ ->
                 unauthorized(conn)

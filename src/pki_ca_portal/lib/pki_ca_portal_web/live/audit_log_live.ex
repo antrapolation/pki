@@ -25,14 +25,16 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def handle_info(:load_data, socket) do
+    opts = tenant_opts(socket)
+
     events =
-      case CaEngineClient.query_audit_log([]) do
+      case CaEngineClient.query_audit_log([], opts) do
         {:ok, events} -> events
         {:error, _} -> []
       end
 
     ca_instances =
-      case CaEngineClient.list_ca_instances() do
+      case CaEngineClient.list_ca_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
@@ -56,7 +58,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
       |> maybe_add_filter(:date_to, socket.assigns.filter_date_to)
 
     events =
-      case CaEngineClient.query_audit_log(filters) do
+      case CaEngineClient.query_audit_log(filters, tenant_opts(socket)) do
         {:ok, events} -> events
         {:error, _} -> []
       end
@@ -80,7 +82,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
       |> maybe_add_filter(:date_to, params["date_to"])
 
     events =
-      case CaEngineClient.query_audit_log(filters) do
+      case CaEngineClient.query_audit_log(filters, tenant_opts(socket)) do
         {:ok, events} -> events
         {:error, _} -> []
       end
@@ -99,6 +101,13 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
+  defp tenant_opts(socket) do
+    case socket.assigns[:tenant_id] do
+      nil -> []
+      tid -> [tenant_id: tid]
+    end
   end
 
   defp maybe_add_filter(filters, _key, nil), do: filters

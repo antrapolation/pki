@@ -7,9 +7,10 @@ defmodule PkiRaEngine.Api.ApiKeyController do
   alias PkiRaEngine.ApiKeyManagement
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     case conn.query_params do
       %{"ra_user_id" => ra_user_id_str} ->
-        keys = ApiKeyManagement.list_keys(ra_user_id_str)
+        keys = ApiKeyManagement.list_keys(tenant_id, ra_user_id_str)
         json(conn, 200, Enum.map(keys, &serialize_key/1))
 
       _ ->
@@ -20,9 +21,10 @@ defmodule PkiRaEngine.Api.ApiKeyController do
   end
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     attrs = build_attrs(conn.body_params)
 
-    case ApiKeyManagement.create_api_key(attrs) do
+    case ApiKeyManagement.create_api_key(tenant_id, attrs) do
       {:ok, %{raw_key: raw_key, api_key: api_key}} ->
         result =
           api_key
@@ -37,7 +39,8 @@ defmodule PkiRaEngine.Api.ApiKeyController do
   end
 
   def revoke(conn, id) do
-    case ApiKeyManagement.revoke_key(id) do
+    tenant_id = conn.assigns[:tenant_id]
+    case ApiKeyManagement.revoke_key(tenant_id, id) do
       {:ok, api_key} ->
         json(conn, 200, serialize_key(api_key))
 

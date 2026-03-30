@@ -14,7 +14,7 @@ defmodule PkiCaEngine.IssuerKeyManagement do
 
   import Ecto.Query
 
-  alias PkiCaEngine.Repo
+  alias PkiCaEngine.TenantRepo
   alias PkiCaEngine.Schema.IssuerKey
 
   # Valid status transitions: {from, to}
@@ -31,21 +31,24 @@ defmodule PkiCaEngine.IssuerKeyManagement do
   @doc """
   Creates an issuer key record for a CA instance.
   """
-  @spec create_issuer_key(String.t(), map()) :: {:ok, IssuerKey.t()} | {:error, Ecto.Changeset.t()}
-  def create_issuer_key(ca_instance_id, attrs) do
+  @spec create_issuer_key(term(), String.t(), map()) :: {:ok, IssuerKey.t()} | {:error, Ecto.Changeset.t()}
+  def create_issuer_key(tenant_id, ca_instance_id, attrs) do
+    repo = TenantRepo.ca_repo(tenant_id)
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
 
     %IssuerKey{}
     |> IssuerKey.changeset(attrs)
-    |> Repo.insert()
+    |> repo.insert()
   end
 
   @doc """
   Gets an issuer key by ID.
   """
-  @spec get_issuer_key(String.t()) :: {:ok, IssuerKey.t()} | {:error, :not_found}
-  def get_issuer_key(id) do
-    case Repo.get(IssuerKey, id) do
+  @spec get_issuer_key(term(), String.t()) :: {:ok, IssuerKey.t()} | {:error, :not_found}
+  def get_issuer_key(tenant_id, id) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(IssuerKey, id) do
       nil -> {:error, :not_found}
       key -> {:ok, key}
     end
@@ -54,8 +57,9 @@ defmodule PkiCaEngine.IssuerKeyManagement do
   @doc """
   Lists issuer keys for a CA instance, with optional status filter.
   """
-  @spec list_issuer_keys(String.t(), keyword()) :: [IssuerKey.t()]
-  def list_issuer_keys(ca_instance_id, opts \\ []) do
+  @spec list_issuer_keys(term(), String.t(), keyword()) :: [IssuerKey.t()]
+  def list_issuer_keys(tenant_id, ca_instance_id, opts \\ []) do
+    repo = TenantRepo.ca_repo(tenant_id)
     query = from(k in IssuerKey, where: k.ca_instance_id == ^ca_instance_id)
 
     query =
@@ -64,7 +68,7 @@ defmodule PkiCaEngine.IssuerKeyManagement do
         status -> from(k in query, where: k.status == ^status)
       end
 
-    Repo.all(query)
+    repo.all(query)
   end
 
   @doc """
@@ -79,16 +83,17 @@ defmodule PkiCaEngine.IssuerKeyManagement do
 
   Invalid transitions return `{:error, {:invalid_transition, from, to}}`.
   """
-  @spec update_status(IssuerKey.t(), String.t()) ::
+  @spec update_status(term(), IssuerKey.t(), String.t()) ::
           {:ok, IssuerKey.t()} | {:error, {:invalid_transition, String.t(), String.t()}}
-  def update_status(%IssuerKey{} = key, new_status) do
+  def update_status(tenant_id, %IssuerKey{} = key, new_status) do
+    repo = TenantRepo.ca_repo(tenant_id)
     current = key.status
 
     if valid_transition?(current, new_status) do
       with :ok <- maybe_pre_archive_check(key, new_status) do
         key
         |> IssuerKey.update_status_changeset(%{status: new_status})
-        |> Repo.update()
+        |> repo.update()
       end
     else
       {:error, {:invalid_transition, current, new_status}}
@@ -100,27 +105,31 @@ defmodule PkiCaEngine.IssuerKeyManagement do
 
   Only valid when the key's current status is "pending".
   """
-  @spec activate_by_certificate(IssuerKey.t(), map()) ::
+  @spec activate_by_certificate(term(), IssuerKey.t(), map()) ::
           {:ok, IssuerKey.t()} | {:error, {:invalid_status, String.t()}}
-  def activate_by_certificate(%IssuerKey{status: "pending"} = key, cert_attrs) do
+  def activate_by_certificate(tenant_id, %IssuerKey{status: "pending"} = key, cert_attrs) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
     key
     |> IssuerKey.activate_changeset(cert_attrs)
-    |> Repo.update()
+    |> repo.update()
   end
 
-  def activate_by_certificate(%IssuerKey{status: status}, _cert_attrs) do
+  def activate_by_certificate(_tenant_id, %IssuerKey{status: status}, _cert_attrs) do
     {:error, {:invalid_status, status}}
   end
 
   @doc """
   Stores certificate DER and PEM on the issuer key without changing its status.
   """
-  @spec set_certificate(IssuerKey.t(), map()) ::
+  @spec set_certificate(term(), IssuerKey.t(), map()) ::
           {:ok, IssuerKey.t()} | {:error, Ecto.Changeset.t()}
-  def set_certificate(%IssuerKey{} = key, cert_attrs) do
+  def set_certificate(tenant_id, %IssuerKey{} = key, cert_attrs) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
     key
     |> IssuerKey.certificate_changeset(cert_attrs)
-    |> Repo.update()
+    |> repo.update()
   end
 
   # Cross-engine integration point: cert profiles live in the RA database,

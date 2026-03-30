@@ -9,8 +9,10 @@ defmodule PkiCaEngine.Api.AuthController do
   alias PkiCaEngine.Api.Helpers
 
   def login(conn) do
+    tenant_id = conn.assigns[:tenant_id]
+
     with %{"username" => username, "password" => password} <- conn.body_params,
-         {:ok, user, session_info} <- UserManagement.authenticate_with_credentials(username, password) do
+         {:ok, user, session_info} <- UserManagement.authenticate_with_credentials(tenant_id, username, password) do
       response = serialize_user(user)
 
       response =
@@ -33,10 +35,11 @@ defmodule PkiCaEngine.Api.AuthController do
   end
 
   def register(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
     attrs = build_user_attrs(conn.body_params)
 
-    case UserManagement.register_user(ca_instance_id, attrs) do
+    case UserManagement.register_user(tenant_id, ca_instance_id, attrs) do
       {:ok, user} ->
         json(conn, 201, serialize_user(user))
 
@@ -49,8 +52,9 @@ defmodule PkiCaEngine.Api.AuthController do
   end
 
   def needs_setup(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
-    json(conn, 200, %{needs_setup: UserManagement.needs_setup?(ca_instance_id)})
+    json(conn, 200, %{needs_setup: UserManagement.needs_setup?(tenant_id, ca_instance_id)})
   end
 
   defp build_user_attrs(params) do

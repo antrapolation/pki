@@ -26,13 +26,15 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    csrs = case RaEngineClient.list_csrs() do
+    opts = tenant_opts(socket)
+
+    csrs = case RaEngineClient.list_csrs([], opts) do
       {:ok, c} -> c
       {:error, _} -> []
     end
 
     ra_instances =
-      case RaEngineClient.list_ra_instances() do
+      case RaEngineClient.list_ra_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
@@ -50,20 +52,20 @@ defmodule PkiRaPortalWeb.CsrsLive do
   @impl true
   def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
     filters = build_filters(socket.assigns.status_filter, ra_instance_id)
-    {:ok, csrs} = RaEngineClient.list_csrs(filters)
+    {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
     {:noreply, socket |> assign(csrs: csrs, selected_ra_instance_id: ra_instance_id, page: 1) |> apply_pagination()}
   end
 
   @impl true
   def handle_event("filter_status", %{"status" => status}, socket) do
     filters = build_filters(status, socket.assigns.selected_ra_instance_id)
-    {:ok, csrs} = RaEngineClient.list_csrs(filters)
+    {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
     {:noreply, socket |> assign(csrs: csrs, status_filter: status, page: 1) |> apply_pagination()}
   end
 
   @impl true
   def handle_event("view_csr", %{"id" => id}, socket) do
-    {:ok, csr} = RaEngineClient.get_csr(id)
+    {:ok, csr} = RaEngineClient.get_csr(id, tenant_opts(socket))
     {:noreply, assign(socket, selected_csr: csr)}
   end
 
@@ -74,10 +76,10 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("approve_csr", %{"id" => id}, socket) do
-    case RaEngineClient.approve_csr(id, %{approved_by: socket.assigns.current_user[:username]}) do
+    case RaEngineClient.approve_csr(id, %{approved_by: socket.assigns.current_user[:username]}, tenant_opts(socket)) do
       {:ok, _} ->
         filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
-        {:ok, csrs} = RaEngineClient.list_csrs(filters)
+        {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
 
         {:noreply,
          socket
@@ -92,10 +94,10 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("reject_csr", %{"csr_id" => id, "reason" => reason}, socket) do
-    case RaEngineClient.reject_csr(id, reason, %{rejected_by: socket.assigns.current_user[:username]}) do
+    case RaEngineClient.reject_csr(id, reason, %{rejected_by: socket.assigns.current_user[:username]}, tenant_opts(socket)) do
       {:ok, _} ->
         filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
-        {:ok, csrs} = RaEngineClient.list_csrs(filters)
+        {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
 
         {:noreply,
          socket

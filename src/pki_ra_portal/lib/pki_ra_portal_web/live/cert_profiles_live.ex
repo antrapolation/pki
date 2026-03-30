@@ -24,19 +24,21 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    profiles = case RaEngineClient.list_cert_profiles() do
+    opts = tenant_opts(socket)
+
+    profiles = case RaEngineClient.list_cert_profiles(opts) do
       {:ok, p} -> p
       {:error, _} -> []
     end
 
     ra_instances =
-      case RaEngineClient.list_ra_instances() do
+      case RaEngineClient.list_ra_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
 
     issuer_keys =
-      case RaEngineClient.available_issuer_keys() do
+      case RaEngineClient.available_issuer_keys(opts) do
         {:ok, keys} -> keys
         {:error, _} -> []
       end
@@ -64,7 +66,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       issuer_key_id: params["issuer_key_id"]
     }
 
-    case RaEngineClient.create_cert_profile(attrs) do
+    case RaEngineClient.create_cert_profile(attrs, tenant_opts(socket)) do
       {:ok, profile} ->
         profiles = [profile | socket.assigns.profiles]
 
@@ -104,7 +106,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       issuer_key_id: params["issuer_key_id"]
     }
 
-    case RaEngineClient.update_cert_profile(profile_id, attrs) do
+    case RaEngineClient.update_cert_profile(profile_id, attrs, tenant_opts(socket)) do
       {:ok, updated} ->
         profiles =
           Enum.map(socket.assigns.profiles, fn p ->
@@ -124,7 +126,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("delete_profile", %{"id" => id}, socket) do
-    case RaEngineClient.delete_cert_profile(id) do
+    case RaEngineClient.delete_cert_profile(id, tenant_opts(socket)) do
       {:ok, _} ->
         profiles = Enum.reject(socket.assigns.profiles, &(&1.id == id))
 

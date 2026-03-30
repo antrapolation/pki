@@ -14,8 +14,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   # --- Public auth endpoints (no Bearer token) ---
 
   @impl true
-  def authenticate(username, password) do
-    case post("/api/v1/auth/login", %{username: username, password: password}) do
+  def authenticate(username, password, opts \\ []) do
+    case post("/api/v1/auth/login", %{username: username, password: password}, opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -31,8 +31,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def authenticate_with_session(username, password) do
-    case post("/api/v1/auth/login", %{username: username, password: password}) do
+  def authenticate_with_session(username, password, opts \\ []) do
+    case post("/api/v1/auth/login", %{username: username, password: password}, opts) do
       {:ok, %{status: 200, body: body}} ->
         user = atomize_keys(Map.drop(body, ["session_key", "session_salt"]))
 
@@ -64,13 +64,13 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   defp decode_session_value(val), do: val
 
   @impl true
-  def register_user(ca_instance_id, attrs) do
+  def register_user(ca_instance_id, attrs, opts \\ []) do
     payload =
       attrs
       |> stringify_keys()
       |> Map.put("ca_instance_id", ca_instance_id)
 
-    case post("/api/v1/auth/register", payload) do
+    case post("/api/v1/auth/register", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -89,8 +89,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def needs_setup?(ca_instance_id) do
-    case get("/api/v1/auth/needs-setup", params: [ca_instance_id: ca_instance_id]) do
+  def needs_setup?(ca_instance_id, opts \\ []) do
+    case get("/api/v1/auth/needs-setup", params: [ca_instance_id: ca_instance_id], tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: %{"needs_setup" => value}}} ->
         value
 
@@ -104,8 +104,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def get_user_by_username(username, ca_instance_id) do
-    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}", params: [ca_instance_id: ca_instance_id]) do
+  def get_user_by_username(username, ca_instance_id, opts \\ []) do
+    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}", params: [ca_instance_id: ca_instance_id], tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -118,8 +118,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def reset_password(user_id, new_password) do
-    case auth_put("/api/v1/users/#{user_id}/password", %{password: new_password, must_change_password: false}) do
+  def reset_password(user_id, new_password, opts \\ []) do
+    case auth_put("/api/v1/users/#{user_id}/password", %{password: new_password, must_change_password: false}, opts) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
       {:error, reason} -> {:error, {:http_error, reason}}
@@ -129,8 +129,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   # --- Authenticated endpoints (Bearer token required) ---
 
   @impl true
-  def list_users(ca_instance_id) do
-    case auth_get("/api/v1/users", params: [ca_instance_id: ca_instance_id]) do
+  def list_users(ca_instance_id, opts \\ []) do
+    case auth_get("/api/v1/users", params: [ca_instance_id: ca_instance_id], tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -143,13 +143,13 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def create_user(ca_instance_id, attrs) do
+  def create_user(ca_instance_id, attrs, opts \\ []) do
     payload =
       attrs
       |> stringify_keys()
       |> Map.put("ca_instance_id", ca_instance_id)
 
-    case auth_post("/api/v1/users", payload) do
+    case auth_post("/api/v1/users", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -165,7 +165,7 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def create_user(ca_instance_id, attrs, admin_context) do
+  def create_user_with_admin(ca_instance_id, attrs, admin_context, opts \\ []) do
     payload =
       attrs
       |> stringify_keys()
@@ -173,7 +173,7 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       |> Map.put("admin_user_id", admin_context[:user_id] || admin_context["user_id"])
       |> Map.put("admin_password", admin_context[:password] || admin_context["password"])
 
-    case auth_post("/api/v1/users", payload) do
+    case auth_post("/api/v1/users", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -189,8 +189,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def get_user(id) do
-    case auth_get("/api/v1/users/#{id}") do
+  def get_user(id, opts \\ []) do
+    case auth_get("/api/v1/users/#{id}", opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -206,8 +206,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def delete_user(id) do
-    case auth_delete("/api/v1/users/#{id}") do
+  def delete_user(id, opts \\ []) do
+    case auth_delete("/api/v1/users/#{id}", opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -223,8 +223,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def list_keystores(ca_instance_id) do
-    case auth_get("/api/v1/keystores", params: [ca_instance_id: ca_instance_id]) do
+  def list_keystores(ca_instance_id, opts \\ []) do
+    case auth_get("/api/v1/keystores", params: [ca_instance_id: ca_instance_id], tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -237,13 +237,13 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def configure_keystore(ca_instance_id, attrs) do
+  def configure_keystore(ca_instance_id, attrs, opts \\ []) do
     payload =
       attrs
       |> stringify_keys()
       |> Map.put("ca_instance_id", ca_instance_id)
 
-    case auth_post("/api/v1/keystores", payload) do
+    case auth_post("/api/v1/keystores", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -256,8 +256,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def list_issuer_keys(ca_instance_id) do
-    case auth_get("/api/v1/issuer-keys", params: [ca_instance_id: ca_instance_id]) do
+  def list_issuer_keys(ca_instance_id, opts \\ []) do
+    case auth_get("/api/v1/issuer-keys", params: [ca_instance_id: ca_instance_id], tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -270,8 +270,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def get_engine_status(ca_instance_id) do
-    case auth_get("/api/v1/status", params: [ca_instance_id: ca_instance_id]) do
+  def get_engine_status(ca_instance_id, opts \\ []) do
+    case auth_get("/api/v1/status", params: [ca_instance_id: ca_instance_id], tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: body}} ->
         status = atomize_keys(body)
         {:ok, Map.put(status, :active_keys, get_in(status, [:issuer_keys, :active]) || 0)}
@@ -285,13 +285,13 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def initiate_ceremony(ca_instance_id, params) do
+  def initiate_ceremony(ca_instance_id, params, opts \\ []) do
     payload =
       params
       |> stringify_keys()
       |> Map.put("ca_instance_id", ca_instance_id)
 
-    case auth_post("/api/v1/ceremonies", payload) do
+    case auth_post("/api/v1/ceremonies", payload, opts) do
       {:ok, %{status: status, body: %{"ceremony" => ceremony}}} when status in [200, 201] ->
         {:ok, atomize_keys(ceremony)}
 
@@ -307,8 +307,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def list_ceremonies(ca_instance_id) do
-    case auth_get("/api/v1/ceremonies", params: [ca_instance_id: ca_instance_id]) do
+  def list_ceremonies(ca_instance_id, opts \\ []) do
+    case auth_get("/api/v1/ceremonies", params: [ca_instance_id: ca_instance_id], tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -321,8 +321,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def list_ca_instances do
-    case auth_get("/api/v1/ca-instances") do
+  def list_ca_instances(opts \\ []) do
+    case auth_get("/api/v1/ca-instances", opts) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -335,10 +335,10 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def create_ca_instance(attrs) do
+  def create_ca_instance(attrs, opts \\ []) do
     payload = stringify_keys(attrs)
 
-    case auth_post("/api/v1/ca-instances", payload) do
+    case auth_post("/api/v1/ca-instances", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -354,12 +354,12 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def query_audit_log(filters) do
+  def query_audit_log(filters, opts \\ []) do
     params =
       filters
       |> Enum.map(fn {k, v} -> {to_string(k), v} end)
 
-    case auth_get("/api/v1/audit-log", params: params) do
+    case auth_get("/api/v1/audit-log", params: params, tenant_id: opts[:tenant_id]) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -383,69 +383,88 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       raise "Missing :internal_api_secret configuration for :pki_ca_portal"
   end
 
-  defp get(path, opts \\ []) do
-    url = base_url() <> path
-    params = Keyword.get(opts, :params, [])
-
-    Req.get(url, params: params, decode_body: :json)
-  rescue
-    e -> {:error, Exception.message(e)}
-  end
-
-  defp post(path, body) do
-    url = base_url() <> path
-
-    Req.post(url, json: body, decode_body: :json)
-  rescue
-    e -> {:error, Exception.message(e)}
-  end
-
-  defp auth_get(path, opts \\ []) do
+  defp get(path, opts) do
     url = base_url() <> path
     params = Keyword.get(opts, :params, [])
 
     Req.get(url,
       params: params,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: tenant_headers(opts),
       decode_body: :json
     )
   rescue
     e -> {:error, Exception.message(e)}
   end
 
-  defp auth_post(path, body) do
+  defp post(path, body, opts) do
     url = base_url() <> path
 
     Req.post(url,
       json: body,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: tenant_headers(opts),
       decode_body: :json
     )
   rescue
     e -> {:error, Exception.message(e)}
   end
 
-  defp auth_put(path, body) do
+  defp auth_get(path, opts) do
+    url = base_url() <> path
+    params = Keyword.get(opts, :params, [])
+
+    Req.get(url,
+      params: params,
+      headers: auth_headers(opts),
+      decode_body: :json
+    )
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp auth_post(path, body, opts) do
+    url = base_url() <> path
+
+    Req.post(url,
+      json: body,
+      headers: auth_headers(opts),
+      decode_body: :json
+    )
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp auth_put(path, body, opts) do
     url = base_url() <> path
 
     Req.put(url,
       json: body,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: auth_headers(opts),
       decode_body: :json
     )
   rescue
     e -> {:error, Exception.message(e)}
   end
 
-  defp auth_delete(path) do
+  defp auth_delete(path, opts) do
     url = base_url() <> path
 
     Req.delete(url,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: auth_headers(opts),
       decode_body: :json
     )
   rescue
     e -> {:error, Exception.message(e)}
+  end
+
+  defp auth_headers(opts) do
+    [{"authorization", "Bearer #{api_secret()}"} | tenant_headers(opts)]
+  end
+
+  defp tenant_headers(opts) do
+    case Keyword.get(opts, :tenant_id) do
+      nil -> []
+      tenant_id -> [{"x-tenant-id", to_string(tenant_id)}]
+    end
   end
 
   defp atomize_keys(map) when is_map(map) do
@@ -455,13 +474,15 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     end)
   end
 
+  defp atomize_keys(other), do: other
+
   @impl true
-  def update_ca_instance(id, attrs) do
+  def update_ca_instance(id, attrs, opts \\ []) do
     url = base_url() <> "/api/v1/ca-instances/#{id}"
 
     case Req.patch(url,
            json: stringify_keys(attrs),
-           headers: [{"authorization", "Bearer #{api_secret()}"}],
+           headers: auth_headers(opts),
            receive_timeout: 10_000
          ) do
       {:ok, %{status: 200, body: body}} ->
@@ -472,8 +493,6 @@ defmodule PkiCaPortal.CaEngineClient.Http do
         {:error, {:http_error, reason}}
     end
   end
-
-  defp atomize_keys(other), do: other
 
   defp atomize_value(v) when is_map(v), do: atomize_keys(v)
   defp atomize_value(v) when is_list(v), do: Enum.map(v, &atomize_value/1)

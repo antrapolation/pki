@@ -23,12 +23,14 @@ defmodule PkiRaPortalWeb.DashboardLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    csrs = case RaEngineClient.list_csrs() do
+    opts = tenant_opts(socket)
+
+    csrs = case RaEngineClient.list_csrs([], opts) do
       {:ok, c} -> c
       {:error, _} -> []
     end
 
-    profiles = case RaEngineClient.list_cert_profiles() do
+    profiles = case RaEngineClient.list_cert_profiles(opts) do
       {:ok, p} -> p
       {:error, _} -> []
     end

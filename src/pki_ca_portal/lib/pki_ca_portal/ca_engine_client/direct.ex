@@ -1,0 +1,412 @@
+defmodule PkiCaPortal.CaEngineClient.Direct do
+  @moduledoc """
+  Direct (in-process) implementation of the CA engine client.
+
+  Calls CA engine modules directly via Elixir function calls instead of HTTP.
+  Converts Ecto structs to plain maps with atom keys to maintain the same
+  interface contract as the HTTP implementation.
+  """
+
+  @behaviour PkiCaPortal.CaEngineClient
+
+  require Logger
+
+  import Ecto.Query
+
+  alias PkiCaEngine.UserManagement
+  alias PkiCaEngine.CaInstanceManagement
+  alias PkiCaEngine.KeystoreManagement
+  alias PkiCaEngine.IssuerKeyManagement
+  alias PkiCaEngine.KeyCeremony.SyncCeremony
+  alias PkiCaEngine.TenantRepo
+  alias PkiCaEngine.Schema.KeyCeremony
+
+  # ---------------------------------------------------------------------------
+  # Authentication
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def authenticate(username, password, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.authenticate(tenant_id, username, password) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, :invalid_credentials} = err -> err
+    end
+  end
+
+  @impl true
+  def authenticate_with_session(username, password, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.authenticate_with_credentials(tenant_id, username, password) do
+      {:ok, user, session_info} ->
+        {:ok, to_map(user), session_info}
+
+      {:error, :invalid_credentials} = err ->
+        err
+
+      {:error, _reason} = err ->
+        err
+    end
+  end
+
+  @impl true
+  def register_user(ca_instance_id, attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.register_user(tenant_id, ca_instance_id, attrs) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @impl true
+  def needs_setup?(ca_instance_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    UserManagement.needs_setup?(tenant_id, ca_instance_id)
+  rescue
+    e ->
+      Logger.error("Failed to check needs_setup: #{Exception.message(e)}")
+      true
+  end
+
+  @impl true
+  def get_user_by_username(username, ca_instance_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.get_user_by_username(tenant_id, username, ca_instance_id) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @impl true
+  def reset_password(user_id, new_password, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.get_user(tenant_id, user_id) do
+      {:ok, user} ->
+        case UserManagement.update_user_password(tenant_id, user, %{password: new_password}) do
+          {:ok, _user} -> :ok
+          {:error, _reason} = err -> err
+        end
+
+      {:error, _reason} = err ->
+        err
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # User Management
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def list_users(ca_instance_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    users = UserManagement.list_users(tenant_id, ca_instance_id, opts)
+    {:ok, Enum.map(users, &to_map/1)}
+  end
+
+  @impl true
+  def create_user(ca_instance_id, attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.create_user(tenant_id, ca_instance_id, attrs) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @impl true
+  def create_user_with_admin(ca_instance_id, attrs, admin_context, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    password = admin_context[:password] || admin_context["password"]
+
+    case UserManagement.create_user_with_credentials(tenant_id, ca_instance_id, attrs, password) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @impl true
+  def get_user(id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.get_user(tenant_id, id) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, :not_found} = err -> err
+    end
+  end
+
+  @impl true
+  def delete_user(id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.delete_user(tenant_id, id) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, :not_found} = err -> err
+      {:error, _reason} = err -> err
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Keystore Management
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def list_keystores(ca_instance_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    keystores = KeystoreManagement.list_keystores(tenant_id, ca_instance_id)
+    {:ok, Enum.map(keystores, &to_map/1)}
+  end
+
+  @impl true
+  def configure_keystore(ca_instance_id, attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case KeystoreManagement.configure_keystore(tenant_id, ca_instance_id, attrs) do
+      {:ok, keystore} -> {:ok, to_map(keystore)}
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Issuer Key Management
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def list_issuer_keys(ca_instance_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    keys = IssuerKeyManagement.list_issuer_keys(tenant_id, ca_instance_id, opts)
+    {:ok, Enum.map(keys, &to_map/1)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Engine Status
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def get_engine_status(ca_instance_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    issuer_keys = IssuerKeyManagement.list_issuer_keys(tenant_id, ca_instance_id)
+    keystores = KeystoreManagement.list_keystores(tenant_id, ca_instance_id)
+
+    active_keys = Enum.count(issuer_keys, fn k -> k.status == "active" end)
+
+    status = %{
+      ca_instance_id: ca_instance_id,
+      issuer_keys: %{
+        total: length(issuer_keys),
+        active: active_keys
+      },
+      keystores: %{
+        total: length(keystores)
+      },
+      active_keys: active_keys
+    }
+
+    {:ok, status}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Key Ceremony
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def initiate_ceremony(ca_instance_id, params, opts \\ []) do
+    ceremony_params = %{
+      algorithm: params[:algorithm] || params["algorithm"],
+      keystore_id: params[:keystore_id] || params["keystore_id"],
+      threshold_k: parse_int(params[:threshold_k] || params["threshold_k"]),
+      threshold_n: parse_int(params[:threshold_n] || params["threshold_n"]),
+      initiated_by: params[:initiated_by] || params["initiated_by"],
+      domain_info: params[:domain_info] || params["domain_info"] || %{},
+      key_alias: params[:key_alias] || params["key_alias"],
+      is_root: params[:is_root] || params["is_root"]
+    }
+
+    _tenant_id = opts[:tenant_id]
+
+    case SyncCeremony.initiate(ca_instance_id, ceremony_params) do
+      {:ok, {ceremony, _issuer_key}} ->
+        {:ok, to_map(ceremony)}
+
+      {:error, :invalid_threshold} ->
+        {:error, {:validation_error, %{threshold: ["k must be >= 2 and <= n"]}}}
+
+      {:error, :not_found} ->
+        {:error, :not_found}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:error, {:validation_error, changeset_errors(cs)}}
+
+      {:error, _reason} = err ->
+        err
+    end
+  end
+
+  @impl true
+  def list_ceremonies(ca_instance_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    ceremonies =
+      from(c in KeyCeremony,
+        where: c.ca_instance_id == ^ca_instance_id,
+        order_by: [desc: c.inserted_at]
+      )
+      |> repo.all()
+
+    {:ok, Enum.map(ceremonies, &to_map/1)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # CA Instance Management
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def list_ca_instances(opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    instances = CaInstanceManagement.list_hierarchy(tenant_id)
+    {:ok, Enum.map(instances, &to_map/1)}
+  end
+
+  @impl true
+  def create_ca_instance(attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case CaInstanceManagement.create_ca_instance(tenant_id, attrs) do
+      {:ok, instance} -> {:ok, to_map(instance)}
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @impl true
+  def update_ca_instance(id, attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    result =
+      cond do
+        Map.has_key?(attrs, :status) || Map.has_key?(attrs, "status") ->
+          status = attrs[:status] || attrs["status"]
+          CaInstanceManagement.update_status(tenant_id, id, status)
+
+        Map.has_key?(attrs, :name) || Map.has_key?(attrs, "name") ->
+          name = attrs[:name] || attrs["name"]
+          CaInstanceManagement.rename(tenant_id, id, name)
+
+        true ->
+          # For general updates, try status first as the most common case
+          {:error, :no_updatable_fields}
+      end
+
+    case result do
+      {:ok, instance} -> {:ok, to_map(instance)}
+      {:error, :not_found} = err -> err
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Audit Log
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def query_audit_log(filters, opts \\ []) do
+    _tenant_id = opts[:tenant_id]
+
+    audit_filters = build_audit_filters(filters)
+
+    events = PkiAuditTrail.query(audit_filters)
+    {:ok, Enum.map(events, &to_map/1)}
+  rescue
+    e ->
+      Logger.error("Audit trail query error: #{Exception.message(e)}")
+      {:error, :query_failed}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private Helpers
+  # ---------------------------------------------------------------------------
+
+  defp to_map(%{__struct__: _} = struct) do
+    struct
+    |> Map.from_struct()
+    |> Map.drop([:__meta__])
+    |> Map.new(fn {k, v} -> {k, to_map_value(v)} end)
+  end
+
+  defp to_map(other), do: other
+
+  defp to_map_value(%{__struct__: Ecto.Association.NotLoaded}), do: nil
+  defp to_map_value(%{__struct__: _} = s), do: to_map(s)
+  defp to_map_value(list) when is_list(list), do: Enum.map(list, &to_map_value/1)
+  defp to_map_value(other), do: other
+
+  defp changeset_errors(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+  end
+
+  defp parse_int(v) when is_integer(v), do: v
+
+  defp parse_int(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  defp parse_int(_), do: nil
+
+  defp build_audit_filters(filters) do
+    Enum.reduce(filters, [], fn
+      {:action, v}, acc when is_binary(v) and v != "" -> [{:action, v} | acc]
+      {:actor_did, v}, acc when is_binary(v) and v != "" -> [{:actor_did, v} | acc]
+      {:resource_type, v}, acc when is_binary(v) and v != "" -> [{:resource_type, v} | acc]
+      {:resource_id, v}, acc when is_binary(v) and v != "" -> [{:resource_id, v} | acc]
+      {:date_from, v}, acc when is_binary(v) and v != "" -> maybe_parse_date(:since, v, acc)
+      {:date_to, v}, acc when is_binary(v) and v != "" -> maybe_parse_date(:until, v, acc)
+      {"action", v}, acc when is_binary(v) and v != "" -> [{:action, v} | acc]
+      {"actor_did", v}, acc when is_binary(v) and v != "" -> [{:actor_did, v} | acc]
+      {"resource_type", v}, acc when is_binary(v) and v != "" -> [{:resource_type, v} | acc]
+      {"resource_id", v}, acc when is_binary(v) and v != "" -> [{:resource_id, v} | acc]
+      {"date_from", v}, acc when is_binary(v) and v != "" -> maybe_parse_date(:since, v, acc)
+      {"date_to", v}, acc when is_binary(v) and v != "" -> maybe_parse_date(:until, v, acc)
+      _, acc -> acc
+    end)
+  end
+
+  defp maybe_parse_date(key, date_string, acc) do
+    case DateTime.from_iso8601(date_string) do
+      {:ok, datetime, _offset} ->
+        [{key, datetime} | acc]
+
+      {:error, _} ->
+        case Date.from_iso8601(date_string) do
+          {:ok, date} ->
+            datetime =
+              case key do
+                :since -> DateTime.new!(date, ~T[00:00:00], "Etc/UTC")
+                :until -> DateTime.new!(date, ~T[23:59:59], "Etc/UTC")
+              end
+
+            [{key, datetime} | acc]
+
+          {:error, _} ->
+            Logger.warning("Invalid date filter #{key}: #{inspect(date_string)}")
+            acc
+        end
+    end
+  end
+end

@@ -8,14 +8,15 @@ defmodule PkiRaEngine.Api.CsrController do
   alias PkiRaEngine.CsrValidation
 
   def submit(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     with {:ok, csr_pem} <- fetch_param(conn.body_params, "csr_pem"),
          {:ok, cert_profile_id} <- fetch_param(conn.body_params, "cert_profile_id") do
-      case CsrValidation.submit_csr(csr_pem, cert_profile_id) do
+      case CsrValidation.submit_csr(tenant_id, csr_pem, cert_profile_id) do
         {:ok, csr} ->
           # Auto-validate after submit (fire-and-forget style, but inline for now)
-          CsrValidation.validate_csr(csr.id)
+          CsrValidation.validate_csr(tenant_id, csr.id)
 
-          case CsrValidation.get_csr(csr.id) do
+          case CsrValidation.get_csr(tenant_id, csr.id) do
             {:ok, fresh_csr} -> json_resp(conn, 201, serialize_csr(fresh_csr))
             {:error, _} -> json_resp(conn, 201, serialize_csr(csr))
           end
@@ -30,14 +31,16 @@ defmodule PkiRaEngine.Api.CsrController do
   end
 
   def list(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     filters = build_filters(conn.query_params)
-    csrs = CsrValidation.list_csrs(filters)
+    csrs = CsrValidation.list_csrs(tenant_id, filters)
 
     json_resp(conn, 200, Enum.map(csrs, &serialize_csr/1))
   end
 
   def show(conn, id) do
-    case CsrValidation.get_csr(id) do
+    tenant_id = conn.assigns[:tenant_id]
+    case CsrValidation.get_csr(tenant_id, id) do
       {:ok, csr} ->
         json_resp(conn, 200, serialize_csr(csr))
 
@@ -47,8 +50,9 @@ defmodule PkiRaEngine.Api.CsrController do
   end
 
   def approve(conn, id) do
+    tenant_id = conn.assigns[:tenant_id]
     with {:ok, reviewer_user_id} <- fetch_param(conn.body_params, "reviewer_user_id") do
-      case CsrValidation.approve_csr(id, reviewer_user_id) do
+      case CsrValidation.approve_csr(tenant_id, id, reviewer_user_id) do
         {:ok, csr} ->
           json_resp(conn, 200, serialize_csr(csr))
 
@@ -65,9 +69,10 @@ defmodule PkiRaEngine.Api.CsrController do
   end
 
   def reject(conn, id) do
+    tenant_id = conn.assigns[:tenant_id]
     with {:ok, reviewer_user_id} <- fetch_param(conn.body_params, "reviewer_user_id"),
          {:ok, reason} <- fetch_param(conn.body_params, "reason") do
-      case CsrValidation.reject_csr(id, reviewer_user_id, reason) do
+      case CsrValidation.reject_csr(tenant_id, id, reviewer_user_id, reason) do
         {:ok, csr} ->
           json_resp(conn, 200, serialize_csr(csr))
 

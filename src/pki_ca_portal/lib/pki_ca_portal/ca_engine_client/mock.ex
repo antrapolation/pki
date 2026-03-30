@@ -115,26 +115,26 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   # --- Behaviour implementation ---
 
   @impl true
-  def list_users(_ca_instance_id) do
+  def list_users(_ca_instance_id, _opts \\ []) do
     {:ok, get_state(:users)}
   end
 
   @impl true
-  def create_user(_ca_instance_id, attrs) do
+  def create_user(_ca_instance_id, attrs, _opts \\ []) do
     user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end
 
   @impl true
-  def create_user(_ca_instance_id, attrs, _admin_context) do
+  def create_user_with_admin(_ca_instance_id, attrs, _admin_context, _opts \\ []) do
     user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active"}, attrs)
     update_state(:users, fn users -> users ++ [user] end)
     {:ok, user}
   end
 
   @impl true
-  def get_user(id) do
+  def get_user(id, _opts \\ []) do
     users = get_state(:users)
 
     case Enum.find(users, &(&1.id == id)) do
@@ -154,18 +154,18 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
-  def delete_user(id) do
+  def delete_user(id, _opts \\ []) do
     update_state(:users, fn users -> Enum.reject(users, &(&1.id == id)) end)
     {:ok, %{id: id, status: "suspended"}}
   end
 
   @impl true
-  def list_keystores(_ca_instance_id) do
+  def list_keystores(_ca_instance_id, _opts \\ []) do
     {:ok, get_state(:keystores)}
   end
 
   @impl true
-  def configure_keystore(_ca_instance_id, attrs) do
+  def configure_keystore(_ca_instance_id, attrs, _opts \\ []) do
     provider = case attrs[:type] || attrs["type"] do
       "hsm" -> "StrapSofthsmPrivKeyStoreProvider"
       _ -> "StrapSoftPrivKeyStoreProvider"
@@ -176,7 +176,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
-  def list_issuer_keys(_ca_instance_id) do
+  def list_issuer_keys(_ca_instance_id, _opts \\ []) do
     {:ok,
      [
        %{id: @issuer_key1_id, key_alias: "root-1", algorithm: "ML-DSA-65", status: "active", is_root: true}
@@ -184,12 +184,12 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
-  def get_engine_status(_ca_instance_id) do
+  def get_engine_status(_ca_instance_id, _opts \\ []) do
     {:ok, %{status: "running", active_keys: 1, uptime_seconds: 3600}}
   end
 
   @impl true
-  def initiate_ceremony(_ca_instance_id, params) do
+  def initiate_ceremony(_ca_instance_id, params, _opts \\ []) do
     ceremony = %{
       id: Uniq.UUID.uuid7(),
       status: "initiated",
@@ -203,24 +203,24 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
-  def list_ceremonies(_ca_instance_id) do
+  def list_ceremonies(_ca_instance_id, _opts \\ []) do
     {:ok, get_state(:ceremonies)}
   end
 
   @impl true
-  def authenticate(username, _password) do
+  def authenticate(username, _password, _opts \\ []) do
     {:ok, %{id: @user1_id, username: username, role: "ca_admin", display_name: "Mock Admin"}}
   end
 
   @impl true
-  def authenticate_with_session(username, _password) do
+  def authenticate_with_session(username, _password, _opts \\ []) do
     user = %{id: @user1_id, username: username, role: "ca_admin", display_name: "Mock Admin"}
     session_info = %{session_key: :crypto.strong_rand_bytes(32), session_salt: :crypto.strong_rand_bytes(32)}
     {:ok, user, session_info}
   end
 
   @impl true
-  def register_user(_ca_instance_id, attrs) do
+  def register_user(_ca_instance_id, attrs, _opts \\ []) do
     user = Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", role: "ca_admin",
       credentials: [
         %{credential_type: "signing", algorithm: "ECC-P256", status: "active"},
@@ -231,18 +231,18 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
-  def needs_setup?(_ca_instance_id) do
+  def needs_setup?(_ca_instance_id, _opts \\ []) do
     users = get_state(:users)
     Enum.empty?(users)
   end
 
   @impl true
-  def get_user_by_username(_username, _ca_instance_id) do
+  def get_user_by_username(_username, _ca_instance_id, _opts \\ []) do
     {:ok, %{id: "mock-user-id", email: "test@example.com"}}
   end
 
   @impl true
-  def update_ca_instance(id, attrs) do
+  def update_ca_instance(id, attrs, _opts \\ []) do
     update_state(:ca_instances, fn instances ->
       Enum.map(instances, fn i ->
         if (i[:id] || i["id"]) == id do
@@ -264,15 +264,15 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
-  def reset_password(_user_id, _new_password), do: :ok
+  def reset_password(_user_id, _new_password, _opts \\ []), do: :ok
 
   @impl true
-  def list_ca_instances do
+  def list_ca_instances(_opts \\ []) do
     {:ok, get_state(:ca_instances)}
   end
 
   @impl true
-  def create_ca_instance(attrs) do
+  def create_ca_instance(attrs, _opts \\ []) do
     role =
       if attrs[:parent_id] || attrs["parent_id"],
         do: "intermediate",
@@ -289,7 +289,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
-  def query_audit_log(_filters) do
+  def query_audit_log(_filters, _opts \\ []) do
     {:ok,
      [
        %{
@@ -307,4 +307,3 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
      ]}
   end
 end
-# Cache buster: 1774526096

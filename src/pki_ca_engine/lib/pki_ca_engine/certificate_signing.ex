@@ -6,7 +6,7 @@ defmodule PkiCaEngine.CertificateSigning do
   applies profile -> signs -> stores -> returns cert.
   """
 
-  alias PkiCaEngine.{Repo, KeyActivation, ValidationNotifier}
+  alias PkiCaEngine.{KeyActivation, ValidationNotifier, TenantRepo}
   alias PkiCaEngine.Schema.{IssuedCertificate, IssuerKey}
   import Ecto.Query
   import PkiCaEngine.QueryHelpers
@@ -22,11 +22,12 @@ defmodule PkiCaEngine.CertificateSigning do
   Options:
     - `:activation_server` - the KeyActivation server to use (default: KeyActivation)
   """
-  def sign_certificate(issuer_key_id, csr_pem, cert_profile_map, opts \\ []) do
+  def sign_certificate(tenant_id, issuer_key_id, csr_pem, cert_profile_map, opts \\ []) do
+    repo = TenantRepo.ca_repo(tenant_id)
     activation_server = opts[:activation_server] || KeyActivation
 
-    with {:ok, issuer_key_record} <- get_issuer_key(issuer_key_id),
-         :ok <- check_leaf_ca(issuer_key_record),
+    with {:ok, issuer_key_record} <- get_issuer_key(repo, issuer_key_id),
+         :ok <- check_leaf_ca(tenant_id, repo, issuer_key_record),
          {:ok, private_key_der} <- KeyActivation.get_active_key(activation_server, issuer_key_id) do
       serial = generate_serial()
       now = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -50,7 +51,7 @@ defmodule PkiCaEngine.CertificateSigning do
               not_after: not_after,
               cert_profile_id: cert_profile_map[:id]
             })
-            |> Repo.insert()
+            |> repo.insert()
 
           case result do
             {:ok, cert} ->
@@ -73,8 +74,10 @@ defmodule PkiCaEngine.CertificateSigning do
   @doc """
   Revokes a certificate by serial number with a given reason.
   """
-  def revoke_certificate(serial_number, reason) do
-    case get_certificate(serial_number) do
+  def revoke_certificate(tenant_id, serial_number, reason) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case get_certificate(tenant_id, serial_number) do
       {:ok, cert} ->
         result =
           cert
@@ -83,7 +86,7 @@ defmodule PkiCaEngine.CertificateSigning do
             revoked_at: DateTime.utc_now() |> DateTime.truncate(:second),
             revocation_reason: reason
           )
-          |> Repo.update()
+          |> repo.update()
 
         case result do
           {:ok, revoked_cert} ->
@@ -102,8 +105,9 @@ defmodule PkiCaEngine.CertificateSigning do
   @doc """
   Retrieves a certificate by serial number.
   """
-  def get_certificate(serial_number) do
-    case Repo.one(from c in IssuedCertificate, where: c.serial_number == ^serial_number) do
+  def get_certificate(tenant_id, serial_number) do
+    repo = TenantRepo.ca_repo(tenant_id)
+    case repo.one(from c in IssuedCertificate, where: c.serial_number == ^serial_number) do
       nil -> {:error, :not_found}
       cert -> {:ok, cert}
     end
@@ -115,12 +119,14 @@ defmodule PkiCaEngine.CertificateSigning do
   Filters:
     - `{:status, status}` - filter by status ("active" or "revoked")
   """
-  def list_certificates(issuer_key_id, filters \\ []) do
+  def list_certificates(tenant_id, issuer_key_id, filters \\ []) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
     IssuedCertificate
     |> where([c], c.issuer_key_id == ^issuer_key_id)
     |> apply_eq_filters(filters)
     |> order_by(asc: :inserted_at)
-    |> Repo.all()
+    |> repo.all()
   end
 
   # -- Private --
@@ -352,20 +358,20 @@ defmodule PkiCaEngine.CertificateSigning do
 
   defp extract_subject_from_csr(_), do: "CN=unknown"
 
-  defp check_leaf_ca(%{ca_instance_id: nil}), do: :ok
+  defp check_leaf_ca(_tenant_id, _repo, %{ca_instance_id: nil}), do: :ok
 
-  defp check_leaf_ca(%{ca_instance_id: ca_id}) do
-    case PkiCaEngine.Repo.get(PkiCaEngine.Schema.CaInstance, ca_id) do
+  defp check_leaf_ca(tenant_id, repo, %{ca_instance_id: ca_id}) do
+    case repo.get(PkiCaEngine.Schema.CaInstance, ca_id) do
       nil -> {:error, :ca_instance_not_found}
       ca ->
-        if PkiCaEngine.CaInstanceManagement.is_leaf?(ca),
+        if PkiCaEngine.CaInstanceManagement.is_leaf?(tenant_id, ca),
           do: :ok,
           else: {:error, :non_leaf_ca_cannot_issue}
     end
   end
 
-  defp get_issuer_key(issuer_key_id) do
-    case Repo.get(IssuerKey, issuer_key_id) do
+  defp get_issuer_key(repo, issuer_key_id) do
+    case repo.get(IssuerKey, issuer_key_id) do
       nil -> {:error, :issuer_key_not_found}
       key -> {:ok, key}
     end

@@ -245,12 +245,28 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   # --- Behaviour implementation ---
 
   @impl true
-  def list_users do
+  def list_users(_opts \\ []) do
     {:ok, get_state(:users)}
   end
 
   @impl true
-  def create_user(attrs) do
+  def create_user(attrs, opts \\ [])
+
+  def create_user(attrs, opts) when is_list(opts) do
+    has_creds = Map.has_key?(attrs, :password) or Map.has_key?(attrs, "password")
+    user = attrs
+      |> Map.drop([:password, "password"])
+      |> Map.merge(%{id: Uniq.UUID.uuid7(), status: "active", has_credentials: has_creds})
+    update_state(:users, fn users -> users ++ [user] end)
+    {:ok, user}
+  end
+
+  def create_user(attrs, admin_context) when is_map(admin_context) do
+    create_user(attrs, admin_context, [])
+  end
+
+  @impl true
+  def create_user(attrs, _admin_context, _opts) do
     has_creds = Map.has_key?(attrs, :password) or Map.has_key?(attrs, "password")
     user = attrs
       |> Map.drop([:password, "password"])
@@ -260,18 +276,13 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def create_user(attrs, _admin_context) do
-    create_user(attrs)
-  end
-
-  @impl true
-  def delete_user(id) do
+  def delete_user(id, _opts \\ []) do
     update_state(:users, fn users -> Enum.reject(users, &(&1.id == id)) end)
     {:ok, %{id: id, status: "suspended"}}
   end
 
   @impl true
-  def list_csrs(filters) do
+  def list_csrs(filters, _opts \\ []) do
     csrs = get_state(:csrs)
 
     filtered =
@@ -284,7 +295,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def get_csr(id) do
+  def get_csr(id, _opts \\ []) do
     csrs = get_state(:csrs)
 
     case Enum.find(csrs, &(&1.id == id)) do
@@ -307,7 +318,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def approve_csr(id, _meta) do
+  def approve_csr(id, _meta, _opts \\ []) do
     update_state(:csrs, fn csrs ->
       Enum.map(csrs, fn
         %{id: ^id} = csr -> Map.merge(csr, %{status: "approved", approved_at: DateTime.utc_now()})
@@ -319,7 +330,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def reject_csr(id, reason, _meta) do
+  def reject_csr(id, reason, _meta, _opts \\ []) do
     update_state(:csrs, fn csrs ->
       Enum.map(csrs, fn
         %{id: ^id} = csr ->
@@ -334,19 +345,19 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def list_cert_profiles do
+  def list_cert_profiles(_opts \\ []) do
     {:ok, get_state(:cert_profiles)}
   end
 
   @impl true
-  def create_cert_profile(attrs) do
+  def create_cert_profile(attrs, _opts \\ []) do
     profile = Map.merge(%{id: Uniq.UUID.uuid7()}, attrs)
     update_state(:cert_profiles, fn profiles -> profiles ++ [profile] end)
     {:ok, profile}
   end
 
   @impl true
-  def update_cert_profile(id, attrs) do
+  def update_cert_profile(id, attrs, _opts \\ []) do
     update_state(:cert_profiles, fn profiles ->
       Enum.map(profiles, fn
         %{id: ^id} = profile -> Map.merge(profile, attrs)
@@ -358,18 +369,18 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def delete_cert_profile(id) do
+  def delete_cert_profile(id, _opts \\ []) do
     update_state(:cert_profiles, fn profiles -> Enum.reject(profiles, &(&1.id == id)) end)
     {:ok, %{id: id, deleted: true}}
   end
 
   @impl true
-  def list_service_configs do
+  def list_service_configs(_opts \\ []) do
     {:ok, get_state(:service_configs)}
   end
 
   @impl true
-  def configure_service(attrs) do
+  def configure_service(attrs, _opts \\ []) do
     service_type = attrs[:service_type] || attrs["service_type"]
 
     update_state(:service_configs, fn configs ->
@@ -391,12 +402,12 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def list_api_keys(_filters) do
+  def list_api_keys(_filters, _opts \\ []) do
     {:ok, get_state(:api_keys)}
   end
 
   @impl true
-  def create_api_key(attrs) do
+  def create_api_key(attrs, _opts \\ []) do
     raw_key = "ra_" <> Base.encode64(:crypto.strong_rand_bytes(32), padding: false)
 
     api_key =
@@ -416,7 +427,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def revoke_api_key(id) do
+  def revoke_api_key(id, _opts \\ []) do
     update_state(:api_keys, fn keys ->
       Enum.map(keys, fn
         %{id: ^id} = key -> Map.merge(key, %{status: "revoked", revoked_at: DateTime.utc_now()})
@@ -428,12 +439,12 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def list_ra_instances do
+  def list_ra_instances(_opts \\ []) do
     {:ok, get_state(:ra_instances)}
   end
 
   @impl true
-  def create_ra_instance(attrs) do
+  def create_ra_instance(attrs, _opts \\ []) do
     instance =
       Map.merge(
         %{
@@ -450,7 +461,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def available_issuer_keys do
+  def available_issuer_keys(_opts \\ []) do
     {:ok, get_state(:available_issuer_keys)}
   end
 
@@ -486,11 +497,10 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
-  def get_user_by_username(_username) do
+  def get_user_by_username(_username, _opts \\ []) do
     {:ok, %{id: "mock-user-id", email: "test@example.com", tenant_id: "mock-tenant"}}
   end
 
   @impl true
-  def reset_password(_user_id, _new_password), do: :ok
+  def reset_password(_user_id, _new_password, _opts \\ []), do: :ok
 end
-# Cache buster: 1774526096

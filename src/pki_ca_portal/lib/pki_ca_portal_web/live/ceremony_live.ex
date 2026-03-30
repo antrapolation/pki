@@ -24,19 +24,20 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   @impl true
   def handle_info(:load_data, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    opts = tenant_opts(socket)
 
-    ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+    ceremonies = case CaEngineClient.list_ceremonies(ca_id, opts) do
       {:ok, c} -> c
       {:error, _} -> []
     end
 
-    keystores = case CaEngineClient.list_keystores(ca_id) do
+    keystores = case CaEngineClient.list_keystores(ca_id, opts) do
       {:ok, ks} -> ks
       {:error, _} -> []
     end
 
     ca_instances =
-      case CaEngineClient.list_ca_instances() do
+      case CaEngineClient.list_ca_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
@@ -53,6 +54,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   @impl true
   def handle_event("initiate_ceremony", params, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    opts = tenant_opts(socket)
 
     ceremony_params = [
       algorithm: params["algorithm"],
@@ -62,9 +64,9 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       domain_info: params["domain_info"]
     ]
 
-    case CaEngineClient.initiate_ceremony(ca_id, ceremony_params) do
+    case CaEngineClient.initiate_ceremony(ca_id, ceremony_params, opts) do
       {:ok, result} ->
-        ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+        ceremonies = case CaEngineClient.list_ceremonies(ca_id, opts) do
           {:ok, c} -> c
           {:error, _} -> []
         end
@@ -86,12 +88,12 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         do: socket.assigns.current_user[:ca_instance_id] || "default",
         else: ca_instance_id
 
-    ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+    ceremonies = case CaEngineClient.list_ceremonies(ca_id, tenant_opts(socket)) do
       {:ok, c} -> c
       {:error, _} -> []
     end
 
-    keystores = case CaEngineClient.list_keystores(ca_id) do
+    keystores = case CaEngineClient.list_keystores(ca_id, tenant_opts(socket)) do
       {:ok, ks} -> ks
       {:error, _} -> []
     end
@@ -108,6 +110,13 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
+  defp tenant_opts(socket) do
+    case socket.assigns[:tenant_id] do
+      nil -> []
+      tid -> [tenant_id: tid]
+    end
   end
 
   @impl true

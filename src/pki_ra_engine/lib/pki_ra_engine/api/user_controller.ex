@@ -7,19 +7,21 @@ defmodule PkiRaEngine.Api.UserController do
   alias PkiRaEngine.UserManagement
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     opts = build_filters(conn.query_params)
-    users = UserManagement.list_users(opts)
+    users = UserManagement.list_users(tenant_id, opts)
     json(conn, 200, Enum.map(users, &serialize_user/1))
   end
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     attrs = build_attrs(conn.body_params)
     password = conn.body_params["password"]
 
     if password do
       # Create user with credential keypairs
       opts = build_admin_context(conn.body_params)
-      case UserManagement.create_user_with_credentials(attrs, password, opts) do
+      case UserManagement.create_user_with_credentials(tenant_id, attrs, password, opts) do
         {:ok, user} ->
           json(conn, 201, Map.merge(serialize_user(user), %{has_credentials: true}))
 
@@ -31,7 +33,7 @@ defmodule PkiRaEngine.Api.UserController do
       end
     else
       # Legacy: create user without credentials
-      case UserManagement.create_user(attrs) do
+      case UserManagement.create_user(tenant_id, attrs) do
         {:ok, user} ->
           json(conn, 201, Map.merge(serialize_user(user), %{has_credentials: false}))
 
@@ -42,10 +44,11 @@ defmodule PkiRaEngine.Api.UserController do
   end
 
   def update_password(conn, id) do
+    tenant_id = conn.assigns[:tenant_id]
     password = conn.body_params["password"]
     must_change = conn.body_params["must_change_password"]
 
-    case UserManagement.get_user(id) do
+    case UserManagement.get_user(tenant_id, id) do
       {:error, :not_found} ->
         json(conn, 404, %{error: "not_found"})
 
@@ -53,7 +56,7 @@ defmodule PkiRaEngine.Api.UserController do
         attrs = %{password: password}
         attrs = if must_change != nil, do: Map.put(attrs, :must_change_password, must_change), else: attrs
 
-        case UserManagement.update_user_password(user, attrs) do
+        case UserManagement.update_user_password(tenant_id, user, attrs) do
           {:ok, _user} -> json(conn, 200, %{status: "ok"})
           {:error, changeset} -> json(conn, 422, %{errors: changeset_errors(changeset)})
         end
@@ -61,14 +64,16 @@ defmodule PkiRaEngine.Api.UserController do
   end
 
   def delete(conn, id) do
-    case UserManagement.delete_user(id) do
+    tenant_id = conn.assigns[:tenant_id]
+    case UserManagement.delete_user(tenant_id, id) do
       {:ok, user} -> json(conn, 200, serialize_user(user))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
   end
 
   def by_username(conn, username) do
-    case UserManagement.get_user_by_username(username) do
+    tenant_id = conn.assigns[:tenant_id]
+    case UserManagement.get_user_by_username(tenant_id, username) do
       {:ok, user} ->
         json(conn, 200, %{id: user.id, email: user.email, tenant_id: user.tenant_id})
 

@@ -3,16 +3,17 @@ defmodule PkiCaEngine.Api.CaInstanceController do
   alias PkiCaEngine.CaInstanceManagement
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     attrs = Map.drop(conn.body_params, ["id", "status"])
 
-    case CaInstanceManagement.create_ca_instance(attrs) do
+    case CaInstanceManagement.create_ca_instance(tenant_id, attrs) do
       {:ok, ca} ->
         json(conn, 201, %{
           id: ca.id,
           name: ca.name,
           status: ca.status,
           parent_id: ca.parent_id,
-          role: CaInstanceManagement.role(ca),
+          role: CaInstanceManagement.role(tenant_id, ca),
           created_by: ca.created_by
         })
 
@@ -32,13 +33,16 @@ defmodule PkiCaEngine.Api.CaInstanceController do
   end
 
   def index(conn) do
-    instances = CaInstanceManagement.list_hierarchy()
+    tenant_id = conn.assigns[:tenant_id]
+    instances = CaInstanceManagement.list_hierarchy(tenant_id)
     data = Enum.map(instances, &serialize_tree/1)
     json(conn, 200, data)
   end
 
   def show(conn, id) do
-    case CaInstanceManagement.get_ca_instance(id) do
+    tenant_id = conn.assigns[:tenant_id]
+
+    case CaInstanceManagement.get_ca_instance(tenant_id, id) do
       {:ok, ca} ->
         json(conn, 200, serialize_with_details(ca))
 
@@ -48,7 +52,9 @@ defmodule PkiCaEngine.Api.CaInstanceController do
   end
 
   def children(conn, id) do
-    case CaInstanceManagement.get_ca_instance(id) do
+    tenant_id = conn.assigns[:tenant_id]
+
+    case CaInstanceManagement.get_ca_instance(tenant_id, id) do
       {:ok, ca} ->
         data = Enum.map(ca.children, &serialize_basic/1)
         json(conn, 200, data)
@@ -59,11 +65,12 @@ defmodule PkiCaEngine.Api.CaInstanceController do
   end
 
   def update(conn, id) do
+    tenant_id = conn.assigns[:tenant_id]
     params = conn.body_params
     results = []
 
     results = if params["name"] do
-      case CaInstanceManagement.rename(id, params["name"]) do
+      case CaInstanceManagement.rename(tenant_id, id, params["name"]) do
         {:ok, _} -> [{:ok, :renamed} | results]
         {:error, :not_found} -> [{:error, :not_found} | results]
         {:error, cs} -> [{:error, cs} | results]
@@ -73,7 +80,7 @@ defmodule PkiCaEngine.Api.CaInstanceController do
     end
 
     results = if params["status"] do
-      case CaInstanceManagement.update_status(id, params["status"]) do
+      case CaInstanceManagement.update_status(tenant_id, id, params["status"]) do
         {:ok, _} -> [{:ok, :status_updated} | results]
         {:error, :not_found} -> [{:error, :not_found} | results]
         {:error, cs} -> [{:error, cs} | results]
@@ -93,7 +100,7 @@ defmodule PkiCaEngine.Api.CaInstanceController do
           json(conn, 422, %{errors: PkiCaEngine.Api.Helpers.changeset_errors(cs)})
 
         nil ->
-          {:ok, ca} = CaInstanceManagement.get_ca_instance(id)
+          {:ok, ca} = CaInstanceManagement.get_ca_instance(tenant_id, id)
           json(conn, 200, serialize_basic(ca))
       end
     end

@@ -20,7 +20,7 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    instances = fetch_instances()
+    instances = fetch_instances(tenant_opts(socket))
     {:noreply, assign(socket, instances: instances, loading: false)}
   end
 
@@ -36,9 +36,9 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
 
   @impl true
   def handle_event("create_instance", %{"name" => name}, socket) do
-    case RaEngineClient.create_ra_instance(%{name: name}) do
+    case RaEngineClient.create_ra_instance(%{name: name}, tenant_opts(socket)) do
       {:ok, _instance} ->
-        instances = fetch_instances()
+        instances = fetch_instances(tenant_opts(socket))
 
         {:noreply,
          socket
@@ -50,8 +50,8 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
     end
   end
 
-  defp fetch_instances do
-    case RaEngineClient.list_ra_instances() do
+  defp fetch_instances(opts) do
+    case RaEngineClient.list_ra_instances(opts) do
       {:ok, instances} -> instances
       {:error, _} -> []
     end

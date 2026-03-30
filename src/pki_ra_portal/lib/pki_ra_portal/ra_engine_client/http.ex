@@ -111,8 +111,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def get_user_by_username(username) do
-    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}") do
+  def get_user_by_username(username, opts \\ []) do
+    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}", opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -125,8 +125,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def reset_password(user_id, new_password) do
-    case auth_put("/api/v1/users/#{user_id}/password", %{password: new_password, must_change_password: false}) do
+  def reset_password(user_id, new_password, opts \\ []) do
+    case auth_put("/api/v1/users/#{user_id}/password", %{password: new_password, must_change_password: false}, opts) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
       {:error, reason} -> {:error, {:http_error, reason}}
@@ -136,8 +136,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   # --- User management ---
 
   @impl true
-  def list_users do
-    case auth_get("/api/v1/users") do
+  def list_users(opts \\ []) do
+    case auth_get("/api/v1/users", opts) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -150,10 +150,10 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def create_user(attrs) do
+  def create_user(attrs, opts \\ []) do
     payload = stringify_keys(attrs)
 
-    case auth_post("/api/v1/users", payload) do
+    case auth_post("/api/v1/users", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -169,14 +169,14 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def create_user(attrs, admin_context) do
+  def create_user(attrs, admin_context, opts) do
     payload =
       attrs
       |> stringify_keys()
       |> Map.put("admin_user_id", admin_context[:user_id] || admin_context["user_id"])
       |> Map.put("admin_password", admin_context[:password] || admin_context["password"])
 
-    case auth_post("/api/v1/users", payload) do
+    case auth_post("/api/v1/users", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -192,8 +192,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def delete_user(id) do
-    case auth_delete("/api/v1/users/#{id}") do
+  def delete_user(id, opts \\ []) do
+    case auth_delete("/api/v1/users/#{id}", opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -211,12 +211,12 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   # --- CSR management (implemented on RA Engine) ---
 
   @impl true
-  def list_csrs(filters) do
+  def list_csrs(filters, opts \\ []) do
     params =
       filters
       |> Enum.map(fn {k, v} -> {to_string(k), v} end)
 
-    case auth_get("/api/v1/csr", params: params) do
+    case auth_get("/api/v1/csr", Keyword.merge(opts, params: params)) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -229,8 +229,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def get_csr(id) do
-    case auth_get("/api/v1/csr/#{id}") do
+  def get_csr(id, opts \\ []) do
+    case auth_get("/api/v1/csr/#{id}", opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -246,10 +246,10 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def approve_csr(id, meta) do
+  def approve_csr(id, meta, opts \\ []) do
     payload = stringify_keys(meta)
 
-    case auth_post("/api/v1/csr/#{id}/approve", payload) do
+    case auth_post("/api/v1/csr/#{id}/approve", payload, opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -265,13 +265,13 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def reject_csr(id, reason, meta) do
+  def reject_csr(id, reason, meta, opts \\ []) do
     payload =
       meta
       |> stringify_keys()
       |> Map.put("reason", reason)
 
-    case auth_post("/api/v1/csr/#{id}/reject", payload) do
+    case auth_post("/api/v1/csr/#{id}/reject", payload, opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -289,8 +289,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   # --- Cert profiles ---
 
   @impl true
-  def list_cert_profiles do
-    case auth_get("/api/v1/cert-profiles") do
+  def list_cert_profiles(opts \\ []) do
+    case auth_get("/api/v1/cert-profiles", opts) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -303,10 +303,10 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def create_cert_profile(attrs) do
+  def create_cert_profile(attrs, opts \\ []) do
     payload = stringify_keys(attrs)
 
-    case auth_post("/api/v1/cert-profiles", payload) do
+    case auth_post("/api/v1/cert-profiles", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -319,10 +319,10 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def update_cert_profile(id, attrs) do
+  def update_cert_profile(id, attrs, opts \\ []) do
     payload = stringify_keys(attrs)
 
-    case auth_put("/api/v1/cert-profiles/#{id}", payload) do
+    case auth_put("/api/v1/cert-profiles/#{id}", payload, opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -338,8 +338,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def delete_cert_profile(id) do
-    case auth_delete("/api/v1/cert-profiles/#{id}") do
+  def delete_cert_profile(id, opts \\ []) do
+    case auth_delete("/api/v1/cert-profiles/#{id}", opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -357,8 +357,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   # --- Service configs ---
 
   @impl true
-  def list_service_configs do
-    case auth_get("/api/v1/service-configs") do
+  def list_service_configs(opts \\ []) do
+    case auth_get("/api/v1/service-configs", opts) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -371,10 +371,10 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def configure_service(attrs) do
+  def configure_service(attrs, opts \\ []) do
     payload = stringify_keys(attrs)
 
-    case auth_post("/api/v1/service-configs", payload) do
+    case auth_post("/api/v1/service-configs", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -389,8 +389,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   # --- RA instances ---
 
   @impl true
-  def list_ra_instances do
-    case auth_get("/api/v1/ra-instances") do
+  def list_ra_instances(opts \\ []) do
+    case auth_get("/api/v1/ra-instances", opts) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -403,10 +403,10 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def create_ra_instance(attrs) do
+  def create_ra_instance(attrs, opts \\ []) do
     payload = stringify_keys(attrs)
 
-    case auth_post("/api/v1/ra-instances", payload) do
+    case auth_post("/api/v1/ra-instances", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -419,8 +419,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def available_issuer_keys do
-    case auth_get("/api/v1/available-issuer-keys") do
+  def available_issuer_keys(opts \\ []) do
+    case auth_get("/api/v1/available-issuer-keys", opts) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -435,12 +435,12 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   # --- API keys ---
 
   @impl true
-  def list_api_keys(filters) do
+  def list_api_keys(filters, opts \\ []) do
     params =
       filters
       |> Enum.map(fn {k, v} -> {to_string(k), v} end)
 
-    case auth_get("/api/v1/api-keys", params: params) do
+    case auth_get("/api/v1/api-keys", Keyword.merge(opts, params: params)) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
 
@@ -453,10 +453,10 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def create_api_key(attrs) do
+  def create_api_key(attrs, opts \\ []) do
     payload = stringify_keys(attrs)
 
-    case auth_post("/api/v1/api-keys", payload) do
+    case auth_post("/api/v1/api-keys", payload, opts) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
 
@@ -469,8 +469,8 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
-  def revoke_api_key(id) do
-    case auth_post("/api/v1/api-keys/#{id}/revoke", %{}) do
+  def revoke_api_key(id, opts \\ []) do
+    case auth_post("/api/v1/api-keys/#{id}/revoke", %{}, opts) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 
@@ -514,48 +514,57 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     e -> {:error, Exception.message(e)}
   end
 
-  defp auth_get(path, opts \\ []) do
+  defp auth_headers(opts) do
+    headers = [{"authorization", "Bearer #{api_secret()}"}]
+
+    case Keyword.get(opts, :tenant_id) do
+      nil -> headers
+      tenant_id -> [{"x-tenant-id", tenant_id} | headers]
+    end
+  end
+
+  defp auth_get(path, opts) do
     url = base_url() <> path
     params = Keyword.get(opts, :params, [])
 
     Req.get(url,
       params: params,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: auth_headers(opts),
       decode_body: :json
     )
   rescue
     e -> {:error, Exception.message(e)}
   end
 
-  defp auth_post(path, body) do
+  defp auth_post(path, body, opts) do
     url = base_url() <> path
 
     Req.post(url,
       json: body,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: auth_headers(opts),
       decode_body: :json
     )
   rescue
     e -> {:error, Exception.message(e)}
   end
 
-  defp auth_put(path, body) do
+  defp auth_put(path, body, opts) do
     url = base_url() <> path
 
     Req.put(url,
       json: body,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: auth_headers(opts),
       decode_body: :json
     )
   rescue
     e -> {:error, Exception.message(e)}
   end
 
-  defp auth_delete(path) do
+  defp auth_delete(path, opts) do
     url = base_url() <> path
 
     Req.delete(url,
-      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      headers: auth_headers(opts),
       decode_body: :json
     )
   rescue

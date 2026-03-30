@@ -50,27 +50,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   end
 
   def handle_event("activate", _params, socket) do
-    tenant = socket.assigns.tenant
-
-    # Check engines are reachable first
-    ca_ok = engine_reachable?("http://127.0.0.1:4001/health")
-    ra_ok = engine_reachable?("http://127.0.0.1:4003/health")
-
-    cond do
-      not ca_ok and not ra_ok ->
-        {:noreply, put_flash(socket, :error, "Cannot activate: CA Engine and RA Engine are not reachable. Deploy the engines first.")}
-
-      not ca_ok ->
-        {:noreply, put_flash(socket, :error, "Cannot activate: CA Engine (port 4001) is not reachable. Deploy the CA engine first.")}
-
-      not ra_ok ->
-        {:noreply, put_flash(socket, :error, "Cannot activate: RA Engine (port 4003) is not reachable. Deploy the RA engine first.")}
-
-      true ->
-        # Engines are up — activate tenant, create admins, send credentials
-        send(self(), :do_activate)
-        {:noreply, put_flash(socket, :info, "Activating tenant and creating admin accounts...")}
-    end
+    # Activation now starts engines via BEAM TenantSupervisor — no HTTP check needed
+    send(self(), :do_activate)
+    {:noreply, put_flash(socket, :info, "Activating tenant and starting engine processes...")}
   end
 
   def handle_event("check_engines", _params, socket) do
@@ -109,9 +91,15 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
 
   @impl true
   def handle_info(:check_engines, socket) do
-    ca = if engine_reachable?("http://127.0.0.1:4001/health"), do: :online, else: :offline
-    ra = if engine_reachable?("http://127.0.0.1:4003/health"), do: :online, else: :offline
-    {:noreply, assign(socket, ca_engine_status: ca, ra_engine_status: ra)}
+    tenant_id = socket.assigns.tenant.id
+
+    status =
+      case PkiPlatformEngine.TenantRegistry.lookup(tenant_id) do
+        {:ok, _refs} -> :online
+        {:error, :not_found} -> :offline
+      end
+
+    {:noreply, assign(socket, ca_engine_status: status, ra_engine_status: status)}
   end
 
   @impl true
@@ -167,15 +155,6 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
     end
-  end
-
-  defp engine_reachable?(url) do
-    case Req.get(url, receive_timeout: 3_000, retry: false) do
-      {:ok, %{status: 200}} -> true
-      _ -> false
-    end
-  rescue
-    _ -> false
   end
 
   defp create_admin(url, secret, body) do

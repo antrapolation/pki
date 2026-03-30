@@ -53,6 +53,14 @@ defmodule PkiRaPortalWeb do
       use Phoenix.LiveView, layout: {PkiRaPortalWeb.Layouts, :app}
 
       unquote(html_helpers())
+
+      @doc false
+      defp tenant_opts(socket) do
+        case socket.assigns[:tenant_id] do
+          nil -> []
+          tid -> [tenant_id: tid]
+        end
+      end
     end
   end
 

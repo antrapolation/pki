@@ -13,9 +13,9 @@ defmodule PkiCaPortalWeb.SessionController do
 
     case CaEngineClient.authenticate_with_session(username, password) do
       {:ok, user, session_info} ->
-        cond do
-          # TODO: Add tenant suspension check for CA portal once ca_instance has tenant_id
+        tenant_id = user[:tenant_id]
 
+        cond do
           user[:must_change_password] && credential_expired?(user) ->
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact your platform administrator.")
 
@@ -23,6 +23,7 @@ defmodule PkiCaPortalWeb.SessionController do
             conn
             |> configure_session(renew: true)
             |> put_session(:current_user, serialize_user(user, ca_instance_id))
+            |> put_session(:tenant_id, tenant_id)
             |> put_session(:session_key, session_info[:session_key])
             |> put_session(:session_salt, session_info[:session_salt])
             |> put_session(:must_change_password, true)
@@ -32,6 +33,7 @@ defmodule PkiCaPortalWeb.SessionController do
             conn
             |> configure_session(renew: true)
             |> put_session(:current_user, serialize_user(user, ca_instance_id))
+            |> put_session(:tenant_id, tenant_id)
             |> put_session(:session_key, session_info[:session_key])
             |> put_session(:session_salt, session_info[:session_salt])
             |> redirect(to: "/")
@@ -59,7 +61,8 @@ defmodule PkiCaPortalWeb.SessionController do
       username: user[:username],
       role: user[:role],
       display_name: user[:display_name],
-      ca_instance_id: ca_instance_id
+      ca_instance_id: ca_instance_id,
+      tenant_id: user[:tenant_id]
     }
   end
 

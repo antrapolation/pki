@@ -35,9 +35,9 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   @spec initiate(String.t(), map()) :: {:ok, {KeyCeremony.t(), IssuerKey.t()}} | {:error, term()}
   def initiate(ca_instance_id, params) do
     with :ok <- validate_threshold(params.threshold_k, params.threshold_n),
-         {:ok, _keystore} <- KeystoreManagement.get_keystore(params.keystore_id) do
+         {:ok, _keystore} <- KeystoreManagement.get_keystore(nil, params.keystore_id) do
       Repo.transaction(fn ->
-        case IssuerKeyManagement.create_issuer_key(ca_instance_id, %{
+        case IssuerKeyManagement.create_issuer_key(nil, ca_instance_id, %{
                key_alias: Map.get(params, :key_alias) || "root-#{System.unique_integer([:positive])}",
                algorithm: params.algorithm,
                is_root: Map.get(params, :is_root, true),
@@ -158,7 +158,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
     Repo.transaction(fn ->
       issuer_key = Repo.get!(IssuerKey, ceremony.issuer_key_id)
 
-      case IssuerKeyManagement.activate_by_certificate(issuer_key, %{
+      case IssuerKeyManagement.activate_by_certificate(nil, issuer_key, %{
              certificate_der: cert_der,
              certificate_pem: cert_pem
            }) do

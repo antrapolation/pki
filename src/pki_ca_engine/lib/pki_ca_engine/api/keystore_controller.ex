@@ -8,16 +8,18 @@ defmodule PkiCaEngine.Api.KeystoreController do
   alias PkiCaEngine.Api.Helpers
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
-    keystores = KeystoreManagement.list_keystores(ca_instance_id)
+    keystores = KeystoreManagement.list_keystores(tenant_id, ca_instance_id)
     json(conn, 200, Enum.map(keystores, &serialize_keystore/1))
   end
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
     attrs = build_attrs(conn.body_params)
 
-    case KeystoreManagement.configure_keystore(ca_instance_id, attrs) do
+    case KeystoreManagement.configure_keystore(tenant_id, ca_instance_id, attrs) do
       {:ok, keystore} ->
         json(conn, 201, serialize_keystore(keystore))
 

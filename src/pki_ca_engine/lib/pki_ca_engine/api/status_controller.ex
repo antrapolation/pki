@@ -8,8 +8,9 @@ defmodule PkiCaEngine.Api.StatusController do
   alias PkiCaEngine.Api.Helpers
 
   def show(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
-    issuer_keys = IssuerKeyManagement.list_issuer_keys(ca_instance_id)
+    issuer_keys = IssuerKeyManagement.list_issuer_keys(tenant_id, ca_instance_id)
 
     active_keys = Enum.count(issuer_keys, &(&1.status == "active"))
     total_keys = length(issuer_keys)

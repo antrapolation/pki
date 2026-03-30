@@ -8,9 +8,10 @@ defmodule PkiRaEngine.Api.RaInstanceController do
   alias PkiRaEngine.RaInstanceManagement
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     attrs = Map.drop(conn.body_params, ["id", "status"])
 
-    case RaInstanceManagement.create_ra_instance(attrs) do
+    case RaInstanceManagement.create_ra_instance(tenant_id, attrs) do
       {:ok, ra} ->
         json(conn, 201, serialize(ra))
 
@@ -24,21 +25,24 @@ defmodule PkiRaEngine.Api.RaInstanceController do
   end
 
   def index(conn) do
-    instances = RaInstanceManagement.list_ra_instances()
+    tenant_id = conn.assigns[:tenant_id]
+    instances = RaInstanceManagement.list_ra_instances(tenant_id)
     json(conn, 200, Enum.map(instances, &serialize/1))
   end
 
   def show(conn, id) do
-    case RaInstanceManagement.get_ra_instance(id) do
+    tenant_id = conn.assigns[:tenant_id]
+    case RaInstanceManagement.get_ra_instance(tenant_id, id) do
       {:ok, ra} -> json(conn, 200, serialize(ra))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
   end
 
   def update(conn, id) do
+    tenant_id = conn.assigns[:tenant_id]
     case conn.body_params do
       %{"status" => new_status} ->
-        case RaInstanceManagement.update_status(id, new_status) do
+        case RaInstanceManagement.update_status(tenant_id, id, new_status) do
           {:ok, ra} ->
             json(conn, 200, serialize(ra))
 

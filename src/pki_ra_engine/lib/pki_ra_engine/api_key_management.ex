@@ -7,7 +7,7 @@ defmodule PkiRaEngine.ApiKeyManagement do
 
   import Ecto.Query
 
-  alias PkiRaEngine.Repo
+  alias PkiRaEngine.TenantRepo
   alias PkiRaEngine.Schema.RaApiKey
 
   @doc """
@@ -17,8 +17,9 @@ defmodule PkiRaEngine.ApiKeyManagement do
   Returns the raw key (base64-encoded) alongside the persisted record.
   The raw key is only visible at creation time.
   """
-  @spec create_api_key(map()) :: {:ok, %{raw_key: String.t(), api_key: RaApiKey.t()}} | {:error, Ecto.Changeset.t()}
-  def create_api_key(attrs) do
+  @spec create_api_key(String.t(), map()) :: {:ok, %{raw_key: String.t(), api_key: RaApiKey.t()}} | {:error, Ecto.Changeset.t()}
+  def create_api_key(tenant_id, attrs) do
+    repo = TenantRepo.ra_repo(tenant_id)
     raw_key = :crypto.strong_rand_bytes(32)
     hashed = hash_key(raw_key)
 
@@ -26,7 +27,7 @@ defmodule PkiRaEngine.ApiKeyManagement do
       attrs
       |> Map.put(:hashed_key, hashed)
 
-    case %RaApiKey{} |> RaApiKey.changeset(api_key_attrs) |> Repo.insert() do
+    case %RaApiKey{} |> RaApiKey.changeset(api_key_attrs) |> repo.insert() do
       {:ok, api_key} ->
         {:ok, %{raw_key: Base.encode64(raw_key), api_key: api_key}}
 
@@ -40,12 +41,14 @@ defmodule PkiRaEngine.ApiKeyManagement do
 
   Hashes the provided key and looks it up. Checks that the key is active and not expired.
   """
-  @spec verify_key(String.t()) :: {:ok, RaApiKey.t()} | {:error, :invalid_key | :expired}
-  def verify_key(raw_key_base64) do
+  @spec verify_key(String.t(), String.t()) :: {:ok, RaApiKey.t()} | {:error, :invalid_key | :expired}
+  def verify_key(tenant_id, raw_key_base64) do
+    repo = TenantRepo.ra_repo(tenant_id)
+
     with {:ok, raw_key} <- Base.decode64(raw_key_base64) do
       hashed = hash_key(raw_key)
 
-      case Repo.one(from k in RaApiKey, where: k.hashed_key == ^hashed and k.status == "active") do
+      case repo.one(from k in RaApiKey, where: k.hashed_key == ^hashed and k.status == "active") do
         nil ->
           {:error, :invalid_key}
 
@@ -62,23 +65,27 @@ defmodule PkiRaEngine.ApiKeyManagement do
   end
 
   @doc "List all API keys for a given RA user."
-  @spec list_keys(String.t()) :: [RaApiKey.t()]
-  def list_keys(ra_user_id) do
+  @spec list_keys(String.t(), String.t()) :: [RaApiKey.t()]
+  def list_keys(tenant_id, ra_user_id) do
+    repo = TenantRepo.ra_repo(tenant_id)
+
     from(k in RaApiKey, where: k.ra_user_id == ^ra_user_id)
-    |> Repo.all()
+    |> repo.all()
   end
 
   @doc "Revoke an API key by ID."
-  @spec revoke_key(String.t()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def revoke_key(id) do
-    case Repo.get(RaApiKey, id) do
+  @spec revoke_key(String.t(), String.t()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def revoke_key(tenant_id, id) do
+    repo = TenantRepo.ra_repo(tenant_id)
+
+    case repo.get(RaApiKey, id) do
       nil ->
         {:error, :not_found}
 
       api_key ->
         api_key
         |> RaApiKey.changeset(%{status: "revoked", revoked_at: DateTime.utc_now()})
-        |> Repo.update()
+        |> repo.update()
     end
   end
 

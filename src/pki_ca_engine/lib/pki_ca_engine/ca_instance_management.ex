@@ -6,7 +6,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
 
   import Ecto.Query
 
-  alias PkiCaEngine.Repo
+  alias PkiCaEngine.TenantRepo
   alias PkiCaEngine.Schema.{CaInstance, IssuerKey}
 
   @doc """
@@ -16,23 +16,24 @@ defmodule PkiCaEngine.CaInstanceManagement do
   Returns `{:ok, ca}`, `{:error, :max_depth_exceeded}`,
   `{:error, :parent_not_found}`, or `{:error, changeset}`.
   """
-  def create_ca_instance(attrs, opts \\ []) do
+  def create_ca_instance(tenant_id, attrs, opts \\ []) do
+    repo = TenantRepo.ca_repo(tenant_id)
     max_depth = Keyword.get(opts, :max_ca_depth, 2)
 
     case Map.get(attrs, :parent_id) || Map.get(attrs, "parent_id") do
       nil ->
-        %CaInstance{} |> CaInstance.changeset(attrs) |> Repo.insert()
+        %CaInstance{} |> CaInstance.changeset(attrs) |> repo.insert()
 
       parent_id ->
-        case Repo.get(CaInstance, parent_id) do
+        case repo.get(CaInstance, parent_id) do
           nil ->
             {:error, :parent_not_found}
 
           parent ->
-            if depth(parent) >= max_depth do
+            if depth(tenant_id, parent) >= max_depth do
               {:error, :max_depth_exceeded}
             else
-              %CaInstance{} |> CaInstance.changeset(attrs) |> Repo.insert()
+              %CaInstance{} |> CaInstance.changeset(attrs) |> repo.insert()
             end
         end
     end
@@ -42,10 +43,12 @@ defmodule PkiCaEngine.CaInstanceManagement do
   Gets a single CA instance with children and issuer_keys preloaded.
   Returns `{:ok, ca}` or `{:error, :not_found}`.
   """
-  def get_ca_instance(id) do
-    case Repo.get(CaInstance, id) do
+  def get_ca_instance(tenant_id, id) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(CaInstance, id) do
       nil -> {:error, :not_found}
-      ca -> {:ok, Repo.preload(ca, [:children, :issuer_keys])}
+      ca -> {:ok, repo.preload(ca, [:children, :issuer_keys])}
     end
   end
 
@@ -54,53 +57,69 @@ defmodule PkiCaEngine.CaInstanceManagement do
   def is_root?(%CaInstance{}), do: false
 
   @doc "Returns true if the CA instance has no children in the database."
-  def is_leaf?(%CaInstance{} = ca) do
-    not Repo.exists?(from c in CaInstance, where: c.parent_id == ^ca.id)
+  def is_leaf?(%CaInstance{} = ca), do: is_leaf?(nil, ca)
+
+  def is_leaf?(tenant_id, %CaInstance{} = ca) do
+    repo = TenantRepo.ca_repo(tenant_id)
+    not repo.exists?(from c in CaInstance, where: c.parent_id == ^ca.id)
   end
 
   @doc "Returns the depth of a CA instance (root = 1). Walks up the parent chain."
-  def depth(%CaInstance{parent_id: nil}), do: 1
-  def depth(%CaInstance{parent_id: parent_id}), do: do_depth(parent_id, 2)
+  def depth(%CaInstance{} = ca), do: depth(nil, ca)
 
-  defp do_depth(_parent_id, acc) when acc > 20, do: acc
-  defp do_depth(parent_id, acc) do
-    case Repo.get(CaInstance, parent_id) do
+  def depth(_tenant_id, %CaInstance{parent_id: nil}), do: 1
+  def depth(tenant_id, %CaInstance{parent_id: parent_id}) do
+    repo = TenantRepo.ca_repo(tenant_id)
+    do_depth(repo, parent_id, 2)
+  end
+
+  defp do_depth(_repo, _parent_id, acc) when acc > 20, do: acc
+  defp do_depth(repo, parent_id, acc) do
+    case repo.get(CaInstance, parent_id) do
       nil -> acc
       %CaInstance{parent_id: nil} -> acc
-      %CaInstance{parent_id: next_parent} -> do_depth(next_parent, acc + 1)
+      %CaInstance{parent_id: next_parent} -> do_depth(repo, next_parent, acc + 1)
     end
   end
 
   @doc "Returns the role: `:root`, `:intermediate`, or `:issuing`."
-  def role(%CaInstance{} = ca) do
+  def role(%CaInstance{} = ca), do: role(nil, ca)
+
+  def role(tenant_id, %CaInstance{} = ca) do
     cond do
       is_root?(ca) -> :root
-      is_leaf?(ca) -> :issuing
+      is_leaf?(tenant_id, ca) -> :issuing
       true -> :intermediate
     end
   end
 
   @doc "Lists all root CA instances with children preloaded two levels deep."
-  def list_hierarchy do
+  def list_hierarchy(tenant_id) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
     CaInstance
     |> where([c], is_nil(c.parent_id))
-    |> Repo.all()
-    |> Repo.preload(children: [:children, :issuer_keys])
+    |> repo.all()
+    |> repo.preload(children: [:children, :issuer_keys])
   end
 
   @doc "Updates a CA instance's status."
-  def update_status(id, new_status) do
-    case Repo.get(CaInstance, id) do
+  def update_status(tenant_id, id, new_status) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(CaInstance, id) do
       nil -> {:error, :not_found}
-      ca -> ca |> CaInstance.changeset(%{status: new_status}) |> Repo.update()
+      ca -> ca |> CaInstance.changeset(%{status: new_status}) |> repo.update()
     end
   end
 
   @doc "Renames a CA instance."
-  def rename(id, new_name) do
-    case Repo.get(CaInstance, id) do
+  def rename(tenant_id, id, new_name) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(CaInstance, id) do
       nil -> {:error, :not_found}
-      ca -> ca |> CaInstance.changeset(%{name: new_name}) |> Repo.update()
+      ca -> ca |> CaInstance.changeset(%{name: new_name}) |> repo.update()
     end
   end
 
@@ -108,19 +127,21 @@ defmodule PkiCaEngine.CaInstanceManagement do
   Returns issuer keys that belong to leaf CA instances only.
   A leaf CA is one whose id does NOT appear as parent_id in any other ca_instance.
   """
-  def leaf_ca_issuer_keys do
+  def leaf_ca_issuer_keys(tenant_id) do
+    repo = TenantRepo.ca_repo(tenant_id)
     non_leaf_ids = from(c in CaInstance, where: not is_nil(c.parent_id), select: c.parent_id)
 
     from(k in IssuerKey,
       where: k.ca_instance_id not in subquery(non_leaf_ids),
       where: not is_nil(k.ca_instance_id)
     )
-    |> Repo.all()
-    |> Repo.preload(:ca_instance)
+    |> repo.all()
+    |> repo.preload(:ca_instance)
   end
 
-  @doc "Same as `leaf_ca_issuer_keys/0` but filtered to status=\"active\" keys only."
-  def active_leaf_issuer_keys do
+  @doc "Same as `leaf_ca_issuer_keys/1` but filtered to status=\"active\" keys only."
+  def active_leaf_issuer_keys(tenant_id) do
+    repo = TenantRepo.ca_repo(tenant_id)
     non_leaf_ids = from(c in CaInstance, where: not is_nil(c.parent_id), select: c.parent_id)
 
     from(k in IssuerKey,
@@ -128,7 +149,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
       where: not is_nil(k.ca_instance_id),
       where: k.status == "active"
     )
-    |> Repo.all()
-    |> Repo.preload(:ca_instance)
+    |> repo.all()
+    |> repo.preload(:ca_instance)
   end
 end

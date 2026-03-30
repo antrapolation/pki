@@ -23,7 +23,8 @@ defmodule PkiCaPortalWeb.UsersLive do
   @impl true
   def handle_info(:load_data, socket) do
     ca_id = ca_instance_id(socket)
-    users = case CaEngineClient.list_users(ca_id) do
+    opts = tenant_opts(socket)
+    users = case CaEngineClient.list_users(ca_id, opts) do
       {:ok, u} -> u
       {:error, _} -> []
     end
@@ -39,9 +40,10 @@ defmodule PkiCaPortalWeb.UsersLive do
   @impl true
   def handle_event("create_user", %{"username" => username, "display_name" => name, "role" => role}, socket) do
     ca_id = ca_instance_id(socket)
+    opts = tenant_opts(socket)
     attrs = %{username: username, display_name: name, role: role}
 
-    case CaEngineClient.create_user(ca_id, attrs) do
+    case CaEngineClient.create_user(ca_id, attrs, opts) do
       {:ok, user} ->
         users = [user | socket.assigns.users]
         filtered = filter_users(users, socket.assigns.role_filter)
@@ -58,7 +60,7 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("delete_user", %{"id" => id}, socket) do
-    case CaEngineClient.delete_user(id) do
+    case CaEngineClient.delete_user(id, tenant_opts(socket)) do
       {:ok, _} ->
         users = Enum.reject(socket.assigns.users, &(&1.id == id))
         filtered = filter_users(users, socket.assigns.role_filter)
@@ -89,6 +91,13 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   defp ca_instance_id(socket) do
     socket.assigns.current_user[:ca_instance_id] || "default"
+  end
+
+  defp tenant_opts(socket) do
+    case socket.assigns[:tenant_id] do
+      nil -> []
+      tid -> [tenant_id: tid]
+    end
   end
 
   defp role_badge_class(role) do

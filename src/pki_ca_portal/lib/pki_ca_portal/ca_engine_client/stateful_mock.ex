@@ -42,12 +42,12 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   # -- Callbacks --
 
   @impl true
-  def list_users(_ca_instance_id) do
+  def list_users(_ca_instance_id, _opts \\ []) do
     {:ok, Agent.get(__MODULE__, & &1.users)}
   end
 
   @impl true
-  def create_user(_ca_instance_id, attrs) do
+  def create_user(_ca_instance_id, attrs, _opts \\ []) do
     id = next_id()
 
     user =
@@ -69,12 +69,12 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def create_user(ca_instance_id, attrs, _admin_context) do
-    create_user(ca_instance_id, attrs)
+  def create_user_with_admin(ca_instance_id, attrs, _admin_context, opts \\ []) do
+    create_user(ca_instance_id, attrs, opts)
   end
 
   @impl true
-  def get_user(id) do
+  def get_user(id, _opts \\ []) do
     case Agent.get(__MODULE__, fn state -> Enum.find(state.users, &(&1.id == id)) end) do
       nil -> {:error, :not_found}
       user -> {:ok, user}
@@ -82,7 +82,7 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def delete_user(id) do
+  def delete_user(id, _opts \\ []) do
     Agent.update(__MODULE__, fn state ->
       %{state | users: Enum.reject(state.users, &(&1.id == id))}
     end)
@@ -91,12 +91,12 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def list_keystores(_ca_instance_id) do
+  def list_keystores(_ca_instance_id, _opts \\ []) do
     {:ok, Agent.get(__MODULE__, & &1.keystores)}
   end
 
   @impl true
-  def configure_keystore(_ca_instance_id, attrs) do
+  def configure_keystore(_ca_instance_id, attrs, _opts \\ []) do
     id = next_id()
 
     keystore =
@@ -118,18 +118,18 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def list_issuer_keys(_ca_instance_id) do
+  def list_issuer_keys(_ca_instance_id, _opts \\ []) do
     {:ok, Agent.get(__MODULE__, & &1.issuer_keys)}
   end
 
   @impl true
-  def get_engine_status(_ca_instance_id) do
+  def get_engine_status(_ca_instance_id, _opts \\ []) do
     keys_count = Agent.get(__MODULE__, fn state -> length(state.issuer_keys) end)
     {:ok, %{status: "running", active_keys: keys_count, uptime_seconds: 3600}}
   end
 
   @impl true
-  def initiate_ceremony(_ca_instance_id, params) do
+  def initiate_ceremony(_ca_instance_id, params, _opts \\ []) do
     id = next_id()
     algorithm = params[:algorithm] || Keyword.get(params, "algorithm", "ML-DSA-65")
 
@@ -155,24 +155,24 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def list_ceremonies(_ca_instance_id) do
+  def list_ceremonies(_ca_instance_id, _opts \\ []) do
     {:ok, Agent.get(__MODULE__, & &1.ceremonies)}
   end
 
   @impl true
-  def authenticate(username, _password) do
+  def authenticate(username, _password, _opts \\ []) do
     {:ok, %{id: Uniq.UUID.uuid7(), username: username, role: "ca_admin", display_name: "Mock Admin"}}
   end
 
   @impl true
-  def authenticate_with_session(username, _password) do
+  def authenticate_with_session(username, _password, _opts \\ []) do
     user = %{id: Uniq.UUID.uuid7(), username: username, role: "ca_admin", display_name: "Mock Admin"}
     session_info = %{session_key: :crypto.strong_rand_bytes(32), session_salt: :crypto.strong_rand_bytes(32)}
     {:ok, user, session_info}
   end
 
   @impl true
-  def register_user(_ca_instance_id, attrs) do
+  def register_user(_ca_instance_id, attrs, _opts \\ []) do
     id = next_id()
     user = Map.merge(%{id: id, status: "active", role: "ca_admin",
       credentials: [
@@ -188,18 +188,18 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def needs_setup?(_ca_instance_id) do
+  def needs_setup?(_ca_instance_id, _opts \\ []) do
     users = Agent.get(__MODULE__, & &1.users)
     Enum.empty?(users)
   end
 
   @impl true
-  def list_ca_instances do
+  def list_ca_instances(_opts \\ []) do
     {:ok, Agent.get(__MODULE__, fn state -> Map.get(state, :ca_instances, []) end)}
   end
 
   @impl true
-  def create_ca_instance(attrs) do
+  def create_ca_instance(attrs, _opts \\ []) do
     id = next_id()
 
     role =
@@ -222,17 +222,30 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def query_audit_log(_filters) do
+  def update_ca_instance(id, attrs, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      instances = Map.get(state, :ca_instances, [])
+      updated = Enum.map(instances, fn i ->
+        if (i[:id] || i["id"]) == id, do: Map.merge(i, attrs), else: i
+      end)
+      Map.put(state, :ca_instances, updated)
+    end)
+
+    {:ok, %{id: id}}
+  end
+
+  @impl true
+  def query_audit_log(_filters, _opts \\ []) do
     {:ok, Agent.get(__MODULE__, & &1.audit_events)}
   end
 
   @impl true
-  def get_user_by_username(_username, _ca_instance_id) do
+  def get_user_by_username(_username, _ca_instance_id, _opts \\ []) do
     {:ok, %{id: "mock-user-id", email: "test@example.com"}}
   end
 
   @impl true
-  def reset_password(_user_id, _new_password), do: :ok
+  def reset_password(_user_id, _new_password, _opts \\ []), do: :ok
 
   # -- Private --
 

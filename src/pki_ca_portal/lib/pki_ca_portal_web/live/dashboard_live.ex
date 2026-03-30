@@ -22,21 +22,22 @@ defmodule PkiCaPortalWeb.DashboardLive do
   @impl true
   def handle_info(:load_data, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    opts = tenant_opts(socket)
 
     status =
-      case CaEngineClient.get_engine_status(ca_id) do
+      case CaEngineClient.get_engine_status(ca_id, opts) do
         {:ok, s} -> s
         {:error, _} -> %{status: "unknown", uptime_seconds: 0, active_keys: 0}
       end
 
     keys =
-      case CaEngineClient.list_issuer_keys(ca_id) do
+      case CaEngineClient.list_issuer_keys(ca_id, opts) do
         {:ok, k} -> k
         {:error, _} -> []
       end
 
     ceremonies =
-      case CaEngineClient.list_ceremonies(ca_id) do
+      case CaEngineClient.list_ceremonies(ca_id, opts) do
         {:ok, c} -> c
         {:error, _} -> []
       end
@@ -53,6 +54,13 @@ defmodule PkiCaPortalWeb.DashboardLive do
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
+  defp tenant_opts(socket) do
+    case socket.assigns[:tenant_id] do
+      nil -> []
+      tid -> [tenant_id: tid]
+    end
   end
 
   @impl true

@@ -52,11 +52,12 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
   @impl true
   def handle_info({:run, root_name, sub_name, root_algo, sub_algo}, socket) do
     _ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    opts = tenant_opts(socket)
     log = []
 
     # Step 1: Create Root CA
     {log, root_id} =
-      case CaEngineClient.create_ca_instance(%{"name" => root_name, "created_by" => "quick-setup"}) do
+      case CaEngineClient.create_ca_instance(%{"name" => root_name, "created_by" => "quick-setup"}, opts) do
         {:ok, root} ->
           {log ++ [{:ok, "Created Root CA: #{root_name} (#{root["id"] || root[:id]})"}], root["id"] || root[:id]}
         {:error, reason} ->
@@ -66,7 +67,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
     # Step 2: Configure keystore for Root CA
     {log, root_ks_id} =
       if root_id do
-        case CaEngineClient.configure_keystore(root_id, %{type: "software"}) do
+        case CaEngineClient.configure_keystore(root_id, %{type: "software"}, opts) do
           {:ok, ks} ->
             {log ++ [{:ok, "Configured software keystore for Root CA"}], ks["id"] || ks[:id]}
           {:error, reason} ->
@@ -87,7 +88,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
           threshold_k: 2,
           threshold_n: 3,
           initiated_by: "quick-setup"
-        }) do
+        }, opts) do
           {:ok, result} ->
             key_info = result["issuer_key"] || result[:issuer_key] || %{}
             {log ++ [{:ok, "Root CA key ceremony complete — #{root_algo}, key: #{key_info["key_alias"] || key_info[:key_alias]}"}], key_info}
@@ -101,7 +102,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
     # Step 4: Create Sub-CA
     {log, sub_id} =
       if root_id do
-        case CaEngineClient.create_ca_instance(%{"name" => sub_name, "parent_id" => root_id, "created_by" => "quick-setup"}) do
+        case CaEngineClient.create_ca_instance(%{"name" => sub_name, "parent_id" => root_id, "created_by" => "quick-setup"}, opts) do
           {:ok, sub} ->
             {log ++ [{:ok, "Created Sub-CA: #{sub_name} under #{root_name}"}], sub["id"] || sub[:id]}
           {:error, reason} ->
@@ -114,7 +115,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
     # Step 5: Configure keystore for Sub-CA
     {log, sub_ks_id} =
       if sub_id do
-        case CaEngineClient.configure_keystore(sub_id, %{type: "software"}) do
+        case CaEngineClient.configure_keystore(sub_id, %{type: "software"}, opts) do
           {:ok, ks} ->
             {log ++ [{:ok, "Configured software keystore for Sub-CA"}], ks["id"] || ks[:id]}
           {:error, reason} ->
@@ -135,7 +136,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
           threshold_k: 2,
           threshold_n: 3,
           initiated_by: "quick-setup"
-        }) do
+        }, opts) do
           {:ok, result} ->
             key_info = result["issuer_key"] || result[:issuer_key] || %{}
             log ++ [{:ok, "Sub-CA key ceremony complete — #{sub_algo}, key: #{key_info["key_alias"] || key_info[:key_alias]}"}]
@@ -154,6 +155,13 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
     end
 
     {:noreply, assign(socket, log: log, running: false, done: true)}
+  end
+
+  defp tenant_opts(socket) do
+    case socket.assigns[:tenant_id] do
+      nil -> []
+      tid -> [tenant_id: tid]
+    end
   end
 
   @impl true

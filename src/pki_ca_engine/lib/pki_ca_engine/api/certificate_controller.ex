@@ -7,10 +7,12 @@ defmodule PkiCaEngine.Api.CertificateController do
   alias PkiCaEngine.CertificateSigning
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
+
     case conn.query_params do
       %{"issuer_key_id" => issuer_key_id} ->
         filters = build_filters(conn.query_params)
-        certs = CertificateSigning.list_certificates(issuer_key_id, filters)
+        certs = CertificateSigning.list_certificates(tenant_id, issuer_key_id, filters)
         json(conn, 200, Enum.map(certs, &serialize_certificate/1))
 
       _ ->
@@ -19,13 +21,17 @@ defmodule PkiCaEngine.Api.CertificateController do
   end
 
   def show(conn, serial) do
-    case CertificateSigning.get_certificate(serial) do
+    tenant_id = conn.assigns[:tenant_id]
+
+    case CertificateSigning.get_certificate(tenant_id, serial) do
       {:ok, cert} -> json(conn, 200, serialize_certificate(cert))
       {:error, :not_found} -> json(conn, 404, %{error: "not_found"})
     end
   end
 
   def sign(conn) do
+    tenant_id = conn.assigns[:tenant_id]
+
     with %{
            "issuer_key_id" => issuer_key_id,
            "csr_pem" => csr_pem
@@ -38,7 +44,7 @@ defmodule PkiCaEngine.Api.CertificateController do
         |> maybe_put(:subject_dn, cert_profile["subject_dn"])
         |> maybe_put(:id, cert_profile["id"])
 
-      case CertificateSigning.sign_certificate(issuer_key_id, csr_pem, profile_map) do
+      case CertificateSigning.sign_certificate(tenant_id, issuer_key_id, csr_pem, profile_map) do
         {:ok, cert} ->
           json(conn, 201, serialize_certificate(cert))
 
@@ -58,8 +64,10 @@ defmodule PkiCaEngine.Api.CertificateController do
   end
 
   def revoke(conn) do
+    tenant_id = conn.assigns[:tenant_id]
+
     with %{"serial_number" => serial, "reason" => reason} <- conn.body_params do
-      case CertificateSigning.revoke_certificate(serial, reason) do
+      case CertificateSigning.revoke_certificate(tenant_id, serial, reason) do
         {:ok, cert} ->
           json(conn, 200, serialize_certificate(cert))
 

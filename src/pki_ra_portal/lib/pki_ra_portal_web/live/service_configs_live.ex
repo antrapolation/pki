@@ -5,7 +5,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, configs} = RaEngineClient.list_service_configs()
+    {:ok, configs} = RaEngineClient.list_service_configs(tenant_opts(socket))
 
     {:ok,
      socket
@@ -27,7 +27,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
       rate_limit: parse_int(params["rate_limit"], 1000)
     }
 
-    case RaEngineClient.configure_service(attrs) do
+    case RaEngineClient.configure_service(attrs, tenant_opts(socket)) do
       {:ok, config} ->
         configs =
           case Enum.find_index(socket.assigns.configs, &(&1.service_type == config.service_type)) do

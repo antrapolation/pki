@@ -46,6 +46,11 @@ defmodule PkiCaEngine.Engine do
     GenServer.call(via_tuple(ca_instance_id), {:sign_certificate, issuer_key_id, csr_data, cert_profile, opts})
   end
 
+  @doc "Tenant-aware sign_certificate — passes tenant_id through to CertificateSigning."
+  def sign_certificate_for_tenant(tenant_id, ca_instance_id, issuer_key_id, csr_data, cert_profile, opts \\ []) do
+    GenServer.call(via_tuple(ca_instance_id), {:sign_certificate_tenant, tenant_id, issuer_key_id, csr_data, cert_profile, opts})
+  end
+
   @doc """
   Returns the status of the engine for the given CA instance.
   """
@@ -74,7 +79,13 @@ defmodule PkiCaEngine.Engine do
 
   @impl true
   def handle_call({:sign_certificate, issuer_key_id, csr_data, cert_profile, opts}, _from, state) do
-    result = CertificateSigning.sign_certificate(issuer_key_id, csr_data, cert_profile, opts)
+    result = CertificateSigning.sign_certificate(nil, issuer_key_id, csr_data, cert_profile, opts)
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call({:sign_certificate_tenant, tenant_id, issuer_key_id, csr_data, cert_profile, opts}, _from, state) do
+    result = CertificateSigning.sign_certificate(tenant_id, issuer_key_id, csr_data, cert_profile, opts)
     {:reply, result, state}
   end
 

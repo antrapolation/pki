@@ -8,8 +8,9 @@ defmodule PkiRaEngine.Api.AuthController do
   alias PkiRaEngine.UserManagement
 
   def login(conn) do
+    tenant_id = conn.assigns[:tenant_id] || List.first(Plug.Conn.get_req_header(conn, "x-tenant-id"))
     with %{"username" => username, "password" => password} <- conn.body_params,
-         {:ok, user, session_info} <- UserManagement.authenticate_with_credentials(username, password) do
+         {:ok, user, session_info} <- UserManagement.authenticate_with_credentials(tenant_id, username, password) do
       json(conn, 200, Map.merge(serialize_user(user), %{
         session_key: Base.encode64(session_info.session_key),
         session_salt: Base.encode64(session_info.session_salt),
@@ -19,7 +20,7 @@ defmodule PkiRaEngine.Api.AuthController do
       {:error, :invalid_credentials} ->
         # Fallback to password-only auth for users without credentials
         with %{"username" => username, "password" => password} <- conn.body_params,
-             {:ok, user} <- UserManagement.authenticate(username, password) do
+             {:ok, user} <- UserManagement.authenticate(tenant_id, username, password) do
           json(conn, 200, Map.merge(serialize_user(user), %{has_credentials: false}))
         else
           {:error, :invalid_credentials} ->
@@ -35,9 +36,10 @@ defmodule PkiRaEngine.Api.AuthController do
   end
 
   def register(conn) do
+    tenant_id = conn.assigns[:tenant_id] || List.first(Plug.Conn.get_req_header(conn, "x-tenant-id"))
     attrs = build_user_attrs(conn.body_params)
 
-    case UserManagement.register_user(attrs) do
+    case UserManagement.register_user(tenant_id, attrs) do
       {:ok, user} ->
         json(conn, 201, serialize_user(user))
 
@@ -53,7 +55,8 @@ defmodule PkiRaEngine.Api.AuthController do
   end
 
   def needs_setup(conn) do
-    json(conn, 200, %{needs_setup: UserManagement.needs_setup?()})
+    tenant_id = conn.assigns[:tenant_id] || List.first(Plug.Conn.get_req_header(conn, "x-tenant-id"))
+    json(conn, 200, %{needs_setup: UserManagement.needs_setup?(tenant_id)})
   end
 
   defp build_user_attrs(params) do

@@ -7,12 +7,14 @@ defmodule PkiRaEngine.Api.ServiceConfigController do
   alias PkiRaEngine.ServiceConfig
 
   def index(conn) do
-    configs = ServiceConfig.list_service_configs()
+    tenant_id = conn.assigns[:tenant_id]
+    configs = ServiceConfig.list_service_configs(tenant_id)
     json(conn, 200, Enum.map(configs, &serialize_config/1))
   end
 
   def upsert(conn) do
-    case ServiceConfig.configure_service(conn.body_params) do
+    tenant_id = conn.assigns[:tenant_id]
+    case ServiceConfig.configure_service(tenant_id, conn.body_params) do
       {:ok, config} ->
         json(conn, 200, serialize_config(config))
 

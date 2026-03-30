@@ -8,9 +8,11 @@ defmodule PkiCaEngine.Api.IssuerKeyController do
   alias PkiCaEngine.Api.Helpers
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
+
     keys =
       if conn.query_params["leaf_only"] == "true" do
-        PkiCaEngine.CaInstanceManagement.active_leaf_issuer_keys()
+        PkiCaEngine.CaInstanceManagement.active_leaf_issuer_keys(tenant_id)
       else
         ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
 
@@ -18,7 +20,7 @@ defmodule PkiCaEngine.Api.IssuerKeyController do
           :missing_ca_instance_id
         else
           opts = if status = conn.query_params["status"], do: [status: status], else: []
-          IssuerKeyManagement.list_issuer_keys(ca_instance_id, opts)
+          IssuerKeyManagement.list_issuer_keys(tenant_id, ca_instance_id, opts)
         end
       end
 

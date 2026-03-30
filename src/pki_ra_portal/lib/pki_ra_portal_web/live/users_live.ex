@@ -25,13 +25,15 @@ defmodule PkiRaPortalWeb.UsersLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    users = case RaEngineClient.list_users() do
+    opts = tenant_opts(socket)
+
+    users = case RaEngineClient.list_users(opts) do
       {:ok, u} -> u
       {:error, _} -> []
     end
 
     ra_instances =
-      case RaEngineClient.list_ra_instances() do
+      case RaEngineClient.list_ra_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
@@ -55,7 +57,7 @@ defmodule PkiRaPortalWeb.UsersLive do
       role: params["role"]
     }
 
-    case RaEngineClient.create_user(attrs) do
+    case RaEngineClient.create_user(attrs, tenant_opts(socket)) do
       {:ok, user} ->
         users = [user | socket.assigns.users]
         filtered = filter_users(users, socket.assigns.role_filter)
@@ -73,7 +75,7 @@ defmodule PkiRaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("delete_user", %{"id" => id}, socket) do
-    case RaEngineClient.delete_user(id) do
+    case RaEngineClient.delete_user(id, tenant_opts(socket)) do
       {:ok, _} ->
         users = Enum.reject(socket.assigns.users, &(&1.id == id))
         filtered = filter_users(users, socket.assigns.role_filter)

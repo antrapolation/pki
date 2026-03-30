@@ -24,13 +24,15 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    keys = case RaEngineClient.list_api_keys() do
+    opts = tenant_opts(socket)
+
+    keys = case RaEngineClient.list_api_keys([], opts) do
       {:ok, k} -> k
       {:error, _} -> []
     end
 
     ra_instances =
-      case RaEngineClient.list_ra_instances() do
+      case RaEngineClient.list_ra_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
@@ -48,7 +50,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
   @impl true
   def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
     filters = if ra_instance_id == "", do: [], else: [ra_instance_id: ra_instance_id]
-    {:ok, keys} = RaEngineClient.list_api_keys(filters)
+    {:ok, keys} = RaEngineClient.list_api_keys(filters, tenant_opts(socket))
 
     {:noreply,
      socket
@@ -61,7 +63,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
     user_id = get_in(socket.assigns, [:current_user, "id"]) ||
               get_in(socket.assigns, [:current_user, :id])
 
-    case RaEngineClient.create_api_key(%{name: name, ra_user_id: user_id}) do
+    case RaEngineClient.create_api_key(%{name: name, ra_user_id: user_id}, tenant_opts(socket)) do
       {:ok, key} ->
         normalized = normalize_key(key)
         keys = [Map.drop(normalized, [:raw_key]) | socket.assigns.api_keys]
@@ -96,7 +98,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("revoke_api_key", %{"id" => id}, socket) do
-    case RaEngineClient.revoke_api_key(id) do
+    case RaEngineClient.revoke_api_key(id, tenant_opts(socket)) do
       {:ok, _} ->
         keys =
           Enum.map(socket.assigns.api_keys, fn k ->

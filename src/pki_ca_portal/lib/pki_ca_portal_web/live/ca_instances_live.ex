@@ -23,7 +23,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    instances = fetch_instances()
+    instances = fetch_instances(tenant_opts(socket))
     {:noreply, assign(socket, instances: instances, loading: false)}
   end
 
@@ -50,9 +50,9 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
       %{name: name}
       |> maybe_put_parent_id(parent_id)
 
-    case CaEngineClient.create_ca_instance(attrs) do
+    case CaEngineClient.create_ca_instance(attrs, tenant_opts(socket)) do
       {:ok, _instance} ->
-        instances = fetch_instances()
+        instances = fetch_instances(tenant_opts(socket))
 
         {:noreply,
          socket
@@ -82,9 +82,9 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
     if name == "" do
       {:noreply, put_flash(socket, :error, "Name cannot be empty")}
     else
-      case CaEngineClient.update_ca_instance(id, %{"name" => name}) do
+      case CaEngineClient.update_ca_instance(id, %{"name" => name}, tenant_opts(socket)) do
         {:ok, _} ->
-          instances = fetch_instances()
+          instances = fetch_instances(tenant_opts(socket))
           {:noreply,
            socket
            |> assign(instances: instances, renaming_id: nil, rename_value: "")
@@ -100,10 +100,17 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
   defp maybe_put_parent_id(attrs, nil), do: attrs
   defp maybe_put_parent_id(attrs, parent_id), do: Map.put(attrs, :parent_id, parent_id)
 
-  defp fetch_instances do
-    case CaEngineClient.list_ca_instances() do
+  defp fetch_instances(opts) do
+    case CaEngineClient.list_ca_instances(opts) do
       {:ok, instances} -> instances
       {:error, _} -> []
+    end
+  end
+
+  defp tenant_opts(socket) do
+    case socket.assigns[:tenant_id] do
+      nil -> []
+      tid -> [tenant_id: tid]
     end
   end
 

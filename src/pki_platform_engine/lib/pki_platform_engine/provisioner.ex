@@ -35,8 +35,13 @@ defmodule PkiPlatformEngine.Provisioner do
 
   def suspend_tenant(tenant_id) do
     case PlatformRepo.get(Tenant, tenant_id) do
-      nil -> {:error, :not_found}
+      nil ->
+        {:error, :not_found}
+
       tenant ->
+        # Stop tenant engine processes
+        PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant_id)
+
         tenant
         |> Tenant.changeset(%{status: "suspended"})
         |> PlatformRepo.update()
@@ -45,11 +50,23 @@ defmodule PkiPlatformEngine.Provisioner do
 
   def activate_tenant(tenant_id) do
     case PlatformRepo.get(Tenant, tenant_id) do
-      nil -> {:error, :not_found}
+      nil ->
+        {:error, :not_found}
+
       tenant ->
-        tenant
-        |> Tenant.changeset(%{status: "active"})
-        |> PlatformRepo.update()
+        # Start tenant engine processes
+        case PkiPlatformEngine.TenantSupervisor.start_tenant(tenant) do
+          {:ok, _pid} ->
+            # Wait for repos to connect
+            Process.sleep(1_000)
+
+            tenant
+            |> Tenant.changeset(%{status: "active"})
+            |> PlatformRepo.update()
+
+          {:error, reason} ->
+            {:error, {:engine_start_failed, reason}}
+        end
     end
   end
 

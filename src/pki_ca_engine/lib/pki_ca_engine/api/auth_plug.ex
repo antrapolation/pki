@@ -17,6 +17,8 @@ defmodule PkiCaEngine.Api.AuthPlug do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          true <- is_binary(expected_secret) and expected_secret != "",
          true <- Plug.Crypto.secure_compare(token, expected_secret) do
+      tenant_id = List.first(Plug.Conn.get_req_header(conn, "x-tenant-id"))
+      conn = assign(conn, :tenant_id, tenant_id)
       conn
     else
       _ ->

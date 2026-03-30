@@ -7,14 +7,16 @@ defmodule PkiRaEngine.Api.CertProfileController do
   alias PkiRaEngine.CertProfileConfig
 
   def index(conn) do
-    profiles = CertProfileConfig.list_profiles()
+    tenant_id = conn.assigns[:tenant_id]
+    profiles = CertProfileConfig.list_profiles(tenant_id)
     json(conn, 200, Enum.map(profiles, &serialize_profile/1))
   end
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     attrs = normalize_profile_attrs(conn.body_params)
 
-    case CertProfileConfig.create_profile(attrs) do
+    case CertProfileConfig.create_profile(tenant_id, attrs) do
       {:ok, profile} ->
         json(conn, 201, serialize_profile(profile))
 
@@ -24,7 +26,8 @@ defmodule PkiRaEngine.Api.CertProfileController do
   end
 
   def update(conn, id) do
-    case CertProfileConfig.update_profile(id, normalize_profile_attrs(conn.body_params)) do
+    tenant_id = conn.assigns[:tenant_id]
+    case CertProfileConfig.update_profile(tenant_id, id, normalize_profile_attrs(conn.body_params)) do
       {:ok, profile} ->
         json(conn, 200, serialize_profile(profile))
 
@@ -37,7 +40,8 @@ defmodule PkiRaEngine.Api.CertProfileController do
   end
 
   def delete(conn, id) do
-    case CertProfileConfig.delete_profile(id) do
+    tenant_id = conn.assigns[:tenant_id]
+    case CertProfileConfig.delete_profile(tenant_id, id) do
       {:ok, profile} ->
         json(conn, 200, serialize_profile(profile))
 
