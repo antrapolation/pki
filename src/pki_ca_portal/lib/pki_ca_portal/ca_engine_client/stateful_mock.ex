@@ -198,6 +198,11 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
     {:ok, Agent.get(__MODULE__, & &1.audit_events)}
   end
 
+  @impl true
+  def get_user_by_username(_username) do
+    {:ok, %{id: "mock-user-id", email: "test@example.com"}}
+  end
+
   # -- Private --
 
   defp provider_for_type("software"), do: "StrapSoftPrivKeyStoreProvider"

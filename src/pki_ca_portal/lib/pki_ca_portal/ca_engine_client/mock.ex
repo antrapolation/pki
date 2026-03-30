@@ -217,6 +217,11 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def get_user_by_username(_username) do
+    {:ok, %{id: "mock-user-id", email: "test@example.com"}}
+  end
+
+  @impl true
   def query_audit_log(_filters) do
     {:ok,
      [

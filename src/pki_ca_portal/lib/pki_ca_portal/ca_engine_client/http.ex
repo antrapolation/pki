@@ -103,6 +103,20 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     end
   end
 
+  @impl true
+  def get_user_by_username(username) do
+    case get("/api/v1/auth/user-by-username/#{URI.encode(username)}?ca_instance_id=default") do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
   # --- Authenticated endpoints (Bearer token required) ---
 
   @impl true
