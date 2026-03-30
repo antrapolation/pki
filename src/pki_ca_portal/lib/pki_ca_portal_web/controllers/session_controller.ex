@@ -61,7 +61,7 @@ defmodule PkiCaPortalWeb.SessionController do
       username: user[:username],
       role: user[:role],
       display_name: user[:display_name],
-      ca_instance_id: ca_instance_id,
+      ca_instance_id: user[:ca_instance_id] || ca_instance_id,
       tenant_id: user[:tenant_id]
     }
   end

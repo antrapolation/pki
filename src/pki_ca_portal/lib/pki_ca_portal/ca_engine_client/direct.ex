@@ -26,28 +26,43 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def authenticate(username, password, opts \\ []) do
-    tenant_id = opts[:tenant_id]
+  def authenticate(username, password, _opts \\ []) do
+    case PkiPlatformEngine.PlatformAuth.authenticate_for_portal(username, password, "ca") do
+      {:ok, user, role} ->
+        {:ok, %{
+          id: user.id,
+          username: user.username,
+          role: role.role,
+          display_name: user.display_name,
+          tenant_id: role.tenant_id,
+          ca_instance_id: role.ca_instance_id,
+          must_change_password: user.must_change_password,
+          credential_expires_at: user.credential_expires_at
+        }}
 
-    case UserManagement.authenticate(tenant_id, username, password) do
-      {:ok, user} -> {:ok, to_map(user)}
       {:error, :invalid_credentials} = err -> err
+      {:error, :no_tenant_assigned} -> {:error, :invalid_credentials}
     end
   end
 
   @impl true
-  def authenticate_with_session(username, password, opts \\ []) do
-    tenant_id = opts[:tenant_id]
+  def authenticate_with_session(username, password, _opts \\ []) do
+    case PkiPlatformEngine.PlatformAuth.authenticate_for_portal(username, password, "ca") do
+      {:ok, user, role} ->
+        user_map = %{
+          id: user.id,
+          username: user.username,
+          role: role.role,
+          display_name: user.display_name,
+          tenant_id: role.tenant_id,
+          ca_instance_id: role.ca_instance_id,
+          must_change_password: user.must_change_password,
+          credential_expires_at: user.credential_expires_at
+        }
+        {:ok, user_map, %{}}
 
-    case UserManagement.authenticate_with_credentials(tenant_id, username, password) do
-      {:ok, user, session_info} ->
-        {:ok, to_map(user), session_info}
-
-      {:error, :invalid_credentials} = err ->
-        err
-
-      {:error, _reason} = err ->
-        err
+      {:error, :invalid_credentials} = err -> err
+      {:error, :no_tenant_assigned} -> {:error, :invalid_credentials}
     end
   end
 

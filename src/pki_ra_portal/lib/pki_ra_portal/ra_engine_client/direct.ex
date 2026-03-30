@@ -15,17 +15,40 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
 
   @impl true
   def authenticate(username, password) do
-    case PkiRaEngine.UserManagement.authenticate(nil, username, password) do
-      {:ok, user} -> {:ok, to_map(user)}
-      {:error, _} = err -> err
+    case PkiPlatformEngine.PlatformAuth.authenticate_for_portal(username, password, "ra") do
+      {:ok, user, role} ->
+        {:ok, %{
+          id: user.id,
+          username: user.username,
+          role: role.role,
+          display_name: user.display_name,
+          tenant_id: role.tenant_id,
+          must_change_password: user.must_change_password,
+          credential_expires_at: user.credential_expires_at
+        }}
+
+      {:error, :invalid_credentials} = err -> err
+      {:error, :no_tenant_assigned} -> {:error, :invalid_credentials}
     end
   end
 
   @impl true
   def authenticate_with_session(username, password) do
-    case PkiRaEngine.UserManagement.authenticate_with_credentials(nil, username, password) do
-      {:ok, user, session_info} -> {:ok, to_map(user), to_map(session_info)}
-      {:error, _} = err -> err
+    case PkiPlatformEngine.PlatformAuth.authenticate_for_portal(username, password, "ra") do
+      {:ok, user, role} ->
+        user_map = %{
+          id: user.id,
+          username: user.username,
+          role: role.role,
+          display_name: user.display_name,
+          tenant_id: role.tenant_id,
+          must_change_password: user.must_change_password,
+          credential_expires_at: user.credential_expires_at
+        }
+        {:ok, user_map, %{}}
+
+      {:error, :invalid_credentials} = err -> err
+      {:error, :no_tenant_assigned} -> {:error, :invalid_credentials}
     end
   end
 
