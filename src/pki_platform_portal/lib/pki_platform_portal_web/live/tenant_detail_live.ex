@@ -131,16 +131,29 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
 
     errors = []
 
+    # Ensure default CA instance exists in tenant DB
+    errors = errors ++ ensure_default_ca_instance(tenant)
+
+    # Ensure default RA instance exists in tenant DB
+    errors = errors ++ ensure_default_ra_instance(tenant)
+
     # Create CA admin if none exists
+    ca_instance_id = get_default_ca_instance_id(tenant)
+
     errors =
-      if PkiCaEngine.UserManagement.needs_setup?(tenant.id, "default") do
-        case create_ca_admin(tenant, ca_username, ca_password) do
-          :ok -> errors
-          {:error, reason} -> errors ++ ["CA admin: #{inspect(reason)}"]
+      if ca_instance_id do
+        ca_users = PkiCaEngine.UserManagement.list_users(tenant.id, ca_instance_id, role: "ca_admin")
+        if ca_users == [] do
+          case create_ca_admin(tenant, ca_instance_id, ca_username, ca_password) do
+            :ok -> errors
+            {:error, reason} -> errors ++ ["CA admin: #{inspect(reason)}"]
+          end
+        else
+          Logger.info("[TenantDetail] CA admin already exists for #{tenant.slug}")
+          errors
         end
       else
-        Logger.info("[TenantDetail] CA admin already exists for #{tenant.slug}")
-        errors
+        errors ++ ["CA admin: no default CA instance"]
       end
 
     # Create RA admin if none exists
@@ -251,10 +264,10 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
 
   # --- Direct engine calls for admin management ---
 
-  defp create_ca_admin(tenant, username, password) do
+  defp create_ca_admin(tenant, ca_instance_id, username, password) do
     expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
 
-    case PkiCaEngine.UserManagement.create_user(tenant.id, "default", %{
+    case PkiCaEngine.UserManagement.create_user(tenant.id, ca_instance_id, %{
            username: username,
            password: password,
            role: "ca_admin",
@@ -289,18 +302,78 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   end
 
   defp recreate_ca_admin(tenant, username, password) do
-    # Delete existing CA admins with this username
-    tenant.id
-    |> PkiCaEngine.UserManagement.list_users("default", role: "ca_admin")
-    |> Enum.filter(&(&1.username == username))
-    |> Enum.each(&PkiCaEngine.UserManagement.delete_user(tenant.id, &1.id))
+    ca_instance_id = get_default_ca_instance_id(tenant)
 
-    case create_ca_admin(tenant, username, password) do
-      :ok -> []
-      {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+    if ca_instance_id do
+      # Delete existing CA admins with this username
+      PkiCaEngine.UserManagement.list_users(tenant.id, ca_instance_id, role: "ca_admin")
+      |> Enum.filter(&(&1.username == username))
+      |> Enum.each(&PkiCaEngine.UserManagement.delete_user(tenant.id, &1.id))
+
+      case create_ca_admin(tenant, ca_instance_id, username, password) do
+        :ok -> []
+        {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+      end
+    else
+      ["CA admin reset failed: no default CA instance"]
     end
   rescue
     e -> ["CA admin reset failed: #{Exception.message(e)}"]
+  end
+
+  # --- Tenant instance bootstrapping ---
+
+  defp ensure_default_ca_instance(tenant) do
+    case PkiCaEngine.CaInstanceManagement.list_hierarchy(tenant.id) do
+      [] ->
+        case PkiCaEngine.CaInstanceManagement.create_ca_instance(tenant.id, %{
+               name: "#{tenant.name} Root CA",
+               status: "active"
+             }) do
+          {:ok, ca} ->
+            Logger.info("[TenantDetail] Created default CA instance #{ca.id} for #{tenant.slug}")
+            []
+
+          {:error, reason} ->
+            ["CA instance: #{inspect(reason)}"]
+        end
+
+      _instances ->
+        []
+    end
+  rescue
+    e -> ["CA instance: #{Exception.message(e)}"]
+  end
+
+  defp ensure_default_ra_instance(tenant) do
+    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant.id) do
+      [] ->
+        case PkiRaEngine.RaInstanceManagement.create_ra_instance(tenant.id, %{
+               name: "#{tenant.name} RA",
+               status: "active"
+             }) do
+          {:ok, ra} ->
+            Logger.info("[TenantDetail] Created default RA instance #{ra.id} for #{tenant.slug}")
+            []
+
+          {:error, reason} ->
+            ["RA instance: #{inspect(reason)}"]
+        end
+
+      _instances ->
+        []
+    end
+  rescue
+    e -> ["RA instance: #{Exception.message(e)}"]
+  end
+
+  defp get_default_ca_instance_id(tenant) do
+    case PkiCaEngine.CaInstanceManagement.list_hierarchy(tenant.id) do
+      [first | _] -> first.id
+      [] -> nil
+    end
+  rescue
+    _ -> nil
   end
 
   defp recreate_ra_admin(tenant, username, password) do
