@@ -50,6 +50,10 @@ defmodule PkiRaPortalWeb.SetupController do
     end
   end
 
+  def create(conn, _params) do
+    render(conn, :setup_error, layout: false, message: "Invalid request.")
+  end
+
   defp validate_tenant(%{"tenant" => slug}) when is_binary(slug) and slug != "" do
     case PkiPlatformEngine.Provisioner.get_tenant_by_slug(slug) do
       nil -> {:error, "Tenant not found."}
