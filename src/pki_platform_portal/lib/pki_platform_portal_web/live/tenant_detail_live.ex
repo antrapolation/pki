@@ -105,8 +105,22 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   @impl true
   def handle_info(:do_activate, socket) do
     tenant = socket.assigns.tenant
-    secret = System.get_env("INTERNAL_API_SECRET", "")
-    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+
+    case PkiPlatformEngine.Provisioner.activate_tenant(tenant.id) do
+      {:ok, updated_tenant} ->
+        # Engines are now running — auto-create admins and send email
+        socket = assign(socket, tenant: updated_tenant, ca_engine_status: :online, ra_engine_status: :online)
+        send(self(), :ensure_admins)
+        {:noreply, put_flash(socket, :info, "Tenant activated. Creating admin accounts...")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_info(:ensure_admins, socket) do
+    tenant = socket.assigns.tenant
     ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
     ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
 
@@ -115,61 +129,63 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
     ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
 
-    # Activate the tenant
-    case PkiPlatformEngine.Provisioner.activate_tenant(tenant.id) do
-      {:ok, updated_tenant} ->
-        # Create CA admin
-        ca_result = create_admin("http://127.0.0.1:4001/api/v1/users", secret, %{
-          username: ca_username, password: ca_password, role: "ca_admin",
-          display_name: "#{tenant.name} CA Admin", ca_instance_id: "default",
-          must_change_password: true, credential_expires_at: DateTime.to_iso8601(expires_at)
-        })
+    errors = []
 
-        # Create RA admin
-        ra_result = create_admin("http://127.0.0.1:4003/api/v1/users", secret, %{
-          username: ra_username, password: ra_password, role: "ra_admin",
-          display_name: "#{tenant.name} RA Admin", tenant_id: tenant.id,
-          must_change_password: true, credential_expires_at: DateTime.to_iso8601(expires_at)
-        })
-
-        errors = ca_result ++ ra_result
-
-        if errors == [] do
-          html = EmailTemplates.admin_credentials(
-            tenant.name, ca_username, ca_password, ra_username, ra_password,
-            "https://#{ca_host}", "https://#{ra_host}"
-          )
-          Mailer.send_email(tenant.email, "Your #{tenant.name} admin credentials", html)
-
-          {:noreply,
-           socket
-           |> assign(tenant: updated_tenant)
-           |> put_flash(:info, "Tenant activated. Admin credentials sent to #{tenant.email}.")}
-        else
-          {:noreply,
-           socket
-           |> assign(tenant: updated_tenant)
-           |> put_flash(:warning, "Tenant activated but admin creation had issues: #{Enum.join(errors, "; ")}")}
+    # Create CA admin if none exists
+    errors =
+      if PkiCaEngine.UserManagement.needs_setup?(tenant.id, "default") do
+        case create_ca_admin(tenant, ca_username, ca_password) do
+          :ok -> errors
+          {:error, reason} -> errors ++ ["CA admin: #{inspect(reason)}"]
         end
+      else
+        Logger.info("[TenantDetail] CA admin already exists for #{tenant.slug}")
+        errors
+      end
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
-    end
-  end
+    # Create RA admin if none exists
+    errors =
+      if PkiRaEngine.UserManagement.needs_setup?(tenant.id) do
+        case create_ra_admin(tenant, ra_username, ra_password) do
+          :ok -> errors
+          {:error, reason} -> errors ++ ["RA admin: #{inspect(reason)}"]
+        end
+      else
+        Logger.info("[TenantDetail] RA admin already exists for #{tenant.slug}")
+        errors
+      end
 
-  defp create_admin(url, secret, body) do
-    case Req.post(url, json: body, headers: [{"authorization", "Bearer #{secret}"}], receive_timeout: 10_000) do
-      {:ok, %{status: status}} when status in 200..299 -> []
-      {:ok, %{status: status, body: resp}} -> ["HTTP #{status}: #{inspect(resp)}"]
-      {:error, reason} -> [inspect(reason)]
+    # Send credential email
+    if errors == [] and tenant.email do
+      html = EmailTemplates.admin_credentials(
+        tenant.name, ca_username, ca_password, ra_username, ra_password,
+        "https://#{ca_host}", "https://#{ra_host}"
+      )
+
+      case Mailer.send_email(tenant.email, "Your #{tenant.name} admin credentials", html) do
+        {:ok, _} ->
+          Logger.info("[TenantDetail] Credentials sent to #{tenant.email}")
+        {:error, reason} ->
+          Logger.error("[TenantDetail] Failed to send email: #{inspect(reason)}")
+      end
     end
+
+    # Refresh metrics to show updated admin counts
+    send(self(), :load_metrics)
+
+    socket =
+      if errors == [] do
+        put_flash(socket, :info, "Tenant activated. Admin credentials sent to #{tenant.email}.")
+      else
+        put_flash(socket, :warning, "Tenant activated but: #{Enum.join(errors, "; ")}")
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
   def handle_info({:credential_action, action}, socket) do
     tenant = socket.assigns.tenant
-    secret = System.get_env("INTERNAL_API_SECRET", "")
-    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
     ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
     ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
 
@@ -181,18 +197,16 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     errors =
       case action do
         :resend ->
-          # Just regenerate passwords and resend email — delete old users, create new ones
-          delete_and_recreate_admin(:ca, ca_username, ca_password, tenant, secret, expires_at) ++
-            delete_and_recreate_admin(:ra, ra_username, ra_password, tenant, secret, expires_at)
+          recreate_ca_admin(tenant, ca_username, ca_password) ++
+            recreate_ra_admin(tenant, ra_username, ra_password)
 
         :reset_ca ->
-          delete_and_recreate_admin(:ca, ca_username, ca_password, tenant, secret, expires_at)
+          recreate_ca_admin(tenant, ca_username, ca_password)
 
         :reset_ra ->
-          delete_and_recreate_admin(:ra, ra_username, ra_password, tenant, secret, expires_at)
+          recreate_ra_admin(tenant, ra_username, ra_password)
       end
 
-    # Send credential email
     if errors == [] do
       {send_ca_u, send_ca_p, send_ra_u, send_ra_p} =
         case action do
@@ -212,7 +226,6 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       end
     end
 
-    # Reload metrics
     send(self(), :load_metrics)
 
     socket =
@@ -236,66 +249,72 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     {:noreply, assign(socket, metrics: metrics)}
   end
 
-  defp delete_and_recreate_admin(:ca, username, password, tenant, secret, expires_at) do
-    # Delete existing CA admin
-    case Req.get("http://127.0.0.1:4001/api/v1/users",
-           headers: [{"authorization", "Bearer #{secret}"}],
-           params: [role: "ca_admin"],
-           retry: false
-         ) do
-      {:ok, %{status: 200, body: users}} when is_list(users) ->
-        for user <- users, user["username"] == username do
-          Req.delete("http://127.0.0.1:4001/api/v1/users/#{user["id"]}",
-            headers: [{"authorization", "Bearer #{secret}"}], retry: false)
-        end
-      _ -> :ok
-    end
+  # --- Direct engine calls for admin management ---
 
-    # Create new CA admin
-    case Req.post("http://127.0.0.1:4001/api/v1/users",
-           json: %{
-             username: username, password: password, role: "ca_admin",
-             display_name: "#{tenant.name} CA Admin", ca_instance_id: "default",
-             must_change_password: true,
-             credential_expires_at: DateTime.to_iso8601(expires_at)
-           },
-           headers: [{"authorization", "Bearer #{secret}"}], retry: false
-         ) do
-      {:ok, %{status: s}} when s in 200..299 -> []
-      {:ok, %{status: s}} -> ["CA admin reset failed (HTTP #{s})"]
-      {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+  defp create_ca_admin(tenant, username, password) do
+    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+
+    case PkiCaEngine.UserManagement.create_user(tenant.id, "default", %{
+           username: username,
+           password: password,
+           role: "ca_admin",
+           display_name: "#{tenant.name} CA Admin",
+           must_change_password: true,
+           credential_expires_at: expires_at
+         }) do
+      {:ok, _user} -> :ok
+      {:error, reason} -> {:error, reason}
     end
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
-  defp delete_and_recreate_admin(:ra, username, password, tenant, secret, expires_at) do
-    # Delete existing RA admin
-    case Req.get("http://127.0.0.1:4003/api/v1/users",
-           headers: [{"authorization", "Bearer #{secret}"}],
-           params: [role: "ra_admin", tenant_id: tenant.id],
-           retry: false
-         ) do
-      {:ok, %{status: 200, body: users}} when is_list(users) ->
-        for user <- users, user["username"] == username do
-          Req.delete("http://127.0.0.1:4003/api/v1/users/#{user["id"]}",
-            headers: [{"authorization", "Bearer #{secret}"}], retry: false)
-        end
-      _ -> :ok
-    end
+  defp create_ra_admin(tenant, username, password) do
+    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
 
-    # Create new RA admin
-    case Req.post("http://127.0.0.1:4003/api/v1/users",
-           json: %{
-             username: username, password: password, role: "ra_admin",
-             display_name: "#{tenant.name} RA Admin", tenant_id: tenant.id,
-             must_change_password: true,
-             credential_expires_at: DateTime.to_iso8601(expires_at)
-           },
-           headers: [{"authorization", "Bearer #{secret}"}], retry: false
-         ) do
-      {:ok, %{status: s}} when s in 200..299 -> []
-      {:ok, %{status: s}} -> ["RA admin reset failed (HTTP #{s})"]
+    case PkiRaEngine.UserManagement.create_user(tenant.id, %{
+           username: username,
+           password: password,
+           role: "ra_admin",
+           display_name: "#{tenant.name} RA Admin",
+           tenant_id: tenant.id,
+           must_change_password: true,
+           credential_expires_at: expires_at
+         }) do
+      {:ok, _user} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp recreate_ca_admin(tenant, username, password) do
+    # Delete existing CA admins with this username
+    tenant.id
+    |> PkiCaEngine.UserManagement.list_users("default", role: "ca_admin")
+    |> Enum.filter(&(&1.username == username))
+    |> Enum.each(&PkiCaEngine.UserManagement.delete_user(tenant.id, &1.id))
+
+    case create_ca_admin(tenant, username, password) do
+      :ok -> []
+      {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+    end
+  rescue
+    e -> ["CA admin reset failed: #{Exception.message(e)}"]
+  end
+
+  defp recreate_ra_admin(tenant, username, password) do
+    # Delete existing RA admins with this username
+    PkiRaEngine.UserManagement.list_users(tenant.id, role: "ra_admin")
+    |> Enum.filter(&(&1.username == username))
+    |> Enum.each(&PkiRaEngine.UserManagement.delete_user(tenant.id, &1.id))
+
+    case create_ra_admin(tenant, username, password) do
+      :ok -> []
       {:error, reason} -> ["RA admin reset failed: #{inspect(reason)}"]
     end
+  rescue
+    e -> ["RA admin reset failed: #{Exception.message(e)}"]
   end
 
   @impl true

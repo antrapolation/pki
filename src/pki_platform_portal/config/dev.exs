@@ -64,3 +64,36 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   hostname: "localhost",
   port: 5434,
   pool_size: 2
+
+# Engine database configs (needed for direct admin creation on activation)
+config :pki_ca_engine, PkiCaEngine.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  port: 5434,
+  database: "pki_ca_engine_dev",
+  pool_size: 3
+
+config :pki_ra_engine, PkiRaEngine.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  port: 5434,
+  database: "pki_ra_engine_dev",
+  pool_size: 3
+
+config :pki_audit_trail, PkiAuditTrail.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  port: 5434,
+  database: "pki_ca_engine_dev",
+  pool_size: 2
+
+# Disable engine HTTP servers
+config :pki_ca_engine, :start_http, false
+config :pki_ra_engine, start_http: false
+
+# Hammer rate limiter config
+config :hammer,
+  backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}

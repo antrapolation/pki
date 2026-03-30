@@ -49,12 +49,14 @@ defmodule PkiPlatformPortal.MixProject do
        depth: 1},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 1.0"},
+      {:gettext, "~> 0.26", override: true},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:argon2_elixir, "~> 4.0"},
-      {:pki_platform_engine, path: "../pki_platform_engine"}
+      {:pki_platform_engine, path: "../pki_platform_engine"},
+      {:pki_ca_engine, path: "../pki_ca_engine"},
+      {:pki_ra_engine, path: "../pki_ra_engine"}
     ]
   end
 
