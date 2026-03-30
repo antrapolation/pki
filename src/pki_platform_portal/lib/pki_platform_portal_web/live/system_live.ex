@@ -7,10 +7,23 @@ defmodule PkiPlatformPortalWeb.SystemLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      start_health_check()
-      Process.send_after(self(), :poll, @poll_interval)
-    end
+    socket =
+      assign(socket,
+        page_title: "System",
+        services: Enum.map(SystemHealth.services(), &Map.merge(&1, %{status: :checking, response_time_ms: 0, checked_at: nil})),
+        db_status: %{status: :unreachable},
+        db_count: 0,
+        loading: true,
+        health_task_ref: nil
+      )
+
+    socket =
+      if connected?(socket) do
+        Process.send_after(self(), :poll, @poll_interval)
+        start_health_check(socket)
+      else
+        socket
+      end
 
     # Load DB status synchronously (fast, local query)
     db_status =
@@ -27,20 +40,18 @@ defmodule PkiPlatformPortalWeb.SystemLive do
         _ -> 0
       end
 
-    {:ok,
-     assign(socket,
-       page_title: "System",
-       services: Enum.map(SystemHealth.services(), &Map.merge(&1, %{status: :checking, response_time_ms: 0, checked_at: nil})),
-       db_status: db_status,
-       db_count: db_count,
-       loading: true
-     )}
+    {:ok, assign(socket, db_status: db_status, db_count: db_count)}
   end
 
   @impl true
   def handle_info({ref, results}, socket) when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    {:noreply, assign(socket, services: results, loading: false)}
+    if ref == socket.assigns.health_task_ref do
+      Process.demonitor(ref, [:flush])
+      {:noreply, assign(socket, services: results, loading: false, health_task_ref: nil)}
+    else
+      Process.demonitor(ref, [:flush])
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
@@ -48,19 +59,19 @@ defmodule PkiPlatformPortalWeb.SystemLive do
   end
 
   def handle_info(:poll, socket) do
-    start_health_check()
+    socket = start_health_check(socket)
     Process.send_after(self(), :poll, @poll_interval)
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    start_health_check()
-    {:noreply, assign(socket, loading: true)}
+    {:noreply, start_health_check(socket)}
   end
 
-  defp start_health_check do
-    Task.async(fn -> SystemHealth.check_all() end)
+  defp start_health_check(socket) do
+    task = Task.async(fn -> SystemHealth.check_all() end)
+    assign(socket, health_task_ref: task.ref, loading: true)
   end
 
   defp healthy_count(services) do

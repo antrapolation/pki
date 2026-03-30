@@ -20,6 +20,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, form_error: nil, pw_error: nil)}
   end
 
+  @impl true
   def handle_event(
         "create_admin",
         %{
@@ -72,6 +73,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
     end
   end
 
+  @impl true
   def handle_event("suspend_admin", %{"id" => id}, socket) do
     case PkiPlatformEngine.AdminManagement.get_admin(id) do
       nil ->
@@ -94,6 +96,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
     end
   end
 
+  @impl true
   def handle_event("activate_admin", %{"id" => id}, socket) do
     case PkiPlatformEngine.AdminManagement.get_admin(id) do
       nil ->
@@ -113,6 +116,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
     end
   end
 
+  @impl true
   def handle_event("delete_admin", %{"id" => id}, socket) do
     case PkiPlatformEngine.AdminManagement.get_admin(id) do
       nil ->

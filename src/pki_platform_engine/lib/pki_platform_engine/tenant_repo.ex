@@ -100,7 +100,7 @@ defmodule PkiPlatformEngine.TenantRepo do
     end)
   end
 
-  defp build_config(database_name, schema_prefix) do
+  defp build_config(database_name, schema_prefix) when schema_prefix in @valid_prefixes do
     base = Application.get_env(:pki_platform_engine, __MODULE__, [])
 
     [

@@ -154,7 +154,7 @@ defmodule PkiPlatformEngine.Provisioner do
 
     valid_schemas = MapSet.new(["ca", "ra", "validation", "audit"])
 
-    Enum.each(schemas, fn schema ->
+    results = Enum.map(schemas, fn schema ->
       unless MapSet.member?(valid_schemas, schema) do
         raise ArgumentError, "Invalid schema name: #{inspect(schema)}"
       end
@@ -162,7 +162,10 @@ defmodule PkiPlatformEngine.Provisioner do
       TenantRepo.execute_sql(safe, "public", ~s|CREATE SCHEMA IF NOT EXISTS "#{schema}"|, [])
     end)
 
-    :ok
+    case Enum.find(results, &match?({:error, _}, &1)) do
+      nil -> :ok
+      {:error, reason} -> {:error, {:create_schemas_failed, inspect(reason)}}
+    end
   rescue
     e -> {:error, {:create_schemas_failed, Exception.message(e)}}
   end

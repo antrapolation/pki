@@ -86,8 +86,8 @@ defmodule PkiPlatformEngine.AdminManagement do
   end
 
   def seed_from_env do
-    username = Application.get_env(:pki_platform_portal, :admin_username)
-    password = Application.get_env(:pki_platform_portal, :admin_password)
+    username = System.get_env("PLATFORM_ADMIN_USERNAME")
+    password = System.get_env("PLATFORM_ADMIN_PASSWORD")
 
     if username && password && needs_setup?() do
       case register_admin(%{

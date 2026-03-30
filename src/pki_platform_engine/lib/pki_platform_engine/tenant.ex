@@ -18,12 +18,17 @@ defmodule PkiPlatformEngine.Tenant do
 
   @statuses ["initialized", "active", "suspended"]
 
+  @signing_algorithms ["ECC-P256", "ECC-P384", "RSA-2048", "RSA-4096",
+                       "KAZ-SIGN-128", "KAZ-SIGN-192", "KAZ-SIGN-256",
+                       "ML-DSA-44", "ML-DSA-65", "ML-DSA-87"]
+
   def changeset(tenant, attrs) do
     tenant
     |> cast(attrs, [:name, :slug, :status, :signing_algorithm, :kem_algorithm, :email, :metadata])
     |> validate_required([:name, :slug, :email])
     |> validate_format(:email, ~r/@/)
     |> validate_inclusion(:status, @statuses)
+    |> validate_inclusion(:signing_algorithm, @signing_algorithms)
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, message: "must be lowercase alphanumeric with hyphens")
     |> unique_constraint(:slug)
     |> unique_constraint(:name)

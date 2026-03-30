@@ -164,7 +164,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            params: [role: "ca_admin"],
            retry: false
          ) do
-      {:ok, %{status: 200, body: %{"data" => users}}} ->
+      {:ok, %{status: 200, body: users}} when is_list(users) ->
         for user <- users, user["username"] == username do
           Req.delete("http://127.0.0.1:4001/api/v1/users/#{user["id"]}",
             headers: [{"x-internal-secret", secret}], retry: false)
@@ -195,7 +195,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            params: [role: "ra_admin", tenant_id: tenant.id],
            retry: false
          ) do
-      {:ok, %{status: 200, body: %{"data" => users}}} ->
+      {:ok, %{status: 200, body: users}} when is_list(users) ->
         for user <- users, user["username"] == username do
           Req.delete("http://127.0.0.1:4003/api/v1/users/#{user["id"]}",
             headers: [{"x-internal-secret", secret}], retry: false)
