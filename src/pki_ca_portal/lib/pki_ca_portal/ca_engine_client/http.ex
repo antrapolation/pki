@@ -117,6 +117,15 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     end
   end
 
+  @impl true
+  def reset_password(user_id, new_password) do
+    case auth_put("/api/v1/users/#{user_id}/password", %{password: new_password, must_change_password: false}) do
+      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
   # --- Authenticated endpoints (Bearer token required) ---
 
   @impl true
@@ -375,6 +384,18 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     url = base_url() <> path
 
     Req.post(url,
+      json: body,
+      headers: [{"authorization", "Bearer #{api_secret()}"}],
+      decode_body: :json
+    )
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp auth_put(path, body) do
+    url = base_url() <> path
+
+    Req.put(url,
       json: body,
       headers: [{"authorization", "Bearer #{api_secret()}"}],
       decode_body: :json

@@ -25,6 +25,7 @@ defmodule PkiPlatformPortalWeb.ForgotPasswordController do
 
       _ ->
         conn
+        |> configure_session(renew: true)
         |> put_session(:reset_user_id, nil)
         |> put_session(:reset_email, nil)
         |> render(:code, layout: false, error: nil, masked_email: "***@***.com")

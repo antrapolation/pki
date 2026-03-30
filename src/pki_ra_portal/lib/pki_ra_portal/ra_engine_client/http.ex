@@ -124,6 +124,15 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     end
   end
 
+  @impl true
+  def reset_password(user_id, new_password) do
+    case auth_put("/api/v1/users/#{user_id}/password", %{password: new_password, must_change_password: false}) do
+      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
   # --- User management ---
 
   @impl true

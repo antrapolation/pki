@@ -421,5 +421,8 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   def get_user_by_username(_username) do
     {:ok, %{id: "mock-user-id", email: "test@example.com", tenant_id: "mock-tenant"}}
   end
+
+  @impl true
+  def reset_password(_user_id, _new_password), do: :ok
 end
 # Cache buster: 1774526096

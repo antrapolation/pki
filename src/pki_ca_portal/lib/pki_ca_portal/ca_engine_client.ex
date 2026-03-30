@@ -25,6 +25,7 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback register_user(integer(), map()) :: {:ok, map()} | {:error, term()}
   @callback needs_setup?(integer()) :: boolean()
   @callback get_user_by_username(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  @callback reset_password(String.t(), String.t()) :: :ok | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -46,4 +47,5 @@ defmodule PkiCaPortal.CaEngineClient do
   def register_user(ca_instance_id, attrs), do: impl().register_user(ca_instance_id, attrs)
   def needs_setup?(ca_instance_id), do: impl().needs_setup?(ca_instance_id)
   def get_user_by_username(username, ca_instance_id \\ "default"), do: impl().get_user_by_username(username, ca_instance_id)
+  def reset_password(user_id, new_password), do: impl().reset_password(user_id, new_password)
 end

@@ -31,6 +31,7 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback needs_setup?() :: boolean()
   @callback needs_setup?(String.t()) :: boolean()
   @callback get_user_by_username(String.t()) :: {:ok, map()} | {:error, term()}
+  @callback reset_password(String.t(), String.t()) :: :ok | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.Mock)
@@ -58,4 +59,5 @@ defmodule PkiRaPortal.RaEngineClient do
   def needs_setup?, do: impl().needs_setup?()
   def needs_setup?(tenant_id), do: impl().needs_setup?(tenant_id)
   def get_user_by_username(username), do: impl().get_user_by_username(username)
+  def reset_password(user_id, new_password), do: impl().reset_password(user_id, new_password)
 end

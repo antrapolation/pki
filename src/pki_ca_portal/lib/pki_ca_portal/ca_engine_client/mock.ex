@@ -222,6 +222,9 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def reset_password(_user_id, _new_password), do: :ok
+
+  @impl true
   def query_audit_log(_filters) do
     {:ok,
      [

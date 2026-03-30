@@ -203,6 +203,9 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
     {:ok, %{id: "mock-user-id", email: "test@example.com"}}
   end
 
+  @impl true
+  def reset_password(_user_id, _new_password), do: :ok
+
   # -- Private --
 
   defp provider_for_type("software"), do: "StrapSoftPrivKeyStoreProvider"

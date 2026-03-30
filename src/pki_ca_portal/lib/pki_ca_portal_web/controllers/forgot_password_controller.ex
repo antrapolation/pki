@@ -11,7 +11,7 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
   end
 
   def create(conn, %{"username" => username}) do
-    case CaEngineClient.get_user_by_username(username) do
+    case CaEngineClient.get_user_by_username(username, "default") do
       {:ok, %{id: id, email: email}} when not is_nil(id) and not is_nil(email) ->
         code = EmailVerification.generate_code(email)
         html = EmailTemplates.password_reset_code(code)
@@ -26,6 +26,7 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
 
       _ ->
         conn
+        |> configure_session(renew: true)
         |> put_session(:reset_user_id, nil)
         |> put_session(:reset_email, nil)
         |> render(:code, layout: false, error: nil, masked_email: "***@***.com")
@@ -98,27 +99,7 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
   end
 
   defp update_user_password(user_id, new_password) do
-    secret =
-      Application.get_env(:pki_ca_portal, :internal_api_secret) ||
-        System.get_env("INTERNAL_API_SECRET")
-
-    if is_nil(secret) or secret == "" do
-      Logger.error("INTERNAL_API_SECRET not configured — cannot reset password")
-      {:error, :secret_not_configured}
-    else
-      base_url =
-        Application.get_env(:pki_ca_portal, :ca_engine_url) ||
-          "http://127.0.0.1:4001"
-
-      case Req.put("#{base_url}/api/v1/users/#{user_id}/password",
-             json: %{password: new_password, must_change_password: false},
-             headers: [{"authorization", "Bearer #{secret}"}]
-           ) do
-        {:ok, %{status: status}} when status in 200..299 -> :ok
-        {:ok, %{status: status, body: body}} -> {:error, "API error #{status}: #{inspect(body)}"}
-        {:error, reason} -> {:error, reason}
-      end
-    end
+    CaEngineClient.reset_password(user_id, new_password)
   end
 
   defp mask_email(nil), do: "***@***.com"
