@@ -30,7 +30,7 @@ defmodule PkiRaEngine.Schema.RaUser do
     |> validate_required([:role])
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
-    |> unique_constraint(:username)
+    |> unique_constraint([:username, :tenant_id])
     |> maybe_generate_id()
   end
 
@@ -41,7 +41,7 @@ defmodule PkiRaEngine.Schema.RaUser do
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:password, min: 8, max: 100)
     |> validate_inclusion(:role, @roles)
-    |> unique_constraint(:username)
+    |> unique_constraint([:username, :tenant_id])
     |> hash_password()
     |> maybe_generate_id()
   end

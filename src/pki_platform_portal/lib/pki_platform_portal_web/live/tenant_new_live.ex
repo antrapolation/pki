@@ -1,9 +1,6 @@
 defmodule PkiPlatformPortalWeb.TenantNewLive do
   use PkiPlatformPortalWeb, :live_view
 
-  @ca_portal_host System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
-  @ra_portal_host System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
-
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -26,8 +23,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
 
     case PkiPlatformEngine.Provisioner.create_tenant(name, slug, opts) do
       {:ok, tenant} ->
-        ca_host = @ca_portal_host
-        ra_host = @ra_portal_host
+        ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
+        ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
 
         {:noreply,
          assign(socket,

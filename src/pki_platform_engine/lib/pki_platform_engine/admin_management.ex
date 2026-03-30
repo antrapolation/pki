@@ -48,17 +48,21 @@ defmodule PkiPlatformEngine.AdminManagement do
   end
 
   def suspend_admin(%PlatformAdmin{} = admin) do
-    active_count =
-      PlatformRepo.aggregate(
-        from(a in PlatformAdmin, where: a.status == "active"),
-        :count
-      )
+    PlatformRepo.transaction(fn ->
+      active_count =
+        PlatformRepo.aggregate(
+          from(a in PlatformAdmin, where: a.status == "active"),
+          :count
+        )
 
-    if active_count <= 1 do
-      {:error, :last_active_admin}
-    else
-      update_admin(admin, %{status: "suspended"})
-    end
+      if active_count <= 1 do
+        PlatformRepo.rollback(:last_active_admin)
+      else
+        admin
+        |> PlatformAdmin.changeset(%{status: "suspended"})
+        |> PlatformRepo.update!()
+      end
+    end)
   end
 
   def activate_admin(%PlatformAdmin{} = admin) do
@@ -66,17 +70,19 @@ defmodule PkiPlatformEngine.AdminManagement do
   end
 
   def delete_admin(%PlatformAdmin{} = admin) do
-    active_count =
-      PlatformRepo.aggregate(
-        from(a in PlatformAdmin, where: a.status == "active"),
-        :count
-      )
+    PlatformRepo.transaction(fn ->
+      active_count =
+        PlatformRepo.aggregate(
+          from(a in PlatformAdmin, where: a.status == "active"),
+          :count
+        )
 
-    if active_count <= 1 and admin.status == "active" do
-      {:error, :last_active_admin}
-    else
-      PlatformRepo.delete(admin)
-    end
+      if active_count <= 1 and admin.status == "active" do
+        PlatformRepo.rollback(:last_active_admin)
+      else
+        PlatformRepo.delete!(admin)
+      end
+    end)
   end
 
   def seed_from_env do

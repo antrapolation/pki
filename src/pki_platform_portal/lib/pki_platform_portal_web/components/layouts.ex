@@ -63,7 +63,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
             <%= if @current_user do %>
               <span class="text-xs text-base-content/50">
                 <.icon name="hero-user-circle" class="size-3.5 inline -mt-0.5" />
-                {@current_user[:display_name] || @current_user[:username]}
+                {@current_user["display_name"] || @current_user["username"]}
               </span>
               <form method="post" action="/logout">
                 <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />

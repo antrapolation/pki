@@ -7,7 +7,11 @@ defmodule PkiPlatformPortalWeb.ErrorHTML do
   embed_templates "error_html/*"
 
   def render(template, assigns) do
-    status = template |> String.trim_trailing(".html") |> String.to_integer()
+    status =
+      case Integer.parse(String.trim_trailing(template, ".html")) do
+        {code, ""} -> code
+        _ -> 500
+      end
 
     assigns =
       assigns

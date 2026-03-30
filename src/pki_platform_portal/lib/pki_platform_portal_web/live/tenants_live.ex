@@ -50,7 +50,10 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   end
 
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    case Integer.parse(page) do
+      {n, ""} when n >= 1 -> {:noreply, assign(socket, page: n)}
+      _ -> {:noreply, socket}
+    end
   end
 
   defp list_tenants do

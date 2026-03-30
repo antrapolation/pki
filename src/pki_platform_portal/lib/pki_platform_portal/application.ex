@@ -17,7 +17,11 @@ defmodule PkiPlatformPortal.Application do
     result = Supervisor.start_link(children, opts)
 
     # Seed first admin from env vars if DB has no admins (backward compatibility)
-    PkiPlatformEngine.AdminManagement.seed_from_env()
+    try do
+      PkiPlatformEngine.AdminManagement.seed_from_env()
+    rescue
+      e -> require Logger; Logger.warning("Failed to seed admin from env: #{inspect(e)}")
+    end
 
     result
   end

@@ -20,7 +20,7 @@
       <% end %>
 
       <.form for={%{}} action={~p"/setup"} method="post" class="space-y-4">
-        <input type="hidden" name="setup[tenant]" value={@tenant.slug} />
+        <input type="hidden" name="tenant" value={@tenant.slug} />
         <div>
           <label for="setup_username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
           <input

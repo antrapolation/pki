@@ -7,5 +7,6 @@ defmodule PkiRaEngine.Repo.Migrations.AddTenantIdToRaUsers do
     end
 
     create index(:ra_users, [:tenant_id])
+    create unique_index(:ra_users, [:username, :tenant_id])
   end
 end

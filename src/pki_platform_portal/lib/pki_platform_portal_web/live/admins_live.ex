@@ -279,8 +279,8 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                   <td>
                     <span class={[
                       "badge badge-sm",
-                      admin.role == "superadmin" && "badge-primary",
-                      admin.role != "superadmin" && "badge-ghost"
+                      admin.role == "super_admin" && "badge-primary",
+                      admin.role != "super_admin" && "badge-ghost"
                     ]}>
                       {admin.role}
                     </span>

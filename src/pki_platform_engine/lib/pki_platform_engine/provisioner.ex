@@ -58,8 +58,13 @@ defmodule PkiPlatformEngine.Provisioner do
     case PlatformRepo.get(Tenant, tenant_id) do
       nil -> {:error, :not_found}
       tenant ->
-        drop_database(tenant.database_name)
-        PlatformRepo.delete(tenant)
+        case PlatformRepo.delete(tenant) do
+          {:ok, deleted} ->
+            drop_database(deleted.database_name)
+            {:ok, deleted}
+          {:error, reason} ->
+            {:error, reason}
+        end
     end
   end
 

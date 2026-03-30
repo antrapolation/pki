@@ -10,10 +10,10 @@ defmodule PkiPlatformPortalWeb.SessionController do
       {:ok, admin} ->
         conn
         |> put_session(:current_user, %{
-          id: admin.id,
-          username: admin.username,
-          display_name: admin.display_name,
-          role: admin.role
+          "id" => admin.id,
+          "username" => admin.username,
+          "display_name" => admin.display_name,
+          "role" => admin.role
         })
         |> redirect(to: "/")
 

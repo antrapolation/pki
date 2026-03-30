@@ -19,8 +19,8 @@ defmodule PkiRaPortalWeb.SetupController do
     end
   end
 
-  def create(conn, %{"setup" => params}) do
-    case validate_tenant(params) do
+  def create(conn, %{"setup" => params} = top_params) do
+    case validate_tenant(top_params) do
       {:ok, tenant} ->
         unless RaEngineClient.needs_setup?(tenant.id) do
           conn
