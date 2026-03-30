@@ -19,4 +19,13 @@ defmodule PkiCaEngine.Api.Helpers do
       from(i in CaInstance, where: i.name == "default", select: i.id, limit: 1)
     )
   end
+
+  @doc "Extracts changeset errors as a map of field => [messages]."
+  def changeset_errors(%Ecto.Changeset{} = changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+  end
 end
