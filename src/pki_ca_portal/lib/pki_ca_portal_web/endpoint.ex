@@ -13,7 +13,7 @@ defmodule PkiCaPortalWeb.Endpoint do
     key: "_pki_ca_portal_key",
     signing_salt: @signing_salt,
     encryption_salt: "pki_ca_enc",
-    same_site: "Strict",
+    same_site: "Lax",
     http_only: true
   ]
 

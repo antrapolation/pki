@@ -13,7 +13,7 @@ defmodule PkiRaPortalWeb.Endpoint do
     key: "_pki_ra_portal_key",
     signing_salt: @signing_salt,
     encryption_salt: "pki_ra_enc",
-    same_site: "Strict",
+    same_site: "Lax",
     http_only: true
   ]
 
