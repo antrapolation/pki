@@ -15,6 +15,8 @@ defmodule PkiCaEngine.Schema.CaUser do
     field :display_name, :string
     field :role, :string
     field :status, :string, default: "active"
+    field :must_change_password, :boolean, default: false
+    field :credential_expires_at, :utc_datetime
 
     belongs_to :ca_instance, PkiCaEngine.Schema.CaInstance
 
@@ -27,7 +29,7 @@ defmodule PkiCaEngine.Schema.CaUser do
 
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:ca_instance_id, :username, :display_name, :role, :status])
+    |> cast(attrs, [:ca_instance_id, :username, :display_name, :role, :status, :must_change_password, :credential_expires_at])
     |> validate_required([:ca_instance_id, :role])
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
@@ -38,7 +40,7 @@ defmodule PkiCaEngine.Schema.CaUser do
 
   def registration_changeset(user, attrs) do
     user
-    |> cast(attrs, [:ca_instance_id, :username, :password, :display_name, :role])
+    |> cast(attrs, [:ca_instance_id, :username, :password, :display_name, :role, :must_change_password, :credential_expires_at])
     |> validate_required([:ca_instance_id, :username, :password, :role])
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:password, min: 8, max: 100)

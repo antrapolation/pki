@@ -15,6 +15,8 @@ defmodule PkiRaEngine.Schema.RaUser do
     field :display_name, :string
     field :role, :string
     field :status, :string, default: "active"
+    field :must_change_password, :boolean, default: false
+    field :credential_expires_at, :utc_datetime
     field :tenant_id, :binary_id
 
     has_many :credentials, PkiRaEngine.CredentialManager.Credential, foreign_key: :user_id
@@ -26,7 +28,7 @@ defmodule PkiRaEngine.Schema.RaUser do
 
   def changeset(ra_user, attrs) do
     ra_user
-    |> cast(attrs, [:username, :display_name, :role, :status, :tenant_id])
+    |> cast(attrs, [:username, :display_name, :role, :status, :tenant_id, :must_change_password, :credential_expires_at])
     |> validate_required([:role])
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
@@ -36,7 +38,7 @@ defmodule PkiRaEngine.Schema.RaUser do
 
   def registration_changeset(ra_user, attrs) do
     ra_user
-    |> cast(attrs, [:username, :password, :display_name, :role, :tenant_id])
+    |> cast(attrs, [:username, :password, :display_name, :role, :tenant_id, :must_change_password, :credential_expires_at])
     |> validate_required([:username, :password, :role])
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:password, min: 8, max: 100)
