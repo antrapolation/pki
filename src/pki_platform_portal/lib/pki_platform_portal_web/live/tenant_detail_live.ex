@@ -305,14 +305,31 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     ca_instance_id = get_default_ca_instance_id(tenant)
 
     if ca_instance_id do
-      # Delete existing CA admins with this username
-      PkiCaEngine.UserManagement.list_users(tenant.id, ca_instance_id, role: "ca_admin")
-      |> Enum.filter(&(&1.username == username))
-      |> Enum.each(&PkiCaEngine.UserManagement.delete_user(tenant.id, &1.id))
+      # Find existing admin and reset password, or create new
+      existing =
+        PkiCaEngine.UserManagement.list_users(tenant.id, ca_instance_id, role: "ca_admin")
+        |> Enum.find(&(&1.username == username))
 
-      case create_ca_admin(tenant, ca_instance_id, username, password) do
-        :ok -> []
-        {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+      case existing do
+        nil ->
+          case create_ca_admin(tenant, ca_instance_id, username, password) do
+            :ok -> []
+            {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+          end
+
+        user ->
+          # Reactivate if suspended and reset password
+          if user.status == "suspended" do
+            PkiCaEngine.UserManagement.update_user(tenant.id, user.id, %{status: "active"})
+          end
+
+          case PkiCaEngine.UserManagement.update_user_password(tenant.id, user, %{
+                 password: password,
+                 must_change_password: true
+               }) do
+            {:ok, _} -> []
+            {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+          end
       end
     else
       ["CA admin reset failed: no default CA instance"]
@@ -377,14 +394,29 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   end
 
   defp recreate_ra_admin(tenant, username, password) do
-    # Delete existing RA admins with this username
-    PkiRaEngine.UserManagement.list_users(tenant.id, role: "ra_admin")
-    |> Enum.filter(&(&1.username == username))
-    |> Enum.each(&PkiRaEngine.UserManagement.delete_user(tenant.id, &1.id))
+    existing =
+      PkiRaEngine.UserManagement.list_users(tenant.id, role: "ra_admin")
+      |> Enum.find(&(&1.username == username))
 
-    case create_ra_admin(tenant, username, password) do
-      :ok -> []
-      {:error, reason} -> ["RA admin reset failed: #{inspect(reason)}"]
+    case existing do
+      nil ->
+        case create_ra_admin(tenant, username, password) do
+          :ok -> []
+          {:error, reason} -> ["RA admin reset failed: #{inspect(reason)}"]
+        end
+
+      user ->
+        if user.status == "suspended" do
+          PkiRaEngine.UserManagement.update_user(tenant.id, user.id, %{status: "active"})
+        end
+
+        case PkiRaEngine.UserManagement.update_user_password(tenant.id, user, %{
+               password: password,
+               must_change_password: true
+             }) do
+          {:ok, _} -> []
+          {:error, reason} -> ["RA admin reset failed: #{inspect(reason)}"]
+        end
     end
   rescue
     e -> ["RA admin reset failed: #{Exception.message(e)}"]
