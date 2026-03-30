@@ -5,6 +5,26 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     assign(socket,
+       page_title: "Audit Log",
+       events: [],
+       ca_instances: [],
+       loading: true,
+       selected_ca_instance_id: "",
+       filter_action: "",
+       filter_actor: "",
+       filter_date_from: "",
+       filter_date_to: "",
+       page: 1,
+       per_page: 10
+     )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
     events =
       case CaEngineClient.query_audit_log([]) do
         {:ok, events} -> events
@@ -17,18 +37,11 @@ defmodule PkiCaPortalWeb.AuditLogLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      assign(socket,
-       page_title: "Audit Log",
        events: events,
        ca_instances: ca_instances,
-       selected_ca_instance_id: "",
-       filter_action: "",
-       filter_actor: "",
-       filter_date_from: "",
-       filter_date_to: "",
-       page: 1,
-       per_page: 10
+       loading: false
      )}
   end
 

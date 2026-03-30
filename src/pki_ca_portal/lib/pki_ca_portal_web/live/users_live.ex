@@ -5,18 +5,34 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    ca_id = ca_instance_id(socket)
-    {:ok, users} = CaEngineClient.list_users(ca_id)
+    if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
      assign(socket,
        page_title: "User Management",
-       users: users,
-       filtered_users: users,
+       users: [],
+       filtered_users: [],
        role_filter: "all",
+       loading: true,
        form: to_form(%{"username" => "", "display_name" => "", "role" => "ca_admin"}),
        page: 1,
        per_page: 10
+     )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    ca_id = ca_instance_id(socket)
+    users = case CaEngineClient.list_users(ca_id) do
+      {:ok, u} -> u
+      {:error, _} -> []
+    end
+
+    {:noreply,
+     assign(socket,
+       users: users,
+       filtered_users: users,
+       loading: false
      )}
   end
 
@@ -104,9 +120,39 @@ defmodule PkiCaPortalWeb.UsersLive do
   def render(assigns) do
     ~H"""
     <div id="users-page" class="space-y-6">
-      <%!-- Header with filter --%>
-      <div id="user-filter" class="flex items-center justify-between">
-        <div></div>
+      <%!-- Create user form --%>
+      <div id="create-user-form" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h2 class="text-sm font-semibold text-base-content mb-4">Create User</h2>
+          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+              <label for="username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
+              <input type="text" name="username" id="user-username" required class="input input-bordered input-sm w-full" />
+            </div>
+            <div>
+              <label for="display_name" class="block text-xs font-medium text-base-content/60 mb-1">Display Name</label>
+              <input type="text" name="display_name" id="user-display-name" required class="input input-bordered input-sm w-full" />
+            </div>
+            <div>
+              <label for="role" class="block text-xs font-medium text-base-content/60 mb-1">Role</label>
+              <select name="role" id="user-role" class="select select-bordered select-sm w-full">
+                <option value="ca_admin">CA Admin</option>
+                <option value="key_manager">Key Manager</option>
+                <option value="auditor">Auditor</option>
+              </select>
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary btn-sm w-full">
+                <.icon name="hero-plus" class="size-4" />
+                Create User
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <%!-- Filter --%>
+      <div id="user-filter" class="flex items-center justify-end">
         <form phx-change="filter_role" class="flex items-center gap-2">
           <label for="role" class="text-sm text-base-content/60">Filter by role:</label>
           <select name="role" id="role-filter" class="select select-sm select-bordered">
@@ -173,37 +219,6 @@ defmodule PkiCaPortalWeb.UsersLive do
               <button class="join-item btn btn-sm" phx-click="change_page" phx-value-page={@page + 1} disabled={@page >= total_pages}>»</button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <%!-- Create user form --%>
-      <div id="create-user-form" class="card bg-base-100 shadow-sm border border-base-300">
-        <div class="card-body">
-          <h2 class="text-sm font-semibold text-base-content mb-4">Create User</h2>
-          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <div>
-              <label for="username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
-              <input type="text" name="username" id="user-username" required class="input input-bordered input-sm w-full" />
-            </div>
-            <div>
-              <label for="display_name" class="block text-xs font-medium text-base-content/60 mb-1">Display Name</label>
-              <input type="text" name="display_name" id="user-display-name" required class="input input-bordered input-sm w-full" />
-            </div>
-            <div>
-              <label for="role" class="block text-xs font-medium text-base-content/60 mb-1">Role</label>
-              <select name="role" id="user-role" class="select select-bordered select-sm w-full">
-                <option value="ca_admin">CA Admin</option>
-                <option value="key_manager">Key Manager</option>
-                <option value="auditor">Auditor</option>
-              </select>
-            </div>
-            <div>
-              <button type="submit" class="btn btn-primary btn-sm w-full">
-                <.icon name="hero-plus" class="size-4" />
-                Create User
-              </button>
-            </div>
-          </form>
         </div>
       </div>
     </div>

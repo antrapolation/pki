@@ -5,7 +5,29 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, profiles} = RaEngineClient.list_cert_profiles()
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     socket
+     |> assign(
+       page_title: "Certificate Profiles",
+       profiles: [],
+       ra_instances: [],
+       issuer_keys: [],
+       loading: true,
+       editing: nil,
+       page: 1,
+       per_page: 50
+     )
+     |> apply_pagination()}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    profiles = case RaEngineClient.list_cert_profiles() do
+      {:ok, p} -> p
+      {:error, _} -> []
+    end
 
     ra_instances =
       case RaEngineClient.list_ra_instances() do
@@ -19,16 +41,13 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      socket
      |> assign(
-       page_title: "Certificate Profiles",
        profiles: profiles,
        ra_instances: ra_instances,
        issuer_keys: issuer_keys,
-       editing: nil,
-       page: 1,
-       per_page: 50
+       loading: false
      )
      |> apply_pagination()}
   end

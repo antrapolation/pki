@@ -5,7 +5,30 @@ defmodule PkiRaPortalWeb.UsersLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, users} = RaEngineClient.list_users()
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     socket
+     |> assign(
+       page_title: "Users",
+       users: [],
+       filtered_users: [],
+       ra_instances: [],
+       loading: true,
+       selected_ra_instance_id: "",
+       role_filter: "all",
+       page: 1,
+       per_page: 50
+     )
+     |> apply_pagination()}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    users = case RaEngineClient.list_users() do
+      {:ok, u} -> u
+      {:error, _} -> []
+    end
 
     ra_instances =
       case RaEngineClient.list_ra_instances() do
@@ -13,17 +36,13 @@ defmodule PkiRaPortalWeb.UsersLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      socket
      |> assign(
-       page_title: "Users",
        users: users,
        filtered_users: users,
        ra_instances: ra_instances,
-       selected_ra_instance_id: "",
-       role_filter: "all",
-       page: 1,
-       per_page: 50
+       loading: false
      )
      |> apply_pagination()}
   end

@@ -5,6 +5,22 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     assign(socket,
+       page_title: "Keystore Management",
+       keystores: [],
+       ca_instances: [],
+       loading: true,
+       selected_ca_instance_id: "",
+       page: 1,
+       per_page: 10
+     )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
 
     keystores = case CaEngineClient.list_keystores(ca_id) do
@@ -18,20 +34,17 @@ defmodule PkiCaPortalWeb.KeystoresLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      assign(socket,
-       page_title: "Keystore Management",
        keystores: keystores,
        ca_instances: ca_instances,
-       selected_ca_instance_id: "",
-       page: 1,
-       per_page: 10
+       loading: false
      )}
   end
 
   @impl true
-  def handle_event("configure_keystore", %{"type" => type}, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+  def handle_event("configure_keystore", %{"type" => type, "ca_instance_id" => ca_instance_id}, socket) do
+    ca_id = if ca_instance_id == "", do: socket.assigns.current_user[:ca_instance_id] || "default", else: ca_instance_id
 
     case CaEngineClient.configure_keystore(ca_id, %{type: type}) do
       {:ok, keystore} ->
@@ -105,6 +118,38 @@ defmodule PkiCaPortalWeb.KeystoresLive do
         </form>
       </div>
 
+      <%!-- Configure keystore form --%>
+      <div id="configure-keystore-form" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h2 class="text-sm font-semibold text-base-content mb-4">Configure Keystore</h2>
+          <form phx-submit="configure_keystore" class="flex items-end gap-4">
+            <div class="flex-1 max-w-xs">
+              <label for="ks-ca-instance" class="block text-xs font-medium text-base-content/60 mb-1">CA Instance</label>
+              <select name="ca_instance_id" id="ks-ca-instance" class="select select-bordered select-sm w-full" required>
+                <option value="" disabled selected>Select CA Instance</option>
+                <option
+                  :for={inst <- @ca_instances}
+                  value={inst.id}
+                >
+                  {inst.name}
+                </option>
+              </select>
+            </div>
+            <div class="flex-1 max-w-xs">
+              <label for="type" class="block text-xs font-medium text-base-content/60 mb-1">Type</label>
+              <select name="type" id="keystore-type" class="select select-bordered select-sm w-full">
+                <option value="software">Software</option>
+                <option value="hsm">HSM</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="size-4" />
+              Configure
+            </button>
+          </form>
+        </div>
+      </div>
+
       <%!-- Keystores table --%>
       <% paginated_keystores = @keystores |> Enum.drop((@page - 1) * @per_page) |> Enum.take(@per_page) %>
       <% total_keystores = length(@keystores) %>
@@ -148,26 +193,6 @@ defmodule PkiCaPortalWeb.KeystoresLive do
               <button class="join-item btn btn-sm" phx-click="change_page" phx-value-page={@page + 1} disabled={@page >= total_pages}>»</button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <%!-- Configure keystore form --%>
-      <div id="configure-keystore-form" class="card bg-base-100 shadow-sm border border-base-300">
-        <div class="card-body">
-          <h2 class="text-sm font-semibold text-base-content mb-4">Configure Keystore</h2>
-          <form phx-submit="configure_keystore" class="flex items-end gap-4">
-            <div class="flex-1 max-w-xs">
-              <label for="type" class="block text-xs font-medium text-base-content/60 mb-1">Type</label>
-              <select name="type" id="keystore-type" class="select select-bordered select-sm w-full">
-                <option value="software">Software</option>
-                <option value="hsm">HSM</option>
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm">
-              <.icon name="hero-plus" class="size-4" />
-              Configure
-            </button>
-          </form>
         </div>
       </div>
     </div>

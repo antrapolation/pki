@@ -5,7 +5,29 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, keys} = RaEngineClient.list_api_keys()
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     socket
+     |> assign(
+       page_title: "API Keys",
+       api_keys: [],
+       ra_instances: [],
+       loading: true,
+       selected_ra_instance_id: "",
+       new_raw_key: nil,
+       page: 1,
+       per_page: 50
+     )
+     |> apply_pagination()}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    keys = case RaEngineClient.list_api_keys() do
+      {:ok, k} -> k
+      {:error, _} -> []
+    end
 
     ra_instances =
       case RaEngineClient.list_ra_instances() do
@@ -13,16 +35,12 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      socket
      |> assign(
-       page_title: "API Keys",
        api_keys: Enum.map(keys, &normalize_key/1),
        ra_instances: ra_instances,
-       selected_ra_instance_id: "",
-       new_raw_key: nil,
-       page: 1,
-       per_page: 50
+       loading: false
      )
      |> apply_pagination()}
   end

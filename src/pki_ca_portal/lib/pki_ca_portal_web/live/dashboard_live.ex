@@ -5,6 +5,22 @@ defmodule PkiCaPortalWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     assign(socket,
+       page_title: "Dashboard",
+       engine_status: %{status: "unknown", uptime_seconds: 0, active_keys: 0},
+       active_keys: [],
+       recent_ceremonies: [],
+       loading: true,
+       page: 1,
+       per_page: 10
+     )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
 
     status =
@@ -25,14 +41,12 @@ defmodule PkiCaPortalWeb.DashboardLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      assign(socket,
-       page_title: "Dashboard",
        engine_status: status,
        active_keys: keys,
        recent_ceremonies: ceremonies,
-       page: 1,
-       per_page: 10
+       loading: false
      )}
   end
 

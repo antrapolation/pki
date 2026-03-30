@@ -3,23 +3,39 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     assign(socket,
+       page_title: "Dashboard",
+       total_tenants: 0,
+       active_tenants: 0,
+       suspended_tenants: 0,
+       initialized_tenants: 0,
+       healthy_services: 0,
+       total_services: 6,
+       recent_tenants: [],
+       loading: true
+     )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
     tenants = list_tenants()
     active = Enum.count(tenants, &(&1.status == "active"))
     suspended = Enum.count(tenants, &(&1.status == "suspended"))
     initialized = Enum.count(tenants, &(&1.status == "initialized"))
 
-    if connected?(socket), do: send(self(), :check_services)
+    send(self(), :check_services)
 
-    {:ok,
+    {:noreply,
      assign(socket,
-       page_title: "Dashboard",
        total_tenants: length(tenants),
        active_tenants: active,
        suspended_tenants: suspended,
        initialized_tenants: initialized,
-       healthy_services: 0,
-       total_services: 6,
-       recent_tenants: Enum.take(tenants, 5)
+       recent_tenants: Enum.take(tenants, 5),
+       loading: false
      )}
   end
 
@@ -161,7 +177,7 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
                   <th>Name</th>
                   <th>Slug</th>
                   <th>Status</th>
-                  <th>Algorithm</th>
+                  <th>Email</th>
                   <th>Created</th>
                 </tr>
               </thead>
@@ -183,7 +199,7 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
                       tenant.status == "initialized" && "badge-ghost"
                     ]}>{tenant.status}</span>
                   </td>
-                  <td class="font-mono text-sm">{tenant.signing_algorithm}</td>
+                  <td class="font-mono text-sm">{tenant.email}</td>
                   <td class="text-base-content/60 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
                 </tr>
               </tbody>

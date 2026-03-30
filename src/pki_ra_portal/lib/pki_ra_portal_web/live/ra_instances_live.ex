@@ -5,16 +5,23 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    instances = fetch_instances()
+    if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
      assign(socket,
        page_title: "RA Instances",
-       instances: instances,
+       instances: [],
+       loading: true,
        show_create_modal: false,
        create_name: "",
        creating: false
      )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    instances = fetch_instances()
+    {:noreply, assign(socket, instances: instances, loading: false)}
   end
 
   @impl true

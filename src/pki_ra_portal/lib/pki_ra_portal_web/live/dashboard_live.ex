@@ -5,21 +5,44 @@ defmodule PkiRaPortalWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, csrs} = RaEngineClient.list_csrs()
-    {:ok, profiles} = RaEngineClient.list_cert_profiles()
-
-    pending_csrs = Enum.filter(csrs, &(&1.status == "pending"))
-    recent_csrs = Enum.take(csrs, 5)
+    if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
      socket
      |> assign(
        page_title: "Dashboard",
+       pending_csr_count: 0,
+       recent_csrs: [],
+       cert_profile_count: 0,
+       loading: true,
+       page: 1,
+       per_page: 10
+     )
+     |> apply_pagination()}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    csrs = case RaEngineClient.list_csrs() do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
+
+    profiles = case RaEngineClient.list_cert_profiles() do
+      {:ok, p} -> p
+      {:error, _} -> []
+    end
+
+    pending_csrs = Enum.filter(csrs, &(&1.status == "pending"))
+    recent_csrs = Enum.take(csrs, 5)
+
+    {:noreply,
+     socket
+     |> assign(
        pending_csr_count: length(pending_csrs),
        recent_csrs: recent_csrs,
        cert_profile_count: length(profiles),
-       page: 1,
-       per_page: 10
+       loading: false
      )
      |> apply_pagination()}
   end

@@ -5,17 +5,26 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    instances = fetch_instances()
+    if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
      assign(socket,
        page_title: "CA Instances",
-       instances: instances,
+       instances: [],
+       loading: true,
        show_create_modal: false,
        create_name: "",
        create_parent_id: "",
-       creating: false
+       creating: false,
+       renaming_id: nil,
+       rename_value: ""
      )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    instances = fetch_instances()
+    {:noreply, assign(socket, instances: instances, loading: false)}
   end
 
   @impl true
@@ -52,6 +61,38 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to create CA instance: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("start_rename", %{"id" => id, "name" => name}, socket) do
+    {:noreply, assign(socket, renaming_id: id, rename_value: name)}
+  end
+
+  @impl true
+  def handle_event("cancel_rename", _params, socket) do
+    {:noreply, assign(socket, renaming_id: nil, rename_value: "")}
+  end
+
+  @impl true
+  def handle_event("save_rename", %{"name" => name}, socket) do
+    id = socket.assigns.renaming_id
+    name = String.trim(name)
+
+    if name == "" do
+      {:noreply, put_flash(socket, :error, "Name cannot be empty")}
+    else
+      case CaEngineClient.update_ca_instance(id, %{"name" => name}) do
+        {:ok, _} ->
+          instances = fetch_instances()
+          {:noreply,
+           socket
+           |> assign(instances: instances, renaming_id: nil, rename_value: "")
+           |> put_flash(:info, "CA instance renamed")}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Rename failed: #{inspect(reason)}")}
+      end
     end
   end
 
@@ -128,6 +169,8 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
               instance={root}
               instances={@instances}
               depth={0}
+              renaming_id={@renaming_id}
+              rename_value={@rename_value}
             />
           </div>
         </div>
@@ -205,7 +248,34 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
             />
           </div>
           <div>
-            <p class="text-sm font-medium text-base-content">{@instance.name}</p>
+            <%= if @renaming_id == @instance[:id] do %>
+              <form phx-submit="save_rename" class="flex items-center gap-2">
+                <input
+                  type="text"
+                  name="name"
+                  value={@rename_value}
+                  class="input input-bordered input-xs w-48"
+                  autofocus
+                  phx-keydown="cancel_rename"
+                  phx-key="Escape"
+                />
+                <button type="submit" class="btn btn-success btn-xs">Save</button>
+                <button type="button" class="btn btn-ghost btn-xs" phx-click="cancel_rename">Cancel</button>
+              </form>
+            <% else %>
+              <p class="text-sm font-medium text-base-content group/name">
+                {@instance.name}
+                <button
+                  class="btn btn-ghost btn-xs opacity-0 group-hover/name:opacity-100 ml-1"
+                  phx-click="start_rename"
+                  phx-value-id={@instance[:id]}
+                  phx-value-name={@instance.name}
+                  title="Rename"
+                >
+                  <.icon name="hero-pencil" class="size-3" />
+                </button>
+              </p>
+            <% end %>
             <div class="flex items-center gap-2 mt-0.5">
               <span class={"badge badge-xs #{role_badge_class(@instance[:role] || "root")}"}>
                 {@instance[:role] || "root"}
@@ -234,6 +304,8 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
         instance={child}
         instances={@instances}
         depth={@depth + 1}
+        renaming_id={@renaming_id}
+        rename_value={@rename_value}
       />
     </div>
     """

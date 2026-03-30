@@ -5,15 +5,22 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    tenants = list_tenants()
+    if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
      assign(socket,
        page_title: "Tenants",
-       tenants: tenants,
+       tenants: [],
+       loading: true,
        page: 1,
        per_page: @per_page
      )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    tenants = list_tenants()
+    {:noreply, assign(socket, tenants: tenants, loading: false)}
   end
 
   def handle_event("suspend_tenant", %{"id" => id}, socket) do
@@ -102,7 +109,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                   <th class="w-1/4">Name</th>
                   <th>Slug</th>
                   <th>Status</th>
-                  <th>Algorithm</th>
+                  <th>Email</th>
                   <th>Created</th>
                   <th class="text-right">Actions</th>
                 </tr>
@@ -129,7 +136,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                       tenant.status == "initialized" && "badge-info badge-outline"
                     ]}>{tenant.status}</span>
                   </td>
-                  <td class="font-mono text-sm text-base-content/70">{tenant.signing_algorithm}</td>
+                  <td class="font-mono text-sm text-base-content/70">{tenant.email}</td>
                   <td class="text-base-content/50 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
                   <td class="text-right">
                     <div class="flex gap-1 justify-end">

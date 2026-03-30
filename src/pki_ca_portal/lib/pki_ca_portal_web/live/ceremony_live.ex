@@ -5,6 +5,24 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     assign(socket,
+       page_title: "Key Ceremony",
+       ceremonies: [],
+       keystores: [],
+       ca_instances: [],
+       loading: true,
+       selected_ca_instance_id: "",
+       ceremony_result: nil,
+       page: 1,
+       per_page: 10
+     )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
 
     ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
@@ -23,16 +41,12 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      assign(socket,
-       page_title: "Key Ceremony",
        ceremonies: ceremonies,
        keystores: keystores,
        ca_instances: ca_instances,
-       selected_ca_instance_id: "",
-       ceremony_result: nil,
-       page: 1,
-       per_page: 10
+       loading: false
      )}
   end
 

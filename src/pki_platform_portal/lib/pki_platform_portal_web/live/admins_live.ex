@@ -3,16 +3,23 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    admins = list_admins()
+    if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
      assign(socket,
        page_title: "Admins",
-       admins: admins,
+       admins: [],
+       loading: true,
        show_form: false,
        form_error: nil,
        pw_error: nil
      )}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    admins = list_admins()
+    {:noreply, assign(socket, admins: admins, loading: false)}
   end
 
   @impl true

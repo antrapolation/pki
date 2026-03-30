@@ -5,7 +5,31 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, csrs} = RaEngineClient.list_csrs()
+    if connected?(socket), do: send(self(), :load_data)
+
+    {:ok,
+     socket
+     |> assign(
+       page_title: "CSR Management",
+       csrs: [],
+       ra_instances: [],
+       loading: true,
+       selected_ra_instance_id: "",
+       status_filter: "all",
+       selected_csr: nil,
+       reject_reason: "",
+       page: 1,
+       per_page: 10
+     )
+     |> apply_pagination()}
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    csrs = case RaEngineClient.list_csrs() do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
 
     ra_instances =
       case RaEngineClient.list_ra_instances() do
@@ -13,18 +37,12 @@ defmodule PkiRaPortalWeb.CsrsLive do
         {:error, _} -> []
       end
 
-    {:ok,
+    {:noreply,
      socket
      |> assign(
-       page_title: "CSR Management",
        csrs: csrs,
        ra_instances: ra_instances,
-       selected_ra_instance_id: "",
-       status_filter: "all",
-       selected_csr: nil,
-       reject_reason: "",
-       page: 1,
-       per_page: 10
+       loading: false
      )
      |> apply_pagination()}
   end
