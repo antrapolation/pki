@@ -187,10 +187,20 @@ defmodule PkiPlatformEngine.Provisioner do
          ) do
       {:ok, conn} ->
         try do
-          case Postgrex.query(conn, sql, []) do
-            {:ok, _} -> :ok
-            {:error, reason} -> {:error, reason}
-          end
+          # Split SQL into individual statements and execute each one.
+          # Postgrex extended protocol doesn't support multi-statement queries.
+          statements =
+            sql
+            |> String.split(";")
+            |> Enum.map(&String.trim/1)
+            |> Enum.reject(&(&1 == ""))
+
+          Enum.reduce_while(statements, :ok, fn stmt, :ok ->
+            case Postgrex.query(conn, stmt, []) do
+              {:ok, _} -> {:cont, :ok}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+          end)
         after
           GenServer.stop(conn)
         end

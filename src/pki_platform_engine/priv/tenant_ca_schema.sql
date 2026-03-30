@@ -256,4 +256,3 @@ ALTER TABLE ONLY public.threshold_shares
     ADD CONSTRAINT threshold_shares_custodian_user_id_fkey FOREIGN KEY (custodian_user_id) REFERENCES public.ca_users(id) ON DELETE CASCADE;
 ALTER TABLE ONLY public.threshold_shares
     ADD CONSTRAINT threshold_shares_issuer_key_id_fkey FOREIGN KEY (issuer_key_id) REFERENCES public.issuer_keys(id) ON DELETE CASCADE;
-\unrestrict zFsTChUHSquNNcOOrcR5avsAbYW206qFvYQLhc9LHcabHxMmKBrQ5pXJbakrV8X
