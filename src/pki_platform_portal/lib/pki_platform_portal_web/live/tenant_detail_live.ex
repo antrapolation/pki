@@ -1,6 +1,10 @@
 defmodule PkiPlatformPortalWeb.TenantDetailLive do
   use PkiPlatformPortalWeb, :live_view
 
+  alias PkiPlatformEngine.{Mailer, EmailTemplates}
+
+  require Logger
+
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     case PkiPlatformEngine.Provisioner.get_tenant(id) do
@@ -66,7 +70,82 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     end
   end
 
+  def handle_event("resend_credentials", _params, socket) do
+    tenant = socket.assigns.tenant
+    send(self(), {:credential_action, :resend})
+    {:noreply, put_flash(socket, :info, "Resending credentials to #{tenant.email}...")}
+  end
+
+  def handle_event("reset_ca_admin", _params, socket) do
+    send(self(), {:credential_action, :reset_ca})
+    {:noreply, put_flash(socket, :info, "Resetting CA Admin...")}
+  end
+
+  def handle_event("reset_ra_admin", _params, socket) do
+    send(self(), {:credential_action, :reset_ra})
+    {:noreply, put_flash(socket, :info, "Resetting RA Admin...")}
+  end
+
   @impl true
+  def handle_info({:credential_action, action}, socket) do
+    tenant = socket.assigns.tenant
+    secret = System.get_env("INTERNAL_API_SECRET", "")
+    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+    ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
+    ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
+
+    ca_username = "#{tenant.slug}-ca-admin"
+    ra_username = "#{tenant.slug}-ra-admin"
+    ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+    ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+
+    errors =
+      case action do
+        :resend ->
+          # Just regenerate passwords and resend email — delete old users, create new ones
+          delete_and_recreate_admin(:ca, ca_username, ca_password, tenant, secret, expires_at) ++
+            delete_and_recreate_admin(:ra, ra_username, ra_password, tenant, secret, expires_at)
+
+        :reset_ca ->
+          delete_and_recreate_admin(:ca, ca_username, ca_password, tenant, secret, expires_at)
+
+        :reset_ra ->
+          delete_and_recreate_admin(:ra, ra_username, ra_password, tenant, secret, expires_at)
+      end
+
+    # Send credential email
+    if errors == [] do
+      {send_ca_u, send_ca_p, send_ra_u, send_ra_p} =
+        case action do
+          :resend -> {ca_username, ca_password, ra_username, ra_password}
+          :reset_ca -> {ca_username, ca_password, ra_username, "(unchanged)"}
+          :reset_ra -> {ca_username, "(unchanged)", ra_username, ra_password}
+        end
+
+      html = EmailTemplates.admin_credentials(
+        tenant.name, send_ca_u, send_ca_p, send_ra_u, send_ra_p,
+        "https://#{ca_host}", "https://#{ra_host}"
+      )
+
+      case Mailer.send_email(tenant.email, "Updated credentials for #{tenant.name}", html) do
+        {:ok, _} -> :ok
+        {:error, reason} -> Logger.error("Failed to send credential email: #{inspect(reason)}")
+      end
+    end
+
+    # Reload metrics
+    send(self(), :load_metrics)
+
+    socket =
+      if errors == [] do
+        put_flash(socket, :info, "Credentials reset and emailed to #{tenant.email}")
+      else
+        put_flash(socket, :error, Enum.join(errors, "; "))
+      end
+
+    {:noreply, socket}
+  end
+
   def handle_info(:load_metrics, socket) do
     metrics =
       try do
@@ -76,6 +155,68 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       end
 
     {:noreply, assign(socket, metrics: metrics)}
+  end
+
+  defp delete_and_recreate_admin(:ca, username, password, tenant, secret, expires_at) do
+    # Delete existing CA admin
+    case Req.get("http://127.0.0.1:4001/api/v1/users",
+           headers: [{"x-internal-secret", secret}],
+           params: [role: "ca_admin"],
+           retry: false
+         ) do
+      {:ok, %{status: 200, body: %{"data" => users}}} ->
+        for user <- users, user["username"] == username do
+          Req.delete("http://127.0.0.1:4001/api/v1/users/#{user["id"]}",
+            headers: [{"x-internal-secret", secret}], retry: false)
+        end
+      _ -> :ok
+    end
+
+    # Create new CA admin
+    case Req.post("http://127.0.0.1:4001/api/v1/users",
+           json: %{
+             username: username, password: password, role: "ca_admin",
+             display_name: "#{tenant.name} CA Admin", ca_instance_id: "default",
+             must_change_password: true,
+             credential_expires_at: DateTime.to_iso8601(expires_at)
+           },
+           headers: [{"x-internal-secret", secret}], retry: false
+         ) do
+      {:ok, %{status: s}} when s in 200..299 -> []
+      {:ok, %{status: s}} -> ["CA admin reset failed (HTTP #{s})"]
+      {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+    end
+  end
+
+  defp delete_and_recreate_admin(:ra, username, password, tenant, secret, expires_at) do
+    # Delete existing RA admin
+    case Req.get("http://127.0.0.1:4003/api/v1/users",
+           headers: [{"x-internal-secret", secret}],
+           params: [role: "ra_admin", tenant_id: tenant.id],
+           retry: false
+         ) do
+      {:ok, %{status: 200, body: %{"data" => users}}} ->
+        for user <- users, user["username"] == username do
+          Req.delete("http://127.0.0.1:4003/api/v1/users/#{user["id"]}",
+            headers: [{"x-internal-secret", secret}], retry: false)
+        end
+      _ -> :ok
+    end
+
+    # Create new RA admin
+    case Req.post("http://127.0.0.1:4003/api/v1/users",
+           json: %{
+             username: username, password: password, role: "ra_admin",
+             display_name: "#{tenant.name} RA Admin", tenant_id: tenant.id,
+             must_change_password: true,
+             credential_expires_at: DateTime.to_iso8601(expires_at)
+           },
+           headers: [{"x-internal-secret", secret}], retry: false
+         ) do
+      {:ok, %{status: s}} when s in 200..299 -> []
+      {:ok, %{status: s}} -> ["RA admin reset failed (HTTP #{s})"]
+      {:error, reason} -> ["RA admin reset failed: #{inspect(reason)}"]
+    end
   end
 
   @impl true
@@ -164,7 +305,19 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
 
       <%!-- Admin setup status --%>
       <div>
-        <h3 class="text-sm font-semibold text-base-content mb-3">Admin Setup Status</h3>
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-base-content">Admin Setup Status</h3>
+          <button
+            :if={@tenant.status == "active" && @tenant.email}
+            phx-click="resend_credentials"
+            data-confirm="This will reset ALL admin passwords and send new credentials. Continue?"
+            class="btn btn-ghost btn-xs text-primary"
+            phx-disable-with="Sending..."
+          >
+            <.icon name="hero-envelope" class="size-3.5" />
+            Resend All Credentials
+          </button>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <%!-- CA Admin --%>
           <div class="card bg-base-100 shadow-sm border border-base-300">
@@ -177,17 +330,25 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
                   <h4 class="text-sm font-semibold">CA Admin</h4>
                 </div>
                 <span :if={@metrics.ca_users > 0} class="badge badge-sm badge-success">Configured</span>
-                <span :if={@metrics.ca_users == 0} class="badge badge-sm badge-warning">Pending setup</span>
+                <span :if={@metrics.ca_users == 0} class="badge badge-sm badge-warning">Pending</span>
               </div>
               <p :if={@metrics.ca_users > 0} class="text-sm text-base-content/60">
-                {@metrics.ca_users} admin user{if @metrics.ca_users != 1, do: "s", else: ""} configured.
+                {@metrics.ca_users} user{if @metrics.ca_users != 1, do: "s", else: ""} configured.
               </p>
-              <div :if={@metrics.ca_users == 0} class="space-y-2">
-                <p class="text-xs text-base-content/60">No CA admin configured. Use the setup URL below:</p>
-                <div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
-                  <.icon name="hero-link" class="size-3.5 text-base-content/40 flex-shrink-0" />
-                  <a href={@ca_setup_url} target="_blank" class="font-mono text-xs text-primary hover:underline truncate">{@ca_setup_url}</a>
-                </div>
+              <div :if={@metrics.ca_users == 0 && @tenant.status != "active"} class="text-xs text-base-content/50">
+                Activate the tenant first, then admin credentials will be provisioned.
+              </div>
+              <div class="flex gap-2 mt-3">
+                <button
+                  :if={@tenant.status == "active" && @tenant.email}
+                  phx-click="reset_ca_admin"
+                  data-confirm="This will delete the existing CA admin and create a new one with a temporary password. Continue?"
+                  class="btn btn-ghost btn-xs text-warning"
+                  phx-disable-with="Resetting..."
+                >
+                  <.icon name="hero-arrow-path" class="size-3.5" />
+                  Reset CA Admin
+                </button>
               </div>
             </div>
           </div>
@@ -203,17 +364,25 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
                   <h4 class="text-sm font-semibold">RA Admin</h4>
                 </div>
                 <span :if={@metrics.ra_users > 0} class="badge badge-sm badge-success">Configured</span>
-                <span :if={@metrics.ra_users == 0} class="badge badge-sm badge-warning">Pending setup</span>
+                <span :if={@metrics.ra_users == 0} class="badge badge-sm badge-warning">Pending</span>
               </div>
               <p :if={@metrics.ra_users > 0} class="text-sm text-base-content/60">
-                {@metrics.ra_users} admin user{if @metrics.ra_users != 1, do: "s", else: ""} configured.
+                {@metrics.ra_users} user{if @metrics.ra_users != 1, do: "s", else: ""} configured.
               </p>
-              <div :if={@metrics.ra_users == 0} class="space-y-2">
-                <p class="text-xs text-base-content/60">No RA admin configured. Use the setup URL below:</p>
-                <div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
-                  <.icon name="hero-link" class="size-3.5 text-base-content/40 flex-shrink-0" />
-                  <a href={@ra_setup_url} target="_blank" class="font-mono text-xs text-primary hover:underline truncate">{@ra_setup_url}</a>
-                </div>
+              <div :if={@metrics.ra_users == 0 && @tenant.status != "active"} class="text-xs text-base-content/50">
+                Activate the tenant first, then admin credentials will be provisioned.
+              </div>
+              <div class="flex gap-2 mt-3">
+                <button
+                  :if={@tenant.status == "active" && @tenant.email}
+                  phx-click="reset_ra_admin"
+                  data-confirm="This will delete the existing RA admin and create a new one with a temporary password. Continue?"
+                  class="btn btn-ghost btn-xs text-warning"
+                  phx-disable-with="Resetting..."
+                >
+                  <.icon name="hero-arrow-path" class="size-3.5" />
+                  Reset RA Admin
+                </button>
               </div>
             </div>
           </div>
