@@ -101,12 +101,9 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     if email == "" or slug == "" do
       {:noreply, assign(socket, step: 1, form_error: "Session expired. Please start again.")}
     else
-      # Step 3: Create database only
       case Provisioner.create_tenant(name, slug, email: email) do
         {:ok, tenant} ->
-          # Database created. Move to step 4: create admins
-          send(self(), :create_admins)
-          {:noreply, assign(socket, step: 4, created_tenant: tenant, form_error: nil, provision_status: "Creating admin accounts...")}
+          {:noreply, assign(socket, step: 5, created_tenant: tenant, form_error: nil)}
 
         {:error, %Ecto.Changeset{} = changeset} ->
           err =
@@ -123,92 +120,6 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
         {:error, reason} ->
           {:noreply, assign(socket, step: 3, form_error: "Tenant creation failed: #{inspect(reason)}")}
       end
-    end
-  end
-
-  def handle_info(:create_admins, socket) do
-    tenant = socket.assigns.created_tenant
-    slug = tenant.slug
-    email = tenant.email
-
-    secret = System.get_env("INTERNAL_API_SECRET", "")
-    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
-
-    ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-    ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-    ca_username = "#{slug}-ca-admin"
-    ra_username = "#{slug}-ra-admin"
-
-    ca_errors = create_ca_admin(ca_username, ca_password, tenant.name, secret, expires_at)
-    ra_errors = create_ra_admin(ra_username, ra_password, tenant.name, tenant.id, secret, expires_at)
-    admin_errors = ca_errors ++ ra_errors
-
-    # Send credentials email if admins created successfully
-    email_errors =
-      if admin_errors == [] do
-        ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
-        ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
-
-        html = EmailTemplates.admin_credentials(
-          tenant.name, ca_username, ca_password, ra_username, ra_password,
-          "https://#{ca_host}", "https://#{ra_host}"
-        )
-
-        case Mailer.send_email(email, "Your #{tenant.name} admin credentials", html) do
-          {:ok, _} -> []
-          {:error, reason} -> ["Failed to send credentials email: #{inspect(reason)}"]
-        end
-      else
-        []
-      end
-
-    all_errors = admin_errors ++ email_errors
-    error_msg = if all_errors == [], do: nil, else: Enum.join(all_errors, "\n")
-
-    {:noreply, assign(socket, step: 5, form_error: error_msg)}
-  end
-
-  defp create_ca_admin(username, password, display_name, secret, expires_at) do
-    body = %{
-      username: username,
-      password: password,
-      role: "ca_admin",
-      display_name: "#{display_name} CA Admin",
-      ca_instance_id: "default",
-      must_change_password: true,
-      credential_expires_at: DateTime.to_iso8601(expires_at)
-    }
-
-    case Req.post("http://127.0.0.1:4001/api/v1/users",
-           json: body,
-           headers: [{"authorization", "Bearer #{secret}"}]
-         ) do
-      {:ok, %{status: status}} when status in 200..299 -> []
-      {:ok, %{status: status}} -> ["CA admin creation failed (HTTP #{status}). You can create the admin later from the tenant detail page after the CA engine is deployed."]
-      {:error, %Req.TransportError{reason: :econnrefused}} -> ["CA engine is not running (port 4001). Deploy the CA engine for this tenant first, then create admin from the tenant detail page."]
-      {:error, reason} -> ["CA admin creation failed: #{inspect(reason)}"]
-    end
-  end
-
-  defp create_ra_admin(username, password, display_name, tenant_id, secret, expires_at) do
-    body = %{
-      username: username,
-      password: password,
-      role: "ra_admin",
-      display_name: "#{display_name} RA Admin",
-      tenant_id: tenant_id,
-      must_change_password: true,
-      credential_expires_at: DateTime.to_iso8601(expires_at)
-    }
-
-    case Req.post("http://127.0.0.1:4003/api/v1/users",
-           json: body,
-           headers: [{"authorization", "Bearer #{secret}"}]
-         ) do
-      {:ok, %{status: status}} when status in 200..299 -> []
-      {:ok, %{status: status}} -> ["RA admin creation failed (HTTP #{status}). You can create the admin later from the tenant detail page after the RA engine is deployed."]
-      {:error, %Req.TransportError{reason: :econnrefused}} -> ["RA engine is not running (port 4003). Deploy the RA engine for this tenant first, then create admin from the tenant detail page."]
-      {:error, reason} -> ["RA admin creation failed: #{inspect(reason)}"]
     end
   end
 
@@ -293,32 +204,13 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
             "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
             if(@step >= 3, do: "bg-primary text-primary-content border-primary", else: "bg-base-200 text-base-content/40 border-base-300")
           ]}>
-            <%= if @step > 3 do %>
+            <%= if @step >= 5 do %>
               <.icon name="hero-check-mini" class="size-4" />
             <% else %>
               3
             <% end %>
           </div>
           <span class={["text-xs font-medium", if(@step >= 3, do: "text-base-content", else: "text-base-content/40")]}>
-            Provision
-          </span>
-        </div>
-
-        <div class={["w-12 h-0.5 mx-2", if(@step >= 4, do: "bg-primary", else: "bg-base-300")]}></div>
-
-        <%!-- Step 4 --%>
-        <div class="flex items-center gap-2">
-          <div class={[
-            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
-            if(@step >= 5, do: "bg-primary text-primary-content border-primary", else: "bg-base-200 text-base-content/40 border-base-300")
-          ]}>
-            <%= if @step >= 5 do %>
-              <.icon name="hero-check-mini" class="size-4" />
-            <% else %>
-              4
-            <% end %>
-          </div>
-          <span class={["text-xs font-medium", if(@step >= 5, do: "text-base-content", else: "text-base-content/40")]}>
             Complete
           </span>
         </div>
@@ -505,27 +397,6 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
         <% end %>
       <% end %>
 
-      <%!-- Step 4: Creating admin accounts (spinner) --%>
-      <%= if @step == 4 do %>
-        <div class="card bg-base-100 shadow-sm border border-base-300">
-          <div class="card-body p-6 space-y-4">
-            <div class="flex items-center gap-3">
-              <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-success/10">
-                <.icon name="hero-check-circle" class="size-6 text-success" />
-              </div>
-              <div>
-                <h2 class="text-base font-semibold text-base-content">Database Provisioned</h2>
-                <p class="text-sm text-base-content/60">{@created_tenant.name} database is ready.</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-3 pl-2">
-              <span class="loading loading-spinner loading-sm text-primary"></span>
-              <span class="text-sm text-base-content/60">{@provision_status}</span>
-            </div>
-          </div>
-        </div>
-      <% end %>
-
       <%!-- Step 5: Complete --%>
       <%= if @step == 5 do %>
         <div class="card bg-base-100 shadow-sm border border-success/40">
@@ -538,26 +409,20 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                 <h2 class="text-base font-semibold text-base-content">Tenant Created</h2>
                 <p class="text-sm text-base-content/60">
                   <span class="font-medium text-base-content">{@created_tenant.name}</span>
-                  has been provisioned successfully.
+                  database has been provisioned successfully.
                 </p>
               </div>
             </div>
 
-            <%= if @form_error do %>
-              <div class="alert alert-warning text-sm whitespace-pre-line">
-                <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
-                <span>{@form_error}</span>
-              </div>
-            <% else %>
-              <div class="alert alert-success text-sm">
-                <.icon name="hero-check-circle" class="size-4 shrink-0" />
-                <span>Admin credentials have been emailed to <strong>{@email}</strong>. Credentials expire in 24 hours.</span>
-              </div>
-            <% end %>
+            <div class="divider my-0"></div>
 
-            <div class="alert alert-info text-xs">
-              <.icon name="hero-information-circle" class="size-4" />
-              <span>The tenant must be <strong>activated</strong> from the tenant detail page before the admin accounts can log in.</span>
+            <div class="space-y-3">
+              <p class="text-xs font-semibold uppercase tracking-wider text-base-content/50">Next Steps</p>
+              <ol class="text-sm text-base-content/70 space-y-2 list-decimal list-inside">
+                <li>Deploy the CA and RA engines for this tenant</li>
+                <li>Verify engines are online from the tenant detail page</li>
+                <li><strong>Activate the tenant</strong> — this will create CA/RA admin accounts and send credentials to <strong class="text-base-content">{@email}</strong></li>
+              </ol>
             </div>
 
             <div class="flex gap-3 pt-1">

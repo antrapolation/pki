@@ -15,7 +15,10 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
          |> push_navigate(to: "/tenants")}
 
       tenant ->
-        if connected?(socket), do: send(self(), :load_metrics)
+        if connected?(socket) do
+          send(self(), :load_metrics)
+          send(self(), :check_engines)
+        end
         ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
         ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
 
@@ -25,7 +28,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            tenant: tenant,
            metrics: %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0, ca_instances: 0, ra_instances: 0},
            ca_setup_url: "https://#{ca_host}/setup?tenant=#{tenant.slug}",
-           ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}"
+           ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}",
+           ca_engine_status: :checking,
+           ra_engine_status: :checking
          )}
     end
   end
@@ -45,16 +50,32 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   end
 
   def handle_event("activate", _params, socket) do
-    case PkiPlatformEngine.Provisioner.activate_tenant(socket.assigns.tenant.id) do
-      {:ok, updated_tenant} ->
-        {:noreply,
-         socket
-         |> assign(tenant: updated_tenant)
-         |> put_flash(:info, "Tenant \"#{updated_tenant.name}\" activated.")}
+    tenant = socket.assigns.tenant
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to activate tenant: #{inspect(reason)}")}
+    # Check engines are reachable first
+    ca_ok = engine_reachable?("http://127.0.0.1:4001/health")
+    ra_ok = engine_reachable?("http://127.0.0.1:4003/health")
+
+    cond do
+      not ca_ok and not ra_ok ->
+        {:noreply, put_flash(socket, :error, "Cannot activate: CA Engine and RA Engine are not reachable. Deploy the engines first.")}
+
+      not ca_ok ->
+        {:noreply, put_flash(socket, :error, "Cannot activate: CA Engine (port 4001) is not reachable. Deploy the CA engine first.")}
+
+      not ra_ok ->
+        {:noreply, put_flash(socket, :error, "Cannot activate: RA Engine (port 4003) is not reachable. Deploy the RA engine first.")}
+
+      true ->
+        # Engines are up — activate tenant, create admins, send credentials
+        send(self(), :do_activate)
+        {:noreply, put_flash(socket, :info, "Activating tenant and creating admin accounts...")}
     end
+  end
+
+  def handle_event("check_engines", _params, socket) do
+    send(self(), :check_engines)
+    {:noreply, assign(socket, ca_engine_status: :checking, ra_engine_status: :checking)}
   end
 
   def handle_event("delete", _params, socket) do
@@ -84,6 +105,85 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   def handle_event("reset_ra_admin", _params, socket) do
     send(self(), {:credential_action, :reset_ra})
     {:noreply, put_flash(socket, :info, "Resetting RA Admin...")}
+  end
+
+  @impl true
+  def handle_info(:check_engines, socket) do
+    ca = if engine_reachable?("http://127.0.0.1:4001/health"), do: :online, else: :offline
+    ra = if engine_reachable?("http://127.0.0.1:4003/health"), do: :online, else: :offline
+    {:noreply, assign(socket, ca_engine_status: ca, ra_engine_status: ra)}
+  end
+
+  @impl true
+  def handle_info(:do_activate, socket) do
+    tenant = socket.assigns.tenant
+    secret = System.get_env("INTERNAL_API_SECRET", "")
+    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+    ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
+    ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
+
+    ca_username = "#{tenant.slug}-ca-admin"
+    ra_username = "#{tenant.slug}-ra-admin"
+    ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+    ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+
+    # Activate the tenant
+    case PkiPlatformEngine.Provisioner.activate_tenant(tenant.id) do
+      {:ok, updated_tenant} ->
+        # Create CA admin
+        ca_result = create_admin("http://127.0.0.1:4001/api/v1/users", secret, %{
+          username: ca_username, password: ca_password, role: "ca_admin",
+          display_name: "#{tenant.name} CA Admin", ca_instance_id: "default",
+          must_change_password: true, credential_expires_at: DateTime.to_iso8601(expires_at)
+        })
+
+        # Create RA admin
+        ra_result = create_admin("http://127.0.0.1:4003/api/v1/users", secret, %{
+          username: ra_username, password: ra_password, role: "ra_admin",
+          display_name: "#{tenant.name} RA Admin", tenant_id: tenant.id,
+          must_change_password: true, credential_expires_at: DateTime.to_iso8601(expires_at)
+        })
+
+        errors = ca_result ++ ra_result
+
+        if errors == [] do
+          html = EmailTemplates.admin_credentials(
+            tenant.name, ca_username, ca_password, ra_username, ra_password,
+            "https://#{ca_host}", "https://#{ra_host}"
+          )
+          Mailer.send_email(tenant.email, "Your #{tenant.name} admin credentials", html)
+
+          {:noreply,
+           socket
+           |> assign(tenant: updated_tenant)
+           |> put_flash(:info, "Tenant activated. Admin credentials sent to #{tenant.email}.")}
+        else
+          {:noreply,
+           socket
+           |> assign(tenant: updated_tenant)
+           |> put_flash(:warning, "Tenant activated but admin creation had issues: #{Enum.join(errors, "; ")}")}
+        end
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
+    end
+  end
+
+  defp engine_reachable?(url) do
+    case Req.get(url, receive_timeout: 3_000, retry: false) do
+      {:ok, %{status: 200}} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp create_admin(url, secret, body) do
+    case Req.post(url, json: body, headers: [{"authorization", "Bearer #{secret}"}], receive_timeout: 10_000) do
+      {:ok, %{status: status}} when status in 200..299 -> []
+      {:ok, %{status: status, body: resp}} -> ["HTTP #{status}: #{inspect(resp)}"]
+      {:error, reason} -> [inspect(reason)]
+    end
   end
 
   @impl true
@@ -253,21 +353,21 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             <%!-- Action buttons --%>
             <div class="flex items-center gap-2 flex-shrink-0">
               <button
-                :if={@tenant.status in ["initialized", "active"]}
+                :if={@tenant.status in ["initialized", "suspended"]}
+                phx-click="activate"
+                class="btn btn-sm btn-success btn-outline"
+              >
+                <.icon name="hero-play-circle" class="size-4" />
+                Activate
+              </button>
+              <button
+                :if={@tenant.status == "active"}
                 phx-click="suspend"
                 data-confirm={"Are you sure you want to suspend \"#{@tenant.name}\"?"}
                 class="btn btn-sm btn-warning btn-outline"
               >
                 <.icon name="hero-pause-circle" class="size-4" />
                 Suspend
-              </button>
-              <button
-                :if={@tenant.status == "suspended"}
-                phx-click="activate"
-                class="btn btn-sm btn-success btn-outline"
-              >
-                <.icon name="hero-play-circle" class="size-4" />
-                Activate
               </button>
               <button
                 :if={@tenant.status == "suspended"}
@@ -278,6 +378,36 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
                 <.icon name="hero-trash" class="size-4" />
                 Delete
               </button>
+              <button phx-click={JS.push("check_engines")} class="btn btn-sm btn-ghost">
+                <.icon name="hero-arrow-path" class="size-4" />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          <%!-- Engine Status --%>
+          <div class="flex items-center gap-4 px-1">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="text-base-content/50">CA Engine:</span>
+              <%= case @ca_engine_status do %>
+                <% :online -> %>
+                  <span class="badge badge-sm badge-success gap-1"><.icon name="hero-check-circle" class="size-3" /> Online</span>
+                <% :offline -> %>
+                  <span class="badge badge-sm badge-error gap-1"><.icon name="hero-x-circle" class="size-3" /> Offline</span>
+                <% :checking -> %>
+                  <span class="badge badge-sm badge-ghost gap-1"><span class="loading loading-spinner loading-xs"></span> Checking</span>
+              <% end %>
+            </div>
+            <div class="flex items-center gap-2 text-sm">
+              <span class="text-base-content/50">RA Engine:</span>
+              <%= case @ra_engine_status do %>
+                <% :online -> %>
+                  <span class="badge badge-sm badge-success gap-1"><.icon name="hero-check-circle" class="size-3" /> Online</span>
+                <% :offline -> %>
+                  <span class="badge badge-sm badge-error gap-1"><.icon name="hero-x-circle" class="size-3" /> Offline</span>
+                <% :checking -> %>
+                  <span class="badge badge-sm badge-ghost gap-1"><span class="loading loading-spinner loading-xs"></span> Checking</span>
+              <% end %>
             </div>
           </div>
 
