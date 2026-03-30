@@ -19,6 +19,7 @@ defmodule PkiPlatformEngine.Provisioner do
 
         with :ok <- create_database(db_name),
              :ok <- create_schemas(db_name),
+             :ok <- create_multi_ca_ra_tables(db_name),
              {:ok, tenant} <- PlatformRepo.insert(changeset) do
           {:ok, tenant}
         else
@@ -166,6 +167,40 @@ defmodule PkiPlatformEngine.Provisioner do
     end
   rescue
     e -> {:error, {:create_schemas_failed, Exception.message(e)}}
+  end
+
+  defp create_multi_ca_ra_tables(db_name) do
+    safe = validate_db_name!(db_name)
+
+    # CA schema: add parent_id for hierarchy
+    TenantRepo.execute_sql(safe, "ca",
+      "ALTER TABLE ca_instances ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES ca_instances(id)", [])
+
+    # RA schema: create ra_instances table
+    TenantRepo.execute_sql(safe, "ra", """
+      CREATE TABLE IF NOT EXISTS ra_instances (
+        id UUID PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        status VARCHAR(50) NOT NULL DEFAULT 'initialized',
+        created_by VARCHAR(255),
+        inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    """, [])
+
+    # RA schema: add ra_instance_id to existing tables
+    TenantRepo.execute_sql(safe, "ra",
+      "ALTER TABLE ra_users ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", [])
+    TenantRepo.execute_sql(safe, "ra",
+      "ALTER TABLE ra_api_keys ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", [])
+    TenantRepo.execute_sql(safe, "ra",
+      "ALTER TABLE cert_profiles ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", [])
+    TenantRepo.execute_sql(safe, "ra",
+      "ALTER TABLE cert_profiles ADD COLUMN IF NOT EXISTS issuer_key_id VARCHAR(255)", [])
+
+    :ok
+  rescue
+    e -> {:error, {:multi_ca_ra_tables_failed, Exception.message(e)}}
   end
 
   defp drop_database(db_name) do
