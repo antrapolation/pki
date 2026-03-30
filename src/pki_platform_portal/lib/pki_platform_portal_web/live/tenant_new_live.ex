@@ -14,7 +14,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
        email: "",
        form_error: nil,
        created_tenant: nil,
-       verification_sent: false
+       verification_sent: false,
+       provision_status: nil
      )}
   end
 
@@ -100,20 +101,12 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     if email == "" or slug == "" do
       {:noreply, assign(socket, step: 1, form_error: "Session expired. Please start again.")}
     else
-
-    ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-    ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-    ca_username = "#{slug}-ca-admin"
-    ra_username = "#{slug}-ra-admin"
-
-    opts = [email: email]
-
-    errors = []
-
-    {tenant, errors} =
-      case Provisioner.create_tenant(name, slug, opts) do
+      # Step 3: Create database only
+      case Provisioner.create_tenant(name, slug, email: email) do
         {:ok, tenant} ->
-          {tenant, errors}
+          # Database created. Move to step 4: create admins
+          send(self(), :create_admins)
+          {:noreply, assign(socket, step: 4, created_tenant: tenant, form_error: nil, provision_status: "Creating admin accounts...")}
 
         {:error, %Ecto.Changeset{} = changeset} ->
           err =
@@ -125,63 +118,54 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
             |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
             |> Enum.join("; ")
 
-          {nil, ["Tenant creation failed: #{err}" | errors]}
+          {:noreply, assign(socket, step: 3, form_error: "Tenant creation failed: #{err}")}
 
         {:error, reason} ->
-          {nil, ["Tenant creation failed: #{inspect(reason)}" | errors]}
+          {:noreply, assign(socket, step: 3, form_error: "Tenant creation failed: #{inspect(reason)}")}
       end
+    end
+  end
 
-    if tenant == nil do
-      {:noreply,
-       assign(socket,
-         form_error: Enum.join(Enum.reverse(errors), "\n"),
-         step: 3
-       )}
-    else
-      secret = System.get_env("INTERNAL_API_SECRET", "")
-      expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
+  def handle_info(:create_admins, socket) do
+    tenant = socket.assigns.created_tenant
+    slug = tenant.slug
+    email = tenant.email
 
-      errors =
-        errors ++
-          create_ca_admin(ca_username, ca_password, name, secret, expires_at) ++
-          create_ra_admin(ra_username, ra_password, name, tenant.id, secret, expires_at)
+    secret = System.get_env("INTERNAL_API_SECRET", "")
+    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
 
-      ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
-      ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
-      ca_portal_url = "https://#{ca_host}"
-      ra_portal_url = "https://#{ra_host}"
+    ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+    ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+    ca_username = "#{slug}-ca-admin"
+    ra_username = "#{slug}-ra-admin"
 
-      html =
-        EmailTemplates.admin_credentials(
-          name,
-          ca_username,
-          ca_password,
-          ra_username,
-          ra_password,
-          ca_portal_url,
-          ra_portal_url
+    ca_errors = create_ca_admin(ca_username, ca_password, tenant.name, secret, expires_at)
+    ra_errors = create_ra_admin(ra_username, ra_password, tenant.name, tenant.id, secret, expires_at)
+    admin_errors = ca_errors ++ ra_errors
+
+    # Send credentials email if admins created successfully
+    email_errors =
+      if admin_errors == [] do
+        ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
+        ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
+
+        html = EmailTemplates.admin_credentials(
+          tenant.name, ca_username, ca_password, ra_username, ra_password,
+          "https://#{ca_host}", "https://#{ra_host}"
         )
 
-      errors =
-        if errors == [] do
-          # Only send credentials email if both admins were created successfully
-          case Mailer.send_email(email, "Your #{name} admin credentials", html) do
-            {:ok, _} -> []
-            {:error, reason} -> ["Failed to send credentials email: #{inspect(reason)}"]
-          end
-        else
-          errors ++ ["Credentials email not sent — admin accounts must be created first. Use the tenant detail page after deploying the engines."]
+        case Mailer.send_email(email, "Your #{tenant.name} admin credentials", html) do
+          {:ok, _} -> []
+          {:error, reason} -> ["Failed to send credentials email: #{inspect(reason)}"]
         end
+      else
+        []
+      end
 
-      error_msg = if errors == [], do: nil, else: Enum.join(errors, "\n")
+    all_errors = admin_errors ++ email_errors
+    error_msg = if all_errors == [], do: nil, else: Enum.join(all_errors, "\n")
 
-      {:noreply,
-       assign(socket,
-         created_tenant: tenant,
-         form_error: error_msg
-       )}
-    end
-    end
+    {:noreply, assign(socket, step: 5, form_error: error_msg)}
   end
 
   defp create_ca_admin(username, password, display_name, secret, expires_at) do
@@ -309,9 +293,32 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
             "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
             if(@step >= 3, do: "bg-primary text-primary-content border-primary", else: "bg-base-200 text-base-content/40 border-base-300")
           ]}>
-            3
+            <%= if @step > 3 do %>
+              <.icon name="hero-check-mini" class="size-4" />
+            <% else %>
+              3
+            <% end %>
           </div>
           <span class={["text-xs font-medium", if(@step >= 3, do: "text-base-content", else: "text-base-content/40")]}>
+            Provision
+          </span>
+        </div>
+
+        <div class={["w-12 h-0.5 mx-2", if(@step >= 4, do: "bg-primary", else: "bg-base-300")]}></div>
+
+        <%!-- Step 4 --%>
+        <div class="flex items-center gap-2">
+          <div class={[
+            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
+            if(@step >= 5, do: "bg-primary text-primary-content border-primary", else: "bg-base-200 text-base-content/40 border-base-300")
+          ]}>
+            <%= if @step >= 5 do %>
+              <.icon name="hero-check-mini" class="size-4" />
+            <% else %>
+              4
+            <% end %>
+          </div>
+          <span class={["text-xs font-medium", if(@step >= 5, do: "text-base-content", else: "text-base-content/40")]}>
             Complete
           </span>
         </div>
@@ -462,62 +469,9 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
       <% end %>
 
       <%!-- Step 3: Complete --%>
+      <%!-- Step 3: Provisioning database (spinner) --%>
       <%= if @step == 3 do %>
-        <%= if @created_tenant do %>
-          <div class="card bg-base-100 shadow-sm border border-success/40">
-            <div class="card-body p-6 space-y-5">
-              <div class="flex items-center gap-3">
-                <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-success/10">
-                  <.icon name="hero-check-circle" class="size-6 text-success" />
-                </div>
-                <div>
-                  <h2 class="text-base font-semibold text-base-content">Tenant Created</h2>
-                  <p class="text-sm text-base-content/60">
-                    <span class="font-medium text-base-content">{@created_tenant.name}</span>
-                    has been provisioned successfully.
-                  </p>
-                </div>
-              </div>
-
-              <%= if @form_error do %>
-                <div class="alert alert-warning text-sm whitespace-pre-line">
-                  <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
-                  <span>{@form_error}</span>
-                </div>
-              <% end %>
-
-              <div class="divider my-0"></div>
-
-              <div class="space-y-3">
-                <div>
-                  <p class="text-xs font-semibold uppercase tracking-wider text-base-content/50">What happens next</p>
-                  <p class="text-sm text-base-content/70 mt-1">
-                    Admin credentials for both the CA and RA portals have been generated and emailed to
-                    <strong class="text-base-content">{@email}</strong>.
-                    The credentials expire in 24 hours and must be changed on first login.
-                  </p>
-                </div>
-
-                <div class="alert alert-info text-xs">
-                  <.icon name="hero-information-circle" class="size-4" />
-                  <span>The tenant must be <strong>activated</strong> from the tenant detail page before the admin accounts can log in.</span>
-                </div>
-              </div>
-
-              <div class="flex gap-3 pt-1">
-                <.link navigate={"/tenants/#{@created_tenant.id}"} class="btn btn-primary btn-sm">
-                  <.icon name="hero-building-office" class="size-4" />
-                  View Tenant
-                </.link>
-                <.link navigate="/tenants" class="btn btn-ghost btn-sm">
-                  <.icon name="hero-list-bullet" class="size-4" />
-                  Back to List
-                </.link>
-              </div>
-            </div>
-          </div>
-        <% else %>
-          <%!-- Provisioning failed completely --%>
+        <%= if @form_error do %>
           <div class="card bg-base-100 shadow-sm border border-error/40">
             <div class="card-body p-6 space-y-5">
               <div class="flex items-center gap-3">
@@ -526,30 +480,98 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                 </div>
                 <div>
                   <h2 class="text-base font-semibold text-base-content">Provisioning Failed</h2>
-                  <p class="text-sm text-base-content/60">The tenant could not be created.</p>
+                  <p class="text-sm text-base-content/60">The tenant database could not be created.</p>
                 </div>
               </div>
-
-              <%= if @form_error do %>
-                <div class="alert alert-error text-sm whitespace-pre-line">
-                  <.icon name="hero-exclamation-circle" class="size-4 shrink-0" />
-                  <span>{@form_error}</span>
-                </div>
-              <% end %>
-
+              <div class="alert alert-error text-sm whitespace-pre-line">
+                <.icon name="hero-exclamation-circle" class="size-4 shrink-0" />
+                <span>{@form_error}</span>
+              </div>
               <div class="flex gap-3 pt-1">
                 <button phx-click="back_to_step1" class="btn btn-primary btn-sm">
                   <.icon name="hero-arrow-left" class="size-4" />
                   Try Again
                 </button>
-                <.link navigate="/tenants" class="btn btn-ghost btn-sm">
-                  <.icon name="hero-list-bullet" class="size-4" />
-                  Back to List
-                </.link>
               </div>
             </div>
           </div>
+        <% else %>
+          <div class="card bg-base-100 shadow-sm border border-base-300">
+            <div class="card-body p-6 flex items-center justify-center gap-3">
+              <span class="loading loading-spinner loading-md text-primary"></span>
+              <span class="text-sm text-base-content/60">Creating tenant database...</span>
+            </div>
+          </div>
         <% end %>
+      <% end %>
+
+      <%!-- Step 4: Creating admin accounts (spinner) --%>
+      <%= if @step == 4 do %>
+        <div class="card bg-base-100 shadow-sm border border-base-300">
+          <div class="card-body p-6 space-y-4">
+            <div class="flex items-center gap-3">
+              <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-success/10">
+                <.icon name="hero-check-circle" class="size-6 text-success" />
+              </div>
+              <div>
+                <h2 class="text-base font-semibold text-base-content">Database Provisioned</h2>
+                <p class="text-sm text-base-content/60">{@created_tenant.name} database is ready.</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 pl-2">
+              <span class="loading loading-spinner loading-sm text-primary"></span>
+              <span class="text-sm text-base-content/60">{@provision_status}</span>
+            </div>
+          </div>
+        </div>
+      <% end %>
+
+      <%!-- Step 5: Complete --%>
+      <%= if @step == 5 do %>
+        <div class="card bg-base-100 shadow-sm border border-success/40">
+          <div class="card-body p-6 space-y-5">
+            <div class="flex items-center gap-3">
+              <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-success/10">
+                <.icon name="hero-check-circle" class="size-6 text-success" />
+              </div>
+              <div>
+                <h2 class="text-base font-semibold text-base-content">Tenant Created</h2>
+                <p class="text-sm text-base-content/60">
+                  <span class="font-medium text-base-content">{@created_tenant.name}</span>
+                  has been provisioned successfully.
+                </p>
+              </div>
+            </div>
+
+            <%= if @form_error do %>
+              <div class="alert alert-warning text-sm whitespace-pre-line">
+                <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
+                <span>{@form_error}</span>
+              </div>
+            <% else %>
+              <div class="alert alert-success text-sm">
+                <.icon name="hero-check-circle" class="size-4 shrink-0" />
+                <span>Admin credentials have been emailed to <strong>{@email}</strong>. Credentials expire in 24 hours.</span>
+              </div>
+            <% end %>
+
+            <div class="alert alert-info text-xs">
+              <.icon name="hero-information-circle" class="size-4" />
+              <span>The tenant must be <strong>activated</strong> from the tenant detail page before the admin accounts can log in.</span>
+            </div>
+
+            <div class="flex gap-3 pt-1">
+              <.link navigate={"/tenants/#{@created_tenant.id}"} class="btn btn-primary btn-sm">
+                <.icon name="hero-building-office" class="size-4" />
+                View Tenant
+              </.link>
+              <.link navigate="/tenants" class="btn btn-ghost btn-sm">
+                <.icon name="hero-list-bullet" class="size-4" />
+                Back to List
+              </.link>
+            </div>
+          </div>
+        </div>
       <% end %>
     </div>
     """
