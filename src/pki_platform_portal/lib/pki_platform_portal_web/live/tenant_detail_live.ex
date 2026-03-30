@@ -11,19 +11,17 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
          |> push_navigate(to: "/tenants")}
 
       tenant ->
-        metrics = load_metrics(tenant)
+        if connected?(socket), do: send(self(), :load_metrics)
         ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
         ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
-        ca_setup_url = "https://#{ca_host}/setup?tenant=#{tenant.slug}"
-        ra_setup_url = "https://#{ra_host}/setup?tenant=#{tenant.slug}"
 
         {:ok,
          assign(socket,
            page_title: "Tenant Detail",
            tenant: tenant,
-           metrics: metrics,
-           ca_setup_url: ca_setup_url,
-           ra_setup_url: ra_setup_url
+           metrics: %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0},
+           ca_setup_url: "https://#{ca_host}/setup?tenant=#{tenant.slug}",
+           ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}"
          )}
     end
   end
@@ -68,10 +66,16 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     end
   end
 
-  defp load_metrics(tenant) do
-    PkiPlatformEngine.TenantMetrics.get_metrics(tenant)
-  rescue
-    _ -> %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0}
+  @impl true
+  def handle_info(:load_metrics, socket) do
+    metrics =
+      try do
+        PkiPlatformEngine.TenantMetrics.get_metrics(socket.assigns.tenant)
+      catch
+        _, _ -> %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0}
+      end
+
+    {:noreply, assign(socket, metrics: metrics)}
   end
 
   @impl true

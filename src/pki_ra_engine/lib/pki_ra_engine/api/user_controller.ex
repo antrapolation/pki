@@ -89,6 +89,8 @@ defmodule PkiRaEngine.Api.UserController do
     |> maybe_put(:role, params["role"])
     |> maybe_put(:status, params["status"])
     |> maybe_put(:tenant_id, params["tenant_id"])
+    |> maybe_put(:must_change_password, params["must_change_password"])
+    |> maybe_put(:credential_expires_at, params["credential_expires_at"])
   end
 
   defp maybe_put(map, _key, nil), do: map

@@ -141,7 +141,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
          step: 3
        )}
     else
-      secret = System.get_env("INTERNAL_API_SECRET")
+      secret = System.get_env("INTERNAL_API_SECRET", "")
       expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
 
       errors =
@@ -166,9 +166,14 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
         )
 
       errors =
-        case Mailer.send_email(email, "Your #{name} admin credentials", html) do
-          {:ok, _} -> errors
-          {:error, reason} -> errors ++ ["Failed to send credentials email: #{inspect(reason)}"]
+        if errors == [] do
+          # Only send credentials email if both admins were created successfully
+          case Mailer.send_email(email, "Your #{name} admin credentials", html) do
+            {:ok, _} -> []
+            {:error, reason} -> ["Failed to send credentials email: #{inspect(reason)}"]
+          end
+        else
+          errors ++ ["Credentials email not sent due to admin creation errors."]
         end
 
       error_msg = if errors == [], do: nil, else: Enum.join(errors, "\n")
@@ -197,7 +202,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
            headers: [{"x-internal-secret", secret}]
          ) do
       {:ok, %{status: status}} when status in 200..299 -> []
-      {:ok, %{status: status, body: body}} -> ["CA admin creation failed (HTTP #{status}): #{inspect(body)}"]
+      {:ok, %{status: status}} -> ["CA admin creation failed (HTTP #{status})"]
       {:error, reason} -> ["CA admin creation failed: #{inspect(reason)}"]
     end
   end
@@ -218,7 +223,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
            headers: [{"x-internal-secret", secret}]
          ) do
       {:ok, %{status: status}} when status in 200..299 -> []
-      {:ok, %{status: status, body: body}} -> ["RA admin creation failed (HTTP #{status}): #{inspect(body)}"]
+      {:ok, %{status: status}} -> ["RA admin creation failed (HTTP #{status})"]
       {:error, reason} -> ["RA admin creation failed: #{inspect(reason)}"]
     end
   end

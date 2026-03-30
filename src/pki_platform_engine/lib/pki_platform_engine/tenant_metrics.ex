@@ -27,6 +27,7 @@ defmodule PkiPlatformEngine.TenantMetrics do
 
   defp safe_count(tenant, schema, query) do
     case TenantRepo.execute_sql(tenant, schema, query, []) do
+      {:ok, {:ok, %{rows: [[count]]}}} -> count
       {:ok, %{rows: [[count]]}} -> count
       _ -> 0
     end

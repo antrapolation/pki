@@ -58,15 +58,20 @@ defmodule PkiPlatformEngine.TenantRepo do
       when is_binary(database_name) and schema_prefix in @valid_prefixes do
     config = build_config(database_name, schema_prefix)
 
-    {:ok, pid} = __MODULE__.start_link(config)
+    case __MODULE__.start_link(config) do
+      {:ok, pid} ->
+        previous = put_dynamic_repo(pid)
+        try do
+          {:ok, fun.()}
+        catch
+          kind, reason -> {:error, {kind, reason}}
+        after
+          put_dynamic_repo(previous)
+          Supervisor.stop(pid, :normal, 5_000)
+        end
 
-    previous = put_dynamic_repo(pid)
-
-    try do
-      fun.()
-    after
-      put_dynamic_repo(previous)
-      Supervisor.stop(pid)
+      {:error, reason} ->
+        {:error, {:connection_failed, reason}}
     end
   end
 
@@ -105,6 +110,7 @@ defmodule PkiPlatformEngine.TenantRepo do
       password: Keyword.get(base, :password, "postgres"),
       database: database_name,
       pool_size: Keyword.get(base, :pool_size, 2),
+      connect_timeout: 5_000,
       after_connect: {Postgrex, :query!, ["SET search_path TO #{schema_prefix}", []]},
       name: nil
     ]
