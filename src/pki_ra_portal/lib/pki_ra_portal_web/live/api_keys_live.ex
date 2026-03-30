@@ -7,15 +7,34 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
   def mount(_params, _session, socket) do
     {:ok, keys} = RaEngineClient.list_api_keys()
 
+    ra_instances =
+      case RaEngineClient.list_ra_instances() do
+        {:ok, instances} -> instances
+        {:error, _} -> []
+      end
+
     {:ok,
      socket
      |> assign(
        page_title: "API Keys",
        api_keys: Enum.map(keys, &normalize_key/1),
+       ra_instances: ra_instances,
+       selected_ra_instance_id: "",
        new_raw_key: nil,
        page: 1,
        per_page: 50
      )
+     |> apply_pagination()}
+  end
+
+  @impl true
+  def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
+    filters = if ra_instance_id == "", do: [], else: [ra_instance_id: ra_instance_id]
+    {:ok, keys} = RaEngineClient.list_api_keys(filters)
+
+    {:noreply,
+     socket
+     |> assign(api_keys: Enum.map(keys, &normalize_key/1), selected_ra_instance_id: ra_instance_id, page: 1)
      |> apply_pagination()}
   end
 
@@ -99,6 +118,23 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
     ~H"""
     <div id="api-keys-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">API Key Management</h1>
+
+      <%!-- RA Instance Filter --%>
+      <div class="flex items-center gap-3">
+        <label for="ra-instance-filter" class="text-xs font-medium text-base-content/60">Filter by RA Instance</label>
+        <form phx-change="filter_ra_instance">
+          <select name="ra_instance_id" id="ra-instance-filter" class="select select-bordered select-sm">
+            <option value="">All</option>
+            <option
+              :for={inst <- @ra_instances}
+              value={inst.id}
+              selected={@selected_ra_instance_id == inst.id}
+            >
+              {inst.name}
+            </option>
+          </select>
+        </form>
+      </div>
 
       <%!-- Raw Key Display --%>
       <section :if={@new_raw_key} id="raw-key-display" class="alert alert-success shadow-sm">
