@@ -32,6 +32,7 @@ defmodule PkiCaEngine.Schema.CaUser do
     user
     |> cast(attrs, [:ca_instance_id, :username, :display_name, :role, :status, :must_change_password, :credential_expires_at, :email])
     |> validate_required([:ca_instance_id, :role])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:ca_instance_id)
@@ -45,6 +46,7 @@ defmodule PkiCaEngine.Schema.CaUser do
     |> validate_required([:ca_instance_id, :username, :password, :role])
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:password, min: 8, max: 100)
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
     |> validate_inclusion(:role, @roles)
     |> unique_constraint(:username)
     |> foreign_key_constraint(:ca_instance_id)
@@ -62,7 +64,7 @@ defmodule PkiCaEngine.Schema.CaUser do
     user
     |> cast(attrs, [:password, :must_change_password])
     |> validate_required([:password])
-    |> validate_length(:password, min: 8)
+    |> validate_length(:password, min: 8, max: 100)
     |> hash_password_and_clear_expiry()
   end
 

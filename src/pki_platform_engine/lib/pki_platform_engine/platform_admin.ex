@@ -21,6 +21,7 @@ defmodule PkiPlatformEngine.PlatformAdmin do
     admin
     |> cast(attrs, [:username, :display_name, :status, :email])
     |> validate_required([:username, :display_name])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
     |> unique_constraint(:username)
     |> validate_inclusion(:status, ["active", "suspended"])
   end
@@ -29,7 +30,8 @@ defmodule PkiPlatformEngine.PlatformAdmin do
     admin
     |> cast(attrs, [:username, :display_name, :password, :email])
     |> validate_required([:username, :display_name, :password])
-    |> validate_length(:password, min: 8)
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
+    |> validate_length(:password, min: 8, max: 100)
     |> unique_constraint(:username)
     |> maybe_put_id()
     |> hash_password()
@@ -39,7 +41,7 @@ defmodule PkiPlatformEngine.PlatformAdmin do
     admin
     |> cast(attrs, [:password])
     |> validate_required([:password])
-    |> validate_length(:password, min: 8)
+    |> validate_length(:password, min: 8, max: 100)
     |> hash_password()
   end
 

@@ -1,6 +1,8 @@
 defmodule PkiRaPortalWeb.ForgotPasswordController do
   use PkiRaPortalWeb, :controller
 
+  require Logger
+
   alias PkiRaPortal.RaEngineClient
   alias PkiPlatformEngine.{EmailVerification, Mailer, EmailTemplates}
 
@@ -14,8 +16,10 @@ defmodule PkiRaPortalWeb.ForgotPasswordController do
         code = EmailVerification.generate_code(email)
         html = EmailTemplates.password_reset_code(code)
         Mailer.send_email(email, "Password Reset Code", html)
+        Logger.info("password_reset_initiated user_id=#{id} remote_ip=#{:inet.ntoa(conn.remote_ip)}")
 
         conn
+        |> configure_session(renew: true)
         |> put_session(:reset_user_id, id)
         |> put_session(:reset_email, email)
         |> render(:code, layout: false, error: nil, masked_email: mask_email(email))
@@ -94,25 +98,30 @@ defmodule PkiRaPortalWeb.ForgotPasswordController do
   end
 
   def update(conn, _params) do
-    render(conn, :code, layout: false, error: "All fields are required.", masked_email: "***")
+    render(conn, :code, layout: false, error: "All fields are required.", masked_email: "***@***.com")
   end
 
   defp update_user_password(user_id, new_password) do
     secret =
       Application.get_env(:pki_ra_portal, :internal_api_secret) ||
-        System.get_env("INTERNAL_API_SECRET", "")
+        System.get_env("INTERNAL_API_SECRET")
 
-    base_url =
-      Application.get_env(:pki_ra_portal, :ra_engine_url) ||
-        "http://127.0.0.1:4003"
+    if is_nil(secret) or secret == "" do
+      Logger.error("INTERNAL_API_SECRET not configured — cannot reset password")
+      {:error, :secret_not_configured}
+    else
+      base_url =
+        Application.get_env(:pki_ra_portal, :ra_engine_url) ||
+          "http://127.0.0.1:4003"
 
-    case Req.put("#{base_url}/api/v1/users/#{user_id}/password",
-           json: %{password: new_password, must_change_password: false},
-           headers: [{"authorization", "Bearer #{secret}"}]
-         ) do
-      {:ok, %{status: status}} when status in 200..299 -> :ok
-      {:ok, %{status: status, body: body}} -> {:error, "API error #{status}: #{inspect(body)}"}
-      {:error, reason} -> {:error, reason}
+      case Req.put("#{base_url}/api/v1/users/#{user_id}/password",
+             json: %{password: new_password, must_change_password: false},
+             headers: [{"authorization", "Bearer #{secret}"}]
+           ) do
+        {:ok, %{status: status}} when status in 200..299 -> :ok
+        {:ok, %{status: status, body: body}} -> {:error, "API error #{status}: #{inspect(body)}"}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

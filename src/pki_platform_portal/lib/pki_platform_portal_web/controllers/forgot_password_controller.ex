@@ -1,6 +1,8 @@
 defmodule PkiPlatformPortalWeb.ForgotPasswordController do
   use PkiPlatformPortalWeb, :controller
 
+  require Logger
+
   alias PkiPlatformEngine.{AdminManagement, EmailVerification, Mailer, EmailTemplates}
 
   def new(conn, _params) do
@@ -13,8 +15,10 @@ defmodule PkiPlatformPortalWeb.ForgotPasswordController do
         code = EmailVerification.generate_code(admin.email)
         html = EmailTemplates.password_reset_code(code)
         Mailer.send_email(admin.email, "Password Reset Code", html)
+        Logger.info("password_reset_initiated user_id=#{admin.id} remote_ip=#{:inet.ntoa(conn.remote_ip)}")
 
         conn
+        |> configure_session(renew: true)
         |> put_session(:reset_user_id, admin.id)
         |> put_session(:reset_email, admin.email)
         |> render(:code, layout: false, error: nil, masked_email: mask_email(admin.email))
@@ -85,7 +89,7 @@ defmodule PkiPlatformPortalWeb.ForgotPasswordController do
   end
 
   def update(conn, _params) do
-    render(conn, :code, layout: false, error: "All fields are required.", masked_email: "***")
+    render(conn, :code, layout: false, error: "All fields are required.", masked_email: "***@***.com")
   end
 
   defp mask_email(nil), do: "***@***.com"

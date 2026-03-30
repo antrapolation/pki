@@ -31,6 +31,7 @@ defmodule PkiRaEngine.Schema.RaUser do
     ra_user
     |> cast(attrs, [:username, :display_name, :role, :status, :tenant_id, :must_change_password, :credential_expires_at, :email])
     |> validate_required([:role])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
     |> validate_inclusion(:role, @roles)
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint([:username, :tenant_id])
@@ -43,6 +44,7 @@ defmodule PkiRaEngine.Schema.RaUser do
     |> validate_required([:username, :password, :role])
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:password, min: 8, max: 100)
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
     |> validate_inclusion(:role, @roles)
     |> unique_constraint([:username, :tenant_id])
     |> hash_password()
@@ -53,7 +55,7 @@ defmodule PkiRaEngine.Schema.RaUser do
     user
     |> cast(attrs, [:password, :must_change_password])
     |> validate_required([:password])
-    |> validate_length(:password, min: 8)
+    |> validate_length(:password, min: 8, max: 100)
     |> hash_password_and_clear_expiry()
   end
 
