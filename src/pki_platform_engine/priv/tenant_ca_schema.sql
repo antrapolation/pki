@@ -1,4 +1,4 @@
-CREATE TABLE public.audit_events (
+CREATE TABLE IF NOT EXISTS public.audit_events (
     id bigint NOT NULL,
     event_id uuid NOT NULL,
     "timestamp" timestamp without time zone NOT NULL,
@@ -13,14 +13,14 @@ CREATE TABLE public.audit_events (
     event_hash character varying(64) NOT NULL,
     ca_instance_id character varying(255)
 );
-CREATE SEQUENCE public.audit_events_id_seq
+CREATE SEQUENCE IF NOT EXISTS public.audit_events_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
 ALTER SEQUENCE public.audit_events_id_seq OWNED BY public.audit_events.id;
-CREATE TABLE public.ca_instances (
+CREATE TABLE IF NOT EXISTS public.ca_instances (
     id uuid NOT NULL,
     name character varying(255) NOT NULL,
     status character varying(255) DEFAULT 'initialized'::character varying NOT NULL,
@@ -30,7 +30,7 @@ CREATE TABLE public.ca_instances (
     updated_at timestamp(0) without time zone NOT NULL,
     parent_id uuid
 );
-CREATE TABLE public.ca_users (
+CREATE TABLE IF NOT EXISTS public.ca_users (
     id uuid NOT NULL,
     ca_instance_id uuid NOT NULL,
     username character varying(255),
@@ -44,7 +44,7 @@ CREATE TABLE public.ca_users (
     credential_expires_at timestamp(0) without time zone,
     email character varying(255)
 );
-CREATE TABLE public.credentials (
+CREATE TABLE IF NOT EXISTS public.credentials (
     id uuid NOT NULL,
     credential_type character varying(255) NOT NULL,
     algorithm character varying(255) NOT NULL,
@@ -58,7 +58,7 @@ CREATE TABLE public.credentials (
     updated_at timestamp(0) without time zone NOT NULL,
     attested_by_key bytea
 );
-CREATE TABLE public.issued_certificates (
+CREATE TABLE IF NOT EXISTS public.issued_certificates (
     id uuid NOT NULL,
     serial_number character varying(255) NOT NULL,
     issuer_key_id uuid NOT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE public.issued_certificates (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.issuer_keys (
+CREATE TABLE IF NOT EXISTS public.issuer_keys (
     id uuid NOT NULL,
     ca_instance_id uuid NOT NULL,
     key_alias character varying(255) NOT NULL,
@@ -88,7 +88,7 @@ CREATE TABLE public.issuer_keys (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.key_ceremonies (
+CREATE TABLE IF NOT EXISTS public.key_ceremonies (
     id uuid NOT NULL,
     ca_instance_id uuid NOT NULL,
     issuer_key_id uuid,
@@ -105,14 +105,14 @@ CREATE TABLE public.key_ceremonies (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.keypair_access (
+CREATE TABLE IF NOT EXISTS public.keypair_access (
     id uuid NOT NULL,
     issuer_key_id uuid NOT NULL,
     user_id uuid NOT NULL,
     granted_by uuid,
     granted_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.keypair_grants (
+CREATE TABLE IF NOT EXISTS public.keypair_grants (
     id uuid NOT NULL,
     signed_envelope bytea NOT NULL,
     granted_at timestamp without time zone NOT NULL,
@@ -122,7 +122,7 @@ CREATE TABLE public.keypair_grants (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.keystores (
+CREATE TABLE IF NOT EXISTS public.keystores (
     id uuid NOT NULL,
     ca_instance_id uuid NOT NULL,
     type character varying(255) NOT NULL,
@@ -132,7 +132,7 @@ CREATE TABLE public.keystores (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.managed_keypairs (
+CREATE TABLE IF NOT EXISTS public.managed_keypairs (
     id uuid NOT NULL,
     name character varying(255) NOT NULL,
     algorithm character varying(255) NOT NULL,
@@ -149,7 +149,7 @@ CREATE TABLE public.managed_keypairs (
     updated_at timestamp(0) without time zone NOT NULL,
     acl_kem_ciphertext bytea
 );
-CREATE TABLE public.threshold_shares (
+CREATE TABLE IF NOT EXISTS public.threshold_shares (
     id uuid NOT NULL,
     issuer_key_id uuid NOT NULL,
     custodian_user_id uuid NOT NULL,
@@ -185,41 +185,41 @@ ALTER TABLE ONLY public.managed_keypairs
     ADD CONSTRAINT managed_keypairs_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY public.threshold_shares
     ADD CONSTRAINT threshold_shares_pkey PRIMARY KEY (id);
-CREATE INDEX audit_events_action_index ON public.audit_events USING btree (action);
-CREATE INDEX audit_events_actor_did_index ON public.audit_events USING btree (actor_did);
-CREATE INDEX audit_events_ca_instance_id_index ON public.audit_events USING btree (ca_instance_id);
-CREATE UNIQUE INDEX audit_events_event_id_index ON public.audit_events USING btree (event_id);
-CREATE INDEX audit_events_resource_type_resource_id_index ON public.audit_events USING btree (resource_type, resource_id);
-CREATE INDEX audit_events_timestamp_index ON public.audit_events USING btree ("timestamp");
-CREATE UNIQUE INDEX ca_instances_name_index ON public.ca_instances USING btree (name);
-CREATE INDEX ca_instances_parent_id_index ON public.ca_instances USING btree (parent_id);
-CREATE INDEX ca_users_ca_instance_id_index ON public.ca_users USING btree (ca_instance_id);
-CREATE INDEX ca_users_role_index ON public.ca_users USING btree (role);
-CREATE INDEX ca_users_status_index ON public.ca_users USING btree (status);
-CREATE UNIQUE INDEX ca_users_username_index ON public.ca_users USING btree (username);
-CREATE INDEX credentials_user_id_credential_type_index ON public.credentials USING btree (user_id, credential_type);
-CREATE INDEX credentials_user_id_index ON public.credentials USING btree (user_id);
-CREATE INDEX issued_certificates_issuer_key_id_index ON public.issued_certificates USING btree (issuer_key_id);
-CREATE INDEX issued_certificates_issuer_key_id_status_index ON public.issued_certificates USING btree (issuer_key_id, status);
-CREATE INDEX issued_certificates_not_after_index ON public.issued_certificates USING btree (not_after);
-CREATE UNIQUE INDEX issued_certificates_serial_number_index ON public.issued_certificates USING btree (serial_number);
-CREATE INDEX issued_certificates_status_index ON public.issued_certificates USING btree (status);
-CREATE INDEX issuer_keys_ca_instance_id_index ON public.issuer_keys USING btree (ca_instance_id);
-CREATE UNIQUE INDEX issuer_keys_ca_instance_id_key_alias_index ON public.issuer_keys USING btree (ca_instance_id, key_alias);
-CREATE INDEX issuer_keys_ca_instance_id_status_index ON public.issuer_keys USING btree (ca_instance_id, status);
-CREATE INDEX issuer_keys_status_index ON public.issuer_keys USING btree (status);
-CREATE INDEX key_ceremonies_ca_instance_id_index ON public.key_ceremonies USING btree (ca_instance_id);
-CREATE INDEX key_ceremonies_issuer_key_id_index ON public.key_ceremonies USING btree (issuer_key_id);
-CREATE UNIQUE INDEX keypair_access_issuer_key_id_user_id_index ON public.keypair_access USING btree (issuer_key_id, user_id);
-CREATE INDEX keypair_access_user_id_index ON public.keypair_access USING btree (user_id);
-CREATE INDEX keypair_grants_credential_id_index ON public.keypair_grants USING btree (credential_id);
-CREATE UNIQUE INDEX keypair_grants_managed_keypair_id_credential_id_index ON public.keypair_grants USING btree (managed_keypair_id, credential_id);
-CREATE INDEX keystores_ca_instance_id_index ON public.keystores USING btree (ca_instance_id);
-CREATE INDEX managed_keypairs_ca_instance_id_index ON public.managed_keypairs USING btree (ca_instance_id);
-CREATE UNIQUE INDEX managed_keypairs_ca_instance_id_name_index ON public.managed_keypairs USING btree (ca_instance_id, name);
-CREATE INDEX managed_keypairs_status_index ON public.managed_keypairs USING btree (status);
-CREATE UNIQUE INDEX threshold_shares_issuer_key_id_custodian_user_id_index ON public.threshold_shares USING btree (issuer_key_id, custodian_user_id);
-CREATE INDEX threshold_shares_issuer_key_id_index ON public.threshold_shares USING btree (issuer_key_id);
+CREATE INDEX IF NOT EXISTS audit_events_action_index ON public.audit_events USING btree (action);
+CREATE INDEX IF NOT EXISTS audit_events_actor_did_index ON public.audit_events USING btree (actor_did);
+CREATE INDEX IF NOT EXISTS audit_events_ca_instance_id_index ON public.audit_events USING btree (ca_instance_id);
+CREATE UNIQUE INDEX IF NOT EXISTS audit_events_event_id_index ON public.audit_events USING btree (event_id);
+CREATE INDEX IF NOT EXISTS audit_events_resource_type_resource_id_index ON public.audit_events USING btree (resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS audit_events_timestamp_index ON public.audit_events USING btree ("timestamp");
+CREATE UNIQUE INDEX IF NOT EXISTS ca_instances_name_index ON public.ca_instances USING btree (name);
+CREATE INDEX IF NOT EXISTS ca_instances_parent_id_index ON public.ca_instances USING btree (parent_id);
+CREATE INDEX IF NOT EXISTS ca_users_ca_instance_id_index ON public.ca_users USING btree (ca_instance_id);
+CREATE INDEX IF NOT EXISTS ca_users_role_index ON public.ca_users USING btree (role);
+CREATE INDEX IF NOT EXISTS ca_users_status_index ON public.ca_users USING btree (status);
+CREATE UNIQUE INDEX IF NOT EXISTS ca_users_username_index ON public.ca_users USING btree (username);
+CREATE INDEX IF NOT EXISTS credentials_user_id_credential_type_index ON public.credentials USING btree (user_id, credential_type);
+CREATE INDEX IF NOT EXISTS credentials_user_id_index ON public.credentials USING btree (user_id);
+CREATE INDEX IF NOT EXISTS issued_certificates_issuer_key_id_index ON public.issued_certificates USING btree (issuer_key_id);
+CREATE INDEX IF NOT EXISTS issued_certificates_issuer_key_id_status_index ON public.issued_certificates USING btree (issuer_key_id, status);
+CREATE INDEX IF NOT EXISTS issued_certificates_not_after_index ON public.issued_certificates USING btree (not_after);
+CREATE UNIQUE INDEX IF NOT EXISTS issued_certificates_serial_number_index ON public.issued_certificates USING btree (serial_number);
+CREATE INDEX IF NOT EXISTS issued_certificates_status_index ON public.issued_certificates USING btree (status);
+CREATE INDEX IF NOT EXISTS issuer_keys_ca_instance_id_index ON public.issuer_keys USING btree (ca_instance_id);
+CREATE UNIQUE INDEX IF NOT EXISTS issuer_keys_ca_instance_id_key_alias_index ON public.issuer_keys USING btree (ca_instance_id, key_alias);
+CREATE INDEX IF NOT EXISTS issuer_keys_ca_instance_id_status_index ON public.issuer_keys USING btree (ca_instance_id, status);
+CREATE INDEX IF NOT EXISTS issuer_keys_status_index ON public.issuer_keys USING btree (status);
+CREATE INDEX IF NOT EXISTS key_ceremonies_ca_instance_id_index ON public.key_ceremonies USING btree (ca_instance_id);
+CREATE INDEX IF NOT EXISTS key_ceremonies_issuer_key_id_index ON public.key_ceremonies USING btree (issuer_key_id);
+CREATE UNIQUE INDEX IF NOT EXISTS keypair_access_issuer_key_id_user_id_index ON public.keypair_access USING btree (issuer_key_id, user_id);
+CREATE INDEX IF NOT EXISTS keypair_access_user_id_index ON public.keypair_access USING btree (user_id);
+CREATE INDEX IF NOT EXISTS keypair_grants_credential_id_index ON public.keypair_grants USING btree (credential_id);
+CREATE UNIQUE INDEX IF NOT EXISTS keypair_grants_managed_keypair_id_credential_id_index ON public.keypair_grants USING btree (managed_keypair_id, credential_id);
+CREATE INDEX IF NOT EXISTS keystores_ca_instance_id_index ON public.keystores USING btree (ca_instance_id);
+CREATE INDEX IF NOT EXISTS managed_keypairs_ca_instance_id_index ON public.managed_keypairs USING btree (ca_instance_id);
+CREATE UNIQUE INDEX IF NOT EXISTS managed_keypairs_ca_instance_id_name_index ON public.managed_keypairs USING btree (ca_instance_id, name);
+CREATE INDEX IF NOT EXISTS managed_keypairs_status_index ON public.managed_keypairs USING btree (status);
+CREATE UNIQUE INDEX IF NOT EXISTS threshold_shares_issuer_key_id_custodian_user_id_index ON public.threshold_shares USING btree (issuer_key_id, custodian_user_id);
+CREATE INDEX IF NOT EXISTS threshold_shares_issuer_key_id_index ON public.threshold_shares USING btree (issuer_key_id);
 ALTER TABLE ONLY public.ca_instances
     ADD CONSTRAINT ca_instances_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.ca_instances(id) ON DELETE RESTRICT;
 ALTER TABLE ONLY public.ca_users

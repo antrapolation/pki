@@ -1,4 +1,4 @@
-CREATE TABLE public.cert_profiles (
+CREATE TABLE IF NOT EXISTS public.cert_profiles (
     id uuid NOT NULL,
     name character varying(255) NOT NULL,
     subject_dn_policy jsonb DEFAULT '{}'::jsonb,
@@ -21,7 +21,7 @@ CREATE TABLE public.cert_profiles (
     ra_instance_id uuid,
     issuer_key_id character varying(255)
 );
-CREATE TABLE public.credentials (
+CREATE TABLE IF NOT EXISTS public.credentials (
     id uuid NOT NULL,
     credential_type character varying(255) NOT NULL,
     algorithm character varying(255) NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE public.credentials (
     updated_at timestamp(0) without time zone NOT NULL,
     attested_by_key bytea
 );
-CREATE TABLE public.csr_requests (
+CREATE TABLE IF NOT EXISTS public.csr_requests (
     id uuid NOT NULL,
     csr_der bytea,
     csr_pem text,
@@ -50,7 +50,7 @@ CREATE TABLE public.csr_requests (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.ra_api_keys (
+CREATE TABLE IF NOT EXISTS public.ra_api_keys (
     id uuid NOT NULL,
     hashed_key character varying(255) NOT NULL,
     ra_user_id uuid NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE public.ra_api_keys (
     updated_at timestamp(0) without time zone NOT NULL,
     ra_instance_id uuid
 );
-CREATE TABLE public.ra_instances (
+CREATE TABLE IF NOT EXISTS public.ra_instances (
     id uuid NOT NULL,
     name character varying(255) NOT NULL,
     status character varying(255) DEFAULT 'initialized'::character varying NOT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE public.ra_instances (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
-CREATE TABLE public.ra_users (
+CREATE TABLE IF NOT EXISTS public.ra_users (
     id uuid NOT NULL,
     username character varying(255),
     password_hash character varying(255),
@@ -86,7 +86,7 @@ CREATE TABLE public.ra_users (
     email character varying(255),
     ra_instance_id uuid
 );
-CREATE TABLE public.service_configs (
+CREATE TABLE IF NOT EXISTS public.service_configs (
     id uuid NOT NULL,
     service_type character varying(255) NOT NULL,
     port integer,
@@ -114,21 +114,21 @@ ALTER TABLE ONLY public.ra_users
     ADD CONSTRAINT ra_users_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY public.service_configs
     ADD CONSTRAINT service_configs_pkey PRIMARY KEY (id);
-CREATE INDEX cert_profiles_issuer_key_id_index ON public.cert_profiles USING btree (issuer_key_id);
+CREATE INDEX IF NOT EXISTS cert_profiles_issuer_key_id_index ON public.cert_profiles USING btree (issuer_key_id);
 CREATE UNIQUE INDEX cert_profiles_name_index ON public.cert_profiles USING btree (name);
-CREATE INDEX cert_profiles_ra_instance_id_index ON public.cert_profiles USING btree (ra_instance_id);
-CREATE INDEX credentials_user_id_credential_type_index ON public.credentials USING btree (user_id, credential_type);
-CREATE INDEX credentials_user_id_index ON public.credentials USING btree (user_id);
-CREATE INDEX csr_requests_cert_profile_id_index ON public.csr_requests USING btree (cert_profile_id);
-CREATE INDEX csr_requests_reviewed_at_index ON public.csr_requests USING btree (reviewed_at);
-CREATE INDEX csr_requests_status_index ON public.csr_requests USING btree (status);
-CREATE INDEX csr_requests_submitted_at_index ON public.csr_requests USING btree (submitted_at);
-CREATE INDEX ra_api_keys_ra_instance_id_index ON public.ra_api_keys USING btree (ra_instance_id);
+CREATE INDEX IF NOT EXISTS cert_profiles_ra_instance_id_index ON public.cert_profiles USING btree (ra_instance_id);
+CREATE INDEX IF NOT EXISTS credentials_user_id_credential_type_index ON public.credentials USING btree (user_id, credential_type);
+CREATE INDEX IF NOT EXISTS credentials_user_id_index ON public.credentials USING btree (user_id);
+CREATE INDEX IF NOT EXISTS csr_requests_cert_profile_id_index ON public.csr_requests USING btree (cert_profile_id);
+CREATE INDEX IF NOT EXISTS csr_requests_reviewed_at_index ON public.csr_requests USING btree (reviewed_at);
+CREATE INDEX IF NOT EXISTS csr_requests_status_index ON public.csr_requests USING btree (status);
+CREATE INDEX IF NOT EXISTS csr_requests_submitted_at_index ON public.csr_requests USING btree (submitted_at);
+CREATE INDEX IF NOT EXISTS ra_api_keys_ra_instance_id_index ON public.ra_api_keys USING btree (ra_instance_id);
 CREATE UNIQUE INDEX ra_instances_name_index ON public.ra_instances USING btree (name);
-CREATE INDEX ra_users_ra_instance_id_index ON public.ra_users USING btree (ra_instance_id);
-CREATE INDEX ra_users_role_index ON public.ra_users USING btree (role);
-CREATE INDEX ra_users_status_index ON public.ra_users USING btree (status);
-CREATE INDEX ra_users_tenant_id_index ON public.ra_users USING btree (tenant_id);
+CREATE INDEX IF NOT EXISTS ra_users_ra_instance_id_index ON public.ra_users USING btree (ra_instance_id);
+CREATE INDEX IF NOT EXISTS ra_users_role_index ON public.ra_users USING btree (role);
+CREATE INDEX IF NOT EXISTS ra_users_status_index ON public.ra_users USING btree (status);
+CREATE INDEX IF NOT EXISTS ra_users_tenant_id_index ON public.ra_users USING btree (tenant_id);
 CREATE UNIQUE INDEX ra_users_username_index ON public.ra_users USING btree (username);
 CREATE UNIQUE INDEX ra_users_username_tenant_id_index ON public.ra_users USING btree (username, tenant_id);
 CREATE UNIQUE INDEX service_configs_service_type_index ON public.service_configs USING btree (service_type);

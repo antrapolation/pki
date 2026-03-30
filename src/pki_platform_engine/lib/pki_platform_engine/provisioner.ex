@@ -197,8 +197,16 @@ defmodule PkiPlatformEngine.Provisioner do
 
           Enum.reduce_while(statements, :ok, fn stmt, :ok ->
             case Postgrex.query(conn, stmt, []) do
-              {:ok, _} -> {:cont, :ok}
-              {:error, reason} -> {:halt, {:error, reason}}
+              {:ok, _} ->
+                {:cont, :ok}
+
+              {:error, %{postgres: %{code: code}}}
+              when code in [:duplicate_table, :duplicate_object, :duplicate_column] ->
+                # Ignore duplicate errors — idempotent schema application
+                {:cont, :ok}
+
+              {:error, reason} ->
+                {:halt, {:error, reason}}
             end
           end)
         after
