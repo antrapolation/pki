@@ -56,7 +56,8 @@ defmodule PkiPlatformPortal.MixProject do
       {:argon2_elixir, "~> 4.0"},
       {:pki_platform_engine, path: "../pki_platform_engine"},
       {:pki_ca_engine, path: "../pki_ca_engine"},
-      {:pki_ra_engine, path: "../pki_ra_engine"}
+      {:pki_ra_engine, path: "../pki_ra_engine"},
+      {:pki_validation, path: "../pki_validation"}
     ]
   end
 

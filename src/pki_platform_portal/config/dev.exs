@@ -90,9 +90,20 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   database: "pki_ca_engine_dev",
   pool_size: 2
 
-# Disable engine HTTP servers
+# Disable CA/RA engine HTTP servers (portals use Direct mode)
 config :pki_ca_engine, :start_http, false
 config :pki_ra_engine, start_http: false
+
+# Validation engine — auto-start HTTP on port 4005
+config :pki_validation, PkiValidation.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  port: 5434,
+  database: "pki_validation_dev",
+  pool_size: 5
+
+config :pki_validation, :http, start: true, port: 4005
 
 # Hammer rate limiter config
 config :hammer,
