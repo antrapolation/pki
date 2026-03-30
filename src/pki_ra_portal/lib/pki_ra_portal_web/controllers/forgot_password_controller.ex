@@ -61,6 +61,12 @@ defmodule PkiRaPortalWeb.ForgotPasswordController do
                 render(conn, :code, layout: false, error: "Failed to reset password. Please try again.", masked_email: mask_email(reset_email))
             end
 
+          {:error, :too_many_attempts} ->
+            conn
+            |> delete_session(:reset_user_id)
+            |> delete_session(:reset_email)
+            |> render(:new, layout: false, error: "Too many failed attempts. Please start over.")
+
           {:error, :invalid_code} ->
             render(conn, :code, layout: false, error: "Invalid code. Please try again.", masked_email: mask_email(reset_email))
 
