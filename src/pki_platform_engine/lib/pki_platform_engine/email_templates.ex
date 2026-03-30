@@ -75,4 +75,27 @@ defmodule PkiPlatformEngine.EmailTemplates do
     </html>
     """
   end
+
+  def password_reset_code(code) do
+    """
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 40px 20px; color: #1a1a2e;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <div style="display: inline-block; background: #661ae6; border-radius: 12px; padding: 12px; margin-bottom: 16px;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <h1 style="font-size: 24px; font-weight: 700; margin: 0;">PQC PKI Platform</h1>
+      </div>
+      <div style="background: #f8f9fa; border-radius: 12px; padding: 32px; text-align: center; margin-bottom: 24px;">
+        <p style="font-size: 14px; color: #6b7280; margin: 0 0 16px;">Your password reset code is:</p>
+        <div style="font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #661ae6; font-family: monospace;">#{code}</div>
+        <p style="font-size: 12px; color: #9ca3af; margin: 16px 0 0;">This code expires in 10 minutes.</p>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; text-align: center;">If you did not request a password reset, you can safely ignore this email.</p>
+    </body>
+    </html>
+    """
+  end
 end
