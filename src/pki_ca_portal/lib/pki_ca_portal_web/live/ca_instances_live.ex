@@ -1,0 +1,241 @@
+defmodule PkiCaPortalWeb.CaInstancesLive do
+  use PkiCaPortalWeb, :live_view
+
+  alias PkiCaPortal.CaEngineClient
+
+  @impl true
+  def mount(_params, _session, socket) do
+    instances = fetch_instances()
+
+    {:ok,
+     assign(socket,
+       page_title: "CA Instances",
+       instances: instances,
+       show_create_modal: false,
+       create_name: "",
+       create_parent_id: "",
+       creating: false
+     )}
+  end
+
+  @impl true
+  def handle_event("open_create_modal", params, socket) do
+    parent_id = params["parent_id"] || ""
+
+    {:noreply,
+     assign(socket,
+       show_create_modal: true,
+       create_name: "",
+       create_parent_id: parent_id
+     )}
+  end
+
+  @impl true
+  def handle_event("close_create_modal", _params, socket) do
+    {:noreply, assign(socket, show_create_modal: false)}
+  end
+
+  @impl true
+  def handle_event("create_instance", %{"name" => name, "parent_id" => parent_id}, socket) do
+    attrs =
+      %{name: name}
+      |> maybe_put_parent_id(parent_id)
+
+    case CaEngineClient.create_ca_instance(attrs) do
+      {:ok, _instance} ->
+        instances = fetch_instances()
+
+        {:noreply,
+         socket
+         |> assign(instances: instances, show_create_modal: false)
+         |> put_flash(:info, "CA instance created successfully")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to create CA instance: #{inspect(reason)}")}
+    end
+  end
+
+  defp maybe_put_parent_id(attrs, ""), do: attrs
+  defp maybe_put_parent_id(attrs, nil), do: attrs
+  defp maybe_put_parent_id(attrs, parent_id), do: Map.put(attrs, :parent_id, parent_id)
+
+  defp fetch_instances do
+    case CaEngineClient.list_ca_instances() do
+      {:ok, instances} -> instances
+      {:error, _} -> []
+    end
+  end
+
+  defp roots(instances) do
+    Enum.filter(instances, fn i -> is_nil(i[:parent_id]) or i[:parent_id] == "" end)
+  end
+
+  defp children(instances, parent_id) do
+    Enum.filter(instances, fn i -> i[:parent_id] == parent_id end)
+  end
+
+  defp role_badge_class(role) do
+    case role do
+      "root" -> "badge-primary"
+      "intermediate" -> "badge-secondary"
+      "issuing" -> "badge-accent"
+      _ -> "badge-ghost"
+    end
+  end
+
+  defp status_badge_class(status) do
+    case status do
+      "active" -> "badge-success"
+      "inactive" -> "badge-ghost"
+      "suspended" -> "badge-warning"
+      _ -> "badge-ghost"
+    end
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div id="ca-instances-page" class="space-y-6">
+      <%!-- Header with New Root CA button --%>
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-lg font-semibold text-base-content">CA Instance Hierarchy</h1>
+          <p class="text-xs text-base-content/50 mt-0.5">Manage root and subordinate CA instances</p>
+        </div>
+        <button
+          id="btn-new-root-ca"
+          class="btn btn-primary btn-sm"
+          phx-click="open_create_modal"
+          phx-value-parent_id=""
+        >
+          <.icon name="hero-plus" class="size-4" />
+          New Root CA
+        </button>
+      </div>
+
+      <%!-- Hierarchy tree --%>
+      <div id="ca-hierarchy" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body p-0">
+          <div class="px-5 py-4 border-b border-base-300">
+            <h2 class="text-sm font-semibold text-base-content">Instance Tree</h2>
+          </div>
+          <div :if={Enum.empty?(@instances)} class="p-8 text-center text-base-content/50 text-sm">
+            No CA instances configured. Create a Root CA to get started.
+          </div>
+          <div :if={not Enum.empty?(@instances)} class="p-4 space-y-1">
+            <.tree_node
+              :for={root <- roots(@instances)}
+              instance={root}
+              instances={@instances}
+              depth={0}
+            />
+          </div>
+        </div>
+      </div>
+
+      <%!-- Create CA Instance Modal --%>
+      <div
+        :if={@show_create_modal}
+        id="create-ca-modal"
+        class="modal modal-open"
+        phx-window-keydown="close_create_modal"
+        phx-key="Escape"
+      >
+        <div class="modal-box">
+          <h3 class="font-bold text-lg">Create CA Instance</h3>
+          <form phx-submit="create_instance" class="space-y-4 mt-4">
+            <div>
+              <label for="ca-name" class="block text-xs font-medium text-base-content/60 mb-1">
+                Name <span class="text-error">*</span>
+              </label>
+              <input
+                type="text"
+                name="name"
+                id="ca-name"
+                required
+                value={@create_name}
+                placeholder="e.g. Root CA, Intermediate CA 1"
+                class="input input-bordered input-sm w-full"
+              />
+            </div>
+            <div>
+              <label for="ca-parent" class="block text-xs font-medium text-base-content/60 mb-1">
+                Parent CA
+              </label>
+              <select name="parent_id" id="ca-parent" class="select select-bordered select-sm w-full">
+                <option value="">None (Root CA)</option>
+                <option
+                  :for={inst <- @instances}
+                  value={inst.id}
+                  selected={@create_parent_id == inst.id}
+                >
+                  {inst.name}
+                </option>
+              </select>
+            </div>
+            <div class="modal-action">
+              <button type="button" class="btn btn-ghost btn-sm" phx-click="close_create_modal">
+                Cancel
+              </button>
+              <button type="submit" class="btn btn-primary btn-sm">
+                <.icon name="hero-plus" class="size-4" />
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+        <div class="modal-backdrop" phx-click="close_create_modal"></div>
+      </div>
+    </div>
+    """
+  end
+
+  defp tree_node(assigns) do
+    children = children(assigns.instances, assigns.instance.id)
+    assigns = assign(assigns, :children, children)
+
+    ~H"""
+    <div class={"#{if @depth > 0, do: "ml-6 border-l-2 border-base-300 pl-4", else: ""}"}>
+      <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-base-200/50 group">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
+            <.icon
+              name={if @depth == 0, do: "hero-shield-check", else: "hero-building-office"}
+              class="size-4 text-primary"
+            />
+          </div>
+          <div>
+            <p class="text-sm font-medium text-base-content">{@instance.name}</p>
+            <div class="flex items-center gap-2 mt-0.5">
+              <span class={"badge badge-xs #{role_badge_class(@instance[:role] || "root")}"}>
+                {@instance[:role] || "root"}
+              </span>
+              <span class={"badge badge-xs #{status_badge_class(@instance[:status] || "active")}"}>
+                {@instance[:status] || "active"}
+              </span>
+              <span class="text-xs text-base-content/40">
+                {Map.get(@instance, :issuer_key_count, 0)} issuer key(s)
+              </span>
+            </div>
+          </div>
+        </div>
+        <button
+          class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 transition-opacity"
+          phx-click="open_create_modal"
+          phx-value-parent_id={@instance.id}
+          title="Add Sub-CA"
+        >
+          <.icon name="hero-plus" class="size-3" />
+          Sub-CA
+        </button>
+      </div>
+      <.tree_node
+        :for={child <- @children}
+        instance={child}
+        instances={@instances}
+        depth={@depth + 1}
+      />
+    </div>
+    """
+  end
+end

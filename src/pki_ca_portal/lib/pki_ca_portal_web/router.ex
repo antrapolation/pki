@@ -43,6 +43,7 @@ defmodule PkiCaPortalWeb.Router do
       live "/users", UsersLive
       live "/keystores", KeystoresLive
       live "/ceremony", CeremonyLive
+      live "/ca-instances", CaInstancesLive
       live "/audit-log", AuditLogLive
     end
   end
