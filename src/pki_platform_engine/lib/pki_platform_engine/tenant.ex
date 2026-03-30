@@ -11,6 +11,7 @@ defmodule PkiPlatformEngine.Tenant do
     field :status, :string, default: "initialized"
     field :signing_algorithm, :string, default: "ECC-P256"
     field :kem_algorithm, :string, default: "ECDH-P256"
+    field :email, :string
     field :metadata, :map, default: %{}
     timestamps()
   end
@@ -19,8 +20,9 @@ defmodule PkiPlatformEngine.Tenant do
 
   def changeset(tenant, attrs) do
     tenant
-    |> cast(attrs, [:name, :slug, :status, :signing_algorithm, :kem_algorithm, :metadata])
-    |> validate_required([:name, :slug])
+    |> cast(attrs, [:name, :slug, :status, :signing_algorithm, :kem_algorithm, :email, :metadata])
+    |> validate_required([:name, :slug, :email])
+    |> validate_format(:email, ~r/@/)
     |> validate_inclusion(:status, @statuses)
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, message: "must be lowercase alphanumeric with hyphens")
     |> unique_constraint(:slug)
