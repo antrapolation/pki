@@ -267,7 +267,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   defp create_ca_admin(tenant, ca_instance_id, username, password) do
     expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
 
-    case PkiCaEngine.UserManagement.create_user(tenant.id, ca_instance_id, %{
+    # Use register_user which hashes the password via registration_changeset
+    case PkiCaEngine.UserManagement.register_user(tenant.id, ca_instance_id, %{
            username: username,
            password: password,
            role: "ca_admin",
@@ -285,7 +286,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   defp create_ra_admin(tenant, username, password) do
     expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
 
-    case PkiRaEngine.UserManagement.create_user(tenant.id, %{
+    # Use register_user which hashes the password via registration_changeset
+    case PkiRaEngine.UserManagement.register_user(tenant.id, %{
            username: username,
            password: password,
            role: "ra_admin",
