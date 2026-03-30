@@ -35,6 +35,14 @@ defmodule PkiPlatformEngine.PlatformAdmin do
     |> hash_password()
   end
 
+  def password_changeset(admin, attrs) do
+    admin
+    |> cast(attrs, [:password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 8)
+    |> hash_password()
+  end
+
   defp maybe_put_id(%{data: %{id: nil}} = changeset) do
     put_change(changeset, :id, Uniq.UUID.uuid7())
   end
