@@ -10,8 +10,8 @@ defmodule PkiPlatformPortalWeb.Endpoint do
     key: "_pki_platform_portal_key",
     signing_salt: @signing_salt,
     encryption_salt: "pki_platform_enc",
-    same_site: "Strict",
-    secure: true,
+    same_site: "Lax",
+    secure: Application.compile_env(:pki_platform_portal, :cookie_secure, false),
     http_only: true
   ]
 

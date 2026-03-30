@@ -23,7 +23,10 @@ defmodule PkiPlatformPortalWeb.Router do
   scope "/", PkiPlatformPortalWeb do
     pipe_through :browser
 
-    live "/setup", SetupLive
+    live_session :setup do
+      live "/setup", SetupLive
+    end
+
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     delete "/logout", SessionController, :delete

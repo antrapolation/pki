@@ -8,29 +8,59 @@ defmodule PkiPlatformPortalWeb.SystemLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
+      start_health_check()
       Process.send_after(self(), :poll, @poll_interval)
     end
 
-    {:ok, assign(socket, page_title: "System", services: [], db_status: %{}, db_count: 0) |> load_data()}
+    # Load DB status synchronously (fast, local query)
+    db_status =
+      try do
+        SystemHealth.check_database()
+      rescue
+        _ -> %{status: :unreachable}
+      end
+
+    db_count =
+      try do
+        SystemHealth.database_count()
+      rescue
+        _ -> 0
+      end
+
+    {:ok,
+     assign(socket,
+       page_title: "System",
+       services: Enum.map(SystemHealth.services(), &Map.merge(&1, %{status: :checking, response_time_ms: 0, checked_at: nil})),
+       db_status: db_status,
+       db_count: db_count,
+       loading: true
+     )}
   end
 
   @impl true
+  def handle_info({ref, results}, socket) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, assign(socket, services: results, loading: false)}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
+    {:noreply, socket}
+  end
+
   def handle_info(:poll, socket) do
+    start_health_check()
     Process.send_after(self(), :poll, @poll_interval)
-    {:noreply, load_data(socket)}
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    {:noreply, load_data(socket)}
+    start_health_check()
+    {:noreply, assign(socket, loading: true)}
   end
 
-  defp load_data(socket) do
-    services = SystemHealth.check_all()
-    db_status = SystemHealth.check_database()
-    db_count = SystemHealth.database_count()
-
-    assign(socket, services: services, db_status: db_status, db_count: db_count)
+  defp start_health_check do
+    Task.async(fn -> SystemHealth.check_all() end)
   end
 
   defp healthy_count(services) do
@@ -153,9 +183,14 @@ defmodule PkiPlatformPortalWeb.SystemLive do
               <span class={[
                 "badge badge-sm shrink-0",
                 service.status == :healthy && "badge-success",
-                service.status != :healthy && "badge-error"
+                service.status == :checking && "badge-ghost",
+                service.status == :unreachable && "badge-error"
               ]}>
-                {if service.status == :healthy, do: "Healthy", else: "Unreachable"}
+                {case service.status do
+                  :healthy -> "Healthy"
+                  :checking -> "Checking..."
+                  _ -> "Unreachable"
+                end}
               </span>
             </div>
 

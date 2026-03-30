@@ -7,9 +7,8 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
     active = Enum.count(tenants, &(&1.status == "active"))
     suspended = Enum.count(tenants, &(&1.status == "suspended"))
     initialized = Enum.count(tenants, &(&1.status == "initialized"))
-    services = PkiPlatformEngine.SystemHealth.check_all()
-    healthy_services = Enum.count(services, &(&1.status == :healthy))
-    total_services = length(services)
+
+    if connected?(socket), do: send(self(), :check_services)
 
     {:ok,
      assign(socket,
@@ -18,9 +17,22 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
        active_tenants: active,
        suspended_tenants: suspended,
        initialized_tenants: initialized,
-       healthy_services: healthy_services,
-       total_services: total_services,
+       healthy_services: 0,
+       total_services: 6,
        recent_tenants: Enum.take(tenants, 5)
+     )}
+  end
+
+  @impl true
+  def handle_info(:check_services, socket) do
+    services = PkiPlatformEngine.SystemHealth.check_all()
+    healthy_services = Enum.count(services, &(&1.status == :healthy))
+    total_services = length(services)
+
+    {:noreply,
+     assign(socket,
+       healthy_services: healthy_services,
+       total_services: total_services
      )}
   end
 

@@ -11,8 +11,12 @@ defmodule PkiPlatformEngine.SystemHealth do
   def services, do: @services
 
   def check_all do
-    Enum.map(@services, fn service ->
-      Map.merge(service, check_service(service))
+    @services
+    |> Task.async_stream(&Map.merge(&1, check_service(&1)), timeout: 5_000, on_timeout: :kill_task)
+    |> Enum.zip(@services)
+    |> Enum.map(fn
+      {{:ok, result}, _} -> result
+      {{:exit, _}, service} -> Map.merge(service, %{status: :unreachable, response_time_ms: 0, checked_at: DateTime.utc_now()})
     end)
   end
 
@@ -25,7 +29,7 @@ defmodule PkiPlatformEngine.SystemHealth do
 
     result =
       try do
-        case Req.get(url, connect_options: [timeout: 3_000], receive_timeout: 3_000) do
+        case Req.get(url, connect_options: [timeout: 2_000], receive_timeout: 2_000, retry: false) do
           {:ok, %{status: status}} when status in 200..399 ->
             :healthy
           _ ->

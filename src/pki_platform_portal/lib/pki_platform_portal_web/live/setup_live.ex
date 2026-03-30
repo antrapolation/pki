@@ -1,5 +1,10 @@
 defmodule PkiPlatformPortalWeb.SetupLive do
-  use PkiPlatformPortalWeb, :live_view
+  use Phoenix.LiveView, layout: false
+
+  use Gettext, backend: PkiPlatformPortalWeb.Gettext
+  import Phoenix.HTML
+  import PkiPlatformPortalWeb.CoreComponents
+  alias Phoenix.LiveView.JS
 
   @impl true
   def mount(_params, _session, socket) do
@@ -8,7 +13,7 @@ defmodule PkiPlatformPortalWeb.SetupLive do
        assign(socket,
          page_title: "Initial Setup",
          form_error: nil
-       ), layout: false}
+       )}
     else
       {:ok, push_navigate(socket, to: "/login")}
     end

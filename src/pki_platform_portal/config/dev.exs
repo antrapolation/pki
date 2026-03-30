@@ -7,7 +7,7 @@ config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "Wm8nT5xKqR2pL7vJ3dF9bH4yA6cE1gI0sU8oN2kP5mX7zQ3wV6jD4rB9tY1uC0a",
+  secret_key_base: "rVZ3s99uzntf1L5NpyautO5qAXu8yFFRjmVKYOT39fQqF8Hql1sxO6uXFepW46YiyumSnqrbByLF3Ofooecusw==",
   watchers: [
     esbuild:
       {Esbuild, :install_and_run, [:pki_platform_portal, ~w(--sourcemap=inline --watch)]},
@@ -47,3 +47,20 @@ config :phoenix_live_view,
 # Platform admin credentials (override in runtime.exs for production)
 config :pki_platform_portal, admin_username: "admin"
 config :pki_platform_portal, admin_password: "admin"
+
+# PlatformRepo config for tenancy
+config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  port: 5434,
+  database: "pki_platform_dev",
+  pool_size: 5
+
+# TenantRepo config (base connection info for dynamic tenant DBs)
+config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  port: 5434,
+  pool_size: 2
