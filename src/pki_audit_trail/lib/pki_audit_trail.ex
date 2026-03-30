@@ -36,6 +36,8 @@ defmodule PkiAuditTrail do
     do: query |> where([e], e.resource_type == ^type) |> apply_filters(rest)
   defp apply_filters(query, [{:resource_id, id} | rest]),
     do: query |> where([e], e.resource_id == ^id) |> apply_filters(rest)
+  defp apply_filters(query, [{:ca_instance_id, id} | rest]),
+    do: query |> where([e], e.ca_instance_id == ^id) |> apply_filters(rest)
   defp apply_filters(query, [{:since, since} | rest]),
     do: query |> where([e], e.timestamp >= ^since) |> apply_filters(rest)
   defp apply_filters(query, [{:until, until} | rest]),
