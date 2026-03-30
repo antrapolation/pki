@@ -116,8 +116,11 @@ defmodule PkiRaEngine.CsrValidation do
         raise "ca_engine_module not configured. Set CA_ENGINE_URL in environment."
 
     with {:ok, csr} <- get_csr(csr_id),
-         :ok <- check_transition(csr.status, "issued") do
-      case ca_module.sign_certificate(csr.csr_pem, %{id: csr.cert_profile_id}) do
+         :ok <- check_transition(csr.status, "issued"),
+         {:ok, profile} <- CertProfileConfig.get_profile(csr.cert_profile_id) do
+      cert_profile_map = %{id: csr.cert_profile_id, issuer_key_id: profile.issuer_key_id}
+
+      case ca_module.sign_certificate(csr.csr_pem, cert_profile_map) do
         {:ok, cert_data} ->
           mark_issued(csr_id, cert_data.serial_number)
 
