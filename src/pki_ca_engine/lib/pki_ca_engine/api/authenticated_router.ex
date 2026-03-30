@@ -13,7 +13,8 @@ defmodule PkiCaEngine.Api.AuthenticatedRouter do
     CeremonyController,
     CertificateController,
     AuditLogController,
-    KeyVaultController
+    KeyVaultController,
+    CaInstanceController
   }
 
   plug PkiCaEngine.Api.AuthPlug
@@ -147,6 +148,27 @@ defmodule PkiCaEngine.Api.AuthenticatedRouter do
   # Audit Log
   get "/audit-log" do
     AuditLogController.index(conn)
+  end
+
+  # CA Instances
+  get "/ca-instances" do
+    CaInstanceController.index(conn)
+  end
+
+  post "/ca-instances" do
+    CaInstanceController.create(conn)
+  end
+
+  get "/ca-instances/:id" do
+    CaInstanceController.show(conn, id)
+  end
+
+  patch "/ca-instances/:id" do
+    CaInstanceController.update(conn, id)
+  end
+
+  get "/ca-instances/:id/children" do
+    CaInstanceController.children(conn, id)
   end
 
   match _ do
