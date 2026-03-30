@@ -201,7 +201,7 @@ defmodule PkiPlatformEngine.Provisioner do
                 {:cont, :ok}
 
               {:error, %{postgres: %{code: code}}}
-              when code in [:duplicate_table, :duplicate_object, :duplicate_column] ->
+              when code in [:duplicate_table, :duplicate_object, :duplicate_column, :invalid_table_definition] ->
                 # Ignore duplicate errors — idempotent schema application
                 {:cont, :ok}
 
