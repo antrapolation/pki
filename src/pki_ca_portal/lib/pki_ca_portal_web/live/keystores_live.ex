@@ -21,7 +21,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    ca_id = nil  # load all keystores initially; filter via dropdown
 
     keystores = case CaEngineClient.list_keystores(ca_id) do
       {:ok, ks} -> ks

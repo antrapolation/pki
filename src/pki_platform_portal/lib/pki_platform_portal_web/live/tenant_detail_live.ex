@@ -160,14 +160,14 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   defp delete_and_recreate_admin(:ca, username, password, tenant, secret, expires_at) do
     # Delete existing CA admin
     case Req.get("http://127.0.0.1:4001/api/v1/users",
-           headers: [{"x-internal-secret", secret}],
+           headers: [{"authorization", "Bearer #{secret}"}],
            params: [role: "ca_admin"],
            retry: false
          ) do
       {:ok, %{status: 200, body: users}} when is_list(users) ->
         for user <- users, user["username"] == username do
           Req.delete("http://127.0.0.1:4001/api/v1/users/#{user["id"]}",
-            headers: [{"x-internal-secret", secret}], retry: false)
+            headers: [{"authorization", "Bearer #{secret}"}], retry: false)
         end
       _ -> :ok
     end
@@ -180,7 +180,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
              must_change_password: true,
              credential_expires_at: DateTime.to_iso8601(expires_at)
            },
-           headers: [{"x-internal-secret", secret}], retry: false
+           headers: [{"authorization", "Bearer #{secret}"}], retry: false
          ) do
       {:ok, %{status: s}} when s in 200..299 -> []
       {:ok, %{status: s}} -> ["CA admin reset failed (HTTP #{s})"]
@@ -191,14 +191,14 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   defp delete_and_recreate_admin(:ra, username, password, tenant, secret, expires_at) do
     # Delete existing RA admin
     case Req.get("http://127.0.0.1:4003/api/v1/users",
-           headers: [{"x-internal-secret", secret}],
+           headers: [{"authorization", "Bearer #{secret}"}],
            params: [role: "ra_admin", tenant_id: tenant.id],
            retry: false
          ) do
       {:ok, %{status: 200, body: users}} when is_list(users) ->
         for user <- users, user["username"] == username do
           Req.delete("http://127.0.0.1:4003/api/v1/users/#{user["id"]}",
-            headers: [{"x-internal-secret", secret}], retry: false)
+            headers: [{"authorization", "Bearer #{secret}"}], retry: false)
         end
       _ -> :ok
     end
@@ -211,7 +211,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
              must_change_password: true,
              credential_expires_at: DateTime.to_iso8601(expires_at)
            },
-           headers: [{"x-internal-secret", secret}], retry: false
+           headers: [{"authorization", "Bearer #{secret}"}], retry: false
          ) do
       {:ok, %{status: s}} when s in 200..299 -> []
       {:ok, %{status: s}} -> ["RA admin reset failed (HTTP #{s})"]
@@ -288,8 +288,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
               <p class="font-mono text-sm font-medium">{@tenant.slug}</p>
             </div>
             <div>
-              <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider mb-1">Signing Algorithm</p>
-              <p class="font-mono text-sm font-medium">{@tenant.signing_algorithm}</p>
+              <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider mb-1">Email</p>
+              <p class="font-mono text-sm font-medium">{@tenant.email}</p>
             </div>
             <div>
               <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider mb-1">Database</p>

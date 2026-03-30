@@ -455,6 +455,24 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     end)
   end
 
+  @impl true
+  def update_ca_instance(id, attrs) do
+    url = base_url() <> "/api/v1/ca-instances/#{id}"
+
+    case Req.patch(url,
+           json: stringify_keys(attrs),
+           headers: [{"authorization", "Bearer #{api_secret()}"}],
+           receive_timeout: 10_000
+         ) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, atomize_keys(body)}
+      {:ok, %{status: _status, body: body}} ->
+        {:error, body}
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
   defp atomize_keys(other), do: other
 
   defp atomize_value(v) when is_map(v), do: atomize_keys(v)

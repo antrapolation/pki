@@ -30,7 +30,9 @@ if platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || System.get_env("
     pool_size: String.to_integer(System.get_env("POOL_SIZE", "5"))
 end
 
-config :pki_ra_portal, cookie_secure: System.get_env("COOKIE_SECURE", "true") == "true"
+if cookie_secure = System.get_env("COOKIE_SECURE") do
+  config :pki_ra_portal, cookie_secure: cookie_secure == "true"
+end
 
 if config_env() == :prod do
   # RA Engine HTTP client configuration

@@ -18,8 +18,7 @@ defmodule PkiPlatformEngine.Provisioner do
         db_name = Ecto.Changeset.get_field(changeset, :database_name)
 
         with :ok <- create_database(db_name),
-             :ok <- create_schemas(db_name),
-             :ok <- create_multi_ca_ra_tables(db_name),
+             :ok <- create_tenant_tables(db_name),
              {:ok, tenant} <- PlatformRepo.insert(changeset) do
           {:ok, tenant}
         else
@@ -147,63 +146,58 @@ defmodule PkiPlatformEngine.Provisioner do
     end)
   end
 
-  defp create_schemas(db_name) do
+  defp create_tenant_tables(db_name) do
     safe = validate_db_name!(db_name)
-    schemas = ["ca", "ra", "validation", "audit"]
 
-    valid_schemas = MapSet.new(["ca", "ra", "validation", "audit"])
-
-    results = Enum.map(schemas, fn schema ->
-      unless MapSet.member?(valid_schemas, schema) do
-        raise ArgumentError, "Invalid schema name: #{inspect(schema)}"
-      end
-
-      TenantRepo.execute_sql(safe, "public", ~s|CREATE SCHEMA IF NOT EXISTS "#{schema}"|, [])
-    end)
-
-    case Enum.find(results, &match?({:error, _}, &1)) do
-      nil -> :ok
-      {:error, reason} -> {:error, {:create_schemas_failed, inspect(reason)}}
+    # Apply CA engine schema (includes audit_events, ca_instances, issuer_keys, etc.)
+    ca_sql = read_schema_sql("tenant_ca_schema.sql")
+    case apply_schema_sql(safe, ca_sql) do
+      :ok -> :ok
+      {:error, reason} -> throw {:error, {:ca_schema_failed, reason}}
     end
-  rescue
-    e -> {:error, {:create_schemas_failed, Exception.message(e)}}
+
+    # Apply RA engine schema (includes ra_users, cert_profiles, csr_requests, etc.)
+    ra_sql = read_schema_sql("tenant_ra_schema.sql")
+    case apply_schema_sql(safe, ra_sql) do
+      :ok -> :ok
+      {:error, reason} -> throw {:error, {:ra_schema_failed, reason}}
+    end
+
+    :ok
+  catch
+    {:error, reason} -> {:error, reason}
   end
 
-  defp create_multi_ca_ra_tables(db_name) do
-    safe = validate_db_name!(db_name)
+  defp read_schema_sql(filename) do
+    priv_dir = :code.priv_dir(:pki_platform_engine)
+    path = Path.join(priv_dir, filename)
+    File.read!(path)
+  end
 
-    # Create ra_instances table first (other ALTER TABLEs reference it)
-    TenantRepo.execute_sql(safe, "ra", """
-      CREATE TABLE IF NOT EXISTS ra_instances (
-        id UUID PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE,
-        status VARCHAR(50) NOT NULL DEFAULT 'initialized',
-        created_by VARCHAR(255),
-        inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-      )
-    """, [])
+  defp apply_schema_sql(db_name, sql) do
+    config = Application.get_env(:pki_platform_engine, TenantRepo, [])
+    {hostname, port, username, password} = parse_conn_config(config)
 
-    # Now alter existing tables
-    results = [
-      TenantRepo.execute_sql(safe, "ca",
-        "ALTER TABLE ca_instances ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES ca_instances(id)", []),
-      TenantRepo.execute_sql(safe, "ra",
-        "ALTER TABLE ra_users ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", []),
-      TenantRepo.execute_sql(safe, "ra",
-        "ALTER TABLE ra_api_keys ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", []),
-      TenantRepo.execute_sql(safe, "ra",
-        "ALTER TABLE cert_profiles ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", []),
-      TenantRepo.execute_sql(safe, "ra",
-        "ALTER TABLE cert_profiles ADD COLUMN IF NOT EXISTS issuer_key_id VARCHAR(255)", [])
-    ]
+    case Postgrex.start_link(
+           hostname: hostname,
+           port: port,
+           username: username,
+           password: password,
+           database: db_name
+         ) do
+      {:ok, conn} ->
+        try do
+          case Postgrex.query(conn, sql, []) do
+            {:ok, _} -> :ok
+            {:error, reason} -> {:error, reason}
+          end
+        after
+          GenServer.stop(conn)
+        end
 
-    case Enum.find(results, &match?({:error, _}, &1)) do
-      nil -> :ok
-      {:error, reason} -> {:error, {:alter_table_failed, inspect(reason)}}
+      {:error, reason} ->
+        {:error, {:connection_failed, reason}}
     end
-  rescue
-    e -> {:error, {:multi_ca_ra_tables_failed, Exception.message(e)}}
   end
 
   defp drop_database(db_name) do

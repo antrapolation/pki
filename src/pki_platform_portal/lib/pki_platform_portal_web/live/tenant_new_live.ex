@@ -197,7 +197,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
 
     case Req.post("http://127.0.0.1:4001/api/v1/users",
            json: body,
-           headers: [{"x-internal-secret", secret}]
+           headers: [{"authorization", "Bearer #{secret}"}]
          ) do
       {:ok, %{status: status}} when status in 200..299 -> []
       {:ok, %{status: status}} -> ["CA admin creation failed (HTTP #{status})"]
@@ -218,7 +218,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
 
     case Req.post("http://127.0.0.1:4003/api/v1/users",
            json: body,
-           headers: [{"x-internal-secret", secret}]
+           headers: [{"authorization", "Bearer #{secret}"}]
          ) do
       {:ok, %{status: status}} when status in 200..299 -> []
       {:ok, %{status: status}} -> ["RA admin creation failed (HTTP #{status})"]

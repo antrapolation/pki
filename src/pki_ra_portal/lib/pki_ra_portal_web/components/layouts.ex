@@ -40,6 +40,7 @@ defmodule PkiRaPortalWeb.Layouts do
         <%!-- Navigation --%>
         <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
+          <.sidebar_link href="/ra-instances" icon="hero-server" label="RA Instances" current={@page_title} />
           <.sidebar_link href="/users" icon="hero-users" label="Users" current={@page_title} />
           <.sidebar_link href="/csrs" icon="hero-document-check" label="CSRs" current={@page_title} />
           <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Cert Profiles" current={@page_title} />
@@ -84,7 +85,7 @@ defmodule PkiRaPortalWeb.Layouts do
 
         <%!-- Page content --%>
         <main class="flex-1 p-6">
-          {render_slot(@inner_block)}
+          {@inner_content}
         </main>
       </div>
     </div>
@@ -118,6 +119,7 @@ defmodule PkiRaPortalWeb.Layouts do
   end
 
   defp is_active?("Dashboard", "Dashboard"), do: true
+  defp is_active?("RA Instances", "RA Instances"), do: true
   defp is_active?("Users", page) when page in ["Users", "User Management"], do: true
   defp is_active?("CSRs", page) when page in ["CSRs", "CSR Management"], do: true
   defp is_active?("Cert Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true

@@ -96,6 +96,14 @@ defmodule PkiCaEngine.CaInstanceManagement do
     end
   end
 
+  @doc "Renames a CA instance."
+  def rename(id, new_name) do
+    case Repo.get(CaInstance, id) do
+      nil -> {:error, :not_found}
+      ca -> ca |> CaInstance.changeset(%{name: new_name}) |> Repo.update()
+    end
+  end
+
   @doc """
   Returns issuer keys that belong to leaf CA instances only.
   A leaf CA is one whose id does NOT appear as parent_id in any other ca_instance.

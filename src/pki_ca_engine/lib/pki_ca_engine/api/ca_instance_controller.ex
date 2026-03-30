@@ -59,21 +59,43 @@ defmodule PkiCaEngine.Api.CaInstanceController do
   end
 
   def update(conn, id) do
-    case conn.body_params do
-      %{"status" => new_status} ->
-        case CaInstanceManagement.update_status(id, new_status) do
-          {:ok, ca} ->
-            json(conn, 200, serialize_basic(ca))
+    params = conn.body_params
+    results = []
 
-          {:error, :not_found} ->
-            json(conn, 404, %{error: "not_found"})
+    results = if params["name"] do
+      case CaInstanceManagement.rename(id, params["name"]) do
+        {:ok, _} -> [{:ok, :renamed} | results]
+        {:error, :not_found} -> [{:error, :not_found} | results]
+        {:error, cs} -> [{:error, cs} | results]
+      end
+    else
+      results
+    end
 
-          {:error, %Ecto.Changeset{} = cs} ->
-            json(conn, 422, %{errors: PkiCaEngine.Api.Helpers.changeset_errors(cs)})
-        end
+    results = if params["status"] do
+      case CaInstanceManagement.update_status(id, params["status"]) do
+        {:ok, _} -> [{:ok, :status_updated} | results]
+        {:error, :not_found} -> [{:error, :not_found} | results]
+        {:error, cs} -> [{:error, cs} | results]
+      end
+    else
+      results
+    end
 
-      _ ->
-        json(conn, 400, %{error: "invalid_params"})
+    if results == [] do
+      json(conn, 400, %{error: "invalid_params"})
+    else
+      case Enum.find(results, &match?({:error, _}, &1)) do
+        {:error, :not_found} ->
+          json(conn, 404, %{error: "not_found"})
+
+        {:error, %Ecto.Changeset{} = cs} ->
+          json(conn, 422, %{errors: PkiCaEngine.Api.Helpers.changeset_errors(cs)})
+
+        nil ->
+          {:ok, ca} = CaInstanceManagement.get_ca_instance(id)
+          json(conn, 200, serialize_basic(ca))
+      end
     end
   end
 

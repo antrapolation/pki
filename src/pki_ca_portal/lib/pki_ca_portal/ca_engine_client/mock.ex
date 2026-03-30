@@ -242,6 +242,28 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def update_ca_instance(id, attrs) do
+    update_state(:ca_instances, fn instances ->
+      Enum.map(instances, fn i ->
+        if (i[:id] || i["id"]) == id do
+          Map.merge(i, atomize_map(attrs))
+        else
+          i
+        end
+      end)
+    end)
+
+    {:ok, %{id: id}}
+  end
+
+  defp atomize_map(map) do
+    Map.new(map, fn
+      {k, v} when is_binary(k) -> {String.to_atom(k), v}
+      {k, v} -> {k, v}
+    end)
+  end
+
+  @impl true
   def reset_password(_user_id, _new_password), do: :ok
 
   @impl true

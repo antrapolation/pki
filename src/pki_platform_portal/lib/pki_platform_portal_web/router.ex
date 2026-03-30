@@ -15,6 +15,10 @@ defmodule PkiPlatformPortalWeb.Router do
     plug PkiPlatformPortalWeb.Plugs.RequireAuth
   end
 
+  pipeline :redirect_to_setup do
+    plug PkiPlatformPortalWeb.Plugs.RequireSetup
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
   end
@@ -26,6 +30,11 @@ defmodule PkiPlatformPortalWeb.Router do
     live_session :setup do
       live "/setup", SetupLive
     end
+  end
+
+  # Public routes (redirect to setup if no superadmin exists)
+  scope "/", PkiPlatformPortalWeb do
+    pipe_through [:browser, :redirect_to_setup]
 
     get "/login", SessionController, :new
     post "/login", SessionController, :create

@@ -31,7 +31,8 @@ defmodule PkiCaEngine.KeystoreManagement do
   @doc """
   Lists all keystores for a CA instance.
   """
-  @spec list_keystores(String.t()) :: [Keystore.t()]
+  @spec list_keystores(String.t() | nil) :: [Keystore.t()]
+  def list_keystores(nil), do: Repo.all(Keystore)
   def list_keystores(ca_instance_id) do
     from(k in Keystore, where: k.ca_instance_id == ^ca_instance_id)
     |> Repo.all()

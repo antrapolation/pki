@@ -44,10 +44,13 @@ defmodule PkiCaPortalWeb.Layouts do
         <%!-- Navigation --%>
         <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
+          <.sidebar_link href="/ca-instances" icon="hero-server-stack" label="CA Instances" current={@page_title} />
           <.sidebar_link href="/users" icon="hero-users" label="Users" current={@page_title} />
           <.sidebar_link href="/keystores" icon="hero-key" label="Keystores" current={@page_title} />
           <.sidebar_link href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
           <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
+          <div class="divider my-1 px-3"></div>
+          <.sidebar_link href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />
         </nav>
 
         <%!-- Sidebar footer --%>
@@ -87,7 +90,7 @@ defmodule PkiCaPortalWeb.Layouts do
 
         <%!-- Page content --%>
         <main class="flex-1 p-6">
-          {render_slot(@inner_block)}
+          {@inner_content}
         </main>
       </div>
     </div>
@@ -121,10 +124,12 @@ defmodule PkiCaPortalWeb.Layouts do
   end
 
   defp is_active?("Dashboard", "Dashboard"), do: true
+  defp is_active?("CA Instances", "CA Instances"), do: true
   defp is_active?("Users", page) when page in ["Users", "User Management"], do: true
   defp is_active?("Keystores", page) when page in ["Keystores", "Keystore Management"], do: true
   defp is_active?("Key Ceremony", "Key Ceremony"), do: true
   defp is_active?("Audit Log", "Audit Log"), do: true
+  defp is_active?("Quick Setup", "Quick Setup"), do: true
   defp is_active?(_, _), do: false
 
   @doc """
