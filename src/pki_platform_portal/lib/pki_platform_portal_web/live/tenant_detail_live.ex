@@ -202,38 +202,48 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
     ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
 
-    ca_username = "#{tenant.slug}-ca-admin"
-    ra_username = "#{tenant.slug}-ra-admin"
-    ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-    ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-
-    errors =
+    {errors, email_result} =
       case action do
         :resend ->
-          recreate_ca_admin(tenant, ca_username, ca_password) ++
-            recreate_ra_admin(tenant, ra_username, ra_password)
+          ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+          ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+          ca_username = "#{tenant.slug}-ca-admin"
+          ra_username = "#{tenant.slug}-ra-admin"
+
+          errs = recreate_ca_admin(tenant, ca_username, ca_password) ++
+                   recreate_ra_admin(tenant, ra_username, ra_password)
+
+          html = EmailTemplates.admin_credentials(
+            tenant.name, ca_username, ca_password, ra_username, ra_password,
+            "https://#{ca_host}", "https://#{ra_host}"
+          )
+          {errs, {:send, "All admin credentials", html}}
 
         :reset_ca ->
-          recreate_ca_admin(tenant, ca_username, ca_password)
+          ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+          ca_username = "#{tenant.slug}-ca-admin"
+          errs = recreate_ca_admin(tenant, ca_username, ca_password)
+
+          html = EmailTemplates.single_admin_credential(
+            tenant.name, "CA Administrator", "https://#{ca_host}", ca_username, ca_password
+          )
+          {errs, {:send, "CA admin credentials", html}}
 
         :reset_ra ->
-          recreate_ra_admin(tenant, ra_username, ra_password)
+          ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
+          ra_username = "#{tenant.slug}-ra-admin"
+          errs = recreate_ra_admin(tenant, ra_username, ra_password)
+
+          html = EmailTemplates.single_admin_credential(
+            tenant.name, "RA Administrator", "https://#{ra_host}", ra_username, ra_password
+          )
+          {errs, {:send, "RA admin credentials", html}}
       end
 
     if errors == [] do
-      {send_ca_u, send_ca_p, send_ra_u, send_ra_p} =
-        case action do
-          :resend -> {ca_username, ca_password, ra_username, ra_password}
-          :reset_ca -> {ca_username, ca_password, ra_username, "(unchanged)"}
-          :reset_ra -> {ca_username, "(unchanged)", ra_username, ra_password}
-        end
+      {:send, subject, html} = email_result
 
-      html = EmailTemplates.admin_credentials(
-        tenant.name, send_ca_u, send_ca_p, send_ra_u, send_ra_p,
-        "https://#{ca_host}", "https://#{ra_host}"
-      )
-
-      case Mailer.send_email(tenant.email, "Updated credentials for #{tenant.name}", html) do
+      case Mailer.send_email(tenant.email, "#{subject} for #{tenant.name}", html) do
         {:ok, _} -> :ok
         {:error, reason} -> Logger.error("Failed to send credential email: #{inspect(reason)}")
       end
