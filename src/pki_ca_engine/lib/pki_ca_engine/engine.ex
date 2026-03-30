@@ -37,17 +37,12 @@ defmodule PkiCaEngine.Engine do
   end
 
   @doc """
-  Signs a certificate through the engine.
+  Signs a certificate through the engine (tenant-aware).
 
   Options:
     - `:activation_server` - the KeyActivation server to use
   """
-  def sign_certificate(ca_instance_id, issuer_key_id, csr_data, cert_profile, opts \\ []) do
-    GenServer.call(via_tuple(ca_instance_id), {:sign_certificate, issuer_key_id, csr_data, cert_profile, opts})
-  end
-
-  @doc "Tenant-aware sign_certificate — passes tenant_id through to CertificateSigning."
-  def sign_certificate_for_tenant(tenant_id, ca_instance_id, issuer_key_id, csr_data, cert_profile, opts \\ []) do
+  def sign_certificate(tenant_id, ca_instance_id, issuer_key_id, csr_data, cert_profile, opts \\ []) do
     GenServer.call(via_tuple(ca_instance_id), {:sign_certificate_tenant, tenant_id, issuer_key_id, csr_data, cert_profile, opts})
   end
 
@@ -75,12 +70,6 @@ defmodule PkiCaEngine.Engine do
        ca_instance_id: ca_instance_id,
        started_at: DateTime.utc_now() |> DateTime.truncate(:second)
      }}
-  end
-
-  @impl true
-  def handle_call({:sign_certificate, issuer_key_id, csr_data, cert_profile, opts}, _from, state) do
-    result = CertificateSigning.sign_certificate(nil, issuer_key_id, csr_data, cert_profile, opts)
-    {:reply, result, state}
   end
 
   @impl true

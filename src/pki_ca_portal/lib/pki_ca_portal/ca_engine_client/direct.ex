@@ -230,9 +230,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       is_root: params[:is_root] || params["is_root"]
     }
 
-    _tenant_id = opts[:tenant_id]
+    tenant_id = opts[:tenant_id]
 
-    case SyncCeremony.initiate(ca_instance_id, ceremony_params) do
+    case SyncCeremony.initiate(tenant_id, ca_instance_id, ceremony_params) do
       {:ok, {ceremony, _issuer_key}} ->
         {:ok, to_map(ceremony)}
 
@@ -320,10 +320,12 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
 
   @impl true
   def query_audit_log(filters, opts \\ []) do
-    _tenant_id = opts[:tenant_id]
+    tenant_id = opts[:tenant_id]
 
     audit_filters = build_audit_filters(filters)
 
+    # TODO: pass tenant_id to PkiAuditTrail.query when audit trail is made tenant-aware
+    _ = tenant_id
     events = PkiAuditTrail.query(audit_filters)
     {:ok, Enum.map(events, &to_map/1)}
   rescue

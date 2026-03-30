@@ -28,12 +28,13 @@ defmodule PkiPlatformEngine.TenantSupervisor do
 
   @doc "Stop engine processes for a tenant."
   def stop_tenant(tenant_id, registry \\ TenantRegistry) do
-    TenantRegistry.unregister(registry, tenant_id)
-
+    # Terminate child first, then unregister — prevents fallback to wrong Repo
     case GenServer.whereis(TenantProcess.via(tenant_id)) do
       nil -> :ok
       pid -> DynamicSupervisor.terminate_child(__MODULE__, pid)
     end
+
+    TenantRegistry.unregister(registry, tenant_id)
   end
 
   @doc "Start engine processes for all active tenants. Called on application boot."

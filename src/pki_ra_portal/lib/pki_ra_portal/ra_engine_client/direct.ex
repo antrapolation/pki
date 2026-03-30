@@ -61,10 +61,9 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   def reset_password(user_id, new_password, opts \\ []) do
     tenant_id = opts[:tenant_id]
 
-    case PkiRaEngine.UserManagement.update_user_password(tenant_id, user_id, %{password: new_password}) do
-      :ok -> :ok
-      {:ok, _} -> :ok
-      {:error, _} = err -> err
+    with {:ok, user} <- PkiRaEngine.UserManagement.get_user(tenant_id, user_id),
+         {:ok, _} <- PkiRaEngine.UserManagement.update_user_password(tenant_id, user, %{password: new_password}) do
+      :ok
     end
   end
 
@@ -75,10 +74,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
     filters = Keyword.drop(opts, [:tenant_id])
 
-    case PkiRaEngine.UserManagement.list_users(tenant_id, filters) do
-      {:ok, users} -> {:ok, Enum.map(users, &to_map/1)}
-      {:error, _} = err -> err
-    end
+    users = PkiRaEngine.UserManagement.list_users(tenant_id, filters)
+    {:ok, Enum.map(users, &to_map/1)}
   end
 
   @impl true
@@ -122,10 +119,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   def list_csrs(filters, opts \\ []) do
     tenant_id = opts[:tenant_id]
 
-    case PkiRaEngine.CsrValidation.list_csrs(tenant_id, filters) do
-      {:ok, csrs} -> {:ok, Enum.map(csrs, &to_map/1)}
-      {:error, _} = err -> err
-    end
+    csrs = PkiRaEngine.CsrValidation.list_csrs(tenant_id, filters)
+    {:ok, Enum.map(csrs, &to_map/1)}
   end
 
   @impl true
@@ -166,10 +161,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   def list_cert_profiles(opts \\ []) do
     tenant_id = opts[:tenant_id]
 
-    case PkiRaEngine.CertProfileConfig.list_profiles(tenant_id) do
-      {:ok, profiles} -> {:ok, Enum.map(profiles, &to_map/1)}
-      {:error, _} = err -> err
-    end
+    profiles = PkiRaEngine.CertProfileConfig.list_profiles(tenant_id)
+    {:ok, Enum.map(profiles, &to_map/1)}
   end
 
   @impl true
@@ -208,10 +201,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   def list_service_configs(opts \\ []) do
     tenant_id = opts[:tenant_id]
 
-    case PkiRaEngine.ServiceConfig.list_service_configs(tenant_id) do
-      {:ok, configs} -> {:ok, Enum.map(configs, &to_map/1)}
-      {:error, _} = err -> err
-    end
+    configs = PkiRaEngine.ServiceConfig.list_service_configs(tenant_id)
+    {:ok, Enum.map(configs, &to_map/1)}
   end
 
   @impl true
@@ -230,10 +221,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   def list_ra_instances(opts \\ []) do
     tenant_id = opts[:tenant_id]
 
-    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id) do
-      {:ok, instances} -> {:ok, Enum.map(instances, &to_map/1)}
-      {:error, _} = err -> err
-    end
+    instances = PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id)
+    {:ok, Enum.map(instances, &to_map/1)}
   end
 
   @impl true
@@ -250,10 +239,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   def available_issuer_keys(opts \\ []) do
     tenant_id = opts[:tenant_id]
 
-    case PkiCaEngine.CaInstanceManagement.active_leaf_issuer_keys(tenant_id) do
-      {:ok, keys} -> {:ok, Enum.map(keys, &to_map/1)}
-      {:error, _} = err -> err
-    end
+    keys = PkiCaEngine.CaInstanceManagement.active_leaf_issuer_keys(tenant_id)
+    {:ok, Enum.map(keys, &to_map/1)}
   end
 
   # --- API keys ---
@@ -263,10 +250,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
     ra_user_id = filters[:ra_user_id] || filters["ra_user_id"]
 
-    case PkiRaEngine.ApiKeyManagement.list_keys(tenant_id, ra_user_id) do
-      {:ok, keys} -> {:ok, Enum.map(keys, &to_map/1)}
-      {:error, _} = err -> err
-    end
+    keys = PkiRaEngine.ApiKeyManagement.list_keys(tenant_id, ra_user_id)
+    {:ok, Enum.map(keys, &to_map/1)}
   end
 
   @impl true

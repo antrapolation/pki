@@ -169,6 +169,7 @@ defmodule PkiCaEngine.EngineTest do
 
       assert {:ok, cert} =
                Engine.sign_certificate(
+                 "default",
                  ctx.ca.id,
                  ctx.issuer_key.id,
                  csr_data,

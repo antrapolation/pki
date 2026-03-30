@@ -5,7 +5,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
 
   import Plug.Conn
   import Ecto.Query
-  alias PkiCaEngine.Repo
+  alias PkiCaEngine.TenantRepo
   alias PkiCaEngine.Schema.KeyCeremony
   alias PkiCaEngine.KeyCeremony.SyncCeremony
   alias PkiCaEngine.KeyCeremonyManager
@@ -31,16 +31,19 @@ defmodule PkiCaEngine.Api.CeremonyController do
   end
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.query_params)
+    repo = TenantRepo.ca_repo(tenant_id)
 
     ceremonies =
       from(c in KeyCeremony, where: c.ca_instance_id == ^ca_instance_id, order_by: [desc: c.inserted_at])
-      |> Repo.all()
+      |> repo.all()
 
     json(conn, 200, Enum.map(ceremonies, &serialize_ceremony/1))
   end
 
   def create(conn) do
+    tenant_id = conn.assigns[:tenant_id]
     ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
 
     params = %{
@@ -54,7 +57,7 @@ defmodule PkiCaEngine.Api.CeremonyController do
       is_root: conn.body_params["is_root"]
     }
 
-    case SyncCeremony.initiate(ca_instance_id, params) do
+    case SyncCeremony.initiate(tenant_id, ca_instance_id, params) do
       {:ok, {ceremony, issuer_key}} ->
         json(conn, 201, %{
           ceremony: serialize_ceremony(ceremony),

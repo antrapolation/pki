@@ -32,7 +32,7 @@ defmodule PkiCaEngine.UserManagement do
       # Full bootstrap: admin + ACL + system keypairs
       user_attrs = Map.drop(attrs, [:password, "password", :ca_instance_id, "ca_instance_id"])
 
-      case Bootstrap.setup_tenant(ca_instance_id, user_attrs, password) do
+      case Bootstrap.setup_tenant(tenant_id, ca_instance_id, user_attrs, password) do
         {:ok, %{admin: admin}} -> {:ok, admin}
         {:error, reason} -> {:error, reason}
       end
@@ -97,7 +97,7 @@ defmodule PkiCaEngine.UserManagement do
   @spec authenticate_with_credentials(String.t(), String.t(), String.t()) ::
           {:ok, CaUser.t(), map()} | {:error, :invalid_credentials}
   def authenticate_with_credentials(tenant_id, username, password) do
-    case CredentialManager.authenticate(username, password) do
+    case CredentialManager.authenticate(tenant_id, username, password) do
       {:ok, user, session_info} ->
         {:ok, user, session_info}
 
@@ -112,12 +112,12 @@ defmodule PkiCaEngine.UserManagement do
 
   @doc """
   Creates a user with cryptographic credentials (signing + KEM keypairs).
-  Delegates to CredentialManager.create_user_with_credentials/4.
+  Delegates to CredentialManager.create_user_with_credentials/5.
   """
   @spec create_user_with_credentials(String.t(), String.t(), map(), String.t(), keyword()) ::
           {:ok, CaUser.t()} | {:error, term()}
   def create_user_with_credentials(tenant_id, ca_instance_id, attrs, password, opts \\ []) do
-    CredentialManager.create_user_with_credentials(ca_instance_id, attrs, password, opts)
+    CredentialManager.create_user_with_credentials(tenant_id, ca_instance_id, attrs, password, opts)
   end
 
   @doc """

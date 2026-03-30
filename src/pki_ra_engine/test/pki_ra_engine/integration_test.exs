@@ -305,7 +305,7 @@ defmodule PkiRaEngine.IntegrationTest do
   # ── Failing CA stub for error path testing ─────────────────────────
 
   defmodule FailingCaStub do
-    def sign_certificate(_csr_pem, _cert_profile) do
+    def sign_certificate(_tenant_id, _issuer_key_id, _csr_pem, _cert_profile) do
       {:error, :ca_signing_failed}
     end
   end

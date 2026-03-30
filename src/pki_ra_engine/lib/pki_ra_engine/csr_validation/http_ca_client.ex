@@ -27,8 +27,8 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
   Returns `{:ok, %{serial_number: serial}}` on success, or `{:error, reason}`.
   """
   @impl true
-  @spec sign_certificate(String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def sign_certificate(csr_pem, cert_profile) do
+  @spec sign_certificate(String.t(), String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def sign_certificate(_tenant_id, _issuer_key_id, csr_pem, cert_profile) do
     ca_url = ca_engine_url()
     secret = internal_api_secret()
 

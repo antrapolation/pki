@@ -54,12 +54,9 @@ defmodule PkiPlatformEngine.Provisioner do
         {:error, :not_found}
 
       tenant ->
-        # Start tenant engine processes
+        # Start tenant engine processes (registration happens after repos are ready)
         case PkiPlatformEngine.TenantSupervisor.start_tenant(tenant) do
           {:ok, _pid} ->
-            # Wait for repos to connect
-            Process.sleep(1_000)
-
             tenant
             |> Tenant.changeset(%{status: "active"})
             |> PlatformRepo.update()
@@ -72,12 +69,18 @@ defmodule PkiPlatformEngine.Provisioner do
 
   def delete_tenant(tenant_id) do
     case PlatformRepo.get(Tenant, tenant_id) do
-      nil -> {:error, :not_found}
+      nil ->
+        {:error, :not_found}
+
       tenant ->
+        # Stop engine processes before dropping database
+        PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant_id)
+
         case PlatformRepo.delete(tenant) do
           {:ok, deleted} ->
             drop_database(deleted.database_name)
             {:ok, deleted}
+
           {:error, reason} ->
             {:error, reason}
         end

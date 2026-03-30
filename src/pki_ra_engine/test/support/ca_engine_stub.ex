@@ -9,7 +9,7 @@ defmodule PkiRaEngine.Test.CaEngineStub do
   @behaviour PkiRaEngine.CaClient
 
   @impl true
-  def sign_certificate(_csr_pem, _cert_profile) do
+  def sign_certificate(_tenant_id, _issuer_key_id, _csr_pem, _cert_profile) do
     serial = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 
     {:ok,

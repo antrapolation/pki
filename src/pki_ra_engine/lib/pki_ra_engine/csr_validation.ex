@@ -132,7 +132,7 @@ defmodule PkiRaEngine.CsrValidation do
          {:ok, profile} <- CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
       cert_profile_map = %{id: csr.cert_profile_id, issuer_key_id: profile.issuer_key_id}
 
-      case ca_module.sign_certificate(csr.csr_pem, cert_profile_map) do
+      case ca_module.sign_certificate(tenant_id, profile.issuer_key_id, csr.csr_pem, cert_profile_map) do
         {:ok, cert_data} ->
           mark_issued(tenant_id, csr_id, cert_data.serial_number)
 

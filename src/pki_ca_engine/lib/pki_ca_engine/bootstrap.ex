@@ -8,18 +8,19 @@ defmodule PkiCaEngine.Bootstrap do
   3. Create 4 system keypairs (registered in Key Vault)
   """
 
-  alias PkiCaEngine.{CredentialManager, KeypairACL, SystemKeypairs, Repo}
+  alias PkiCaEngine.{CredentialManager, KeypairACL, SystemKeypairs, TenantRepo}
 
-  def setup_tenant(ca_instance_id, admin_attrs, password, opts \\ []) do
-    Repo.transaction(fn ->
+  def setup_tenant(tenant_id, ca_instance_id, admin_attrs, password, opts \\ []) do
+    repo = TenantRepo.ca_repo(tenant_id)
+    repo.transaction(fn ->
       # 1. Create admin with credentials
-      case CredentialManager.create_user_with_credentials(ca_instance_id, admin_attrs, password, opts) do
+      case CredentialManager.create_user_with_credentials(tenant_id, ca_instance_id, admin_attrs, password, opts) do
         {:ok, admin} ->
           # Get admin's KEM public key
           kem_cred = Enum.find(admin.credentials, &(&1.credential_type == "kem"))
 
           unless kem_cred do
-            Repo.rollback(:missing_kem_credential)
+            repo.rollback(:missing_kem_credential)
           end
 
           # 2. Initialize ACL
@@ -37,15 +38,15 @@ defmodule PkiCaEngine.Bootstrap do
                   }
 
                 {:error, reason} ->
-                  Repo.rollback({:system_keypairs_failed, reason})
+                  repo.rollback({:system_keypairs_failed, reason})
               end
 
             {:error, reason} ->
-              Repo.rollback({:acl_init_failed, reason})
+              repo.rollback({:acl_init_failed, reason})
           end
 
         {:error, reason} ->
-          Repo.rollback({:admin_creation_failed, reason})
+          repo.rollback({:admin_creation_failed, reason})
       end
     end)
   end

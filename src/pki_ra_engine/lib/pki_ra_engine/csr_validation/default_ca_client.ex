@@ -10,7 +10,7 @@ defmodule PkiRaEngine.CsrValidation.DefaultCaClient do
   @behaviour PkiRaEngine.CaClient
 
   @impl true
-  def sign_certificate(_csr_pem, _cert_profile) do
+  def sign_certificate(_tenant_id, _issuer_key_id, _csr_pem, _cert_profile) do
     {:error, :ca_engine_not_configured}
   end
 end
