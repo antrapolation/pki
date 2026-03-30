@@ -3,7 +3,7 @@ defmodule PkiPlatformEngine.PlatformRepo.Migrations.CreatePlatformAdmins do
 
   def change do
     create table(:platform_admins, primary_key: false) do
-      add :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+      add :id, :uuid, primary_key: true
       add :username, :string, null: false
       add :password_hash, :string, null: false
       add :display_name, :string, null: false
