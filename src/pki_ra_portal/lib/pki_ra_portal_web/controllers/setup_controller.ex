@@ -58,6 +58,7 @@ defmodule PkiRaPortalWeb.SetupController do
     case PkiPlatformEngine.Provisioner.get_tenant_by_slug(slug) do
       nil -> {:error, "Tenant not found."}
       %{status: "suspended"} -> {:error, "Tenant is suspended."}
+      %{status: "initialized"} -> {:error, "Tenant is not yet activated. Contact your platform administrator."}
       tenant -> {:ok, tenant}
     end
   end

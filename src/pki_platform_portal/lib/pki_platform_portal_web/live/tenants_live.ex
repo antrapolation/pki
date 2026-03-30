@@ -99,12 +99,12 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
             <table id="tenant-list" class="table table-sm">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th>Name</th>
+                  <th class="w-1/4">Name</th>
                   <th>Slug</th>
                   <th>Status</th>
                   <th>Algorithm</th>
                   <th>Created</th>
-                  <th>Actions</th>
+                  <th class="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -114,25 +114,39 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                     <.link navigate="/tenants/new" class="text-primary hover:underline">Create your first tenant</.link>
                   </td>
                 </tr>
-                <tr :for={tenant <- @paginated_tenants} id={"tenant-#{tenant.id}"} class="hover">
+                <tr :for={tenant <- @paginated_tenants} id={"tenant-#{tenant.id}"} class="hover cursor-pointer">
                   <td class="font-medium">
                     <.link navigate={"/tenants/#{tenant.id}"} class="hover:text-primary transition-colors">
                       {tenant.name}
                     </.link>
                   </td>
-                  <td class="font-mono text-sm">{tenant.slug}</td>
+                  <td class="font-mono text-sm text-base-content/70">{tenant.slug}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",
                       tenant.status == "active" && "badge-success",
                       tenant.status == "suspended" && "badge-warning",
-                      tenant.status == "initialized" && "badge-ghost"
+                      tenant.status == "initialized" && "badge-info badge-outline"
                     ]}>{tenant.status}</span>
                   </td>
-                  <td class="font-mono text-sm">{tenant.signing_algorithm}</td>
-                  <td class="text-base-content/60 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
-                  <td>
-                    <div class="flex gap-1">
+                  <td class="font-mono text-sm text-base-content/70">{tenant.signing_algorithm}</td>
+                  <td class="text-base-content/50 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
+                  <td class="text-right">
+                    <div class="flex gap-1 justify-end">
+                      <.link
+                        navigate={"/tenants/#{tenant.id}"}
+                        class="btn btn-ghost btn-xs text-primary"
+                      >
+                        View
+                      </.link>
+                      <button
+                        :if={tenant.status == "initialized"}
+                        phx-click="activate_tenant"
+                        phx-value-id={tenant.id}
+                        class="btn btn-ghost btn-xs text-success"
+                      >
+                        Activate
+                      </button>
                       <button
                         :if={tenant.status in ["active", "initialized"]}
                         phx-click="suspend_tenant"

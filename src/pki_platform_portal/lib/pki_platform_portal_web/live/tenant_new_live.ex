@@ -86,11 +86,21 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
             <div class="divider my-0"></div>
 
             <div class="space-y-3">
-              <p class="text-xs font-semibold uppercase tracking-wider text-base-content/50">Setup URLs</p>
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-wider text-base-content/50">Next Steps</p>
+                <p class="text-sm text-base-content/70 mt-1">
+                  Before the tenant can be used, you need to <strong>activate</strong> it from the tenant detail page,
+                  then share the setup URLs below with the designated CA and RA administrators.
+                  They will use these URLs to create their own admin accounts.
+                </p>
+              </div>
 
               <div class="space-y-2">
                 <div>
-                  <p class="text-xs font-medium text-base-content/60 mb-1">CA Portal Setup</p>
+                  <p class="text-xs font-medium text-base-content/60 mb-1">
+                    1. CA Admin Setup URL
+                    <span class="text-base-content/40 font-normal">— share with the person who will manage keys and certificates</span>
+                  </p>
                   <div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
                     <.icon name="hero-shield-check" class="size-4 text-base-content/40 shrink-0" />
                     <code
@@ -101,7 +111,10 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                 </div>
 
                 <div>
-                  <p class="text-xs font-medium text-base-content/60 mb-1">RA Portal Setup</p>
+                  <p class="text-xs font-medium text-base-content/60 mb-1">
+                    2. RA Admin Setup URL
+                    <span class="text-base-content/40 font-normal">— share with the person who will manage CSRs and certificate profiles</span>
+                  </p>
                   <div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
                     <.icon name="hero-clipboard-document-check" class="size-4 text-base-content/40 shrink-0" />
                     <code
@@ -110,6 +123,11 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                     >{@ra_setup_url}</code>
                   </div>
                 </div>
+              </div>
+
+              <div class="alert alert-info text-xs">
+                <.icon name="hero-information-circle" class="size-4" />
+                <span>The tenant must be in <strong>active</strong> status before the setup URLs will work. Go to the tenant detail page and click Activate.</span>
               </div>
             </div>
 
@@ -176,7 +194,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
 
               <div>
                 <label for="signing-algo" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Signing Algorithm
+                  Default Signing Algorithm
                 </label>
                 <select name="signing_algorithm" id="signing-algo" class="select select-bordered w-full">
                   <optgroup label="Classical">
@@ -194,6 +212,11 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                     <option value="ML-DSA-87">ML-DSA-87</option>
                   </optgroup>
                 </select>
+                <p class="text-xs text-base-content/50 mt-1">
+                  The default algorithm used by this tenant's CA for key generation and certificate signing.
+                  Classical algorithms (ECC, RSA) offer broad compatibility. Post-Quantum algorithms (KAZ-SIGN, ML-DSA)
+                  provide quantum-resistant security. Individual certificate requests may use different algorithms.
+                </p>
               </div>
 
               <div class="flex justify-end gap-3 pt-2">
