@@ -112,7 +112,7 @@ defmodule PkiRaPortal.RaEngineClient.Http do
 
   @impl true
   def get_user_by_username(username) do
-    case get("/api/v1/auth/user-by-username/#{URI.encode(username)}") do
+    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}") do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 

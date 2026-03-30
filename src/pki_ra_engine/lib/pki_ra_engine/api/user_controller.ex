@@ -67,6 +67,19 @@ defmodule PkiRaEngine.Api.UserController do
     end
   end
 
+  def by_username(conn, username) do
+    case UserManagement.get_user_by_username(username) do
+      {:ok, user} ->
+        json(conn, 200, %{id: user.id, email: user.email, tenant_id: user.tenant_id})
+
+      {:error, :not_found} ->
+        json(conn, 200, %{id: nil, email: nil, tenant_id: nil})
+
+      {:error, :ambiguous_username} ->
+        json(conn, 200, %{id: nil, email: nil, tenant_id: nil, ambiguous: true})
+    end
+  end
+
   defp build_filters(query_params) do
     []
     |> maybe_add_filter(query_params, "role", :role)

@@ -22,7 +22,4 @@ defmodule PkiRaEngine.Api.AuthRouter do
     PkiRaEngine.Api.AuthController.needs_setup(conn)
   end
 
-  get "/user-by-username/:username" do
-    PkiRaEngine.Api.AuthController.user_by_username(conn, username)
-  end
 end

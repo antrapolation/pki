@@ -41,6 +41,10 @@ defmodule PkiCaEngine.Api.AuthenticatedRouter do
     UserController.delete(conn, id)
   end
 
+  get "/users/by-username/:username" do
+    UserController.by_username(conn, username)
+  end
+
   # Keystores
   get "/keystores" do
     KeystoreController.index(conn)

@@ -104,8 +104,8 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
-  def get_user_by_username(username) do
-    case get("/api/v1/auth/user-by-username/#{URI.encode(username)}?ca_instance_id=default") do
+  def get_user_by_username(username, ca_instance_id) do
+    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}", params: [ca_instance_id: ca_instance_id]) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, atomize_keys(body)}
 

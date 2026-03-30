@@ -69,6 +69,10 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     UserController.delete(conn, id)
   end
 
+  get "/users/by-username/:username" do
+    UserController.by_username(conn, username)
+  end
+
   # --- Cert profile routes ---
 
   get "/cert-profiles" do

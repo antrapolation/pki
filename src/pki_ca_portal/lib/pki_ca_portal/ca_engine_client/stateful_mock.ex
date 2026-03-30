@@ -199,7 +199,7 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
-  def get_user_by_username(_username) do
+  def get_user_by_username(_username, _ca_instance_id) do
     {:ok, %{id: "mock-user-id", email: "test@example.com"}}
   end
 
