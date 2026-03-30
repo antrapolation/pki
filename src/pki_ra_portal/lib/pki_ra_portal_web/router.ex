@@ -29,6 +29,9 @@ defmodule PkiRaPortalWeb.Router do
     delete "/logout", SessionController, :delete
     get "/change-password", PasswordController, :edit
     put "/change-password", PasswordController, :update
+    get "/forgot-password", ForgotPasswordController, :new
+    post "/forgot-password", ForgotPasswordController, :create
+    put "/forgot-password", ForgotPasswordController, :update
   end
 
   # Protected routes (auth required)
@@ -37,6 +40,7 @@ defmodule PkiRaPortalWeb.Router do
 
     live_session :authenticated, on_mount: PkiRaPortalWeb.Live.AuthHook do
       live "/", DashboardLive
+      live "/ra-instances", RaInstancesLive
       live "/users", UsersLive
       live "/csrs", CsrsLive
       live "/cert-profiles", CertProfilesLive

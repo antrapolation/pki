@@ -91,7 +91,7 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
         Map.get(cert_profile, "issuer_key_id")
 
     # Fall back to application config
-    issuer_key_id || Application.get_env(:pki_ra_engine, :default_issuer_key_id, 1)
+    issuer_key_id || Application.get_env(:pki_ra_engine, :default_issuer_key_id)
   end
 
   defp build_headers(secret) when is_binary(secret) and secret != "" do
@@ -120,6 +120,26 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  @doc "Fetches active issuer keys from leaf CA instances."
+  def list_leaf_issuer_keys do
+    ca_url = ca_engine_url()
+    secret = internal_api_secret()
+
+    if is_nil(ca_url) or ca_url == "" do
+      {:error, :ca_engine_url_not_configured}
+    else
+      url = String.trim_trailing(ca_url, "/") <> "/api/v1/issuer-keys?leaf_only=true"
+      headers = if secret && secret != "", do: [{"authorization", "Bearer #{secret}"}], else: []
+
+      case Req.get(url, headers: headers, receive_timeout: 10_000) do
+        {:ok, %Req.Response{status: 200, body: body}} -> {:ok, body}
+        {:ok, %Req.Response{status: status, body: body}} ->
+          {:error, {:ca_engine_error, status, extract_error(body)}}
+        {:error, reason} -> {:error, {:ca_engine_unreachable, reason}}
+      end
+    end
+  end
 
   defp ca_engine_url do
     # Check CaEngineConfig GenServer first, fall back to app env

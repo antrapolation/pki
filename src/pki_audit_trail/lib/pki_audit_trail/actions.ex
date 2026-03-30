@@ -11,7 +11,12 @@ defmodule PkiAuditTrail.Actions do
     "user_created", "user_updated", "user_deleted",
     "keystore_configured",
     "keypair_access_granted", "keypair_access_revoked",
-    "login", "logout"
+    "login", "logout",
+    "ca_instance_created", "ca_instance_status_changed",
+    "ra_instance_created", "ra_instance_status_changed",
+    "cert_profile_created", "cert_profile_updated",
+    "hierarchy_modified",
+    "issuer_key_rotation_started", "cert_profile_issuer_key_changed", "issuer_key_archived"
   ]
 
   def all, do: @actions

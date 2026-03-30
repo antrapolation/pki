@@ -21,4 +21,5 @@ defmodule PkiCaEngine.Api.AuthRouter do
   get "/needs-setup" do
     PkiCaEngine.Api.AuthController.needs_setup(conn)
   end
+
 end

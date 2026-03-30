@@ -6,14 +6,30 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   @impl true
   def mount(_params, _session, socket) do
     ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
-    {:ok, ceremonies} = CaEngineClient.list_ceremonies(ca_id)
-    {:ok, keystores} = CaEngineClient.list_keystores(ca_id)
+
+    ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
+
+    keystores = case CaEngineClient.list_keystores(ca_id) do
+      {:ok, ks} -> ks
+      {:error, _} -> []
+    end
+
+    ca_instances =
+      case CaEngineClient.list_ca_instances() do
+        {:ok, instances} -> instances
+        {:error, _} -> []
+      end
 
     {:ok,
      assign(socket,
        page_title: "Key Ceremony",
        ceremonies: ceremonies,
        keystores: keystores,
+       ca_instances: ca_instances,
+       selected_ca_instance_id: "",
        ceremony_result: nil,
        page: 1,
        per_page: 10
@@ -34,7 +50,10 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
     case CaEngineClient.initiate_ceremony(ca_id, ceremony_params) do
       {:ok, result} ->
-        {:ok, ceremonies} = CaEngineClient.list_ceremonies(ca_id)
+        ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+          {:ok, c} -> c
+          {:error, _} -> []
+        end
 
         {:noreply,
          socket
@@ -47,6 +66,32 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   end
 
   @impl true
+  def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
+    ca_id =
+      if ca_instance_id == "",
+        do: socket.assigns.current_user[:ca_instance_id] || "default",
+        else: ca_instance_id
+
+    ceremonies = case CaEngineClient.list_ceremonies(ca_id) do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
+
+    keystores = case CaEngineClient.list_keystores(ca_id) do
+      {:ok, ks} -> ks
+      {:error, _} -> []
+    end
+
+    {:noreply,
+     assign(socket,
+       ceremonies: ceremonies,
+       keystores: keystores,
+       selected_ca_instance_id: ca_instance_id,
+       page: 1
+     )}
+  end
+
+  @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
   end
@@ -55,6 +100,23 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   def render(assigns) do
     ~H"""
     <div id="ceremony-page" class="space-y-6">
+      <%!-- CA Instance filter --%>
+      <div class="flex items-center gap-3">
+        <label for="ca-instance-filter" class="text-xs font-medium text-base-content/60">Filter by CA Instance</label>
+        <form phx-change="filter_ca_instance">
+          <select name="ca_instance_id" id="ca-instance-filter" class="select select-bordered select-sm">
+            <option value="">All</option>
+            <option
+              :for={inst <- @ca_instances}
+              value={inst.id}
+              selected={@selected_ca_instance_id == inst.id}
+            >
+              {inst.name}
+            </option>
+          </select>
+        </form>
+      </div>
+
       <%!-- Ceremony status card (shown after initiation) --%>
       <div :if={@ceremony_result} id="ceremony-status" class="card bg-success/5 border border-success/20 shadow-sm">
         <div class="card-body p-5">

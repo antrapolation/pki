@@ -73,6 +73,19 @@ defmodule PkiRaEngine.UserManagement do
     end
   end
 
+  def get_user_by_username(username) do
+    import Ecto.Query
+    users = Repo.all(from u in RaUser,
+      where: u.username == ^username and u.status == "active"
+    )
+
+    case users do
+      [user] -> {:ok, user}
+      [] -> {:error, :not_found}
+      _multiple -> {:error, :ambiguous_username}
+    end
+  end
+
   @doc "Returns true if no RA admin users exist (optionally scoped to a tenant)."
   @spec needs_setup?(String.t() | nil) :: boolean()
   def needs_setup?(tenant_id \\ nil) do

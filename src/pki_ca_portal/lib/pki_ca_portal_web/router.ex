@@ -29,6 +29,9 @@ defmodule PkiCaPortalWeb.Router do
     delete "/logout", SessionController, :delete
     get "/change-password", PasswordController, :edit
     put "/change-password", PasswordController, :update
+    get "/forgot-password", ForgotPasswordController, :new
+    post "/forgot-password", ForgotPasswordController, :create
+    put "/forgot-password", ForgotPasswordController, :update
   end
 
   # Protected routes (auth required)
@@ -40,6 +43,7 @@ defmodule PkiCaPortalWeb.Router do
       live "/users", UsersLive
       live "/keystores", KeystoresLive
       live "/ceremony", CeremonyLive
+      live "/ca-instances", CaInstancesLive
       live "/audit-log", AuditLogLive
     end
   end

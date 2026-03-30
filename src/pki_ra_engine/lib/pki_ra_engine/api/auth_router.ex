@@ -21,4 +21,5 @@ defmodule PkiRaEngine.Api.AuthRouter do
   get "/needs-setup" do
     PkiRaEngine.Api.AuthController.needs_setup(conn)
   end
+
 end

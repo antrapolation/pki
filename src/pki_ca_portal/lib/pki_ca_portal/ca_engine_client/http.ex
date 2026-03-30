@@ -103,6 +103,20 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     end
   end
 
+  @impl true
+  def get_user_by_username(username, ca_instance_id) do
+    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}", params: [ca_instance_id: ca_instance_id]) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
   # --- Authenticated endpoints (Bearer token required) ---
 
   @impl true
@@ -288,6 +302,39 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     case auth_get("/api/v1/ceremonies", params: [ca_instance_id: ca_instance_id]) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, Enum.map(body, &atomize_keys/1)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def list_ca_instances do
+    case auth_get("/api/v1/ca-instances") do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, Enum.map(body, &atomize_keys/1)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def create_ca_instance(attrs) do
+    payload = stringify_keys(attrs)
+
+    case auth_post("/api/v1/ca-instances", payload) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 422, body: %{"details" => details}}} ->
+        {:error, {:validation_error, details}}
 
       {:ok, %{status: status, body: body}} ->
         {:error, {:unexpected_status, status, body}}

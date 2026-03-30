@@ -30,6 +30,10 @@ defmodule PkiPlatformPortalWeb.Router do
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     delete "/logout", SessionController, :delete
+
+    get "/forgot-password", ForgotPasswordController, :new
+    post "/forgot-password", ForgotPasswordController, :create
+    put "/forgot-password", ForgotPasswordController, :update
   end
 
   # Protected routes

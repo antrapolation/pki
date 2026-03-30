@@ -7,12 +7,20 @@ defmodule PkiRaPortalWeb.UsersLive do
   def mount(_params, _session, socket) do
     {:ok, users} = RaEngineClient.list_users()
 
+    ra_instances =
+      case RaEngineClient.list_ra_instances() do
+        {:ok, instances} -> instances
+        {:error, _} -> []
+      end
+
     {:ok,
      socket
      |> assign(
        page_title: "Users",
        users: users,
        filtered_users: users,
+       ra_instances: ra_instances,
+       selected_ra_instance_id: "",
        role_filter: "all",
        page: 1,
        per_page: 50
@@ -63,14 +71,37 @@ defmodule PkiRaPortalWeb.UsersLive do
   end
 
   @impl true
+  def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
+    filtered =
+      socket.assigns.users
+      |> filter_by_ra_instance(ra_instance_id)
+      |> filter_users(socket.assigns.role_filter)
+
+    {:noreply,
+     socket
+     |> assign(filtered_users: filtered, selected_ra_instance_id: ra_instance_id, page: 1)
+     |> apply_pagination()}
+  end
+
+  @impl true
   def handle_event("filter_role", %{"role" => role}, socket) do
-    filtered = filter_users(socket.assigns.users, role)
+    filtered =
+      socket.assigns.users
+      |> filter_by_ra_instance(socket.assigns.selected_ra_instance_id)
+      |> filter_users(role)
+
     {:noreply, socket |> assign(role_filter: role, filtered_users: filtered, page: 1) |> apply_pagination()}
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+  end
+
+  defp filter_by_ra_instance(users, ""), do: users
+  defp filter_by_ra_instance(users, nil), do: users
+  defp filter_by_ra_instance(users, ra_instance_id) do
+    Enum.filter(users, &(Map.get(&1, :ra_instance_id) == ra_instance_id))
   end
 
   defp filter_users(users, "all"), do: users
@@ -94,8 +125,21 @@ defmodule PkiRaPortalWeb.UsersLive do
     <div id="users-page" class="space-y-6">
       <h1 class="text-2xl font-bold tracking-tight">User Management</h1>
 
-      <%!-- Filter --%>
-      <section id="user-filter">
+      <%!-- Filters --%>
+      <section id="user-filter" class="flex items-center gap-6">
+        <form phx-change="filter_ra_instance" class="flex items-center gap-3">
+          <label for="ra-instance-filter" class="text-xs font-medium text-base-content/60">Filter by RA Instance</label>
+          <select name="ra_instance_id" id="ra-instance-filter" class="select select-bordered select-sm">
+            <option value="">All</option>
+            <option
+              :for={inst <- @ra_instances}
+              value={inst.id}
+              selected={@selected_ra_instance_id == inst.id}
+            >
+              {inst.name}
+            </option>
+          </select>
+        </form>
         <form phx-change="filter_role" class="flex items-center gap-3">
           <label for="role" class="text-sm font-medium text-base-content/60">Filter by role:</label>
           <select name="role" id="role-filter" class="select select-sm select-bordered">

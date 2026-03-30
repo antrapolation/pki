@@ -33,6 +33,25 @@ defmodule PkiPlatformEngine.AdminManagement do
     end
   end
 
+  def get_admin_by_username(username) do
+    case PlatformRepo.one(from(a in PlatformAdmin, where: a.username == ^username and a.status == "active")) do
+      nil -> {:error, :not_found}
+      admin -> {:ok, admin}
+    end
+  end
+
+  def reset_admin_password(admin_id, new_password) do
+    case PlatformRepo.get(PlatformAdmin, admin_id) do
+      nil ->
+        {:error, :not_found}
+
+      admin ->
+        admin
+        |> PlatformAdmin.password_changeset(%{password: new_password})
+        |> PlatformRepo.update()
+    end
+  end
+
   def list_admins do
     PlatformRepo.all(from(a in PlatformAdmin, order_by: [asc: a.inserted_at]))
   end

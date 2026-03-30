@@ -14,7 +14,7 @@ defmodule PkiAuditTrail.AuditEvent do
     :prev_hash,
     :event_hash
   ]
-  @optional_fields [:details]
+  @optional_fields [:details, :ca_instance_id]
 
   schema "audit_events" do
     field :event_id, Ecto.UUID
@@ -26,6 +26,7 @@ defmodule PkiAuditTrail.AuditEvent do
     field :resource_type, :string
     field :resource_id, :string
     field :details, :map, default: %{}
+    field :ca_instance_id, :string
     field :prev_hash, :string
     field :event_hash, :string
   end

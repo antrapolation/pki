@@ -24,6 +24,8 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   @svc3_id "019577b0-0032-7000-8000-000000000032"
   @apikey1_id "019577b0-0040-7000-8000-000000000040"
   @apikey2_id "019577b0-0041-7000-8000-000000000041"
+  @ra_instance1_id "019577b0-0050-7000-8000-000000000050"
+  @ra_instance2_id "019577b0-0051-7000-8000-000000000051"
 
   # --- Agent helpers ---
 
@@ -154,6 +156,45 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           rate_limit: 200,
           ip_whitelist: "",
           ip_blacklist: "",
+          status: "active"
+        }
+      ],
+      ra_instances: [
+        %{
+          id: @ra_instance1_id,
+          name: "Production RA",
+          status: "active",
+          cert_profile_count: 2,
+          api_key_count: 1
+        },
+        %{
+          id: @ra_instance2_id,
+          name: "Staging RA",
+          status: "active",
+          cert_profile_count: 1,
+          api_key_count: 1
+        }
+      ],
+      available_issuer_keys: [
+        %{
+          id: "019577b0-0060-7000-8000-000000000060",
+          alias: "gov-kaz-128",
+          ca_instance_name: "PQC Issuing CA",
+          algorithm: "KAZ-Sign-128",
+          status: "active"
+        },
+        %{
+          id: "019577b0-0061-7000-8000-000000000061",
+          alias: "tls-rsa-2048",
+          ca_instance_name: "Classic Issuing CA",
+          algorithm: "RSA-2048",
+          status: "active"
+        },
+        %{
+          id: "019577b0-0062-7000-8000-000000000062",
+          alias: "ml-dsa-65",
+          ca_instance_name: "PQC Issuing CA",
+          algorithm: "ML-DSA-65",
           status: "active"
         }
       ],
@@ -387,6 +428,33 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
+  def list_ra_instances do
+    {:ok, get_state(:ra_instances)}
+  end
+
+  @impl true
+  def create_ra_instance(attrs) do
+    instance =
+      Map.merge(
+        %{
+          id: Uniq.UUID.uuid7(),
+          status: "active",
+          cert_profile_count: 0,
+          api_key_count: 0
+        },
+        attrs
+      )
+
+    update_state(:ra_instances, fn instances -> instances ++ [instance] end)
+    {:ok, instance}
+  end
+
+  @impl true
+  def available_issuer_keys do
+    {:ok, get_state(:available_issuer_keys)}
+  end
+
+  @impl true
   def authenticate(username, _password) do
     {:ok, %{id: @user1_id, username: username, role: "ra_admin", display_name: "Mock RA Admin"}}
   end
@@ -415,6 +483,11 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   def needs_setup?(_tenant_id) do
     users = get_state(:users)
     Enum.empty?(users)
+  end
+
+  @impl true
+  def get_user_by_username(_username) do
+    {:ok, %{id: "mock-user-id", email: "test@example.com", tenant_id: "mock-tenant"}}
   end
 end
 # Cache buster: 1774526096

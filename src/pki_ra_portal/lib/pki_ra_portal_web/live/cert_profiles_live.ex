@@ -7,11 +7,25 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
   def mount(_params, _session, socket) do
     {:ok, profiles} = RaEngineClient.list_cert_profiles()
 
+    ra_instances =
+      case RaEngineClient.list_ra_instances() do
+        {:ok, instances} -> instances
+        {:error, _} -> []
+      end
+
+    issuer_keys =
+      case RaEngineClient.available_issuer_keys() do
+        {:ok, keys} -> keys
+        {:error, _} -> []
+      end
+
     {:ok,
      socket
      |> assign(
        page_title: "Certificate Profiles",
        profiles: profiles,
+       ra_instances: ra_instances,
+       issuer_keys: issuer_keys,
        editing: nil,
        page: 1,
        per_page: 50
@@ -26,7 +40,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       key_usage: params["key_usage"],
       ext_key_usage: params["ext_key_usage"],
       digest_algo: params["digest_algo"],
-      validity_days: parse_int(params["validity_days"], 365)
+      validity_days: parse_int(params["validity_days"], 365),
+      ra_instance_id: params["ra_instance_id"],
+      issuer_key_id: params["issuer_key_id"]
     }
 
     case RaEngineClient.create_cert_profile(attrs) do
@@ -64,7 +80,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       key_usage: params["key_usage"],
       ext_key_usage: params["ext_key_usage"],
       digest_algo: params["digest_algo"],
-      validity_days: parse_int(params["validity_days"], 365)
+      validity_days: parse_int(params["validity_days"], 365),
+      ra_instance_id: params["ra_instance_id"],
+      issuer_key_id: params["issuer_key_id"]
     }
 
     case RaEngineClient.update_cert_profile(profile_id, attrs) do
@@ -116,6 +134,22 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   defp parse_int(_, default), do: default
 
+  defp ra_instance_name(profile, ra_instances) do
+    ra_id = Map.get(profile, :ra_instance_id)
+    case Enum.find(ra_instances, &(&1.id == ra_id)) do
+      nil -> "-"
+      inst -> inst.name
+    end
+  end
+
+  defp issuer_key_label(profile, issuer_keys) do
+    key_id = Map.get(profile, :issuer_key_id)
+    case Enum.find(issuer_keys, &(&1.id == key_id)) do
+      nil -> "-"
+      key -> "#{key.alias} (#{key.algorithm})"
+    end
+  end
+
   defp apply_pagination(socket) do
     items = socket.assigns.profiles
     total = length(items)
@@ -142,8 +176,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
               <thead>
                 <tr class="border-base-300">
                   <th class="font-semibold text-xs uppercase tracking-wider">Name</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">RA Instance</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider">Issuer Key</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Key Usage</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Ext Key Usage</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Digest</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Validity (days)</th>
                   <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
@@ -152,8 +187,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
               <tbody id="profile-list">
                 <tr :for={profile <- @paged_profiles} id={"profile-#{profile.id}"} class="hover:bg-base-200/50 border-base-300">
                   <td class="font-medium">{profile.name}</td>
+                  <td class="text-xs">{ra_instance_name(profile, @ra_instances)}</td>
+                  <td class="text-xs">{issuer_key_label(profile, @issuer_keys)}</td>
                   <td class="font-mono text-xs">{profile.key_usage}</td>
-                  <td class="font-mono text-xs">{profile.ext_key_usage}</td>
                   <td class="font-mono text-xs">{profile.digest_algo}</td>
                   <td>{profile.validity_days}</td>
                   <td class="flex gap-1">
@@ -194,6 +230,32 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
               <input type="text" name="name" id="edit-name" value={@editing.name} required class="input input-sm input-bordered w-full" />
             </div>
             <div>
+              <label for="edit-ra-instance" class="label text-xs font-medium">RA Instance <span class="text-error">*</span></label>
+              <select name="ra_instance_id" id="edit-ra-instance" required class="select select-sm select-bordered w-full">
+                <option value="">Select RA Instance</option>
+                <option
+                  :for={inst <- @ra_instances}
+                  value={inst.id}
+                  selected={Map.get(@editing, :ra_instance_id) == inst.id}
+                >
+                  {inst.name}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label for="edit-issuer-key" class="label text-xs font-medium">Issuer Key <span class="text-error">*</span></label>
+              <select name="issuer_key_id" id="edit-issuer-key" required class="select select-sm select-bordered w-full">
+                <option value="">Select Issuer Key</option>
+                <option
+                  :for={key <- @issuer_keys}
+                  value={key.id}
+                  selected={Map.get(@editing, :issuer_key_id) == key.id}
+                >
+                  {key.alias} ({key.ca_instance_name} — {key.algorithm})
+                </option>
+              </select>
+            </div>
+            <div>
               <label for="edit-key-usage" class="label text-xs font-medium">Key Usage</label>
               <input type="text" name="key_usage" id="edit-key-usage" value={@editing.key_usage} class="input input-sm input-bordered w-full" />
             </div>
@@ -229,6 +291,24 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
             <div>
               <label for="profile-name" class="label text-xs font-medium">Name</label>
               <input type="text" name="name" id="profile-name" required class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label for="profile-ra-instance" class="label text-xs font-medium">RA Instance <span class="text-error">*</span></label>
+              <select name="ra_instance_id" id="profile-ra-instance" required class="select select-sm select-bordered w-full">
+                <option value="">Select RA Instance</option>
+                <option :for={inst <- @ra_instances} value={inst.id}>
+                  {inst.name}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label for="profile-issuer-key" class="label text-xs font-medium">Issuer Key <span class="text-error">*</span></label>
+              <select name="issuer_key_id" id="profile-issuer-key" required class="select select-sm select-bordered w-full">
+                <option value="">Select Issuer Key</option>
+                <option :for={key <- @issuer_keys} value={key.id}>
+                  {key.alias} ({key.ca_instance_name} — {key.algorithm})
+                </option>
+              </select>
             </div>
             <div>
               <label for="profile-key-usage" class="label text-xs font-medium">Key Usage</label>

@@ -8,8 +8,6 @@ defmodule PkiPlatformEngine.Provisioner do
     attrs = %{
       name: name,
       slug: slug,
-      signing_algorithm: Keyword.get(opts, :signing_algorithm, "ECC-P256"),
-      kem_algorithm: Keyword.get(opts, :kem_algorithm, "ECDH-P256"),
       email: Keyword.get(opts, :email)
     }
 
@@ -21,6 +19,7 @@ defmodule PkiPlatformEngine.Provisioner do
 
         with :ok <- create_database(db_name),
              :ok <- create_schemas(db_name),
+             :ok <- create_multi_ca_ra_tables(db_name),
              {:ok, tenant} <- PlatformRepo.insert(changeset) do
           {:ok, tenant}
         else
@@ -168,6 +167,43 @@ defmodule PkiPlatformEngine.Provisioner do
     end
   rescue
     e -> {:error, {:create_schemas_failed, Exception.message(e)}}
+  end
+
+  defp create_multi_ca_ra_tables(db_name) do
+    safe = validate_db_name!(db_name)
+
+    # Create ra_instances table first (other ALTER TABLEs reference it)
+    TenantRepo.execute_sql(safe, "ra", """
+      CREATE TABLE IF NOT EXISTS ra_instances (
+        id UUID PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        status VARCHAR(50) NOT NULL DEFAULT 'initialized',
+        created_by VARCHAR(255),
+        inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    """, [])
+
+    # Now alter existing tables
+    results = [
+      TenantRepo.execute_sql(safe, "ca",
+        "ALTER TABLE ca_instances ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES ca_instances(id)", []),
+      TenantRepo.execute_sql(safe, "ra",
+        "ALTER TABLE ra_users ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", []),
+      TenantRepo.execute_sql(safe, "ra",
+        "ALTER TABLE ra_api_keys ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", []),
+      TenantRepo.execute_sql(safe, "ra",
+        "ALTER TABLE cert_profiles ADD COLUMN IF NOT EXISTS ra_instance_id UUID REFERENCES ra_instances(id)", []),
+      TenantRepo.execute_sql(safe, "ra",
+        "ALTER TABLE cert_profiles ADD COLUMN IF NOT EXISTS issuer_key_id VARCHAR(255)", [])
+    ]
+
+    case Enum.find(results, &match?({:error, _}, &1)) do
+      nil -> :ok
+      {:error, reason} -> {:error, {:alter_table_failed, inspect(reason)}}
+    end
+  rescue
+    e -> {:error, {:multi_ca_ra_tables_failed, Exception.message(e)}}
   end
 
   defp drop_database(db_name) do

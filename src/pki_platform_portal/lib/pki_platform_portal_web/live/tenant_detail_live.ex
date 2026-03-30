@@ -23,7 +23,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
          assign(socket,
            page_title: "Tenant Detail",
            tenant: tenant,
-           metrics: %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0},
+           metrics: %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0, ca_instances: 0, ra_instances: 0},
            ca_setup_url: "https://#{ca_host}/setup?tenant=#{tenant.slug}",
            ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}"
          )}
@@ -151,7 +151,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       try do
         PkiPlatformEngine.TenantMetrics.get_metrics(socket.assigns.tenant)
       catch
-        _, _ -> %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0}
+        _, _ -> %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0, ca_instances: 0, ra_instances: 0}
       end
 
     {:noreply, assign(socket, metrics: metrics)}
@@ -392,7 +392,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       <%!-- Health metrics --%>
       <div>
         <h3 class="text-sm font-semibold text-base-content mb-3">Health Metrics</h3>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
           <div class="card bg-base-100 shadow-sm border border-base-300">
             <div class="card-body p-4">
               <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-info/10 mb-2">
@@ -450,6 +450,26 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
               </div>
               <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider">Pending CSRs</p>
               <p class="text-lg font-bold mt-0.5">{@metrics.pending_csrs}</p>
+            </div>
+          </div>
+
+          <div class="card bg-base-100 shadow-sm border border-base-300">
+            <div class="card-body p-4">
+              <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 mb-2">
+                <.icon name="hero-server-stack" class="size-4 text-primary" />
+              </div>
+              <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider">CA Instances</p>
+              <p class="text-lg font-bold mt-0.5">{@metrics.ca_instances}</p>
+            </div>
+          </div>
+
+          <div class="card bg-base-100 shadow-sm border border-base-300">
+            <div class="card-body p-4">
+              <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-secondary/10 mb-2">
+                <.icon name="hero-server" class="size-4 text-secondary" />
+              </div>
+              <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider">RA Instances</p>
+              <p class="text-lg font-bold mt-0.5">{@metrics.ra_instances}</p>
             </div>
           </div>
         </div>

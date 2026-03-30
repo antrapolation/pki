@@ -110,6 +110,20 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     end
   end
 
+  @impl true
+  def get_user_by_username(username) do
+    case auth_get("/api/v1/users/by-username/#{URI.encode(username)}") do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
   # --- User management ---
 
   @impl true
@@ -354,6 +368,52 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     case auth_post("/api/v1/service-configs", payload) do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
         {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  # --- RA instances ---
+
+  @impl true
+  def list_ra_instances do
+    case auth_get("/api/v1/ra-instances") do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, Enum.map(body, &atomize_keys/1)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def create_ra_instance(attrs) do
+    payload = stringify_keys(attrs)
+
+    case auth_post("/api/v1/ra-instances", payload) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def available_issuer_keys do
+    case auth_get("/api/v1/available-issuer-keys") do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, Enum.map(body, &atomize_keys/1)}
 
       {:ok, %{status: status, body: body}} ->
         {:error, {:unexpected_status, status, body}}

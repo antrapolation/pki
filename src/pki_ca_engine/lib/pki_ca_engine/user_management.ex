@@ -75,6 +75,15 @@ defmodule PkiCaEngine.UserManagement do
     end
   end
 
+  def get_user_by_username(username, ca_instance_id) do
+    case Repo.one(from u in CaUser,
+      where: u.username == ^username and u.ca_instance_id == ^ca_instance_id and u.status == "active"
+    ) do
+      nil -> {:error, :not_found}
+      user -> {:ok, user}
+    end
+  end
+
   @doc """
   Authenticates a user with credentials, returning session info.
   Delegates to CredentialManager for full credential-aware authentication.

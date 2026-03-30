@@ -11,6 +11,8 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   # Fixed UUIDv7 constants for deterministic test data
   @user1_id "019577a0-0001-7000-8000-000000000001"
   @user2_id "019577a0-0002-7000-8000-000000000002"
+  @ca_root_id "019577a0-0010-7000-8000-000000000010"
+  @ca_sub_id "019577a0-0011-7000-8000-000000000011"
   @keystore1_id "019577a0-0003-7000-8000-000000000003"
   @keystore2_id "019577a0-0004-7000-8000-000000000004"
   @ceremony1_id "019577a0-0005-7000-8000-000000000005"
@@ -60,7 +62,25 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
       ceremonies: [
         %{id: @ceremony1_id, ceremony_type: "sync", status: "completed", algorithm: "ML-DSA-65"}
       ],
-      last_ceremony: nil
+      last_ceremony: nil,
+      ca_instances: [
+        %{
+          id: @ca_root_id,
+          name: "Root CA",
+          parent_id: nil,
+          role: "root",
+          status: "active",
+          issuer_key_count: 1
+        },
+        %{
+          id: @ca_sub_id,
+          name: "Intermediate CA 1",
+          parent_id: @ca_root_id,
+          role: "intermediate",
+          status: "active",
+          issuer_key_count: 0
+        }
+      ]
     }
   end
 
@@ -214,6 +234,33 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def needs_setup?(_ca_instance_id) do
     users = get_state(:users)
     Enum.empty?(users)
+  end
+
+  @impl true
+  def get_user_by_username(_username, _ca_instance_id) do
+    {:ok, %{id: "mock-user-id", email: "test@example.com"}}
+  end
+
+  @impl true
+  def list_ca_instances do
+    {:ok, get_state(:ca_instances)}
+  end
+
+  @impl true
+  def create_ca_instance(attrs) do
+    role =
+      if attrs[:parent_id] || attrs["parent_id"],
+        do: "intermediate",
+        else: "root"
+
+    instance =
+      Map.merge(
+        %{id: Uniq.UUID.uuid7(), status: "active", role: role, issuer_key_count: 0},
+        attrs
+      )
+
+    update_state(:ca_instances, fn instances -> instances ++ [instance] end)
+    {:ok, instance}
   end
 
   @impl true

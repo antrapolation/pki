@@ -8,10 +8,12 @@ defmodule PkiPlatformEngine.TenantMetrics do
       ra_users: safe_count(tenant, "ra", "SELECT count(*) FROM ra_users"),
       certificates_issued: safe_count(tenant, "ca", "SELECT count(*) FROM issued_certificates"),
       active_certificates: safe_count(tenant, "ca", "SELECT count(*) FROM issued_certificates WHERE status = 'active'"),
-      pending_csrs: safe_count(tenant, "ra", "SELECT count(*) FROM csr_requests WHERE status = 'pending'")
+      pending_csrs: safe_count(tenant, "ra", "SELECT count(*) FROM csr_requests WHERE status = 'pending'"),
+      ca_instances: safe_count(tenant, "ca", "SELECT count(*) FROM ca_instances"),
+      ra_instances: safe_count(tenant, "ra", "SELECT count(*) FROM ra_instances")
     }
   rescue
-    _ -> %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0}
+    _ -> %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0, ca_instances: 0, ra_instances: 0}
   end
 
   defp get_db_size(database_name) do

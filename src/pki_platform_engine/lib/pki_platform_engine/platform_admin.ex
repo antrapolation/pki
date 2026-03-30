@@ -12,13 +12,14 @@ defmodule PkiPlatformEngine.PlatformAdmin do
     field :display_name, :string
     field :role, :string, default: "super_admin"
     field :status, :string, default: "active"
+    field :email, :string
 
     timestamps()
   end
 
   def changeset(admin, attrs) do
     admin
-    |> cast(attrs, [:username, :display_name, :status])
+    |> cast(attrs, [:username, :display_name, :status, :email])
     |> validate_required([:username, :display_name])
     |> unique_constraint(:username)
     |> validate_inclusion(:status, ["active", "suspended"])
@@ -26,11 +27,19 @@ defmodule PkiPlatformEngine.PlatformAdmin do
 
   def registration_changeset(admin, attrs) do
     admin
-    |> cast(attrs, [:username, :display_name, :password])
+    |> cast(attrs, [:username, :display_name, :password, :email])
     |> validate_required([:username, :display_name, :password])
     |> validate_length(:password, min: 8)
     |> unique_constraint(:username)
     |> maybe_put_id()
+    |> hash_password()
+  end
+
+  def password_changeset(admin, attrs) do
+    admin
+    |> cast(attrs, [:password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 8)
     |> hash_password()
   end
 

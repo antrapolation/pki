@@ -39,6 +39,11 @@ defmodule PkiRaEngine.SchemaTest do
       refute changeset.valid?
       assert errors_on(changeset)[:status]
     end
+
+    test "accepts ra_instance_id" do
+      changeset = RaUser.changeset(%RaUser{}, Map.put(@valid_ra_user, :ra_instance_id, Uniq.UUID.uuid7()))
+      assert changeset.valid?
+    end
   end
 
   # ── CertProfile ────────────────────────────────────────────────────
@@ -60,6 +65,14 @@ defmodule PkiRaEngine.SchemaTest do
       refute changeset.valid?
       errors = errors_on(changeset)
       assert errors[:name]
+    end
+
+    test "accepts ra_instance_id and issuer_key_id" do
+      changeset = CertProfile.changeset(%CertProfile{}, Map.merge(@valid_cert_profile, %{
+        ra_instance_id: Uniq.UUID.uuid7(),
+        issuer_key_id: Uniq.UUID.uuid7()
+      }))
+      assert changeset.valid?
     end
   end
 

@@ -12,6 +12,13 @@ defmodule PkiCaEngine.Schema.CaInstance do
     field :status, :string, default: "initialized"
     field :domain_info, :map, default: %{}
     field :created_by, :string
+    field :parent_id, :binary_id
+
+    belongs_to :parent, PkiCaEngine.Schema.CaInstance,
+      foreign_key: :parent_id,
+      define_field: false
+
+    has_many :children, PkiCaEngine.Schema.CaInstance, foreign_key: :parent_id
 
     has_many :ca_users, PkiCaEngine.Schema.CaUser
     has_many :keystores, PkiCaEngine.Schema.Keystore
@@ -23,10 +30,11 @@ defmodule PkiCaEngine.Schema.CaInstance do
 
   def changeset(instance, attrs) do
     instance
-    |> cast(attrs, [:name, :status, :domain_info, :created_by])
+    |> cast(attrs, [:name, :status, :domain_info, :created_by, :parent_id])
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:name)
+    |> foreign_key_constraint(:parent_id)
     |> maybe_generate_id()
   end
 

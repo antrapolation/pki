@@ -19,11 +19,14 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback get_engine_status(integer()) :: {:ok, map()} | {:error, term()}
   @callback initiate_ceremony(integer(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_ceremonies(integer()) :: {:ok, [map()]} | {:error, term()}
+  @callback list_ca_instances() :: {:ok, [map()]} | {:error, term()}
+  @callback create_ca_instance(map()) :: {:ok, map()} | {:error, term()}
   @callback query_audit_log(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
   @callback authenticate_with_session(String.t(), String.t()) :: {:ok, map(), map()} | {:error, term()}
   @callback register_user(integer(), map()) :: {:ok, map()} | {:error, term()}
   @callback needs_setup?(integer()) :: boolean()
+  @callback get_user_by_username(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -39,9 +42,12 @@ defmodule PkiCaPortal.CaEngineClient do
   def get_engine_status(ca_instance_id), do: impl().get_engine_status(ca_instance_id)
   def initiate_ceremony(ca_instance_id, params), do: impl().initiate_ceremony(ca_instance_id, params)
   def list_ceremonies(ca_instance_id), do: impl().list_ceremonies(ca_instance_id)
+  def list_ca_instances(), do: impl().list_ca_instances()
+  def create_ca_instance(attrs), do: impl().create_ca_instance(attrs)
   def query_audit_log(filters), do: impl().query_audit_log(filters)
   def authenticate(username, password), do: impl().authenticate(username, password)
   def authenticate_with_session(username, password), do: impl().authenticate_with_session(username, password)
   def register_user(ca_instance_id, attrs), do: impl().register_user(ca_instance_id, attrs)
   def needs_setup?(ca_instance_id), do: impl().needs_setup?(ca_instance_id)
+  def get_user_by_username(username, ca_instance_id \\ "default"), do: impl().get_user_by_username(username, ca_instance_id)
 end

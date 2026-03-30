@@ -12,7 +12,6 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
        name: "",
        slug: "",
        email: "",
-       signing_algorithm: "ECC-P256",
        form_error: nil,
        created_tenant: nil,
        verification_sent: false
@@ -24,7 +23,6 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     name = String.trim(params["name"] || "")
     slug = String.trim(params["slug"] || "")
     email = String.trim(params["email"] || "")
-    signing_algorithm = params["signing_algorithm"] || "ECC-P256"
 
     with :ok <- validate_name(name),
          :ok <- validate_slug(slug),
@@ -36,7 +34,6 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
           name: name,
           slug: slug,
           email: email,
-          signing_algorithm: signing_algorithm,
           form_error: nil,
           verification_sent: false
         )
@@ -98,7 +95,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   end
 
   def handle_info(:provision_tenant, socket) do
-    %{name: name, slug: slug, email: email, signing_algorithm: algo} = socket.assigns
+    %{name: name, slug: slug, email: email} = socket.assigns
 
     if email == "" or slug == "" do
       {:noreply, assign(socket, step: 1, form_error: "Session expired. Please start again.")}
@@ -109,11 +106,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     ca_username = "#{slug}-ca-admin"
     ra_username = "#{slug}-ra-admin"
 
-    opts =
-      case algo do
-        "" -> [email: email]
-        _ -> [signing_algorithm: algo, email: email]
-      end
+    opts = [email: email]
 
     errors = []
 
@@ -386,31 +379,6 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                   placeholder="admin@acme-corp.com"
                 />
                 <p class="text-xs text-base-content/50 mt-1">Admin credentials will be sent to this email after verification.</p>
-              </div>
-
-              <div>
-                <label for="signing-algo" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Default Signing Algorithm
-                </label>
-                <select name="signing_algorithm" id="signing-algo" class="select select-bordered w-full" value={@signing_algorithm}>
-                  <optgroup label="Classical">
-                    <option value="ECC-P256" selected={@signing_algorithm == "ECC-P256"}>ECC-P256 (default)</option>
-                    <option value="ECC-P384" selected={@signing_algorithm == "ECC-P384"}>ECC-P384</option>
-                    <option value="RSA-2048" selected={@signing_algorithm == "RSA-2048"}>RSA-2048</option>
-                    <option value="RSA-4096" selected={@signing_algorithm == "RSA-4096"}>RSA-4096</option>
-                  </optgroup>
-                  <optgroup label="Post-Quantum">
-                    <option value="KAZ-SIGN-128" selected={@signing_algorithm == "KAZ-SIGN-128"}>KAZ-SIGN-128</option>
-                    <option value="KAZ-SIGN-192" selected={@signing_algorithm == "KAZ-SIGN-192"}>KAZ-SIGN-192</option>
-                    <option value="KAZ-SIGN-256" selected={@signing_algorithm == "KAZ-SIGN-256"}>KAZ-SIGN-256</option>
-                    <option value="ML-DSA-44" selected={@signing_algorithm == "ML-DSA-44"}>ML-DSA-44</option>
-                    <option value="ML-DSA-65" selected={@signing_algorithm == "ML-DSA-65"}>ML-DSA-65</option>
-                    <option value="ML-DSA-87" selected={@signing_algorithm == "ML-DSA-87"}>ML-DSA-87</option>
-                  </optgroup>
-                </select>
-                <p class="text-xs text-base-content/50 mt-1">
-                  The default algorithm used by this tenant's CA for key generation and certificate signing.
-                </p>
               </div>
 
               <div class="flex justify-end gap-3 pt-2">
