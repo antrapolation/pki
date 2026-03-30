@@ -75,12 +75,14 @@ defmodule PkiRaEngine.UserManagement do
 
   def get_user_by_username(username) do
     import Ecto.Query
-    case Repo.one(from u in RaUser,
-      where: u.username == ^username and u.status == "active",
-      limit: 1
-    ) do
-      nil -> {:error, :not_found}
-      user -> {:ok, user}
+    users = Repo.all(from u in RaUser,
+      where: u.username == ^username and u.status == "active"
+    )
+
+    case users do
+      [user] -> {:ok, user}
+      [] -> {:error, :not_found}
+      _multiple -> {:error, :ambiguous_username}
     end
   end
 

@@ -67,6 +67,9 @@ defmodule PkiRaEngine.Api.AuthController do
 
       {:error, :not_found} ->
         json(conn, 200, %{id: nil, email: nil, tenant_id: nil})
+
+      {:error, :ambiguous_username} ->
+        json(conn, 200, %{id: nil, email: nil, tenant_id: nil, ambiguous: true})
     end
   end
 

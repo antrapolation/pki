@@ -20,7 +20,15 @@ defmodule PkiRaPortalWeb.ForgotPasswordController do
         |> put_session(:reset_email, email)
         |> render(:code, layout: false, error: nil, masked_email: mask_email(email))
 
+      {:ok, %{ambiguous: true}} ->
+        # Username exists in multiple tenants — cannot determine which user to reset
+        conn
+        |> put_session(:reset_user_id, nil)
+        |> put_session(:reset_email, nil)
+        |> render(:new, layout: false, error: "This username exists in multiple organizations. Please contact your administrator.")
+
       _ ->
+        # User not found or no email — show generic "code sent" to prevent enumeration
         conn
         |> put_session(:reset_user_id, nil)
         |> put_session(:reset_email, nil)
