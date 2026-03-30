@@ -100,6 +100,10 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   def handle_info(:provision_tenant, socket) do
     %{name: name, slug: slug, email: email, signing_algorithm: algo} = socket.assigns
 
+    if email == "" or slug == "" do
+      {:noreply, assign(socket, step: 1, form_error: "Session expired. Please start again.")}
+    else
+
     ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
     ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
     ca_username = "#{slug}-ca-admin"
@@ -183,6 +187,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
          created_tenant: tenant,
          form_error: error_msg
        )}
+    end
     end
   end
 
