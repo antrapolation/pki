@@ -56,6 +56,7 @@ defmodule PkiPlatformPortalWeb.Router do
       live "/tenants/:id", TenantDetailLive
       live "/system", SystemLive
       live "/admins", AdminsLive
+      live "/profile", ProfileLive
     end
   end
 end

@@ -43,6 +43,8 @@ defmodule PkiPlatformPortalWeb.Layouts do
           <.sidebar_link href="/tenants" icon="hero-building-office-2" label="Tenants" current={@page_title} />
           <.sidebar_link href="/system" icon="hero-server-stack" label="System" current={@page_title} />
           <.sidebar_link href="/admins" icon="hero-users" label="Admins" current={@page_title} />
+          <div class="divider my-1 px-3"></div>
+          <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
         </nav>
 
         <%!-- Sidebar footer --%>
@@ -119,6 +121,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
   defp is_active?("Tenants", page) when page in ["Tenants", "New Tenant", "Tenant Detail"], do: true
   defp is_active?("System", "System"), do: true
   defp is_active?("Admins", "Admins"), do: true
+  defp is_active?("Profile", "Profile"), do: true
   defp is_active?(_, _), do: false
 
   @doc """
