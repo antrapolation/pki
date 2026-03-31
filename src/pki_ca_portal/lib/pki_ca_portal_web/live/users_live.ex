@@ -119,7 +119,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   end
 
   defp has_credential?(user, type) do
-    creds = Map.get(user, :credentials, [])
+    creds = Map.get(user, :credentials) || []
     Enum.any?(creds, fn c ->
       (c[:credential_type] || c["credential_type"]) == type
     end)
