@@ -34,6 +34,8 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback needs_setup?(integer(), opts()) :: boolean()
   @callback get_user_by_username(String.t(), String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback reset_password(String.t(), String.t(), opts()) :: :ok | {:error, term()}
+  @callback update_user_profile(String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback verify_and_change_password(String.t(), String.t(), String.t(), opts()) :: {:ok, map()} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -59,4 +61,6 @@ defmodule PkiCaPortal.CaEngineClient do
   def needs_setup?(ca_instance_id, opts \\ []), do: impl().needs_setup?(ca_instance_id, opts)
   def get_user_by_username(username, ca_instance_id \\ "default", opts \\ []), do: impl().get_user_by_username(username, ca_instance_id, opts)
   def reset_password(user_id, new_password, opts \\ []), do: impl().reset_password(user_id, new_password, opts)
+  def update_user_profile(user_id, attrs, opts \\ []), do: impl().update_user_profile(user_id, attrs, opts)
+  def verify_and_change_password(user_id, current_password, new_password, opts \\ []), do: impl().verify_and_change_password(user_id, current_password, new_password, opts)
 end

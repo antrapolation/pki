@@ -103,6 +103,31 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
+  def update_user_profile(user_id, attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.update_user_profile(tenant_id, user_id, attrs) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, :not_found} = err -> err
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @impl true
+  def verify_and_change_password(user_id, current_password, new_password, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case UserManagement.verify_and_change_password(tenant_id, user_id, current_password, new_password) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, :not_found} = err -> err
+      {:error, :invalid_current_password} = err -> err
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _reason} = err -> err
+    end
+  end
+
+  @impl true
   def reset_password(user_id, new_password, opts \\ []) do
     # Try platform DB first
     case PkiPlatformEngine.PlatformAuth.reset_password(user_id, new_password, must_change_password: false) do

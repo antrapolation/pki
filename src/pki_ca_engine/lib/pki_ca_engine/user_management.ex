@@ -203,6 +203,40 @@ defmodule PkiCaEngine.UserManagement do
     end
   end
 
+  @doc "Updates a user's display_name and/or email (self-service profile edit)."
+  @spec update_user_profile(String.t(), String.t(), map()) :: {:ok, CaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def update_user_profile(tenant_id, user_id, attrs) do
+    repo = TenantRepo.ca_repo(tenant_id)
+    case repo.get(CaUser, user_id) do
+      nil ->
+        {:error, :not_found}
+
+      user ->
+        allowed = Map.take(attrs, [:display_name, :email, "display_name", "email"])
+        user |> CaUser.update_changeset(allowed) |> repo.update()
+    end
+  end
+
+  @doc "Verifies the current password and updates to a new one."
+  @spec verify_and_change_password(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, CaUser.t()} | {:error, :not_found | :invalid_current_password | Ecto.Changeset.t()}
+  def verify_and_change_password(tenant_id, user_id, current_password, new_password) do
+    repo = TenantRepo.ca_repo(tenant_id)
+    case repo.get(CaUser, user_id) do
+      nil ->
+        {:error, :not_found}
+
+      user ->
+        if Argon2.verify_pass(current_password, user.password_hash) do
+          user
+          |> CaUser.password_changeset(%{password: new_password, must_change_password: false})
+          |> repo.update()
+        else
+          {:error, :invalid_current_password}
+        end
+    end
+  end
+
   @doc """
   Updates a user's password and optionally clears must_change_password.
   """

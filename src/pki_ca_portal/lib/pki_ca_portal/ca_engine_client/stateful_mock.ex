@@ -245,6 +245,25 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def update_user_profile(user_id, attrs, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated_users = Enum.map(state.users, fn
+        %{id: ^user_id} = user ->
+          Map.merge(user, Map.take(attrs, [:display_name, :email, "display_name", "email"]))
+        user -> user
+      end)
+      %{state | users: updated_users}
+    end)
+
+    {:ok, %{id: user_id, display_name: attrs[:display_name] || attrs["display_name"], email: attrs[:email] || attrs["email"]}}
+  end
+
+  @impl true
+  def verify_and_change_password(_user_id, _current_password, _new_password, _opts \\ []) do
+    {:ok, %{}}
+  end
+
+  @impl true
   def reset_password(_user_id, _new_password, _opts \\ []), do: :ok
 
   # -- Private --
