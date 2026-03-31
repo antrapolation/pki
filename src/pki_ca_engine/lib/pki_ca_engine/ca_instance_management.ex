@@ -103,7 +103,61 @@ defmodule PkiCaEngine.CaInstanceManagement do
     |> repo.preload(children: [:children, :issuer_keys])
   end
 
-  @doc "Updates a CA instance's status."
+  @doc """
+  Updates a CA instance's status.
+
+  Rules:
+  - Suspend: cascades to all children recursively
+  - Activate: blocked if parent is suspended (must activate parent first)
+  - Activate: children stay suspended (must be manually activated)
+  """
+  def update_status(tenant_id, id, "suspended") do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(CaInstance, id) do
+      nil ->
+        {:error, :not_found}
+
+      ca ->
+        # Suspend this instance
+        case ca |> CaInstance.changeset(%{status: "suspended"}) |> repo.update() do
+          {:ok, updated} ->
+            # Cascade: suspend all children recursively
+            suspend_children(tenant_id, repo, id)
+            {:ok, updated}
+
+          error ->
+            error
+        end
+    end
+  end
+
+  def update_status(tenant_id, id, "active") do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(CaInstance, id) do
+      nil ->
+        {:error, :not_found}
+
+      %{parent_id: nil} = ca ->
+        # Root CA — no parent to check
+        ca |> CaInstance.changeset(%{status: "active"}) |> repo.update()
+
+      %{parent_id: parent_id} = ca ->
+        # Check parent is active before allowing activation
+        case repo.get(CaInstance, parent_id) do
+          %{status: "active"} ->
+            ca |> CaInstance.changeset(%{status: "active"}) |> repo.update()
+
+          %{status: parent_status} ->
+            {:error, {:parent_suspended, "Cannot activate: parent CA is #{parent_status}. Activate the parent first."}}
+
+          nil ->
+            {:error, :parent_not_found}
+        end
+    end
+  end
+
   def update_status(tenant_id, id, new_status) do
     repo = TenantRepo.ca_repo(tenant_id)
 
@@ -111,6 +165,18 @@ defmodule PkiCaEngine.CaInstanceManagement do
       nil -> {:error, :not_found}
       ca -> ca |> CaInstance.changeset(%{status: new_status}) |> repo.update()
     end
+  end
+
+  defp suspend_children(tenant_id, repo, parent_id) do
+    children =
+      CaInstance
+      |> where([c], c.parent_id == ^parent_id)
+      |> repo.all()
+
+    Enum.each(children, fn child ->
+      child |> CaInstance.changeset(%{status: "suspended"}) |> repo.update()
+      suspend_children(tenant_id, repo, child.id)
+    end)
   end
 
   @doc "Renames a CA instance."
