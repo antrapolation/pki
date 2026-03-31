@@ -2,11 +2,7 @@ defmodule PkiRaPortalWeb.PasswordController do
   use PkiRaPortalWeb, :controller
 
   def edit(conn, _params) do
-    unless get_session(conn, :must_change_password) do
-      redirect(conn, to: "/")
-    else
-      render(conn, :change_password, layout: false, error: nil)
-    end
+    redirect(conn, to: "/profile")
   end
 
   def update(conn, %{"password" => password, "password_confirmation" => confirmation}) do
