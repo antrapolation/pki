@@ -304,7 +304,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   def create_ca_instance(attrs, opts \\ []) do
     tenant_id = opts[:tenant_id]
 
-    case CaInstanceManagement.create_ca_instance(tenant_id, attrs) do
+    case CaInstanceManagement.create_ca_instance(tenant_id, attrs, actor: opts[:actor]) do
       {:ok, instance} -> {:ok, to_map(instance)}
       {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
       {:error, _reason} = err -> err
@@ -319,7 +319,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       cond do
         Map.has_key?(attrs, :status) || Map.has_key?(attrs, "status") ->
           status = attrs[:status] || attrs["status"]
-          CaInstanceManagement.update_status(tenant_id, id, status)
+          CaInstanceManagement.update_status(tenant_id, id, status, actor: opts[:actor])
 
         Map.has_key?(attrs, :name) || Map.has_key?(attrs, "name") ->
           name = attrs[:name] || attrs["name"]

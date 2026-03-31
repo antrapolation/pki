@@ -18,6 +18,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
   """
   def create_ca_instance(tenant_id, attrs, opts \\ []) do
     repo = TenantRepo.ca_repo(tenant_id)
+    actor = Keyword.get(opts, :actor, %{actor_did: "system", actor_role: "system"})
     max_depth = Keyword.get(opts, :max_ca_depth, 2)
 
     result =
@@ -41,7 +42,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
 
     case result do
       {:ok, ca} ->
-        Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"}, "ca_instance_created",
+        Audit.log(tenant_id, actor, "ca_instance_created",
           %{resource_type: "ca_instance", resource_id: ca.id, details: %{name: ca.name, parent_id: ca.parent_id}})
         {:ok, ca}
 
@@ -121,7 +122,10 @@ defmodule PkiCaEngine.CaInstanceManagement do
   - Activate: blocked if parent is suspended (must activate parent first)
   - Activate: children stay suspended (must be manually activated)
   """
-  def update_status(tenant_id, id, "suspended") do
+  def update_status(tenant_id, id, status, opts \\ [])
+
+  def update_status(tenant_id, id, "suspended", opts) do
+    actor = Keyword.get(opts, :actor, %{actor_did: "system", actor_role: "system"})
     repo = TenantRepo.ca_repo(tenant_id)
 
     case repo.get(CaInstance, id) do
@@ -131,9 +135,9 @@ defmodule PkiCaEngine.CaInstanceManagement do
       ca ->
         case ca |> CaInstance.changeset(%{status: "suspended"}) |> repo.update() do
           {:ok, updated} ->
-            Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"}, "ca_instance_status_changed",
+            Audit.log(tenant_id, actor, "ca_instance_status_changed",
               %{resource_type: "ca_instance", resource_id: id, ca_instance_id: id, details: %{name: ca.name, from: ca.status, to: "suspended"}})
-            suspend_children(tenant_id, repo, id)
+            suspend_children(tenant_id, repo, id, actor)
             {:ok, updated}
 
           error ->
@@ -142,7 +146,8 @@ defmodule PkiCaEngine.CaInstanceManagement do
     end
   end
 
-  def update_status(tenant_id, id, "active") do
+  def update_status(tenant_id, id, "active", opts) do
+    actor = Keyword.get(opts, :actor, %{actor_did: "system", actor_role: "system"})
     repo = TenantRepo.ca_repo(tenant_id)
 
     case repo.get(CaInstance, id) do
@@ -152,7 +157,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
       %{parent_id: nil} = ca ->
         case ca |> CaInstance.changeset(%{status: "active"}) |> repo.update() do
           {:ok, updated} ->
-            Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"}, "ca_instance_status_changed",
+            Audit.log(tenant_id, actor, "ca_instance_status_changed",
               %{resource_type: "ca_instance", resource_id: id, ca_instance_id: id, details: %{name: ca.name, from: ca.status, to: "active"}})
             {:ok, updated}
           error -> error
@@ -163,7 +168,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
           %{status: "active"} ->
             case ca |> CaInstance.changeset(%{status: "active"}) |> repo.update() do
               {:ok, updated} ->
-                Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"}, "ca_instance_status_changed",
+                Audit.log(tenant_id, actor, "ca_instance_status_changed",
                   %{resource_type: "ca_instance", resource_id: id, ca_instance_id: id, details: %{name: ca.name, from: ca.status, to: "active"}})
                 {:ok, updated}
               error -> error
@@ -178,7 +183,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
     end
   end
 
-  def update_status(tenant_id, id, new_status) do
+  def update_status(tenant_id, id, new_status, _opts) do
     repo = TenantRepo.ca_repo(tenant_id)
 
     case repo.get(CaInstance, id) do
@@ -187,7 +192,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
     end
   end
 
-  defp suspend_children(tenant_id, repo, parent_id) do
+  defp suspend_children(tenant_id, repo, parent_id, actor \\ %{actor_did: "system", actor_role: "system"}) do
     children =
       CaInstance
       |> where([c], c.parent_id == ^parent_id)
@@ -196,12 +201,12 @@ defmodule PkiCaEngine.CaInstanceManagement do
     Enum.each(children, fn child ->
       case child |> CaInstance.changeset(%{status: "suspended"}) |> repo.update() do
         {:ok, _} ->
-          Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"}, "ca_instance_status_changed",
+          Audit.log(tenant_id, actor, "ca_instance_status_changed",
             %{resource_type: "ca_instance", resource_id: child.id, ca_instance_id: child.id,
               details: %{name: child.name, from: child.status, to: "suspended", reason: "parent_suspended"}})
         _ -> :ok
       end
-      suspend_children(tenant_id, repo, child.id)
+      suspend_children(tenant_id, repo, child.id, actor)
     end)
   end
 

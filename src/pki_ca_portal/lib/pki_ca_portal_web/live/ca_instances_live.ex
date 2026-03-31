@@ -132,9 +132,14 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
   end
 
   defp tenant_opts(socket) do
-    case socket.assigns[:tenant_id] do
+    opts = case socket.assigns[:tenant_id] do
       nil -> []
       tid -> [tenant_id: tid]
+    end
+
+    case socket.assigns[:current_user] do
+      %{id: id, role: role} -> Keyword.put(opts, :actor, %{actor_did: id, actor_role: role})
+      _ -> opts
     end
   end
 

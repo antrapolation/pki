@@ -300,6 +300,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
              password: password,
              role: "ca_admin",
              display_name: display_name,
+             email: tenant.email,
              must_change_password: true,
              credential_expires_at: expires_at
            }) do
@@ -336,6 +337,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
              password: password,
              role: "ra_admin",
              display_name: display_name,
+             email: tenant.email,
              tenant_id: tenant.id,
              must_change_password: true,
              credential_expires_at: expires_at
