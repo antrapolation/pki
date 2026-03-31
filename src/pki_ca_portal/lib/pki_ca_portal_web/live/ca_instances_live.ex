@@ -102,8 +102,10 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
       {:ok, _} ->
         instances = fetch_instances(tenant_opts(socket))
         {:noreply, socket |> assign(instances: instances) |> put_flash(:info, "CA instance activated")}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
+      {:error, {:parent_suspended, _}} ->
+        {:noreply, put_flash(socket, :error, "Cannot activate: parent CA is suspended. Activate the parent first.")}
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to activate CA instance.")}
     end
   end
 
@@ -112,9 +114,9 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
     case CaEngineClient.update_ca_instance(id, %{"status" => "suspended"}, tenant_opts(socket)) do
       {:ok, _} ->
         instances = fetch_instances(tenant_opts(socket))
-        {:noreply, socket |> assign(instances: instances) |> put_flash(:info, "CA instance suspended")}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to suspend: #{inspect(reason)}")}
+        {:noreply, socket |> assign(instances: instances) |> put_flash(:info, "CA instance suspended. All child CAs have also been suspended.")}
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to suspend CA instance.")}
     end
   end
 
