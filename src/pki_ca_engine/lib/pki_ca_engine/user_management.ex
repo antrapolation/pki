@@ -139,9 +139,15 @@ defmodule PkiCaEngine.UserManagement do
     repo = TenantRepo.ca_repo(tenant_id)
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
 
-    %CaUser{}
-    |> CaUser.changeset(attrs)
-    |> repo.insert()
+    case %CaUser{} |> CaUser.changeset(attrs) |> repo.insert() do
+      {:ok, user} ->
+        PkiCaEngine.Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"}, "user_created",
+          %{resource_type: "ca_user", resource_id: user.id, ca_instance_id: ca_instance_id,
+            details: %{username: user.username, role: user.role}})
+        {:ok, user}
+
+      error -> error
+    end
   end
 
   @doc """
@@ -184,9 +190,16 @@ defmodule PkiCaEngine.UserManagement do
         {:error, :not_found}
 
       user ->
-        user
-        |> CaUser.update_changeset(attrs)
-        |> repo.update()
+        case user |> CaUser.update_changeset(attrs) |> repo.update() do
+          {:ok, updated} ->
+            action = if attrs[:status] == "suspended" or attrs["status"] == "suspended", do: "user_deleted", else: "user_updated"
+            PkiCaEngine.Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"}, action,
+              %{resource_type: "ca_user", resource_id: id, ca_instance_id: user.ca_instance_id,
+                details: %{username: user.username, changes: attrs}})
+            {:ok, updated}
+
+          error -> error
+        end
     end
   end
 
