@@ -297,7 +297,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   def list_ca_instances(opts \\ []) do
     tenant_id = opts[:tenant_id]
     instances = CaInstanceManagement.list_hierarchy(tenant_id)
-    {:ok, Enum.map(instances, &to_map/1)}
+    {:ok, flatten_tree(instances)}
   end
 
   @impl true
@@ -375,6 +375,24 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   defp to_map_value(%{__struct__: _} = s), do: to_map(s)
   defp to_map_value(list) when is_list(list), do: Enum.map(list, &to_map_value/1)
   defp to_map_value(other), do: other
+
+  # Flatten a tree of CA instances (with nested :children) into a flat list
+  defp flatten_tree(instances) do
+    Enum.flat_map(instances, fn instance ->
+      map = to_map(instance)
+      children = map[:children] || []
+      parent = Map.put(map, :children, nil)
+      [parent | flatten_tree_maps(children)]
+    end)
+  end
+
+  defp flatten_tree_maps(nil), do: []
+  defp flatten_tree_maps(children) when is_list(children) do
+    Enum.flat_map(children, fn child ->
+      grandchildren = child[:children] || []
+      [Map.put(child, :children, nil) | flatten_tree_maps(grandchildren)]
+    end)
+  end
 
   defp changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
