@@ -38,22 +38,11 @@ defmodule PkiRaPortalWeb.PasswordController do
   end
 
   defp update_user_password(user, new_password) do
-    secret =
-      Application.get_env(:pki_ra_portal, :internal_api_secret) ||
-        System.get_env("INTERNAL_API_SECRET", "")
-
-    base_url =
-      Application.get_env(:pki_ra_portal, :ra_engine_url) ||
-        "http://127.0.0.1:4003"
-
     user_id = user["id"] || user[:id]
 
-    case Req.put("#{base_url}/api/v1/users/#{user_id}/password",
-           json: %{password: new_password, must_change_password: false},
-           headers: [{"authorization", "Bearer #{secret}"}]
-         ) do
-      {:ok, %{status: status}} when status in 200..299 -> :ok
-      {:ok, %{status: status, body: body}} -> {:error, "API error #{status}: #{inspect(body)}"}
+    case PkiPlatformEngine.PlatformAuth.reset_password(user_id, new_password, must_change_password: false) do
+      {:ok, _} -> :ok
+      {:error, :not_found} -> {:error, "User not found"}
       {:error, reason} -> {:error, reason}
     end
   end
