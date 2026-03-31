@@ -46,6 +46,7 @@ defmodule PkiCaPortalWeb.Router do
       live "/ca-instances", CaInstancesLive
       live "/audit-log", AuditLogLive
       live "/quick-setup", QuickSetupLive
+      live "/profile", ProfileLive
     end
   end
 end

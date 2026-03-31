@@ -51,6 +51,7 @@ defmodule PkiCaPortalWeb.Layouts do
           <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
           <div class="divider my-1 px-3"></div>
           <.sidebar_link href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />
+          <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
         </nav>
 
         <%!-- Sidebar footer --%>
@@ -130,6 +131,7 @@ defmodule PkiCaPortalWeb.Layouts do
   defp is_active?("Key Ceremony", "Key Ceremony"), do: true
   defp is_active?("Audit Log", "Audit Log"), do: true
   defp is_active?("Quick Setup", "Quick Setup"), do: true
+  defp is_active?("Profile", "Profile"), do: true
   defp is_active?(_, _), do: false
 
   @doc """
