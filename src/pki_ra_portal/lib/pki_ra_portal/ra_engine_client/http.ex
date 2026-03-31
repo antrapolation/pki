@@ -133,6 +133,25 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     end
   end
 
+  @impl true
+  def update_user_profile(user_id, attrs, opts \\ []) do
+    case auth_put("/api/v1/users/#{user_id}/profile", attrs, opts) do
+      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, atomize_keys(body)}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def verify_and_change_password(user_id, current_password, new_password, opts \\ []) do
+    payload = %{current_password: current_password, new_password: new_password}
+    case auth_put("/api/v1/users/#{user_id}/change-password", payload, opts) do
+      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, atomize_keys(body)}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
   # --- User management ---
 
   @impl true

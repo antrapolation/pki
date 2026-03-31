@@ -38,6 +38,8 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback needs_setup?(String.t()) :: boolean()
   @callback get_user_by_username(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback reset_password(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  @callback update_user_profile(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback verify_and_change_password(String.t(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.Mock)
@@ -69,4 +71,6 @@ defmodule PkiRaPortal.RaEngineClient do
   def needs_setup?(tenant_id), do: impl().needs_setup?(tenant_id)
   def get_user_by_username(username, opts \\ []), do: impl().get_user_by_username(username, opts)
   def reset_password(user_id, new_password, opts \\ []), do: impl().reset_password(user_id, new_password, opts)
+  def update_user_profile(user_id, attrs, opts \\ []), do: impl().update_user_profile(user_id, attrs, opts)
+  def verify_and_change_password(user_id, current_password, new_password, opts \\ []), do: impl().verify_and_change_password(user_id, current_password, new_password, opts)
 end

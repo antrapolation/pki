@@ -90,6 +90,26 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     end
   end
 
+  @impl true
+  def update_user_profile(user_id, attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.UserManagement.update_user_profile(tenant_id, user_id, attrs) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def verify_and_change_password(user_id, current_password, new_password, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.UserManagement.verify_and_change_password(tenant_id, user_id, current_password, new_password) do
+      {:ok, user} -> {:ok, to_map(user)}
+      {:error, _} = err -> err
+    end
+  end
+
   # --- User management ---
 
   @impl true

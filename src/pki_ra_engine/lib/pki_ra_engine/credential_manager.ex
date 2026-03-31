@@ -105,13 +105,8 @@ defmodule PkiRaEngine.CredentialManager do
                 # Generate session key for this login session
                 session_salt = Kdf.generate_salt()
 
-                case Kdf.derive_key(password, session_salt) do
-                  {:ok, session_key} ->
-                    {:ok, user, %{session_key: session_key, session_salt: session_salt}}
-
-                  {:error, _} ->
-                    {:error, :invalid_credentials}
-                end
+                {:ok, session_key} = Kdf.derive_key(password, session_salt)
+                {:ok, user, %{session_key: session_key, session_salt: session_salt}}
 
               {:error, _} ->
                 {:error, :invalid_credentials}

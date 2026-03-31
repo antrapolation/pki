@@ -103,7 +103,7 @@ defmodule PkiRaEngine.UserManagement do
 
   @doc "Create a new RA user with credentials (password + dual keypairs)."
   @spec create_user_with_credentials(String.t(), map(), String.t(), keyword()) :: {:ok, RaUser.t()} | {:error, term()}
-  def create_user_with_credentials(tenant_id, attrs, password, opts \\ []) do
+  def create_user_with_credentials(_tenant_id, attrs, password, opts \\ []) do
     PkiRaEngine.CredentialManager.create_user_with_credentials(attrs, password, opts)
   end
 
@@ -112,7 +112,7 @@ defmodule PkiRaEngine.UserManagement do
   Returns {:ok, user, session_info} or {:error, :invalid_credentials}.
   """
   @spec authenticate_with_credentials(String.t(), String.t(), String.t()) :: {:ok, RaUser.t(), map()} | {:error, :invalid_credentials}
-  def authenticate_with_credentials(tenant_id, username, password) do
+  def authenticate_with_credentials(_tenant_id, username, password) do
     PkiRaEngine.CredentialManager.authenticate(username, password)
   end
 
@@ -167,6 +167,40 @@ defmodule PkiRaEngine.UserManagement do
       user
       |> RaUser.changeset(allowed)
       |> repo.update()
+    end
+  end
+
+  @doc "Updates a user's display_name and/or email (self-service profile edit)."
+  @spec update_user_profile(String.t(), String.t(), map()) :: {:ok, RaUser.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def update_user_profile(tenant_id, user_id, attrs) do
+    repo = TenantRepo.ra_repo(tenant_id)
+    case repo.get(RaUser, user_id) do
+      nil ->
+        {:error, :not_found}
+
+      user ->
+        allowed = Map.take(attrs, [:display_name, :email, "display_name", "email"])
+        user |> RaUser.changeset(allowed) |> repo.update()
+    end
+  end
+
+  @doc "Verifies the current password and updates to a new one."
+  @spec verify_and_change_password(String.t(), String.t(), String.t(), String.t()) ::
+        {:ok, RaUser.t()} | {:error, :not_found | :invalid_current_password | Ecto.Changeset.t()}
+  def verify_and_change_password(tenant_id, user_id, current_password, new_password) do
+    repo = TenantRepo.ra_repo(tenant_id)
+    case repo.get(RaUser, user_id) do
+      nil ->
+        {:error, :not_found}
+
+      user ->
+        if Argon2.verify_pass(current_password, user.password_hash) do
+          user
+          |> RaUser.password_changeset(%{password: new_password, must_change_password: false})
+          |> repo.update()
+        else
+          {:error, :invalid_current_password}
+        end
     end
   end
 

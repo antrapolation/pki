@@ -79,18 +79,6 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
     end
   end
 
-  defp normalize_key(key) do
-    name = key[:name] || key[:label] || key["name"] || key["label"] || ""
-    created_at = key[:created_at] || key[:inserted_at] || key["created_at"] || key["inserted_at"]
-    prefix = key[:prefix] || key["prefix"] || String.slice(name, 0, 8)
-    Map.merge(key, %{name: name, created_at: format_date(created_at), prefix: prefix})
-  end
-
-  defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
-  defp format_date(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
-  defp format_date(s) when is_binary(s), do: String.slice(s, 0, 10)
-  defp format_date(_), do: ""
-
   @impl true
   def handle_event("dismiss_raw_key", _params, socket) do
     {:noreply, assign(socket, new_raw_key: nil)}
@@ -120,6 +108,18 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
   end
+
+  defp normalize_key(key) do
+    name = key[:name] || key[:label] || key["name"] || key["label"] || ""
+    created_at = key[:created_at] || key[:inserted_at] || key["created_at"] || key["inserted_at"]
+    prefix = key[:prefix] || key["prefix"] || String.slice(name, 0, 8)
+    Map.merge(key, %{name: name, created_at: format_date(created_at), prefix: prefix})
+  end
+
+  defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_date(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_date(s) when is_binary(s), do: String.slice(s, 0, 10)
+  defp format_date(_), do: ""
 
   defp apply_pagination(socket) do
     items = socket.assigns.api_keys
