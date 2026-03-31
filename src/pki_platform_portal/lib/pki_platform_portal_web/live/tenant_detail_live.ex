@@ -365,15 +365,30 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
           end
 
         user ->
-          # Reset platform profile password and reactivate if needed
-          case PkiPlatformEngine.PlatformAuth.get_by_username(username) do
+          alias PkiPlatformEngine.PlatformAuth
+
+          # Ensure platform profile exists, reset password
+          case PlatformAuth.get_by_username(username) do
             {:ok, profile} ->
-              PkiPlatformEngine.PlatformAuth.reset_password(profile.id, password)
-              if profile.status == "suspended", do: PkiPlatformEngine.PlatformAuth.reactivate(profile.id)
-            {:error, _} -> :ok
+              PlatformAuth.reset_password(profile.id, password)
+              if profile.status == "suspended", do: PlatformAuth.reactivate(profile.id)
+
+            {:error, :not_found} ->
+              # Platform profile missing — create it + assign role
+              case PlatformAuth.find_or_create_user_profile(%{
+                     username: username, password: password,
+                     display_name: user.display_name, email: tenant.email,
+                     must_change_password: true
+                   }) do
+                {:ok, profile} ->
+                  PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
+                    role: "ca_admin", portal: "ca", ca_instance_id: ca_instance_id
+                  })
+                _ -> :ok
+              end
           end
 
-          # Reactivate if suspended and reset password
+          # Reactivate tenant DB user if suspended, reset password
           if user.status == "suspended" do
             PkiCaEngine.UserManagement.update_user(tenant.id, user.id, %{status: "active"})
           end
@@ -461,12 +476,26 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         end
 
       user ->
-        # Reset platform profile password and reactivate if needed
-        case PkiPlatformEngine.PlatformAuth.get_by_username(username) do
+        alias PkiPlatformEngine.PlatformAuth
+
+        # Ensure platform profile exists, reset password
+        case PlatformAuth.get_by_username(username) do
           {:ok, profile} ->
-            PkiPlatformEngine.PlatformAuth.reset_password(profile.id, password)
-            if profile.status == "suspended", do: PkiPlatformEngine.PlatformAuth.reactivate(profile.id)
-          {:error, _} -> :ok
+            PlatformAuth.reset_password(profile.id, password)
+            if profile.status == "suspended", do: PlatformAuth.reactivate(profile.id)
+
+          {:error, :not_found} ->
+            case PlatformAuth.find_or_create_user_profile(%{
+                   username: username, password: password,
+                   display_name: user.display_name, email: tenant.email,
+                   must_change_password: true
+                 }) do
+              {:ok, profile} ->
+                PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
+                  role: "ra_admin", portal: "ra"
+                })
+              _ -> :ok
+            end
         end
 
         if user.status == "suspended" do
