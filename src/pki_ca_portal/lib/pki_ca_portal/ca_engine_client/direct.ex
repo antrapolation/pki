@@ -125,8 +125,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   @impl true
   def list_users(ca_instance_id, opts \\ []) do
     tenant_id = opts[:tenant_id]
-    users = UserManagement.list_users(tenant_id, ca_instance_id, opts)
-    {:ok, Enum.map(users, &to_map/1)}
+    filter_opts = Keyword.drop(opts, [:tenant_id])
+    users = UserManagement.list_users(tenant_id, ca_instance_id, filter_opts)
+    {:ok, Enum.map(users || [], &to_map/1)}
   end
 
   @impl true
