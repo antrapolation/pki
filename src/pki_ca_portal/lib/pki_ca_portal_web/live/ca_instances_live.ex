@@ -96,6 +96,28 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
     end
   end
 
+  @impl true
+  def handle_event("activate_instance", %{"id" => id}, socket) do
+    case CaEngineClient.update_ca_instance(id, %{"status" => "active"}, tenant_opts(socket)) do
+      {:ok, _} ->
+        instances = fetch_instances(tenant_opts(socket))
+        {:noreply, socket |> assign(instances: instances) |> put_flash(:info, "CA instance activated")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("suspend_instance", %{"id" => id}, socket) do
+    case CaEngineClient.update_ca_instance(id, %{"status" => "suspended"}, tenant_opts(socket)) do
+      {:ok, _} ->
+        instances = fetch_instances(tenant_opts(socket))
+        {:noreply, socket |> assign(instances: instances) |> put_flash(:info, "CA instance suspended")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to suspend: #{inspect(reason)}")}
+    end
+  end
+
   defp maybe_put_parent_id(attrs, ""), do: attrs
   defp maybe_put_parent_id(attrs, nil), do: attrs
   defp maybe_put_parent_id(attrs, parent_id), do: Map.put(attrs, :parent_id, parent_id)
@@ -296,15 +318,35 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
             </div>
           </div>
         </div>
-        <button
-          class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 transition-opacity"
-          phx-click="open_create_modal"
-          phx-value-parent_id={@instance.id}
-          title="Add Sub-CA"
-        >
-          <.icon name="hero-plus" class="size-3" />
-          Sub-CA
-        </button>
+        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            :if={@instance[:status] != "active"}
+            class="btn btn-ghost btn-xs text-success"
+            phx-click="activate_instance"
+            phx-value-id={@instance.id}
+            title="Activate"
+          >
+            <.icon name="hero-play" class="size-3" />
+          </button>
+          <button
+            :if={@instance[:status] == "active"}
+            class="btn btn-ghost btn-xs text-warning"
+            phx-click="suspend_instance"
+            phx-value-id={@instance.id}
+            title="Suspend"
+          >
+            <.icon name="hero-pause" class="size-3" />
+          </button>
+          <button
+            class="btn btn-ghost btn-xs"
+            phx-click="open_create_modal"
+            phx-value-parent_id={@instance.id}
+            title="Add Sub-CA"
+          >
+            <.icon name="hero-plus" class="size-3" />
+            Sub-CA
+          </button>
+        </div>
       </div>
       <.tree_node
         :for={child <- @children}
