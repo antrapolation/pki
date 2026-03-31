@@ -60,6 +60,24 @@ defmodule PkiPlatformEngine.AdminManagement do
     PlatformRepo.get(PlatformAdmin, id)
   end
 
+  def update_admin_profile(%PlatformAdmin{} = admin, attrs) do
+    allowed = Map.take(attrs, [:display_name, :email, "display_name", "email"])
+
+    admin
+    |> PlatformAdmin.changeset(Map.merge(%{username: admin.username}, allowed))
+    |> PlatformRepo.update()
+  end
+
+  def change_admin_password(%PlatformAdmin{} = admin, current_password, new_password) do
+    if Argon2.verify_pass(current_password, admin.password_hash) do
+      admin
+      |> PlatformAdmin.password_changeset(%{password: new_password})
+      |> PlatformRepo.update()
+    else
+      {:error, :invalid_current_password}
+    end
+  end
+
   def update_admin(%PlatformAdmin{} = admin, attrs) do
     admin
     |> PlatformAdmin.changeset(attrs)
