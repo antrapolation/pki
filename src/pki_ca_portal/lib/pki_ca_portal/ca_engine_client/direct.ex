@@ -220,6 +220,8 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     active_keys = Enum.count(issuer_keys, fn k -> k.status == "active" end)
 
     status = %{
+      status: "running",
+      uptime_seconds: 0,
       ca_instance_id: ca_instance_id,
       issuer_keys: %{
         total: length(issuer_keys),
