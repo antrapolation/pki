@@ -528,29 +528,31 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
 
   @impl true
   def list_hsm_devices(opts \\ []) do
-    tenant_id = opts[:tenant_id]
-    devices = HsmDeviceManagement.list_devices_for_tenant(tenant_id)
-    {:ok, Enum.map(devices, &to_map/1)}
-  end
-
-  @impl true
-  def register_hsm_device(_attrs, _opts \\ []) do
-    {:error, :not_permitted}
-  end
-
-  @impl true
-  def probe_hsm_device(id, opts \\ []) do
-    tenant_id = opts[:tenant_id]
-    with {:ok, _} <- PkiPlatformEngine.HsmManagement.get_device_for_tenant(tenant_id, id),
-         {:ok, device} <- PkiPlatformEngine.HsmManagement.probe_device(id) do
-      {:ok, to_map(device)}
+    case opts[:tenant_id] do
+      nil -> {:ok, []}
+      tenant_id ->
+        devices = HsmDeviceManagement.list_devices_for_tenant(tenant_id)
+        {:ok, Enum.map(devices, &to_map/1)}
     end
   end
 
   @impl true
-  def deactivate_hsm_device(_id, _opts \\ []) do
-    {:error, :not_permitted}
+  def register_hsm_device(_attrs, _opts \\ []), do: {:error, :not_permitted}
+
+  @impl true
+  def probe_hsm_device(id, opts \\ []) do
+    case opts[:tenant_id] do
+      nil -> {:error, :tenant_id_required}
+      tenant_id ->
+        case HsmDeviceManagement.probe_device_for_tenant(tenant_id, id) do
+          {:ok, device} -> {:ok, to_map(device)}
+          {:error, _} = err -> err
+        end
+    end
   end
+
+  @impl true
+  def deactivate_hsm_device(_id, _opts \\ []), do: {:error, :not_permitted}
 
   @impl true
   def list_audit_events(filters, opts \\ []) do

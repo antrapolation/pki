@@ -20,11 +20,16 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
   def handle_info(:load_data, socket) do
     devices = HsmManagement.list_devices()
     tenants = PkiPlatformEngine.PlatformRepo.all(PkiPlatformEngine.Tenant)
+    all_access = PkiPlatformEngine.PlatformRepo.all(PkiPlatformEngine.TenantHsmAccess)
 
-    # Enrich devices with assigned tenant info
+    # D19: Single bulk query instead of N+1
+    tenant_by_id = Map.new(tenants, fn t -> {t.id, t} end)
+    access_by_device = Enum.group_by(all_access, & &1.hsm_device_id, fn a ->
+      Map.get(tenant_by_id, a.tenant_id)
+    end)
+
     devices_with_tenants = Enum.map(devices, fn dev ->
-      tenant_ids = HsmManagement.list_device_tenants(dev.id)
-      assigned = Enum.filter(tenants, fn t -> t.id in tenant_ids end)
+      assigned = Map.get(access_by_device, dev.id, []) |> Enum.reject(&is_nil/1)
       Map.put(dev, :assigned_tenants, assigned)
     end)
 
@@ -134,7 +139,15 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
   defp format_changeset(cs) do
     Ecto.Changeset.traverse_errors(cs, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+        atom_key = try do
+          String.to_existing_atom(key)
+        rescue
+          ArgumentError -> nil
+        end
+        case atom_key && Keyword.get(opts, atom_key) do
+          nil -> key
+          val -> to_string(val)
+        end
       end)
     end)
     |> format_errors()

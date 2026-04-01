@@ -27,6 +27,7 @@ defmodule PkiCaEngine.Schema.Keystore do
     |> validate_required([:ca_instance_id, :type])
     |> validate_inclusion(:type, @types)
     |> validate_inclusion(:status, @statuses)
+    |> validate_hsm_config()
     |> foreign_key_constraint(:ca_instance_id)
     |> maybe_generate_id()
   end
@@ -52,6 +53,14 @@ defmodule PkiCaEngine.Schema.Keystore do
     case Jason.encode(map) do
       {:ok, json} -> json
       {:error, _} -> nil
+    end
+  end
+
+  defp validate_hsm_config(changeset) do
+    if get_field(changeset, :type) == "hsm" and is_nil(get_field(changeset, :config)) do
+      add_error(changeset, :config, "is required for HSM keystores")
+    else
+      changeset
     end
   end
 

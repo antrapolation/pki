@@ -118,6 +118,16 @@ defmodule PkiPlatformEngine.HsmManagement do
     end
   end
 
+  @doc "Probes a device atomically — verifies tenant access and probes in one operation."
+  def probe_device_for_tenant(tenant_id, hsm_device_id) do
+    with {:ok, device} <- get_device_for_tenant(tenant_id, hsm_device_id),
+         {:ok, manufacturer} <- probe_pkcs11(device.pkcs11_lib_path) do
+      device
+      |> HsmDevice.changeset(%{manufacturer: manufacturer, status: "active"})
+      |> PlatformRepo.update()
+    end
+  end
+
   @doc "Lists all tenant access records for a device."
   def list_device_tenants(hsm_device_id) do
     from(a in TenantHsmAccess,

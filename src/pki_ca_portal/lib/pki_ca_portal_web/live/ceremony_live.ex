@@ -26,21 +26,24 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     ca_id = socket.assigns.current_user[:ca_instance_id]
     opts = tenant_opts(socket)
 
-    ceremonies = case CaEngineClient.list_ceremonies(ca_id, opts) do
-      {:ok, c} -> c
-      {:error, _} -> []
-    end
-
-    keystores = case CaEngineClient.list_keystores(ca_id, opts) do
-      {:ok, ks} -> ks
-      {:error, _} -> []
-    end
-
     ca_instances =
       case CaEngineClient.list_ca_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
+
+    # Use first CA instance if user has no assigned instance
+    effective_ca_id = ca_id || (ca_instances |> List.first() |> then(fn nil -> nil; i -> i[:id] end))
+
+    ceremonies = case effective_ca_id && CaEngineClient.list_ceremonies(effective_ca_id, opts) do
+      {:ok, c} -> c
+      _ -> []
+    end
+
+    keystores = case effective_ca_id && CaEngineClient.list_keystores(effective_ca_id, opts) do
+      {:ok, ks} -> ks
+      _ -> []
+    end
 
     {:noreply,
      assign(socket,

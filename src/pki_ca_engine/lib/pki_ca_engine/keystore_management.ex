@@ -35,7 +35,7 @@ defmodule PkiCaEngine.KeystoreManagement do
   defp resolve_hsm_config("hsm", tenant_id, attrs) do
     hsm_device_id = attrs[:hsm_device_id] || attrs["hsm_device_id"]
 
-    case PkiPlatformEngine.HsmManagement.get_device_for_tenant(tenant_id, hsm_device_id) do
+    case PkiCaEngine.HsmDeviceManagement.get_device_for_tenant(tenant_id, hsm_device_id) do
       {:ok, device} ->
         config = Keystore.encode_config(%{
           "hsm_device_id" => device.id,
@@ -47,7 +47,7 @@ defmodule PkiCaEngine.KeystoreManagement do
         {:ok,
          attrs
          |> Map.put(:config, config)
-         |> Map.put(:provider_name, device.label)}
+         |> Map.put(:provider_name, "StrapSofthsmPrivKeyStoreProvider")}
 
       {:error, _} ->
         {:error, :hsm_device_not_found}
