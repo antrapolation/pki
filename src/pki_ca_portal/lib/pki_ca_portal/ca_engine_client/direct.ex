@@ -208,7 +208,17 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   def list_keystores(ca_instance_id, opts \\ []) do
     tenant_id = opts[:tenant_id]
     keystores = KeystoreManagement.list_keystores(tenant_id, ca_instance_id)
-    {:ok, Enum.map(keystores, &to_map/1)}
+
+    # Enrich with CA instance names
+    instance_names = flatten_tree(CaInstanceManagement.list_hierarchy(tenant_id))
+      |> Map.new(fn i -> {i[:id], i[:name]} end)
+
+    enriched = Enum.map(keystores, fn ks ->
+      map = to_map(ks)
+      Map.put(map, :ca_instance_name, Map.get(instance_names, map[:ca_instance_id], "-"))
+    end)
+
+    {:ok, enriched}
   end
 
   @impl true

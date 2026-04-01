@@ -21,10 +21,9 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    ca_id = nil  # load all keystores initially; filter via dropdown
     opts = tenant_opts(socket)
 
-    keystores = case CaEngineClient.list_keystores(ca_id, opts) do
+    keystores = case CaEngineClient.list_keystores(nil, opts) do
       {:ok, ks} -> ks
       {:error, _} -> []
     end
@@ -45,28 +44,23 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def handle_event("configure_keystore", %{"type" => type, "ca_instance_id" => ca_instance_id}, socket) do
-    ca_id = if ca_instance_id == "", do: socket.assigns.current_user[:ca_instance_id] || "default", else: ca_instance_id
+    if ca_instance_id == "" do
+      {:noreply, put_flash(socket, :error, "Please select a CA Instance.")}
+    else
+      case CaEngineClient.configure_keystore(ca_instance_id, %{type: type}, tenant_opts(socket)) do
+        {:ok, _keystore} ->
+          send(self(), :load_data)
+          {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
 
-    case CaEngineClient.configure_keystore(ca_id, %{type: type}, tenant_opts(socket)) do
-      {:ok, keystore} ->
-        keystores = [keystore | socket.assigns.keystores]
-
-        {:noreply,
-         socket
-         |> assign(keystores: keystores)
-         |> put_flash(:info, "Keystore configured successfully")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
+      end
     end
   end
 
   @impl true
   def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
-    ca_id =
-      if ca_instance_id == "",
-        do: socket.assigns.current_user[:ca_instance_id] || "default",
-        else: ca_instance_id
+    ca_id = if ca_instance_id == "", do: nil, else: ca_instance_id
 
     keystores = case CaEngineClient.list_keystores(ca_id, tenant_opts(socket)) do
       {:ok, ks} -> ks
@@ -173,19 +167,25 @@ defmodule PkiCaPortalWeb.KeystoresLive do
             <table class="table table-sm">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
+                  <th>CA Instance</th>
                   <th>Type</th>
-                  <th>Provider</th>
                   <th>Status</th>
+                  <th>Keystore ID</th>
+                  <th>Created</th>
                 </tr>
               </thead>
               <tbody id="keystore-list">
                 <tr :for={ks <- paginated_keystores} id={"keystore-#{ks.id}"} class="hover">
+                  <td class="font-medium text-sm">{Map.get(ks, :ca_instance_name, "-")}</td>
                   <td>
                     <span class={"badge badge-sm #{type_badge_class(ks.type)}"}>{ks.type}</span>
                   </td>
-                  <td class="font-mono-data">{Map.get(ks, :provider_name, "-")}</td>
                   <td>
                     <span class={"badge badge-sm #{status_badge_class(ks.status)}"}>{ks.status}</span>
+                  </td>
+                  <td class="font-mono text-xs text-base-content/50">{String.slice(ks.id || "", 0..7)}</td>
+                  <td class="text-xs text-base-content/50">
+                    {if ks[:inserted_at], do: Calendar.strftime(ks.inserted_at, "%Y-%m-%d %H:%M"), else: "-"}
                   </td>
                 </tr>
               </tbody>
