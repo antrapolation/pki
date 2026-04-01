@@ -18,6 +18,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         if connected?(socket) do
           send(self(), :load_metrics)
           send(self(), :check_engines)
+          send(self(), :load_hsm_access)
         end
         ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
         ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
@@ -30,7 +31,10 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            ca_setup_url: "https://#{ca_host}/setup?tenant=#{tenant.slug}",
            ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}",
            ca_engine_status: :checking,
-           ra_engine_status: :checking
+           ra_engine_status: :checking,
+           hsm_devices: [],
+           assigned_hsm_ids: [],
+           all_hsm_devices: []
          )}
     end
   end
@@ -87,6 +91,33 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   def handle_event("reset_ra_admin", _params, socket) do
     send(self(), {:credential_action, :reset_ra})
     {:noreply, put_flash(socket, :info, "Resetting RA Admin...")}
+  end
+
+  def handle_event("grant_hsm", %{"device-id" => device_id}, socket) do
+    tenant_id = socket.assigns.tenant.id
+    case PkiPlatformEngine.HsmManagement.grant_tenant_access(tenant_id, device_id) do
+      {:ok, _} ->
+        send(self(), :load_hsm_access)
+        {:noreply, put_flash(socket, :info, "HSM device access granted.")}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "Already assigned.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("revoke_hsm", %{"device-id" => device_id}, socket) do
+    tenant_id = socket.assigns.tenant.id
+    case PkiPlatformEngine.HsmManagement.revoke_tenant_access(tenant_id, device_id) do
+      {:ok, _} ->
+        send(self(), :load_hsm_access)
+        {:noreply, put_flash(socket, :info, "HSM device access revoked.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
+    end
   end
 
   @impl true
@@ -259,6 +290,20 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       end
 
     {:noreply, socket}
+  end
+
+  def handle_info(:load_hsm_access, socket) do
+    tenant_id = socket.assigns.tenant.id
+    all_devices = PkiPlatformEngine.HsmManagement.list_devices()
+    assigned = PkiPlatformEngine.HsmManagement.list_devices_for_tenant(tenant_id)
+    assigned_ids = Enum.map(assigned, & &1.id) |> MapSet.new()
+
+    {:noreply,
+     assign(socket,
+       all_hsm_devices: all_devices,
+       hsm_devices: assigned,
+       assigned_hsm_ids: assigned_ids
+     )}
   end
 
   def handle_info(:load_metrics, socket) do
@@ -797,6 +842,78 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
               </div>
               <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider">RA Instances</p>
               <p class="text-lg font-bold mt-0.5">{@metrics.ra_instances}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <%!-- HSM Device Access (only for active tenants) --%>
+      <div :if={@tenant.status == "active"}>
+        <h3 class="text-sm font-semibold text-base-content mb-3">HSM Device Access</h3>
+        <div class="card bg-base-100 shadow-sm border border-base-300">
+          <div class="card-body p-5">
+            <p class="text-xs text-base-content/50 mb-4">
+              Assign PKCS#11 HSM devices to this tenant. The tenant's CA admin will see assigned devices when creating HSM-backed keystores.
+            </p>
+
+            <%!-- Available devices to assign --%>
+            <% unassigned = Enum.filter(@all_hsm_devices, fn d -> d.status == "active" and not MapSet.member?(@assigned_hsm_ids, d.id) end) %>
+            <div :if={not Enum.empty?(unassigned)} class="mb-4">
+              <p class="text-xs font-medium text-base-content/60 mb-2">Available Devices</p>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  :for={dev <- unassigned}
+                  phx-click="grant_hsm"
+                  phx-value-device-id={dev.id}
+                  class="btn btn-sm btn-outline btn-success gap-1"
+                >
+                  <.icon name="hero-plus" class="size-3" />
+                  {dev.label}
+                  <span class="text-xs opacity-60">({dev.manufacturer || "PKCS#11"})</span>
+                </button>
+              </div>
+            </div>
+            <div :if={Enum.empty?(unassigned) and Enum.empty?(@hsm_devices)} class="text-xs text-base-content/40 mb-4">
+              No HSM devices registered. <a href="/hsm-devices" class="link link-primary">Register one first.</a>
+            </div>
+
+            <%!-- Assigned devices --%>
+            <div :if={not Enum.empty?(@hsm_devices)}>
+              <p class="text-xs font-medium text-base-content/60 mb-2">Assigned Devices</p>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead>
+                    <tr class="text-xs uppercase text-base-content/50">
+                      <th>Device</th>
+                      <th>Manufacturer</th>
+                      <th>Slot</th>
+                      <th class="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr :for={dev <- @hsm_devices} class="hover">
+                      <td class="font-medium">
+                        <div class="flex items-center gap-2">
+                          <.icon name="hero-cpu-chip" class="size-4 text-warning" />
+                          {dev.label}
+                        </div>
+                      </td>
+                      <td class="text-sm text-base-content/60">{dev.manufacturer || "-"}</td>
+                      <td>{dev.slot_id}</td>
+                      <td class="text-right">
+                        <button
+                          phx-click="revoke_hsm"
+                          phx-value-device-id={dev.id}
+                          data-confirm={"Revoke #{dev.label} access from this tenant? Existing keystores using this device will still work, but no new keystores can be created with it."}
+                          class="btn btn-ghost btn-xs text-error"
+                        >
+                          <.icon name="hero-x-mark" class="size-4" />
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
