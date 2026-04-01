@@ -25,18 +25,10 @@ defmodule PkiCaPortalWeb.ProfileLive do
 
     case CaEngineClient.update_user_profile(user_id, %{display_name: display_name, email: email}, opts) do
       {:ok, _updated} ->
-        updated_user = user
-          |> Map.put(:display_name, display_name)
-          |> Map.put("display_name", display_name)
-          |> Map.put(:email, email)
-          |> Map.put("email", email)
-
         {:noreply,
          socket
-         |> assign(:current_user, updated_user)
-         |> assign(:profile_form, %{"display_name" => display_name, "email" => email})
-         |> assign(:profile_error, nil)
-         |> put_flash(:info, "Profile updated successfully.")}
+         |> put_flash(:info, "Profile updated successfully.")
+         |> push_navigate(to: "/profile")}
 
       {:error, reason} ->
         {:noreply, assign(socket, :profile_error, format_error(reason))}
@@ -110,7 +102,9 @@ defmodule PkiCaPortalWeb.ProfileLive do
             </div>
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">Status</label>
-              <span class="badge badge-sm badge-success">active</span>
+              <span class={["badge badge-sm", if((@current_user[:status] || @current_user["status"] || "active") == "active", do: "badge-success", else: "badge-warning")]}>
+                {@current_user[:status] || @current_user["status"] || "active"}
+              </span>
             </div>
           </div>
 

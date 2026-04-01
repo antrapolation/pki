@@ -53,6 +53,12 @@ defmodule PkiRaEngine.Schema.RaUser do
     |> maybe_generate_id()
   end
 
+  def profile_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:display_name, :email])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
+  end
+
   def password_changeset(user, attrs) do
     user
     |> cast(attrs, [:password, :must_change_password])

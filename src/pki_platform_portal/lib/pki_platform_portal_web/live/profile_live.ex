@@ -24,14 +24,11 @@ defmodule PkiPlatformPortalWeb.ProfileLive do
     admin = socket.assigns.admin
 
     case AdminManagement.update_admin_profile(admin, %{display_name: display_name, email: email}) do
-      {:ok, updated} ->
+      {:ok, _updated} ->
         {:noreply,
          socket
-         |> assign(:admin, updated)
-         |> assign(:profile_form, %{"display_name" => updated.display_name || "", "email" => updated.email || ""})
-         |> assign(:profile_error, nil)
-         |> assign(:current_user, Map.merge(socket.assigns.current_user, %{"display_name" => updated.display_name, "email" => updated.email}))
-         |> put_flash(:info, "Profile updated successfully.")}
+         |> put_flash(:info, "Profile updated successfully.")
+         |> push_navigate(to: "/profile")}
 
       {:error, changeset} ->
         error = format_changeset_error(changeset)

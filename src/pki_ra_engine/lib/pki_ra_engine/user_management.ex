@@ -180,7 +180,7 @@ defmodule PkiRaEngine.UserManagement do
 
       user ->
         allowed = Map.take(attrs, [:display_name, :email, "display_name", "email"])
-        user |> RaUser.changeset(allowed) |> repo.update()
+        user |> RaUser.profile_changeset(allowed) |> repo.update()
     end
   end
 

@@ -96,6 +96,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
 
     case PkiRaEngine.UserManagement.update_user_profile(tenant_id, user_id, attrs) do
       {:ok, user} -> {:ok, to_map(user)}
+      {:error, :not_found} = err -> err
+      {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
       {:error, _} = err -> err
     end
   end
@@ -106,6 +108,9 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
 
     case PkiRaEngine.UserManagement.verify_and_change_password(tenant_id, user_id, current_password, new_password) do
       {:ok, user} -> {:ok, to_map(user)}
+      {:error, :not_found} = err -> err
+      {:error, :invalid_current_password} = err -> err
+      {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
       {:error, _} = err -> err
     end
   end
@@ -315,6 +320,15 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
       {:ok, key} -> {:ok, to_map(key)}
       {:error, _} = err -> err
     end
+  end
+
+  defp format_changeset_errors(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.map_join(", ", fn {field, errors} -> "#{field}: #{Enum.join(errors, ", ")}" end)
   end
 
   # --- Struct to map conversion helpers ---

@@ -56,7 +56,8 @@ defmodule PkiCaEngine.Schema.CaUser do
 
   def update_changeset(user, attrs) do
     user
-    |> cast(attrs, [:display_name, :status])
+    |> cast(attrs, [:display_name, :email, :status])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
     |> validate_inclusion(:status, @statuses)
   end
 
