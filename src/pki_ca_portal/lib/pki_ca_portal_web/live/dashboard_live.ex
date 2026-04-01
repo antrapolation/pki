@@ -21,25 +21,32 @@ defmodule PkiCaPortalWeb.DashboardLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
     opts = tenant_opts(socket)
+    ca_id = socket.assigns.current_user[:ca_instance_id]
 
-    status =
-      case CaEngineClient.get_engine_status(ca_id, opts) do
-        {:ok, s} -> s
-        {:error, _} -> %{status: "unknown", uptime_seconds: 0, active_keys: 0}
-      end
+    {status, keys, ceremonies} =
+      if ca_id do
+        status =
+          case CaEngineClient.get_engine_status(ca_id, opts) do
+            {:ok, s} -> s
+            {:error, _} -> %{status: "unknown", uptime_seconds: 0, active_keys: 0}
+          end
 
-    keys =
-      case CaEngineClient.list_issuer_keys(ca_id, opts) do
-        {:ok, k} -> k
-        {:error, _} -> []
-      end
+        keys =
+          case CaEngineClient.list_issuer_keys(ca_id, opts) do
+            {:ok, k} -> k
+            {:error, _} -> []
+          end
 
-    ceremonies =
-      case CaEngineClient.list_ceremonies(ca_id, opts) do
-        {:ok, c} -> c
-        {:error, _} -> []
+        ceremonies =
+          case CaEngineClient.list_ceremonies(ca_id, opts) do
+            {:ok, c} -> c
+            {:error, _} -> []
+          end
+
+        {status, keys, ceremonies}
+      else
+        {%{status: "no CA instance", uptime_seconds: 0, active_keys: 0}, [], []}
       end
 
     {:noreply,
@@ -166,28 +173,29 @@ defmodule PkiCaPortalWeb.DashboardLive do
       </div>
 
       <%!-- Quick Actions --%>
+      <% role = @current_user[:role] %>
       <div id="quick-actions">
         <h2 class="text-sm font-semibold text-base-content mb-3">Quick Actions</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <a href="/ceremony" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
+          <a :if={role in ["ca_admin", "key_manager"]} href="/ceremony" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
             <div class="card-body items-center p-4 text-center">
               <.icon name="hero-shield-check" class="size-6 text-primary mb-1" />
               <span class="text-sm font-medium">Initiate Ceremony</span>
             </div>
           </a>
-          <a href="/users" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
+          <a :if={role == "ca_admin"} href="/users" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
             <div class="card-body items-center p-4 text-center">
               <.icon name="hero-users" class="size-6 text-primary mb-1" />
               <span class="text-sm font-medium">Manage Users</span>
             </div>
           </a>
-          <a href="/keystores" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
+          <a :if={role in ["ca_admin", "key_manager"]} href="/keystores" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
             <div class="card-body items-center p-4 text-center">
               <.icon name="hero-key" class="size-6 text-primary mb-1" />
               <span class="text-sm font-medium">Manage Keystores</span>
             </div>
           </a>
-          <a href="/audit-log" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
+          <a :if={role in ["ca_admin", "auditor"]} href="/audit-log" class="card bg-base-100 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer">
             <div class="card-body items-center p-4 text-center">
               <.icon name="hero-document-text" class="size-6 text-primary mb-1" />
               <span class="text-sm font-medium">View Audit Log</span>

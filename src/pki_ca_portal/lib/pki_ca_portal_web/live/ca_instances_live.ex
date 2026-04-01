@@ -173,6 +173,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
   def render(assigns) do
     ~H"""
     <div id="ca-instances-page" class="space-y-6">
+      <% role = @current_user[:role] %>
       <%!-- Header with New Root CA button --%>
       <div class="flex items-center justify-between">
         <div>
@@ -180,6 +181,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
           <p class="text-xs text-base-content/50 mt-0.5">Manage root and subordinate CA instances</p>
         </div>
         <button
+          :if={role == "ca_admin"}
           id="btn-new-root-ca"
           class="btn btn-primary btn-sm"
           phx-click="open_create_modal"
@@ -207,6 +209,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
               depth={0}
               renaming_id={@renaming_id}
               rename_value={@rename_value}
+              role={role}
             />
           </div>
         </div>
@@ -214,7 +217,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
 
       <%!-- Create CA Instance Modal --%>
       <div
-        :if={@show_create_modal}
+        :if={role == "ca_admin" && @show_create_modal}
         id="create-ca-modal"
         class="modal modal-open"
         phx-window-keydown="close_create_modal"
@@ -284,7 +287,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
             />
           </div>
           <div>
-            <%= if @renaming_id == @instance[:id] do %>
+            <%= if @role == "ca_admin" && @renaming_id == @instance[:id] do %>
               <form phx-submit="save_rename" class="flex items-center gap-2">
                 <input
                   type="text"
@@ -302,6 +305,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
               <p class="text-sm font-medium text-base-content group/name">
                 {@instance.name}
                 <button
+                  :if={@role == "ca_admin"}
                   class="btn btn-ghost btn-xs opacity-0 group-hover/name:opacity-100 ml-1"
                   phx-click="start_rename"
                   phx-value-id={@instance[:id]}
@@ -325,7 +329,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
             </div>
           </div>
         </div>
-        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div :if={@role == "ca_admin"} class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             :if={@instance[:status] != "active"}
             class="btn btn-ghost btn-xs text-success"
@@ -362,6 +366,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
         depth={@depth + 1}
         renaming_id={@renaming_id}
         rename_value={@rename_value}
+        role={@role}
       />
     </div>
     """
