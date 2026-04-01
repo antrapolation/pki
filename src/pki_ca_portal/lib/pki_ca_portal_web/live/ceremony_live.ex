@@ -78,13 +78,14 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         {:noreply, put_flash(socket, :error, "Please select a Keystore.")}
 
       true ->
-        ceremony_params = [
+        ceremony_params = %{
           algorithm: params["algorithm"],
           keystore_id: params["keystore_id"],
           threshold_k: params["threshold_k"],
           threshold_n: params["threshold_n"],
-          domain_info: params["domain_info"]
-        ]
+          domain_info: params["domain_info"] || %{},
+          initiated_by: socket.assigns.current_user[:username] || "unknown"
+        }
 
         case CaEngineClient.initiate_ceremony(ca_id, ceremony_params, opts) do
           {:ok, result} ->
