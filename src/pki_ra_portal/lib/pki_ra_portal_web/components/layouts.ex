@@ -46,6 +46,7 @@ defmodule PkiRaPortalWeb.Layouts do
           <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Cert Profiles" current={@page_title} />
           <.sidebar_link href="/service-configs" icon="hero-cog-6-tooth" label="Service Configs" current={@page_title} />
           <.sidebar_link href="/api-keys" icon="hero-key" label="API Keys" current={@page_title} />
+          <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
           <div class="divider my-1 px-3"></div>
           <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
         </nav>
@@ -127,6 +128,7 @@ defmodule PkiRaPortalWeb.Layouts do
   defp is_active?("Cert Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true
   defp is_active?("Service Configs", page) when page in ["Service Configs", "Service Configuration"], do: true
   defp is_active?("API Keys", page) when page in ["API Keys", "API Key Management"], do: true
+  defp is_active?("Audit Log", "Audit Log"), do: true
   defp is_active?("Profile", "Profile"), do: true
   defp is_active?(_, _), do: false
 

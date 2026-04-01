@@ -28,6 +28,13 @@ defmodule PkiRaPortalWeb.SessionController do
             |> redirect(to: "/change-password")
 
           true ->
+            tenant_id = user[:tenant_id]
+            PkiPlatformEngine.PlatformAudit.log("login", %{
+              actor_id: user[:id],
+              actor_username: user[:username],
+              tenant_id: tenant_id,
+              portal: "ra"
+            })
             conn
             |> configure_session(renew: true)
             |> put_session(:current_user, serialize_user(user))
@@ -37,6 +44,10 @@ defmodule PkiRaPortalWeb.SessionController do
         end
 
       {:error, :invalid_credentials} ->
+        PkiPlatformEngine.PlatformAudit.log("login_failed", %{
+          portal: "ra",
+          details: %{username: username}
+        })
         render(conn, :login, layout: false, error: "Invalid username or password")
 
       {:error, reason} ->
