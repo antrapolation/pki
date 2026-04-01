@@ -266,6 +266,68 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   @impl true
   def reset_password(_user_id, _new_password, _opts \\ []), do: :ok
 
+  @impl true
+  def list_portal_users(_opts \\ []) do
+    {:ok, Agent.get(__MODULE__, & &1.users) |> Enum.map(fn u ->
+      Map.merge(u, %{role_id: Map.get(u, :role_id, "role-#{u.id}"), email: Map.get(u, :email, "#{u.id}@example.com")})
+    end)}
+  end
+
+  @impl true
+  def create_portal_user(attrs, _opts \\ []) do
+    id = next_id()
+    user = %{
+      id: id,
+      username: attrs[:username] || attrs["username"],
+      display_name: attrs[:display_name] || attrs["display_name"],
+      email: attrs[:email] || attrs["email"],
+      role: attrs[:role] || attrs["role"],
+      status: "active",
+      role_id: next_id()
+    }
+    Agent.update(__MODULE__, fn state -> %{state | users: state.users ++ [user]} end)
+    {:ok, user}
+  end
+
+  @impl true
+  def suspend_user_role(role_id, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.users, fn u ->
+        if Map.get(u, :role_id) == role_id, do: Map.put(u, :status, "suspended"), else: u
+      end)
+      %{state | users: updated}
+    end)
+    {:ok, %{id: role_id, status: "suspended"}}
+  end
+
+  @impl true
+  def activate_user_role(role_id, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.users, fn u ->
+        if Map.get(u, :role_id) == role_id, do: Map.put(u, :status, "active"), else: u
+      end)
+      %{state | users: updated}
+    end)
+    {:ok, %{id: role_id, status: "active"}}
+  end
+
+  @impl true
+  def delete_user_role(role_id, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.reject(state.users, fn u -> Map.get(u, :role_id) == role_id end)
+      %{state | users: updated}
+    end)
+    {:ok, %{id: role_id}}
+  end
+
+  @impl true
+  def reset_user_password(_user_id, _opts \\ []), do: :ok
+
+  @impl true
+  def list_audit_events(_filters, _opts \\ []) do
+    {:ok, Agent.get(__MODULE__, & &1.audit_events)}
+  end
+
   # -- Private --
 
   defp provider_for_type("software"), do: "StrapSoftPrivKeyStoreProvider"

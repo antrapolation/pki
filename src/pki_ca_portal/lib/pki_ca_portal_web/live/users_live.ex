@@ -14,7 +14,6 @@ defmodule PkiCaPortalWeb.UsersLive do
        filtered_users: [],
        role_filter: "all",
        loading: true,
-       form: to_form(%{"username" => "", "display_name" => "", "role" => "ca_admin"}),
        page: 1,
        per_page: 10
      )}
@@ -22,9 +21,8 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    ca_id = ca_instance_id(socket)
-    opts = tenant_opts(socket)
-    users = case CaEngineClient.list_users(ca_id, opts) do
+    opts = actor_opts(socket)
+    users = case CaEngineClient.list_portal_users(opts) do
       {:ok, u} -> u
       {:error, _} -> []
     end
@@ -38,20 +36,22 @@ defmodule PkiCaPortalWeb.UsersLive do
   end
 
   @impl true
-  def handle_event("create_user", %{"username" => username, "display_name" => name, "role" => role}, socket) do
-    ca_id = ca_instance_id(socket)
-    opts = tenant_opts(socket)
-    attrs = %{username: username, display_name: name, role: role}
+  def handle_event("create_user", params, socket) do
+    attrs = %{
+      username: params["username"],
+      display_name: params["display_name"],
+      email: params["email"],
+      role: params["role"]
+    }
 
-    case CaEngineClient.create_user(ca_id, attrs, opts) do
-      {:ok, user} ->
-        users = [user | socket.assigns.users]
-        filtered = filter_users(users, socket.assigns.role_filter)
+    case CaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
+      {:ok, _user} ->
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
 
-        {:noreply,
-         socket
-         |> assign(users: users, filtered_users: filtered)
-         |> put_flash(:info, "User created successfully")}
+      {:error, {:validation_error, errors}} ->
+        msg = format_validation_errors(errors)
+        {:noreply, put_flash(socket, :error, "Failed to create user: #{msg}")}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to create user: #{inspect(reason)}")}
@@ -59,19 +59,49 @@ defmodule PkiCaPortalWeb.UsersLive do
   end
 
   @impl true
-  def handle_event("delete_user", %{"id" => id}, socket) do
-    case CaEngineClient.delete_user(id, tenant_opts(socket)) do
+  def handle_event("suspend_user", %{"role-id" => role_id}, socket) do
+    case CaEngineClient.suspend_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
-        users = Enum.reject(socket.assigns.users, &(&1.id == id))
-        filtered = filter_users(users, socket.assigns.role_filter)
-
-        {:noreply,
-         socket
-         |> assign(users: users, filtered_users: filtered)
-         |> put_flash(:info, "User deleted")}
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User suspended.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete user: #{inspect(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to suspend user: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("activate_user", %{"role-id" => role_id}, socket) do
+    case CaEngineClient.activate_user_role(role_id, actor_opts(socket)) do
+      {:ok, _} ->
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User activated.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to activate user: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("reset_password", %{"user-id" => user_id}, socket) do
+    case CaEngineClient.reset_user_password(user_id, actor_opts(socket)) do
+      :ok ->
+        {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to reset password: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("delete_user", %{"role-id" => role_id}, socket) do
+    case CaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
+      {:ok, _} ->
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User removed.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to remove user: #{inspect(reason)}")}
     end
   end
 
@@ -89,16 +119,23 @@ defmodule PkiCaPortalWeb.UsersLive do
   defp filter_users(users, "all"), do: users
   defp filter_users(users, role), do: Enum.filter(users, &(&1.role == role))
 
-  defp ca_instance_id(socket) do
-    socket.assigns.current_user[:ca_instance_id] || "default"
-  end
+  defp actor_opts(socket) do
+    user = socket.assigns.current_user
+    base = [
+      actor_id: user[:id] || user["id"],
+      actor_username: user[:username] || user["username"]
+    ]
 
-  defp tenant_opts(socket) do
     case socket.assigns[:tenant_id] do
-      nil -> []
-      tid -> [tenant_id: tid]
+      nil -> base
+      tid -> [{:tenant_id, tid} | base]
     end
   end
+
+  defp format_validation_errors(errors) when is_map(errors) do
+    Enum.map_join(errors, ", ", fn {field, msgs} -> "#{field}: #{Enum.join(List.wrap(msgs), ", ")}" end)
+  end
+  defp format_validation_errors(errors), do: inspect(errors)
 
   defp role_badge_class(role) do
     case role do
@@ -109,22 +146,6 @@ defmodule PkiCaPortalWeb.UsersLive do
     end
   end
 
-  defp status_badge_class(status) do
-    case status do
-      "active" -> "badge-success"
-      "inactive" -> "badge-ghost"
-      "suspended" -> "badge-error"
-      _ -> "badge-ghost"
-    end
-  end
-
-  defp has_credential?(user, type) do
-    creds = Map.get(user, :credentials) || []
-    Enum.any?(creds, fn c ->
-      (c[:credential_type] || c["credential_type"]) == type
-    end)
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -132,8 +153,8 @@ defmodule PkiCaPortalWeb.UsersLive do
       <%!-- Create user form --%>
       <div id="create-user-form" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
-          <h2 class="text-sm font-semibold text-base-content mb-4">Create User</h2>
-          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <h2 class="text-sm font-semibold text-base-content mb-4">Create User & Send Invite</h2>
+          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <div>
               <label for="username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
               <input type="text" name="username" id="user-username" required class="input input-bordered input-sm w-full" />
@@ -141,6 +162,10 @@ defmodule PkiCaPortalWeb.UsersLive do
             <div>
               <label for="display_name" class="block text-xs font-medium text-base-content/60 mb-1">Display Name</label>
               <input type="text" name="display_name" id="user-display-name" required class="input input-bordered input-sm w-full" />
+            </div>
+            <div>
+              <label for="email" class="block text-xs font-medium text-base-content/60 mb-1">Email</label>
+              <input type="email" name="email" id="user-email" required class="input input-bordered input-sm w-full" />
             </div>
             <div>
               <label for="role" class="block text-xs font-medium text-base-content/60 mb-1">Role</label>
@@ -152,8 +177,8 @@ defmodule PkiCaPortalWeb.UsersLive do
             </div>
             <div>
               <button type="submit" class="btn btn-primary btn-sm w-full">
-                <.icon name="hero-plus" class="size-4" />
-                Create User
+                <.icon name="hero-envelope" class="size-4" />
+                Create & Send Invite
               </button>
             </div>
           </form>
@@ -187,31 +212,42 @@ defmodule PkiCaPortalWeb.UsersLive do
                 <tr class="text-xs uppercase text-base-content/50">
                   <th>Username</th>
                   <th>Name</th>
+                  <th>Email</th>
                   <th>Role</th>
-                  <th>Credentials</th>
                   <th>Status</th>
                   <th class="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody id="user-list">
                 <tr :for={user <- paginated_users} id={"user-#{user.id}"} class="hover">
-                  <td class="font-mono-data">{user.username}</td>
+                  <td class="font-mono text-xs">{user.username}</td>
                   <td>{user.display_name}</td>
+                  <td class="text-xs">{user.email}</td>
                   <td>
                     <span class={"badge badge-sm #{role_badge_class(user.role)}"}>{user.role}</span>
                   </td>
                   <td>
-                    <span :if={has_credential?(user, "signing")} class="badge badge-sm badge-success mr-1">Signing &#10003;</span>
-                    <span :if={has_credential?(user, "kem")} class="badge badge-sm badge-info mr-1">KEM &#10003;</span>
-                    <span :if={!has_credential?(user, "signing") and !has_credential?(user, "kem")} class="badge badge-sm badge-ghost">No credentials</span>
+                    <span class={["badge badge-sm", if(user.status == "active", do: "badge-success", else: "badge-warning")]}>
+                      {user.status}
+                    </span>
                   </td>
-                  <td>
-                    <span class={"badge badge-sm #{status_badge_class(user.status)}"}>{user.status}</span>
-                  </td>
-                  <td class="text-right">
-                    <button phx-click="delete_user" phx-value-id={user.id} class="btn btn-error btn-sm btn-outline">
+                  <td class="text-right space-x-1">
+                    <%= if user.status == "active" do %>
+                      <button phx-click="suspend_user" phx-value-role-id={user.role_id} class="btn btn-warning btn-sm btn-outline">
+                        Suspend
+                      </button>
+                    <% else %>
+                      <button phx-click="activate_user" phx-value-role-id={user.role_id} class="btn btn-success btn-sm btn-outline">
+                        Activate
+                      </button>
+                    <% end %>
+                    <button phx-click="reset_password" phx-value-user-id={user.id} class="btn btn-info btn-sm btn-outline">
+                      Reset Pwd
+                    </button>
+                    <button phx-click="delete_user" phx-value-role-id={user.role_id}
+                      data-confirm="Remove this user's access? They will no longer be able to log in to this portal."
+                      class="btn btn-error btn-sm btn-outline">
                       <.icon name="hero-trash" class="size-3.5" />
-                      Delete
                     </button>
                   </td>
                 </tr>

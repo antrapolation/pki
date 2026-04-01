@@ -288,6 +288,67 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def reset_password(_user_id, _new_password, _opts \\ []), do: :ok
 
   @impl true
+  def list_portal_users(_opts \\ []) do
+    {:ok, get_state(:users) |> Enum.map(fn u ->
+      Map.merge(u, %{role_id: "role-#{u.id}", email: "#{u.username}@example.com"})
+    end)}
+  end
+
+  @impl true
+  def create_portal_user(attrs, _opts \\ []) do
+    user = %{
+      id: Uniq.UUID.uuid7(),
+      username: attrs[:username] || attrs["username"],
+      display_name: attrs[:display_name] || attrs["display_name"],
+      email: attrs[:email] || attrs["email"],
+      role: attrs[:role] || attrs["role"],
+      status: "active",
+      role_id: Uniq.UUID.uuid7()
+    }
+    update_state(:users, fn users -> users ++ [user] end)
+    {:ok, user}
+  end
+
+  @impl true
+  def suspend_user_role(role_id, _opts \\ []) do
+    update_state(:users, fn users ->
+      Enum.map(users, fn u ->
+        if Map.get(u, :role_id) == role_id, do: Map.put(u, :status, "suspended"), else: u
+      end)
+    end)
+    {:ok, %{id: role_id, status: "suspended"}}
+  end
+
+  @impl true
+  def activate_user_role(role_id, _opts \\ []) do
+    update_state(:users, fn users ->
+      Enum.map(users, fn u ->
+        if Map.get(u, :role_id) == role_id, do: Map.put(u, :status, "active"), else: u
+      end)
+    end)
+    {:ok, %{id: role_id, status: "active"}}
+  end
+
+  @impl true
+  def delete_user_role(role_id, _opts \\ []) do
+    update_state(:users, fn users ->
+      Enum.reject(users, fn u -> Map.get(u, :role_id) == role_id end)
+    end)
+    {:ok, %{id: role_id}}
+  end
+
+  @impl true
+  def reset_user_password(_user_id, _opts \\ []), do: :ok
+
+  @impl true
+  def list_audit_events(_filters, _opts \\ []) do
+    {:ok, [
+      %{id: "evt-1", timestamp: DateTime.utc_now(), action: "user_created", actor_username: "admin1", target_type: "user_profile", details: %{}},
+      %{id: "evt-2", timestamp: DateTime.utc_now(), action: "login", actor_username: "admin1", target_type: nil, details: %{}}
+    ]}
+  end
+
+  @impl true
   def list_ca_instances(_opts \\ []) do
     {:ok, get_state(:ca_instances)}
   end

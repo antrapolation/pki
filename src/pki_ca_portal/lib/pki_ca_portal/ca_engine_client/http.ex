@@ -393,6 +393,71 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     end
   end
 
+  @impl true
+  def list_portal_users(opts \\ []) do
+    case auth_get("/api/v1/portal-users", opts) do
+      {:ok, %{status: 200, body: body}} when is_list(body) -> {:ok, Enum.map(body, &atomize_keys/1)}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def create_portal_user(attrs, opts \\ []) do
+    case auth_post("/api/v1/portal-users", stringify_keys(attrs), opts) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] -> {:ok, atomize_keys(body)}
+      {:ok, %{status: 422, body: %{"details" => details}}} -> {:error, {:validation_error, details}}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def suspend_user_role(role_id, opts \\ []) do
+    case auth_put("/api/v1/portal-users/roles/#{role_id}/suspend", %{}, opts) do
+      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, atomize_keys(body)}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def activate_user_role(role_id, opts \\ []) do
+    case auth_put("/api/v1/portal-users/roles/#{role_id}/activate", %{}, opts) do
+      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, atomize_keys(body)}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def delete_user_role(role_id, opts \\ []) do
+    case auth_delete("/api/v1/portal-users/roles/#{role_id}", opts) do
+      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, atomize_keys(body)}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def reset_user_password(user_id, opts \\ []) do
+    case auth_post("/api/v1/portal-users/#{user_id}/reset-password", %{}, opts) do
+      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def list_audit_events(filters, opts \\ []) do
+    params = Enum.map(filters, fn {k, v} -> {to_string(k), v} end)
+    case auth_get("/api/v1/platform-audit-events", params: params, tenant_id: opts[:tenant_id]) do
+      {:ok, %{status: 200, body: body}} when is_list(body) -> {:ok, Enum.map(body, &atomize_keys/1)}
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
   # --- Private helpers ---
 
   defp base_url do
