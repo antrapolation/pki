@@ -88,4 +88,150 @@ defmodule PkiPlatformEngine.PlatformAuth do
       user -> {:ok, user}
     end
   end
+
+  @doc "List users for a specific tenant and portal with their roles."
+  def list_users_for_portal(tenant_id, portal) do
+    query = from r in UserTenantRole,
+      where: r.tenant_id == ^tenant_id and r.portal == ^portal,
+      join: u in UserProfile, on: u.id == r.user_profile_id,
+      select: %{
+        id: u.id,
+        role_id: r.id,
+        username: u.username,
+        display_name: u.display_name,
+        email: u.email,
+        role: r.role,
+        status: r.status,
+        inserted_at: r.inserted_at
+      },
+      order_by: [asc: r.inserted_at]
+
+    PlatformRepo.all(query)
+  end
+
+  @doc """
+  Create a user for a portal with email invitation.
+  Generates a temporary password, creates UserProfile + UserTenantRole,
+  and sends an invitation email.
+  """
+  def create_user_for_portal(tenant_id, portal, attrs, opts \\ []) do
+    temp_password = generate_temp_password()
+    expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+
+    PlatformRepo.transaction(fn ->
+      user_attrs = %{
+        username: attrs[:username] || attrs["username"],
+        display_name: attrs[:display_name] || attrs["display_name"],
+        email: attrs[:email] || attrs["email"],
+        password: temp_password,
+        must_change_password: true,
+        credential_expires_at: expires_at
+      }
+
+      case create_user_profile(user_attrs) do
+        {:ok, user} ->
+          role = attrs[:role] || attrs["role"]
+
+          case assign_tenant_role(user.id, tenant_id, %{role: role, portal: portal}) do
+            {:ok, _role} ->
+              send_invitation_email(user, role, portal, temp_password, opts)
+              user
+
+            {:error, reason} ->
+              PlatformRepo.rollback(reason)
+          end
+
+        {:error, changeset} ->
+          PlatformRepo.rollback(changeset)
+      end
+    end)
+  end
+
+  @doc "Suspend a user's tenant role (prevents login to that portal)."
+  def suspend_user_role(role_id) do
+    case PlatformRepo.get(UserTenantRole, role_id) do
+      nil -> {:error, :not_found}
+      role -> role |> UserTenantRole.changeset(%{status: "suspended"}) |> PlatformRepo.update()
+    end
+  end
+
+  @doc "Activate a user's tenant role."
+  def activate_user_role(role_id) do
+    case PlatformRepo.get(UserTenantRole, role_id) do
+      nil -> {:error, :not_found}
+      role -> role |> UserTenantRole.changeset(%{status: "active"}) |> PlatformRepo.update()
+    end
+  end
+
+  @doc "Delete a user's tenant role (removes access to that portal for that tenant)."
+  def delete_user_role(role_id) do
+    case PlatformRepo.get(UserTenantRole, role_id) do
+      nil -> {:error, :not_found}
+      role -> PlatformRepo.delete(role)
+    end
+  end
+
+  @doc "Reset a user's password and send new credentials via email."
+  def reset_user_password(user_profile_id, portal, opts \\ []) do
+    temp_password = generate_temp_password()
+    expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+
+    case PlatformRepo.get(UserProfile, user_profile_id) do
+      nil -> {:error, :not_found}
+      user ->
+        changeset = user
+          |> UserProfile.password_changeset(%{password: temp_password, must_change_password: true})
+          |> Ecto.Changeset.put_change(:credential_expires_at, expires_at)
+
+        case PlatformRepo.update(changeset) do
+          {:ok, updated} ->
+            role_label = Keyword.get(opts, :role_label, portal)
+            send_password_reset_email(updated, role_label, portal, temp_password, opts)
+            {:ok, updated}
+
+          {:error, _} = err -> err
+        end
+    end
+  end
+
+  @doc "Get a user profile by ID."
+  def get_user_profile(id) do
+    case PlatformRepo.get(UserProfile, id) do
+      nil -> {:error, :not_found}
+      user -> {:ok, user}
+    end
+  end
+
+  defp generate_temp_password do
+    :crypto.strong_rand_bytes(12) |> Base.encode64(padding: false) |> binary_part(0, 16)
+  end
+
+  defp send_invitation_email(user, role, portal, password, opts) do
+    portal_url = Keyword.get(opts, :portal_url, "")
+    tenant_name = Keyword.get(opts, :tenant_name, "")
+    role_label = format_role_label(role, portal)
+
+    html = PkiPlatformEngine.EmailTemplates.user_invitation(tenant_name, role_label, portal_url, user.username, password)
+    PkiPlatformEngine.Mailer.send_email(user.email, "You've been invited to #{tenant_name} - #{role_label}", html)
+  end
+
+  defp send_password_reset_email(user, role_label, _portal, password, opts) do
+    portal_url = Keyword.get(opts, :portal_url, "")
+    tenant_name = Keyword.get(opts, :tenant_name, "")
+
+    html = PkiPlatformEngine.EmailTemplates.single_admin_credential(tenant_name, role_label, portal_url, user.username, password)
+    PkiPlatformEngine.Mailer.send_email(user.email, "Your password has been reset - #{tenant_name}", html)
+  end
+
+  defp format_role_label(role, portal) do
+    case {portal, role} do
+      {"ca", "ca_admin"} -> "CA Administrator"
+      {"ca", "key_manager"} -> "Key Manager"
+      {"ca", "auditor"} -> "Auditor"
+      {"ra", "ra_admin"} -> "RA Administrator"
+      {"ra", "ra_officer"} -> "RA Officer"
+      {"ra", "auditor"} -> "Auditor"
+      {_, role} -> role
+    end
+  end
 end
