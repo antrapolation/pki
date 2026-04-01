@@ -31,7 +31,8 @@ defmodule PkiPlatformEngine.MixProject do
       {:uniq, "~> 0.6"},
       {:plug, "~> 1.14"},
       {:argon2_elixir, "~> 4.0"},
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      {:strap_softhsm_priv_key_store_provider, path: "../strap_softhsm_priv_key_store_provider"}
     ]
   end
 
