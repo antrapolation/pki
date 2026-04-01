@@ -42,15 +42,16 @@ defmodule PkiCaPortalWeb.Layouts do
         </div>
 
         <%!-- Navigation --%>
+        <% role = (@current_user && @current_user[:role]) || "auditor" %>
         <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
           <.sidebar_link href="/ca-instances" icon="hero-server-stack" label="CA Instances" current={@page_title} />
-          <.sidebar_link href="/users" icon="hero-users" label="Users" current={@page_title} />
-          <.sidebar_link href="/keystores" icon="hero-key" label="Keystores" current={@page_title} />
-          <.sidebar_link href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
-          <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
-          <div class="divider my-1 px-3"></div>
-          <.sidebar_link href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />
+          <.sidebar_link :if={role == "ca_admin"} href="/users" icon="hero-users" label="Users" current={@page_title} />
+          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/keystores" icon="hero-key" label="Keystores" current={@page_title} />
+          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
+          <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
+          <div :if={role == "ca_admin"} class="divider my-1 px-3"></div>
+          <.sidebar_link :if={role == "ca_admin"} href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />
           <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
         </nav>
 
@@ -74,7 +75,7 @@ defmodule PkiCaPortalWeb.Layouts do
                 <.icon name="hero-user-circle" class="size-3.5 inline -mt-0.5" />
                 {@current_user[:display_name] || @current_user[:username]}
               </span>
-              <form method="delete" action="/logout">
+              <form method="post" action="/logout">
                 <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
                 <input type="hidden" name="_method" value="delete" />
                 <button type="submit" class="btn btn-ghost btn-xs text-base-content/50 hover:text-error">
