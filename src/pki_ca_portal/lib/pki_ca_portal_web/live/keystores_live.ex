@@ -65,16 +65,25 @@ defmodule PkiCaPortalWeb.KeystoresLive do
         {:noreply, put_flash(socket, :error, "Please select an HSM device.")}
 
       true ->
-        attrs = %{type: type}
-        attrs = if type == "hsm", do: Map.put(attrs, :hsm_device_id, hsm_device_id), else: attrs
+        # Check for duplicate keystore type on same CA instance
+        existing = Enum.find(socket.assigns.keystores, fn ks ->
+          ks[:ca_instance_id] == ca_instance_id and ks[:type] == type
+        end)
 
-        case CaEngineClient.configure_keystore(ca_instance_id, attrs, tenant_opts(socket)) do
-          {:ok, _keystore} ->
-            send(self(), :load_data)
-            {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
+        if existing do
+          {:noreply, put_flash(socket, :error, "This CA instance already has a #{type} keystore.")}
+        else
+          attrs = %{type: type}
+          attrs = if type == "hsm", do: Map.put(attrs, :hsm_device_id, hsm_device_id), else: attrs
 
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
+          case CaEngineClient.configure_keystore(ca_instance_id, attrs, tenant_opts(socket)) do
+            {:ok, _keystore} ->
+              send(self(), :load_data)
+              {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
+
+            {:error, reason} ->
+              {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
+          end
         end
     end
   end
@@ -168,7 +177,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
             <div :if={@show_hsm_picker} class="md:col-span-2">
               <label class="block text-xs font-medium text-base-content/60 mb-1">HSM Device</label>
               <%= if Enum.empty?(@hsm_devices) do %>
-                <p class="text-xs text-error mt-1">No HSM devices registered. <a href="/hsm-devices" class="link link-primary">Register one first.</a></p>
+                <p class="text-xs text-error mt-1">No HSM devices assigned to your tenant. Contact the platform administrator.</p>
               <% else %>
                 <select name="hsm_device_id" class="select select-bordered select-sm w-full" required>
                   <option value="" disabled selected>Select HSM Device</option>
@@ -203,16 +212,24 @@ defmodule PkiCaPortalWeb.KeystoresLive do
                 <tr class="text-xs uppercase text-base-content/50">
                   <th>CA Instance</th>
                   <th>Type</th>
+                  <th>HSM Device</th>
                   <th>Status</th>
-                  <th>Keystore ID</th>
+                  <th>ID</th>
                   <th>Created</th>
                 </tr>
               </thead>
               <tbody id="keystore-list">
-                <tr :for={ks <- paginated_keystores} id={"keystore-#{ks.id}"} class="hover">
+                <% decoded_keystores = Enum.map(paginated_keystores, fn ks ->
+                  config = if ks[:config], do: PkiCaEngine.Schema.Keystore.decode_config(ks.config), else: nil
+                  Map.put(ks, :decoded_config, config)
+                end) %>
+                <tr :for={ks <- decoded_keystores} id={"keystore-#{ks.id}"} class="hover">
                   <td class="font-medium text-sm">{Map.get(ks, :ca_instance_name, "-")}</td>
                   <td>
                     <span class={"badge badge-sm #{type_badge_class(ks.type)}"}>{ks.type}</span>
+                  </td>
+                  <td class="text-xs">
+                    {if ks.decoded_config, do: ks.decoded_config["label"] || "-", else: "-"}
                   </td>
                   <td>
                     <span class={"badge badge-sm #{status_badge_class(ks.status)}"}>{ks.status}</span>
