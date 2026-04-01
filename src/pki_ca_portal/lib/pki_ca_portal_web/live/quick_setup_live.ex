@@ -51,7 +51,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
 
   @impl true
   def handle_info({:run, root_name, sub_name, root_algo, sub_algo}, socket) do
-    _ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    _ca_id = socket.assigns.current_user[:ca_instance_id]
     opts = tenant_opts(socket)
     log = []
 
