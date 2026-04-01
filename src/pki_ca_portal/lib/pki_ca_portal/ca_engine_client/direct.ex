@@ -629,7 +629,15 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   defp changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+        atom_key = try do
+          String.to_existing_atom(key)
+        rescue
+          ArgumentError -> nil
+        end
+        case atom_key && Keyword.get(opts, atom_key) do
+          nil -> key
+          val -> to_string(val)
+        end
       end)
     end)
   end

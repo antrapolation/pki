@@ -120,11 +120,16 @@ defmodule PkiPlatformEngine.HsmManagement do
 
   @doc "Probes a device atomically — verifies tenant access and probes in one operation."
   def probe_device_for_tenant(tenant_id, hsm_device_id) do
-    with {:ok, device} <- get_device_for_tenant(tenant_id, hsm_device_id),
-         {:ok, manufacturer} <- probe_pkcs11(device.pkcs11_lib_path) do
-      device
-      |> HsmDevice.changeset(%{manufacturer: manufacturer, status: "active"})
-      |> PlatformRepo.update()
+    with {:ok, device} <- get_device_for_tenant(tenant_id, hsm_device_id) do
+      case probe_pkcs11(device.pkcs11_lib_path) do
+        {:ok, manufacturer} ->
+          device
+          |> HsmDevice.changeset(%{manufacturer: manufacturer, status: "active"})
+          |> PlatformRepo.update()
+
+        {:error, reason} ->
+          {:error, {:pkcs11_unreachable, reason}}
+      end
     end
   end
 

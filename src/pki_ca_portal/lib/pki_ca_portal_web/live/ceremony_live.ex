@@ -13,6 +13,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
        ceremonies: [],
        keystores: [],
        ca_instances: [],
+       effective_ca_id: nil,
        loading: true,
        selected_ca_instance_id: "",
        ceremony_result: nil,
@@ -33,30 +34,39 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       end
 
     # Use first CA instance if user has no assigned instance
-    effective_ca_id = ca_id || (ca_instances |> List.first() |> then(fn nil -> nil; i -> i[:id] end))
-
-    ceremonies = case effective_ca_id && CaEngineClient.list_ceremonies(effective_ca_id, opts) do
-      {:ok, c} -> c
-      _ -> []
+    effective_ca_id = ca_id || case ca_instances do
+      [first | _] -> first[:id]
+      [] -> nil
     end
 
-    keystores = case effective_ca_id && CaEngineClient.list_keystores(effective_ca_id, opts) do
-      {:ok, ks} -> ks
-      _ -> []
-    end
+    {ceremonies, keystores} =
+      if effective_ca_id do
+        cers = case CaEngineClient.list_ceremonies(effective_ca_id, opts) do
+          {:ok, c} -> c
+          {:error, _} -> []
+        end
+        kss = case CaEngineClient.list_keystores(effective_ca_id, opts) do
+          {:ok, ks} -> ks
+          {:error, _} -> []
+        end
+        {cers, kss}
+      else
+        {[], []}
+      end
 
     {:noreply,
      assign(socket,
        ceremonies: ceremonies,
        keystores: keystores,
        ca_instances: ca_instances,
+       effective_ca_id: effective_ca_id,
        loading: false
      )}
   end
 
   @impl true
   def handle_event("initiate_ceremony", params, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id]
+    ca_id = socket.assigns[:effective_ca_id] || socket.assigns.current_user[:ca_instance_id]
     opts = tenant_opts(socket)
 
     ceremony_params = [
