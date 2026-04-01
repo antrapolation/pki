@@ -84,7 +84,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
           threshold_k: params["threshold_k"],
           threshold_n: params["threshold_n"],
           domain_info: params["domain_info"] || %{},
-          initiated_by: socket.assigns.current_user[:username] || "unknown"
+          initiated_by: socket.assigns.current_user[:id]
         }
 
         case CaEngineClient.initiate_ceremony(ca_id, ceremony_params, opts) do
