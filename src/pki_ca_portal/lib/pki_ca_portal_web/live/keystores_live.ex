@@ -15,6 +15,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
        hsm_devices: [],
        loading: true,
        show_hsm_picker: false,
+       form_ca_instance_id: "",
        selected_ca_instance_id: "",
        page: 1,
        per_page: 10
@@ -89,8 +90,11 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   end
 
   @impl true
-  def handle_event("form_change", %{"type" => type}, socket) do
-    {:noreply, assign(socket, show_hsm_picker: type == "hsm")}
+  def handle_event("form_change", params, socket) do
+    {:noreply, assign(socket,
+      show_hsm_picker: params["type"] == "hsm",
+      form_ca_instance_id: params["ca_instance_id"] || socket.assigns.form_ca_instance_id
+    )}
   end
 
   @impl true
@@ -163,8 +167,8 @@ defmodule PkiCaPortalWeb.KeystoresLive do
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">CA Instance</label>
               <select name="ca_instance_id" class="select select-bordered select-sm w-full" required>
-                <option value="" disabled selected>Select CA Instance</option>
-                <option :for={inst <- @ca_instances} value={inst.id}>{inst.name}</option>
+                <option value="" disabled selected={@form_ca_instance_id == ""}>Select CA Instance</option>
+                <option :for={inst <- @ca_instances} value={inst.id} selected={@form_ca_instance_id == inst.id}>{inst.name}</option>
               </select>
             </div>
             <div>
