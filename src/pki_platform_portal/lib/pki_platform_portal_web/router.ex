@@ -54,6 +54,7 @@ defmodule PkiPlatformPortalWeb.Router do
       live "/tenants", TenantsLive
       live "/tenants/new", TenantNewLive
       live "/tenants/:id", TenantDetailLive
+      live "/hsm-devices", HsmDevicesLive
       live "/system", SystemLive
       live "/admins", AdminsLive
       live "/profile", ProfileLive

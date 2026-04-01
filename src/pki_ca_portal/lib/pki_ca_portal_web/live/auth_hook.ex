@@ -16,6 +16,7 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
     "key_manager" => [
       PkiCaPortalWeb.DashboardLive,
       PkiCaPortalWeb.CaInstancesLive,
+      PkiCaPortalWeb.HsmDevicesLive,
       PkiCaPortalWeb.KeystoresLive,
       PkiCaPortalWeb.CeremonyLive,
       PkiCaPortalWeb.ProfileLive

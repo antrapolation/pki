@@ -16,6 +16,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   alias PkiCaEngine.UserManagement
   alias PkiCaEngine.CaInstanceManagement
   alias PkiCaEngine.KeystoreManagement
+  alias PkiCaEngine.HsmDeviceManagement
   alias PkiCaEngine.IssuerKeyManagement
   alias PkiCaEngine.KeyCeremony.SyncCeremony
   alias PkiCaEngine.TenantRepo
@@ -517,6 +518,48 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
         })
         :ok
 
+      {:error, _} = err -> err
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # HSM Device Management
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def list_hsm_devices(opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    devices = HsmDeviceManagement.list_devices_for_tenant(tenant_id)
+    {:ok, Enum.map(devices, &to_map/1)}
+  end
+
+  @impl true
+  def register_hsm_device(attrs, opts \\ []) do
+    # Registration is platform-level; CA portal delegates to platform
+    case PkiPlatformEngine.HsmManagement.register_device(attrs) do
+      {:ok, device} ->
+        # Auto-grant access to the current tenant
+        tenant_id = opts[:tenant_id]
+        if tenant_id, do: PkiPlatformEngine.HsmManagement.grant_tenant_access(tenant_id, device.id)
+        {:ok, to_map(device)}
+
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def probe_hsm_device(id, _opts \\ []) do
+    case PkiPlatformEngine.HsmManagement.probe_device(id) do
+      {:ok, device} -> {:ok, to_map(device)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def deactivate_hsm_device(id, _opts \\ []) do
+    case PkiPlatformEngine.HsmManagement.deactivate_device(id) do
+      {:ok, device} -> {:ok, to_map(device)}
       {:error, _} = err -> err
     end
   end

@@ -41,6 +41,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
         <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
           <.sidebar_link href="/tenants" icon="hero-building-office-2" label="Tenants" current={@page_title} />
+          <.sidebar_link href="/hsm-devices" icon="hero-cpu-chip" label="HSM Devices" current={@page_title} />
           <.sidebar_link href="/system" icon="hero-server-stack" label="System" current={@page_title} />
           <.sidebar_link href="/admins" icon="hero-users" label="Admins" current={@page_title} />
           <div class="divider my-1 px-3"></div>
@@ -119,6 +120,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
 
   defp is_active?("Dashboard", "Dashboard"), do: true
   defp is_active?("Tenants", page) when page in ["Tenants", "New Tenant", "Tenant Detail"], do: true
+  defp is_active?("HSM Devices", "HSM Devices"), do: true
   defp is_active?("System", "System"), do: true
   defp is_active?("Admins", "Admins"), do: true
   defp is_active?("Profile", "Profile"), do: true

@@ -43,6 +43,10 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback delete_user_role(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback reset_user_password(String.t(), opts()) :: :ok | {:error, term()}
   @callback resend_invitation(String.t(), opts()) :: :ok | {:error, term()}
+  @callback list_hsm_devices(opts()) :: {:ok, [map()]} | {:error, term()}
+  @callback register_hsm_device(map(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback probe_hsm_device(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback deactivate_hsm_device(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback list_audit_events(keyword(), opts()) :: {:ok, [map()]} | {:error, term()}
 
   defp impl,
@@ -78,5 +82,9 @@ defmodule PkiCaPortal.CaEngineClient do
   def delete_user_role(role_id, opts \\ []), do: impl().delete_user_role(role_id, opts)
   def reset_user_password(user_id, opts \\ []), do: impl().reset_user_password(user_id, opts)
   def resend_invitation(user_id, opts \\ []), do: impl().resend_invitation(user_id, opts)
+  def list_hsm_devices(opts \\ []), do: impl().list_hsm_devices(opts)
+  def register_hsm_device(attrs, opts \\ []), do: impl().register_hsm_device(attrs, opts)
+  def probe_hsm_device(id, opts \\ []), do: impl().probe_hsm_device(id, opts)
+  def deactivate_hsm_device(id, opts \\ []), do: impl().deactivate_hsm_device(id, opts)
   def list_audit_events(filters, opts \\ []), do: impl().list_audit_events(filters, opts)
 end

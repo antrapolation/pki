@@ -344,6 +344,18 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def resend_invitation(_user_id, _opts \\ []), do: :ok
 
   @impl true
+  def list_hsm_devices(_opts \\ []), do: {:ok, []}
+
+  @impl true
+  def register_hsm_device(_attrs, _opts \\ []), do: {:ok, %{id: "mock-hsm-1", label: "Mock HSM", status: "active"}}
+
+  @impl true
+  def probe_hsm_device(_id, _opts \\ []), do: {:ok, %{id: "mock-hsm-1", status: "active", manufacturer: "Mock"}}
+
+  @impl true
+  def deactivate_hsm_device(_id, _opts \\ []), do: {:ok, %{id: "mock-hsm-1", status: "inactive"}}
+
+  @impl true
   def list_audit_events(_filters, _opts \\ []) do
     {:ok, [
       %{id: "evt-1", timestamp: DateTime.utc_now(), action: "user_created", actor_username: "admin1", target_type: "user_profile", details: %{}},

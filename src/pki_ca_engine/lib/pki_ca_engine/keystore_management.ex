@@ -22,7 +22,32 @@ defmodule PkiCaEngine.KeystoreManagement do
   @spec configure_keystore(String.t(), String.t(), map()) :: {:ok, Keystore.t()} | {:error, Ecto.Changeset.t()}
   def configure_keystore(tenant_id, ca_instance_id, attrs) do
     repo = TenantRepo.ca_repo(tenant_id)
+    type = attrs[:type] || attrs["type"]
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
+
+    attrs =
+      if type == "hsm" do
+        hsm_device_id = attrs[:hsm_device_id] || attrs["hsm_device_id"]
+
+        case PkiPlatformEngine.HsmManagement.get_device(hsm_device_id) do
+          {:ok, device} ->
+            config = Keystore.encode_config(%{
+              "hsm_device_id" => device.id,
+              "pkcs11_lib_path" => device.pkcs11_lib_path,
+              "slot_id" => device.slot_id,
+              "label" => device.label
+            })
+
+            attrs
+            |> Map.put(:config, config)
+            |> Map.put(:provider_name, device.label)
+
+          _ ->
+            attrs
+        end
+      else
+        attrs
+      end
 
     %Keystore{}
     |> Keystore.changeset(attrs)
@@ -53,6 +78,14 @@ defmodule PkiCaEngine.KeystoreManagement do
     case repo.get(Keystore, id) do
       nil -> {:error, :not_found}
       keystore -> {:ok, keystore}
+    end
+  end
+
+  @doc "Gets a keystore by ID with decoded config map."
+  def get_keystore_with_config(tenant_id, id) do
+    case get_keystore(tenant_id, id) do
+      {:ok, keystore} -> {:ok, keystore, Keystore.decode_config(keystore.config)}
+      error -> error
     end
   end
 

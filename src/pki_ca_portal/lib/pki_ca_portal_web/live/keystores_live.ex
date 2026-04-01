@@ -12,7 +12,9 @@ defmodule PkiCaPortalWeb.KeystoresLive do
        page_title: "Keystore Management",
        keystores: [],
        ca_instances: [],
+       hsm_devices: [],
        loading: true,
+       show_hsm_picker: false,
        selected_ca_instance_id: "",
        page: 1,
        per_page: 10
@@ -34,28 +36,52 @@ defmodule PkiCaPortalWeb.KeystoresLive do
         {:error, _} -> []
       end
 
+    hsm_devices =
+      case CaEngineClient.list_hsm_devices(opts) do
+        {:ok, devices} -> Enum.filter(devices, &(&1[:status] == "active"))
+        {:error, _} -> []
+      end
+
     {:noreply,
      assign(socket,
        keystores: keystores,
        ca_instances: ca_instances,
+       hsm_devices: hsm_devices,
        loading: false
      )}
   end
 
   @impl true
-  def handle_event("configure_keystore", %{"type" => type, "ca_instance_id" => ca_instance_id}, socket) do
-    if ca_instance_id == "" do
-      {:noreply, put_flash(socket, :error, "Please select a CA Instance.")}
-    else
-      case CaEngineClient.configure_keystore(ca_instance_id, %{type: type}, tenant_opts(socket)) do
-        {:ok, _keystore} ->
-          send(self(), :load_data)
-          {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
+  def handle_event("configure_keystore", params, socket) do
+    type = params["type"]
+    ca_instance_id = params["ca_instance_id"]
+    hsm_device_id = params["hsm_device_id"]
 
-        {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
-      end
+    cond do
+      ca_instance_id == "" or is_nil(ca_instance_id) ->
+        {:noreply, put_flash(socket, :error, "Please select a CA Instance.")}
+
+      type == "hsm" and (hsm_device_id == "" or is_nil(hsm_device_id)) ->
+        {:noreply, put_flash(socket, :error, "Please select an HSM device.")}
+
+      true ->
+        attrs = %{type: type}
+        attrs = if type == "hsm", do: Map.put(attrs, :hsm_device_id, hsm_device_id), else: attrs
+
+        case CaEngineClient.configure_keystore(ca_instance_id, attrs, tenant_opts(socket)) do
+          {:ok, _keystore} ->
+            send(self(), :load_data)
+            {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
+        end
     end
+  end
+
+  @impl true
+  def handle_event("form_change", %{"type" => type}, socket) do
+    {:noreply, assign(socket, show_hsm_picker: type == "hsm")}
   end
 
   @impl true
@@ -124,30 +150,38 @@ defmodule PkiCaPortalWeb.KeystoresLive do
       <div id="configure-keystore-form" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <h2 class="text-sm font-semibold text-base-content mb-4">Configure Keystore</h2>
-          <form phx-submit="configure_keystore" class="flex items-end gap-4">
-            <div class="flex-1 max-w-xs">
-              <label for="ks-ca-instance" class="block text-xs font-medium text-base-content/60 mb-1">CA Instance</label>
-              <select name="ca_instance_id" id="ks-ca-instance" class="select select-bordered select-sm w-full" required>
+          <form phx-submit="configure_keystore" phx-change="form_change" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+            <div>
+              <label class="block text-xs font-medium text-base-content/60 mb-1">CA Instance</label>
+              <select name="ca_instance_id" class="select select-bordered select-sm w-full" required>
                 <option value="" disabled selected>Select CA Instance</option>
-                <option
-                  :for={inst <- @ca_instances}
-                  value={inst.id}
-                >
-                  {inst.name}
-                </option>
+                <option :for={inst <- @ca_instances} value={inst.id}>{inst.name}</option>
               </select>
             </div>
-            <div class="flex-1 max-w-xs">
-              <label for="type" class="block text-xs font-medium text-base-content/60 mb-1">Type</label>
-              <select name="type" id="keystore-type" class="select select-bordered select-sm w-full">
+            <div>
+              <label class="block text-xs font-medium text-base-content/60 mb-1">Type</label>
+              <select name="type" class="select select-bordered select-sm w-full">
                 <option value="software">Software</option>
-                <option value="hsm">HSM</option>
+                <option value="hsm">HSM (PKCS#11)</option>
               </select>
             </div>
-            <button type="submit" class="btn btn-primary btn-sm">
-              <.icon name="hero-plus" class="size-4" />
-              Configure
-            </button>
+            <div :if={@show_hsm_picker} class="md:col-span-2">
+              <label class="block text-xs font-medium text-base-content/60 mb-1">HSM Device</label>
+              <%= if Enum.empty?(@hsm_devices) do %>
+                <p class="text-xs text-error mt-1">No HSM devices registered. <a href="/hsm-devices" class="link link-primary">Register one first.</a></p>
+              <% else %>
+                <select name="hsm_device_id" class="select select-bordered select-sm w-full" required>
+                  <option value="" disabled selected>Select HSM Device</option>
+                  <option :for={dev <- @hsm_devices} value={dev.id}>{dev.label} ({dev[:manufacturer] || "PKCS#11"})</option>
+                </select>
+              <% end %>
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary btn-sm w-full">
+                <.icon name="hero-plus" class="size-4" />
+                Configure
+              </button>
+            </div>
           </form>
         </div>
       </div>

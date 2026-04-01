@@ -123,6 +123,19 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   def render(assigns) do
     ~H"""
     <div id="ceremony-page" class="space-y-6">
+      <%!-- Server-side HSM disclaimer --%>
+      <div class="alert border border-info/30 bg-info/5">
+        <.icon name="hero-information-circle" class="size-5 text-info shrink-0" />
+        <div>
+          <p class="text-sm font-medium text-base-content">Server-Side HSM Only</p>
+          <p class="text-xs text-base-content/60 mt-0.5">
+            Key ceremonies use server-side HSM devices managed by the platform. Keys are generated and stored on the server's HSM hardware via PKCS#11.
+            Client-side HSM (e.g., USB tokens on your laptop) is not supported in this version.
+            All Key Managers participate via this web portal — PIN entry is transmitted securely to the server.
+          </p>
+        </div>
+      </div>
+
       <%!-- CA Instance filter --%>
       <div class="flex items-center gap-3">
         <label for="ca-instance-filter" class="text-xs font-medium text-base-content/60">Filter by CA Instance</label>

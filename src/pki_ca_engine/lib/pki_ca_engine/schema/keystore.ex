@@ -37,6 +37,19 @@ defmodule PkiCaEngine.Schema.Keystore do
     |> validate_inclusion(:status, @statuses)
   end
 
+  @doc "Decodes the config binary field to a map. Returns nil for nil/empty."
+  def decode_config(nil), do: nil
+  def decode_config(bin) when is_binary(bin) do
+    case Jason.decode(bin) do
+      {:ok, map} -> map
+      _ -> nil
+    end
+  end
+
+  @doc "Encodes a config map to JSON binary for storage."
+  def encode_config(nil), do: nil
+  def encode_config(map) when is_map(map), do: Jason.encode!(map)
+
   defp maybe_generate_id(changeset) do
     if get_field(changeset, :id) do
       changeset
