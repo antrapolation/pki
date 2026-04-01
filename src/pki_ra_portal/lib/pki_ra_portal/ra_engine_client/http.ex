@@ -508,6 +508,29 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     end
   end
 
+  # --- Platform-level user management (not yet implemented via HTTP) ---
+
+  @impl true
+  def list_portal_users(_opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def create_portal_user(_attrs, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def suspend_user_role(_role_id, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def activate_user_role(_role_id, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def delete_user_role(_role_id, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def reset_user_password(_user_id, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def list_audit_events(_filters, _opts \\ []), do: {:error, :not_implemented}
+
   # --- Private helpers ---
 
   defp base_url do

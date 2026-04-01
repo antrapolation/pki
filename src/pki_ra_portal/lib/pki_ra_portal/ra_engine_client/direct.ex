@@ -322,6 +322,138 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Platform-level User Management
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def list_portal_users(opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    {:ok, PkiPlatformEngine.PlatformAuth.list_users_for_portal(tenant_id, "ra")}
+  end
+
+  @impl true
+  def create_portal_user(attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    portal_url = Application.get_env(:pki_ra_portal, :portal_url, "")
+    tenant_name = get_tenant_name(tenant_id)
+
+    case PkiPlatformEngine.PlatformAuth.create_user_for_portal(tenant_id, "ra", attrs,
+      portal_url: portal_url,
+      tenant_name: tenant_name
+    ) do
+      {:ok, user} ->
+        PkiPlatformEngine.PlatformAudit.log("user_created", %{
+          actor_id: opts[:actor_id],
+          actor_username: opts[:actor_username],
+          target_type: "user_profile",
+          target_id: user.id,
+          tenant_id: tenant_id,
+          portal: "ra",
+          details: %{username: user.username, role: attrs[:role] || attrs["role"]}
+        })
+        {:ok, %{id: user.id, username: user.username, display_name: user.display_name, email: user.email}}
+
+      {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl true
+  def suspend_user_role(role_id, opts \\ []) do
+    case PkiPlatformEngine.PlatformAuth.suspend_user_role(role_id) do
+      {:ok, role} ->
+        PkiPlatformEngine.PlatformAudit.log("user_suspended", %{
+          actor_id: opts[:actor_id],
+          actor_username: opts[:actor_username],
+          target_type: "user_tenant_role",
+          target_id: role_id,
+          tenant_id: opts[:tenant_id],
+          portal: "ra"
+        })
+        {:ok, %{id: role.id, status: role.status}}
+
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def activate_user_role(role_id, opts \\ []) do
+    case PkiPlatformEngine.PlatformAuth.activate_user_role(role_id) do
+      {:ok, role} ->
+        PkiPlatformEngine.PlatformAudit.log("user_activated", %{
+          actor_id: opts[:actor_id],
+          actor_username: opts[:actor_username],
+          target_type: "user_tenant_role",
+          target_id: role_id,
+          tenant_id: opts[:tenant_id],
+          portal: "ra"
+        })
+        {:ok, %{id: role.id, status: role.status}}
+
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def delete_user_role(role_id, opts \\ []) do
+    case PkiPlatformEngine.PlatformAuth.delete_user_role(role_id) do
+      {:ok, _} ->
+        PkiPlatformEngine.PlatformAudit.log("user_deleted", %{
+          actor_id: opts[:actor_id],
+          actor_username: opts[:actor_username],
+          target_type: "user_tenant_role",
+          target_id: role_id,
+          tenant_id: opts[:tenant_id],
+          portal: "ra"
+        })
+        {:ok, %{id: role_id}}
+
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def reset_user_password(user_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    portal_url = Application.get_env(:pki_ra_portal, :portal_url, "")
+    tenant_name = get_tenant_name(tenant_id)
+
+    case PkiPlatformEngine.PlatformAuth.reset_user_password(user_id, "ra",
+      portal_url: portal_url,
+      tenant_name: tenant_name
+    ) do
+      {:ok, _} ->
+        PkiPlatformEngine.PlatformAudit.log("password_reset", %{
+          actor_id: opts[:actor_id],
+          actor_username: opts[:actor_username],
+          target_type: "user_profile",
+          target_id: user_id,
+          tenant_id: tenant_id,
+          portal: "ra"
+        })
+        :ok
+
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def list_audit_events(filters, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    full_filters = [{:tenant_id, tenant_id} | filters]
+    events = PkiPlatformEngine.PlatformAudit.list_events(full_filters)
+    {:ok, Enum.map(events, &to_map/1)}
+  end
+
+  defp get_tenant_name(nil), do: ""
+  defp get_tenant_name(tenant_id) do
+    case PkiPlatformEngine.PlatformRepo.get(PkiPlatformEngine.Tenant, tenant_id) do
+      nil -> ""
+      tenant -> tenant.name
+    end
+  end
+
   defp format_changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->

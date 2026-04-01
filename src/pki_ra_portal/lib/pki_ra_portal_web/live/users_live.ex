@@ -8,45 +8,31 @@ defmodule PkiRaPortalWeb.UsersLive do
     if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
-     socket
-     |> assign(
-       page_title: "Users",
+     assign(socket,
+       page_title: "User Management",
        users: [],
        filtered_users: [],
-       ra_instances: [],
-       loading: true,
-       selected_ra_instance_id: "",
        role_filter: "all",
+       loading: true,
        page: 1,
-       per_page: 50
-     )
-     |> apply_pagination()}
+       per_page: 10
+     )}
   end
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
-
-    users = case RaEngineClient.list_users(opts) do
+    opts = actor_opts(socket)
+    users = case RaEngineClient.list_portal_users(opts) do
       {:ok, u} -> u
       {:error, _} -> []
     end
 
-    ra_instances =
-      case RaEngineClient.list_ra_instances(opts) do
-        {:ok, instances} -> instances
-        {:error, _} -> []
-      end
-
     {:noreply,
-     socket
-     |> assign(
+     assign(socket,
        users: users,
        filtered_users: users,
-       ra_instances: ra_instances,
        loading: false
-     )
-     |> apply_pagination()}
+     )}
   end
 
   @impl true
@@ -54,19 +40,18 @@ defmodule PkiRaPortalWeb.UsersLive do
     attrs = %{
       username: params["username"],
       display_name: params["display_name"],
+      email: params["email"],
       role: params["role"]
     }
 
-    case RaEngineClient.create_user(attrs, tenant_opts(socket)) do
-      {:ok, user} ->
-        users = [user | socket.assigns.users]
-        filtered = filter_users(users, socket.assigns.role_filter)
+    case RaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
+      {:ok, _user} ->
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
 
-        {:noreply,
-         socket
-         |> assign(users: users, filtered_users: filtered, page: 1)
-         |> apply_pagination()
-         |> put_flash(:info, "User created successfully")}
+      {:error, {:validation_error, errors}} ->
+        msg = format_validation_errors(errors)
+        {:noreply, put_flash(socket, :error, "Failed to create user: #{msg}")}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to create user: #{inspect(reason)}")}
@@ -74,95 +59,136 @@ defmodule PkiRaPortalWeb.UsersLive do
   end
 
   @impl true
-  def handle_event("delete_user", %{"id" => id}, socket) do
-    case RaEngineClient.delete_user(id, tenant_opts(socket)) do
+  def handle_event("suspend_user", %{"role-id" => role_id}, socket) do
+    case RaEngineClient.suspend_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
-        users = Enum.reject(socket.assigns.users, &(&1.id == id))
-        filtered = filter_users(users, socket.assigns.role_filter)
-
-        {:noreply,
-         socket
-         |> assign(users: users, filtered_users: filtered)
-         |> apply_pagination()
-         |> put_flash(:info, "User suspended")}
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User suspended.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete user: #{inspect(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to suspend user: #{inspect(reason)}")}
     end
   end
 
   @impl true
-  def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
-    filtered =
-      socket.assigns.users
-      |> filter_by_ra_instance(ra_instance_id)
-      |> filter_users(socket.assigns.role_filter)
+  def handle_event("activate_user", %{"role-id" => role_id}, socket) do
+    case RaEngineClient.activate_user_role(role_id, actor_opts(socket)) do
+      {:ok, _} ->
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User activated.")}
 
-    {:noreply,
-     socket
-     |> assign(filtered_users: filtered, selected_ra_instance_id: ra_instance_id, page: 1)
-     |> apply_pagination()}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to activate user: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("reset_password", %{"user-id" => user_id}, socket) do
+    case RaEngineClient.reset_user_password(user_id, actor_opts(socket)) do
+      :ok ->
+        {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to reset password: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("delete_user", %{"role-id" => role_id}, socket) do
+    case RaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
+      {:ok, _} ->
+        send(self(), :load_data)
+        {:noreply, put_flash(socket, :info, "User removed.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to remove user: #{inspect(reason)}")}
+    end
   end
 
   @impl true
   def handle_event("filter_role", %{"role" => role}, socket) do
-    filtered =
-      socket.assigns.users
-      |> filter_by_ra_instance(socket.assigns.selected_ra_instance_id)
-      |> filter_users(role)
-
-    {:noreply, socket |> assign(role_filter: role, filtered_users: filtered, page: 1) |> apply_pagination()}
+    filtered = filter_users(socket.assigns.users, role)
+    {:noreply, assign(socket, role_filter: role, filtered_users: filtered, page: 1)}
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
-  end
-
-  defp filter_by_ra_instance(users, ""), do: users
-  defp filter_by_ra_instance(users, nil), do: users
-  defp filter_by_ra_instance(users, ra_instance_id) do
-    Enum.filter(users, &(Map.get(&1, :ra_instance_id) == ra_instance_id))
+    {:noreply, assign(socket, page: String.to_integer(page))}
   end
 
   defp filter_users(users, "all"), do: users
   defp filter_users(users, role), do: Enum.filter(users, &(&1.role == role))
 
-  defp apply_pagination(socket) do
-    items = socket.assigns.filtered_users
-    total = length(items)
-    per_page = socket.assigns.per_page
-    total_pages = max(ceil(total / per_page), 1)
-    page = min(socket.assigns.page, total_pages)
-    start_idx = (page - 1) * per_page
-    paged = items |> Enum.drop(start_idx) |> Enum.take(per_page)
+  defp actor_opts(socket) do
+    user = socket.assigns.current_user
+    base = [
+      actor_id: user[:id] || user["id"],
+      actor_username: user[:username] || user["username"]
+    ]
 
-    assign(socket, paged_users: paged, total_pages: total_pages, page: page)
+    case socket.assigns[:tenant_id] do
+      nil -> base
+      tid -> [{:tenant_id, tid} | base]
+    end
+  end
+
+  defp format_validation_errors(errors) when is_map(errors) do
+    Enum.map_join(errors, ", ", fn {field, msgs} -> "#{field}: #{Enum.join(List.wrap(msgs), ", ")}" end)
+  end
+  defp format_validation_errors(errors), do: inspect(errors)
+
+  defp role_badge_class(role) do
+    case role do
+      "ra_admin" -> "badge-primary"
+      "ra_officer" -> "badge-info"
+      "auditor" -> "badge-warning"
+      _ -> "badge-ghost"
+    end
   end
 
   @impl true
   def render(assigns) do
     ~H"""
     <div id="users-page" class="space-y-6">
-      <h1 class="text-2xl font-bold tracking-tight">User Management</h1>
+      <%!-- Create user form --%>
+      <div id="create-user-form" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h2 class="text-sm font-semibold text-base-content mb-4">Create User & Send Invite</h2>
+          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+            <div>
+              <label for="username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
+              <input type="text" name="username" id="user-username" required class="input input-bordered input-sm w-full" />
+            </div>
+            <div>
+              <label for="display_name" class="block text-xs font-medium text-base-content/60 mb-1">Display Name</label>
+              <input type="text" name="display_name" id="user-display-name" required class="input input-bordered input-sm w-full" />
+            </div>
+            <div>
+              <label for="email" class="block text-xs font-medium text-base-content/60 mb-1">Email</label>
+              <input type="email" name="email" id="user-email" required class="input input-bordered input-sm w-full" />
+            </div>
+            <div>
+              <label for="role" class="block text-xs font-medium text-base-content/60 mb-1">Role</label>
+              <select name="role" id="user-role" class="select select-bordered select-sm w-full">
+                <option value="ra_admin">RA Admin</option>
+                <option value="ra_officer">RA Officer</option>
+                <option value="auditor">Auditor</option>
+              </select>
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary btn-sm w-full">
+                <.icon name="hero-envelope" class="size-4" />
+                Create & Send Invite
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
 
-      <%!-- Filters --%>
-      <section id="user-filter" class="flex items-center gap-6">
-        <form phx-change="filter_ra_instance" class="flex items-center gap-3">
-          <label for="ra-instance-filter" class="text-xs font-medium text-base-content/60">Filter by RA Instance</label>
-          <select name="ra_instance_id" id="ra-instance-filter" class="select select-bordered select-sm">
-            <option value="">All</option>
-            <option
-              :for={inst <- @ra_instances}
-              value={inst.id}
-              selected={@selected_ra_instance_id == inst.id}
-            >
-              {inst.name}
-            </option>
-          </select>
-        </form>
-        <form phx-change="filter_role" class="flex items-center gap-3">
-          <label for="role" class="text-sm font-medium text-base-content/60">Filter by role:</label>
+      <%!-- Filter --%>
+      <div id="user-filter" class="flex items-center justify-end">
+        <form phx-change="filter_role" class="flex items-center gap-2">
+          <label for="role" class="text-sm text-base-content/60">Filter by role:</label>
           <select name="role" id="role-filter" class="select select-sm select-bordered">
             <option value="all" selected={@role_filter == "all"}>All</option>
             <option value="ra_admin" selected={@role_filter == "ra_admin"}>RA Admin</option>
@@ -170,107 +196,76 @@ defmodule PkiRaPortalWeb.UsersLive do
             <option value="auditor" selected={@role_filter == "auditor"}>Auditor</option>
           </select>
         </form>
-      </section>
+      </div>
 
-      <%!-- Users Table --%>
-      <section id="user-table" class="card bg-base-100 shadow-sm border border-base-300">
-        <div class="card-body">
+      <%!-- Users table --%>
+      <% paginated_users = @filtered_users |> Enum.drop((@page - 1) * @per_page) |> Enum.take(@per_page) %>
+      <% total_users = length(@filtered_users) %>
+      <% total_pages = max(ceil(total_users / @per_page), 1) %>
+      <% start_idx = min((@page - 1) * @per_page + 1, total_users) %>
+      <% end_idx = min(@page * @per_page, total_users) %>
+      <div id="user-table" class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body p-0">
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <thead>
-                <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider">Username</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Name</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Role</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Credentials</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
+                <tr class="text-xs uppercase text-base-content/50">
+                  <th>Username</th>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th class="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody id="user-list">
-                <tr :for={user <- @paged_users} id={"user-#{user.id}"} class="hover:bg-base-200/50 border-base-300">
+                <tr :for={user <- paginated_users} id={"user-#{user.id}"} class="hover">
                   <td class="font-mono text-xs">{user.username}</td>
                   <td>{user.display_name}</td>
+                  <td class="text-xs">{user.email}</td>
                   <td>
-                    <span class={[
-                      "badge badge-sm",
-                      user.role == "ra_admin" && "badge-primary",
-                      user.role == "ra_officer" && "badge-info",
-                      user.role == "auditor" && "badge-neutral"
-                    ]}>
-                      {user.role}
-                    </span>
+                    <span class={"badge badge-sm #{role_badge_class(user.role)}"}>{user.role}</span>
                   </td>
                   <td>
-                    <span class={[
-                      "badge badge-sm",
-                      user.status == "active" && "badge-success",
-                      user.status != "active" && "badge-warning"
-                    ]}>
+                    <span class={["badge badge-sm", if(user.status == "active", do: "badge-success", else: "badge-warning")]}>
                       {user.status}
                     </span>
                   </td>
-                  <td>
-                    <span class={[
-                      "badge badge-sm",
-                      Map.get(user, :has_credentials, false) && "badge-success",
-                      !Map.get(user, :has_credentials, false) && "badge-ghost"
-                    ]}>
-                      {if Map.get(user, :has_credentials, false), do: "configured", else: "not set"}
-                    </span>
-                  </td>
-                  <td>
-                    <button phx-click="delete_user" phx-value-id={user.id} class="btn btn-xs btn-warning btn-outline">
-                      Suspend
+                  <td class="text-right space-x-1">
+                    <%= if user.status == "active" do %>
+                      <button phx-click="suspend_user" phx-value-role-id={user.role_id} class="btn btn-warning btn-sm btn-outline">
+                        Suspend
+                      </button>
+                    <% else %>
+                      <button phx-click="activate_user" phx-value-role-id={user.role_id} class="btn btn-success btn-sm btn-outline">
+                        Activate
+                      </button>
+                    <% end %>
+                    <button phx-click="reset_password" phx-value-user-id={user.id} class="btn btn-info btn-sm btn-outline">
+                      Reset Pwd
+                    </button>
+                    <button phx-click="delete_user" phx-value-role-id={user.role_id}
+                      data-confirm="Remove this user's access? They will no longer be able to log in to this portal."
+                      class="btn btn-error btn-sm btn-outline">
+                      <.icon name="hero-trash" class="size-3.5" />
                     </button>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div :if={@total_pages > 1} class="flex justify-center mt-4">
+          <div :if={total_users > 0} class="flex items-center justify-between px-5 py-3 border-t border-base-300 text-sm">
+            <span class="text-base-content/60">
+              Showing {start_idx}–{end_idx} of {total_users}
+            </span>
             <div class="join">
-              <button
-                :for={p <- 1..@total_pages}
-                phx-click="change_page"
-                phx-value-page={p}
-                class={["join-item btn btn-sm", p == @page && "btn-active"]}
-              >
-                {p}
-              </button>
+              <button class="join-item btn btn-sm" phx-click="change_page" phx-value-page={@page - 1} disabled={@page == 1}>«</button>
+              <button class="join-item btn btn-sm btn-active">{@page}</button>
+              <button class="join-item btn btn-sm" phx-click="change_page" phx-value-page={@page + 1} disabled={@page >= total_pages}>»</button>
             </div>
           </div>
         </div>
-      </section>
-
-      <%!-- Create User Form --%>
-      <section id="create-user-form" class="card bg-base-100 shadow-sm border border-base-300">
-        <div class="card-body">
-          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Create User</h2>
-          <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-2">
-            <div>
-              <label for="username" class="label text-xs font-medium">Username</label>
-              <input type="text" name="username" id="user-username" required class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="display_name" class="label text-xs font-medium">Display Name</label>
-              <input type="text" name="display_name" id="user-display-name" required class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="role" class="label text-xs font-medium">Role</label>
-              <select name="role" id="user-role" class="select select-sm select-bordered w-full">
-                <option value="ra_admin">RA Admin</option>
-                <option value="ra_officer">RA Officer</option>
-              </select>
-            </div>
-            <div class="flex items-end">
-              <button type="submit" class="btn btn-sm btn-primary w-full">
-                Create User
-              </button>
-            </div>
-          </form>
-        </div>
-      </section>
+      </div>
     </div>
     """
   end

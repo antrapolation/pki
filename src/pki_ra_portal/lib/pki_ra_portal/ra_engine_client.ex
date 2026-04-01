@@ -40,6 +40,13 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback reset_password(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   @callback update_user_profile(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback verify_and_change_password(String.t(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback list_portal_users(keyword()) :: {:ok, [map()]} | {:error, term()}
+  @callback create_portal_user(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback suspend_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback activate_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback delete_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback reset_user_password(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback list_audit_events(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.Mock)
@@ -73,4 +80,11 @@ defmodule PkiRaPortal.RaEngineClient do
   def reset_password(user_id, new_password, opts \\ []), do: impl().reset_password(user_id, new_password, opts)
   def update_user_profile(user_id, attrs, opts \\ []), do: impl().update_user_profile(user_id, attrs, opts)
   def verify_and_change_password(user_id, current_password, new_password, opts \\ []), do: impl().verify_and_change_password(user_id, current_password, new_password, opts)
+  def list_portal_users(opts \\ []), do: impl().list_portal_users(opts)
+  def create_portal_user(attrs, opts \\ []), do: impl().create_portal_user(attrs, opts)
+  def suspend_user_role(role_id, opts \\ []), do: impl().suspend_user_role(role_id, opts)
+  def activate_user_role(role_id, opts \\ []), do: impl().activate_user_role(role_id, opts)
+  def delete_user_role(role_id, opts \\ []), do: impl().delete_user_role(role_id, opts)
+  def reset_user_password(user_id, opts \\ []), do: impl().reset_user_password(user_id, opts)
+  def list_audit_events(filters, opts \\ []), do: impl().list_audit_events(filters, opts)
 end
