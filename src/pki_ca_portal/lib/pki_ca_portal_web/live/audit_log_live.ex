@@ -18,6 +18,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
        filter_actor: "",
        filter_date_from: "",
        filter_date_to: "",
+       category: "all",
        page: 1,
        per_page: 10
      )}
@@ -27,11 +28,28 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   def handle_info(:load_data, socket) do
     opts = tenant_opts(socket)
 
-    events =
+    ca_events =
       case CaEngineClient.query_audit_log([], opts) do
-        {:ok, events} -> events
+        {:ok, events} -> Enum.map(events, &Map.put(&1, :category, "ca_operations"))
         {:error, _} -> []
       end
+
+    platform_events =
+      case CaEngineClient.list_audit_events([], opts) do
+        {:ok, events} -> Enum.map(events, fn e ->
+          %{
+            event_id: e[:id] || e.id,
+            timestamp: e[:timestamp] || e.timestamp,
+            action: e[:action] || e.action,
+            actor: e[:actor_username] || Map.get(e, :actor_username, "system"),
+            category: "user_management"
+          }
+        end)
+        {:error, _} -> []
+      end
+
+    all_events = (ca_events ++ platform_events)
+      |> Enum.sort_by(& &1.timestamp, {:desc, DateTime})
 
     ca_instances =
       case CaEngineClient.list_ca_instances(opts) do
@@ -41,7 +59,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
     {:noreply,
      assign(socket,
-       events: events,
+       events: all_events,
        ca_instances: ca_instances,
        loading: false
      )}
@@ -73,27 +91,52 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def handle_event("filter", params, socket) do
-    filters =
-      []
-      |> maybe_add_filter(:ca_instance_id, socket.assigns.selected_ca_instance_id)
-      |> maybe_add_filter(:action, params["action"])
-      |> maybe_add_filter(:actor, params["actor"])
-      |> maybe_add_filter(:date_from, params["date_from"])
-      |> maybe_add_filter(:date_to, params["date_to"])
+    opts = tenant_opts(socket)
+    category = params["category"] || "all"
 
-    events =
-      case CaEngineClient.query_audit_log(filters, tenant_opts(socket)) do
-        {:ok, events} -> events
+    ca_events =
+      case CaEngineClient.query_audit_log([], opts) do
+        {:ok, events} -> Enum.map(events, &Map.put(&1, :category, "ca_operations"))
         {:error, _} -> []
       end
+
+    platform_events =
+      case CaEngineClient.list_audit_events([], opts) do
+        {:ok, events} -> Enum.map(events, fn e ->
+          %{
+            event_id: e[:id] || e.id,
+            timestamp: e[:timestamp] || e.timestamp,
+            action: e[:action] || e.action,
+            actor: e[:actor_username] || Map.get(e, :actor_username, "system"),
+            category: "user_management"
+          }
+        end)
+        {:error, _} -> []
+      end
+
+    all_events = (ca_events ++ platform_events)
+      |> Enum.sort_by(& &1.timestamp, {:desc, DateTime})
+
+    events = case category do
+      "all" -> all_events
+      cat -> Enum.filter(all_events, &(&1.category == cat))
+    end
+
+    actor_filter = params["actor"] || ""
+    action_filter = params["action"] || ""
+
+    events = events
+      |> filter_by_actor(actor_filter)
+      |> filter_by_action(action_filter)
 
     {:noreply,
      assign(socket,
        events: events,
-       filter_action: params["action"] || "",
-       filter_actor: params["actor"] || "",
+       filter_action: action_filter,
+       filter_actor: actor_filter,
        filter_date_from: params["date_from"] || "",
        filter_date_to: params["date_to"] || "",
+       category: category,
        page: 1
      )}
   end
@@ -102,6 +145,12 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
   end
+
+  defp filter_by_actor(events, ""), do: events
+  defp filter_by_actor(events, actor), do: Enum.filter(events, &String.contains?(to_string(&1.actor), actor))
+
+  defp filter_by_action(events, ""), do: events
+  defp filter_by_action(events, action), do: Enum.filter(events, &(to_string(&1.action) == action))
 
   defp tenant_opts(socket) do
     case socket.assigns[:tenant_id] do
@@ -140,6 +189,14 @@ defmodule PkiCaPortalWeb.AuditLogLive do
         <div class="card-body p-4">
           <form phx-submit="filter" class="flex flex-wrap items-end gap-3">
             <div>
+              <label for="category" class="block text-xs font-medium text-base-content/60 mb-1">Category</label>
+              <select name="category" id="filter-category" class="select select-bordered select-sm">
+                <option value="all" selected={@category == "all"}>All</option>
+                <option value="ca_operations" selected={@category == "ca_operations"}>CA Operations</option>
+                <option value="user_management" selected={@category == "user_management"}>User Management</option>
+              </select>
+            </div>
+            <div>
               <label for="action" class="block text-xs font-medium text-base-content/60 mb-1">Action</label>
               <select name="action" id="filter-action" class="select select-bordered select-sm">
                 <option value="">All</option>
@@ -150,6 +207,11 @@ defmodule PkiCaPortalWeb.AuditLogLive do
                 <option value="ceremony_initiated" selected={@filter_action == "ceremony_initiated"}>
                   Ceremony Initiated
                 </option>
+                <option value="user_created" selected={@filter_action == "user_created"}>User Created</option>
+                <option value="user_suspended" selected={@filter_action == "user_suspended"}>User Suspended</option>
+                <option value="password_reset" selected={@filter_action == "password_reset"}>Password Reset</option>
+                <option value="password_changed" selected={@filter_action == "password_changed"}>Password Changed</option>
+                <option value="profile_updated" selected={@filter_action == "profile_updated"}>Profile Updated</option>
               </select>
             </div>
             <div>
@@ -187,6 +249,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
                   <th>Timestamp</th>
+                  <th>Category</th>
                   <th>Action</th>
                   <th>Actor</th>
                   <th>Event ID</th>
@@ -195,6 +258,11 @@ defmodule PkiCaPortalWeb.AuditLogLive do
               <tbody id="event-list">
                 <tr :for={event <- paginated_events} id={"event-#{event.event_id}"} class="hover">
                   <td class="font-mono-data">{Calendar.strftime(event.timestamp, "%Y-%m-%d %H:%M:%S")}</td>
+                  <td>
+                    <span class={["badge badge-sm", if(event.category == "ca_operations", do: "badge-info", else: "badge-secondary")]}>
+                      {if event.category == "ca_operations", do: "CA Ops", else: "User Mgmt"}
+                    </span>
+                  </td>
                   <td>
                     <span class="badge badge-sm badge-ghost">{event.action}</span>
                   </td>

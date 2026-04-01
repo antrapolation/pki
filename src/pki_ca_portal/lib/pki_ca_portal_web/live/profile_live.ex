@@ -25,6 +25,16 @@ defmodule PkiCaPortalWeb.ProfileLive do
 
     case CaEngineClient.update_user_profile(user_id, %{display_name: display_name, email: email}, opts) do
       {:ok, _updated} ->
+        PkiPlatformEngine.PlatformAudit.log("profile_updated", %{
+          actor_id: user_id,
+          actor_username: user[:username] || user["username"],
+          target_type: "user_profile",
+          target_id: user_id,
+          tenant_id: socket.assigns[:tenant_id],
+          portal: "ca",
+          details: %{display_name: display_name, email: email}
+        })
+
         {:noreply,
          socket
          |> put_flash(:info, "Profile updated successfully.")
@@ -52,6 +62,13 @@ defmodule PkiCaPortalWeb.ProfileLive do
       true ->
         case CaEngineClient.verify_and_change_password(user_id, current, new_pw, opts) do
           {:ok, _} ->
+            PkiPlatformEngine.PlatformAudit.log("password_changed", %{
+              actor_id: user_id,
+              actor_username: user[:username] || user["username"],
+              tenant_id: socket.assigns[:tenant_id],
+              portal: "ca"
+            })
+
             {:noreply,
              socket
              |> assign(:password_form, %{"current_password" => "", "new_password" => "", "password_confirmation" => ""})

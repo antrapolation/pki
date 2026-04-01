@@ -30,6 +30,14 @@ defmodule PkiCaPortalWeb.SessionController do
             |> redirect(to: "/change-password")
 
           true ->
+            PkiPlatformEngine.PlatformAudit.log("login", %{
+              actor_id: user[:id],
+              actor_username: user[:username],
+              tenant_id: tenant_id,
+              portal: "ca",
+              details: %{ca_instance_id: ca_instance_id}
+            })
+
             conn
             |> configure_session(renew: true)
             |> put_session(:current_user, serialize_user(user, ca_instance_id))
@@ -40,6 +48,11 @@ defmodule PkiCaPortalWeb.SessionController do
         end
 
       {:error, :invalid_credentials} ->
+        PkiPlatformEngine.PlatformAudit.log("login_failed", %{
+          portal: "ca",
+          details: %{username: username}
+        })
+
         render(conn, :login, layout: false, error: "Invalid username or password")
 
       {:error, reason} ->
