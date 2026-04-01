@@ -62,14 +62,22 @@ defmodule PkiPlatformEngine.HsmManagement do
     end
   end
 
-  @doc "Deactivates a device."
+  @doc "Deactivates a device. Blocked if any tenants are still assigned."
   def deactivate_device(id) do
     case PlatformRepo.get(HsmDevice, id) do
-      nil -> {:error, :not_found}
+      nil ->
+        {:error, :not_found}
+
       device ->
-        device
-        |> HsmDevice.changeset(%{status: "inactive"})
-        |> PlatformRepo.update()
+        tenant_ids = list_device_tenants(id)
+
+        if tenant_ids != [] do
+          {:error, {:has_tenant_assignments, length(tenant_ids)}}
+        else
+          device
+          |> HsmDevice.changeset(%{status: "inactive"})
+          |> PlatformRepo.update()
+        end
     end
   end
 

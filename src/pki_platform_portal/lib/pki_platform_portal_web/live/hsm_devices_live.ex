@@ -79,6 +79,9 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
         send(self(), :load_data)
         {:noreply, put_flash(socket, :info, "Device deactivated.")}
 
+      {:error, {:has_tenant_assignments, count}} ->
+        {:noreply, put_flash(socket, :error, "Cannot deactivate: #{count} tenant(s) still assigned. Revoke all tenant access first.")}
+
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
     end
