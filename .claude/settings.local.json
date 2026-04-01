@@ -191,7 +191,24 @@
       "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod PLATFORM_ADMIN_USERNAME=admin PLATFORM_ADMIN_PASSWORD=admin RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB mix phx.server)",
       "Bash(lsof -ti:4002,4004)",
       "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod CA_ENGINE_URL=http://localhost:4001 PORT=4002 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB mix phx.server)",
-      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod RA_ENGINE_URL=http://localhost:4003 PORT=4004 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB mix:*)"
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod RA_ENGINE_URL=http://localhost:4003 PORT=4004 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB mix:*)",
+      "Bash(softhsm2-util --version)",
+      "Bash(SOFTHSM2_CONF=/Users/amirrudinyahaya/Workspace/pki/softhsm2/softhsm2-local.conf softhsm2-util:*)",
+      "Bash(brew install:*)",
+      "Bash(export SOFTHSM2_CONF=/Users/amirrudinyahaya/Workspace/pki/softhsm2/softhsm2-local.conf)",
+      "Bash(pkcs11-tool --module /opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so -L)",
+      "Bash(pkcs11-tool --module /opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so --login --pin 1234 --keypairgen --key-type rsa:2048 --label \"test-rsa-key\" --id 01)",
+      "Bash(pkcs11-tool --module /opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so --login --pin 1234 --sign --mechanism SHA256-RSA-PKCS --id 01 --input-file /tmp/test-data.txt --output-file /tmp/test-sig.bin)",
+      "Bash(pkcs11-tool --module /opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so --login --pin 1234 --verify --mechanism SHA256-RSA-PKCS --id 01 --input-file /tmp/test-data.txt --signature-file /tmp/test-sig.bin)",
+      "Bash(pkcs11-tool --module /opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so --login --pin 1234 --delete-object --type privkey --id 01)",
+      "Bash(pkcs11-tool --module /opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so --login --pin 1234 --delete-object --type pubkey --id 01)",
+      "Bash(rm -f /tmp/test-data.txt /tmp/test-sig.bin)",
+      "Bash(rustc --version)",
+      "Bash(rustup update:*)",
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod SOFTHSM2_CONF=/Users/amirrudinyahaya/Workspace/pki/softhsm2/softhsm2-local.conf mix run --no-halt)",
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod PLATFORM_ADMIN_USERNAME=admin PLATFORM_ADMIN_PASSWORD=admin RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB SOFTHSM2_CONF=/Users/amirrudinyahaya/Workspace/pki/softhsm2/softhsm2-local.conf mix phx.server)",
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod CA_ENGINE_URL=http://localhost:4001 PORT=4002 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB SOFTHSM2_CONF=/Users/amirrudinyahaya/Workspace/pki/softhsm2/softhsm2-local.conf mix phx.server)",
+      "Bash(lsof -ti:4004)"
     ]
   }
 }
