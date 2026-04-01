@@ -118,8 +118,13 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
 
   defp parse_int(nil), do: 0
   defp parse_int(""), do: 0
-  defp parse_int(v) when is_binary(v), do: String.to_integer(v)
   defp parse_int(v) when is_integer(v), do: v
+  defp parse_int(v) when is_binary(v) do
+    case Integer.parse(String.trim(v)) do
+      {n, ""} -> n
+      _ -> 0
+    end
+  end
 
   defp format_errors(errors) when is_map(errors) do
     Enum.map_join(errors, ", ", fn {field, msgs} -> "#{field}: #{Enum.join(List.wrap(msgs), ", ")}" end)

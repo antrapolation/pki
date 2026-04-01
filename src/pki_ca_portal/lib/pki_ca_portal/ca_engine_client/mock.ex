@@ -344,16 +344,25 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def resend_invitation(_user_id, _opts \\ []), do: :ok
 
   @impl true
-  def list_hsm_devices(_opts \\ []), do: {:ok, []}
+  def list_hsm_devices(_opts \\ []) do
+    {:ok, [
+      %{id: "mock-hsm-1", label: "SoftHSM2 Dev", manufacturer: "SoftHSM project", slot_id: 0, status: "active", pkcs11_lib_path: "/usr/lib/softhsm/libsofthsm2.so"}
+    ]}
+  end
 
   @impl true
-  def register_hsm_device(_attrs, _opts \\ []), do: {:ok, %{id: "mock-hsm-1", label: "Mock HSM", status: "active"}}
+  def register_hsm_device(_attrs, _opts \\ []), do: {:error, :not_permitted}
 
   @impl true
-  def probe_hsm_device(_id, _opts \\ []), do: {:ok, %{id: "mock-hsm-1", status: "active", manufacturer: "Mock"}}
+  def probe_hsm_device(id, _opts \\ []) do
+    case id do
+      "mock-hsm-1" -> {:ok, %{id: id, status: "active", manufacturer: "SoftHSM project"}}
+      _ -> {:error, :not_found}
+    end
+  end
 
   @impl true
-  def deactivate_hsm_device(_id, _opts \\ []), do: {:ok, %{id: "mock-hsm-1", status: "inactive"}}
+  def deactivate_hsm_device(_id, _opts \\ []), do: {:error, :not_permitted}
 
   @impl true
   def list_audit_events(_filters, _opts \\ []) do

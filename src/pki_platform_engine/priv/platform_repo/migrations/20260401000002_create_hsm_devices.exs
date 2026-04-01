@@ -18,7 +18,7 @@ defmodule PkiPlatformEngine.PlatformRepo.Migrations.CreateHsmDevices do
     create table(:tenant_hsm_access, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :tenant_id, references(:tenants, type: :binary_id, on_delete: :delete_all), null: false
-      add :hsm_device_id, references(:hsm_devices, type: :binary_id, on_delete: :delete_all), null: false
+      add :hsm_device_id, references(:hsm_devices, type: :binary_id, on_delete: :restrict), null: false
 
       timestamps()
     end

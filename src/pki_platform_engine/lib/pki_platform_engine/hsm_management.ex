@@ -105,6 +105,19 @@ defmodule PkiPlatformEngine.HsmManagement do
     |> PlatformRepo.all()
   end
 
+  @doc "Gets a device by ID only if the tenant has access to it."
+  def get_device_for_tenant(tenant_id, hsm_device_id) do
+    query = from(d in HsmDevice,
+      join: a in TenantHsmAccess,
+        on: a.hsm_device_id == d.id and a.tenant_id == ^tenant_id,
+      where: d.id == ^hsm_device_id and d.status == "active"
+    )
+    case PlatformRepo.one(query) do
+      nil -> {:error, :not_found}
+      device -> {:ok, device}
+    end
+  end
+
   @doc "Lists all tenant access records for a device."
   def list_device_tenants(hsm_device_id) do
     from(a in TenantHsmAccess,
@@ -119,11 +132,15 @@ defmodule PkiPlatformEngine.HsmManagement do
   # ---------------------------------------------------------------------------
 
   defp probe_pkcs11(lib_path) when is_binary(lib_path) and lib_path != "" do
-    nif = StrapSofthsmPrivKeyStoreProvider.Native.SofthsmNif
+    if Path.type(lib_path) != :absolute do
+      {:error, :lib_path_must_be_absolute}
+    else
+      nif = StrapSofthsmPrivKeyStoreProvider.Native.SofthsmNif
 
-    case nif.get_info(lib_path) do
-      {:ok, manufacturer} -> {:ok, String.trim(manufacturer)}
-      {:error, reason} -> {:error, reason}
+      case nif.get_info(lib_path) do
+        {:ok, manufacturer} -> {:ok, String.trim(manufacturer)}
+        {:error, reason} -> {:error, reason}
+      end
     end
   rescue
     e -> {:error, Exception.message(e)}

@@ -48,7 +48,12 @@ defmodule PkiCaEngine.Schema.Keystore do
 
   @doc "Encodes a config map to JSON binary for storage."
   def encode_config(nil), do: nil
-  def encode_config(map) when is_map(map), do: Jason.encode!(map)
+  def encode_config(map) when is_map(map) do
+    case Jason.encode(map) do
+      {:ok, json} -> json
+      {:error, _} -> nil
+    end
+  end
 
   defp maybe_generate_id(changeset) do
     if get_field(changeset, :id) do

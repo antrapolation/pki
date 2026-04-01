@@ -23,7 +23,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    ca_id = socket.assigns.current_user[:ca_instance_id]
     opts = tenant_opts(socket)
 
     ceremonies = case CaEngineClient.list_ceremonies(ca_id, opts) do
@@ -53,7 +53,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   @impl true
   def handle_event("initiate_ceremony", params, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id] || "default"
+    ca_id = socket.assigns.current_user[:ca_instance_id]
     opts = tenant_opts(socket)
 
     ceremony_params = [
@@ -85,7 +85,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
     ca_id =
       if ca_instance_id == "",
-        do: socket.assigns.current_user[:ca_instance_id] || "default",
+        do: socket.assigns.current_user[:ca_instance_id],
         else: ca_instance_id
 
     ceremonies = case CaEngineClient.list_ceremonies(ca_id, tenant_opts(socket)) do

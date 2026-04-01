@@ -534,34 +534,22 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
-  def register_hsm_device(attrs, opts \\ []) do
-    # Registration is platform-level; CA portal delegates to platform
-    case PkiPlatformEngine.HsmManagement.register_device(attrs) do
-      {:ok, device} ->
-        # Auto-grant access to the current tenant
-        tenant_id = opts[:tenant_id]
-        if tenant_id, do: PkiPlatformEngine.HsmManagement.grant_tenant_access(tenant_id, device.id)
-        {:ok, to_map(device)}
+  def register_hsm_device(_attrs, _opts \\ []) do
+    {:error, :not_permitted}
+  end
 
-      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, changeset_errors(cs)}}
-      {:error, _} = err -> err
+  @impl true
+  def probe_hsm_device(id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    with {:ok, _} <- PkiPlatformEngine.HsmManagement.get_device_for_tenant(tenant_id, id),
+         {:ok, device} <- PkiPlatformEngine.HsmManagement.probe_device(id) do
+      {:ok, to_map(device)}
     end
   end
 
   @impl true
-  def probe_hsm_device(id, _opts \\ []) do
-    case PkiPlatformEngine.HsmManagement.probe_device(id) do
-      {:ok, device} -> {:ok, to_map(device)}
-      {:error, _} = err -> err
-    end
-  end
-
-  @impl true
-  def deactivate_hsm_device(id, _opts \\ []) do
-    case PkiPlatformEngine.HsmManagement.deactivate_device(id) do
-      {:ok, device} -> {:ok, to_map(device)}
-      {:error, _} = err -> err
-    end
+  def deactivate_hsm_device(_id, _opts \\ []) do
+    {:error, :not_permitted}
   end
 
   @impl true

@@ -19,40 +19,41 @@ defmodule PkiCaEngine.KeystoreManagement do
   @doc """
   Creates a keystore configuration for a CA instance.
   """
-  @spec configure_keystore(String.t(), String.t(), map()) :: {:ok, Keystore.t()} | {:error, Ecto.Changeset.t()}
+  @spec configure_keystore(String.t(), String.t(), map()) :: {:ok, Keystore.t()} | {:error, term()}
   def configure_keystore(tenant_id, ca_instance_id, attrs) do
     repo = TenantRepo.ca_repo(tenant_id)
     type = attrs[:type] || attrs["type"]
     attrs = Map.put(attrs, :ca_instance_id, ca_instance_id)
 
-    attrs =
-      if type == "hsm" do
-        hsm_device_id = attrs[:hsm_device_id] || attrs["hsm_device_id"]
-
-        case PkiPlatformEngine.HsmManagement.get_device(hsm_device_id) do
-          {:ok, device} ->
-            config = Keystore.encode_config(%{
-              "hsm_device_id" => device.id,
-              "pkcs11_lib_path" => device.pkcs11_lib_path,
-              "slot_id" => device.slot_id,
-              "label" => device.label
-            })
-
-            attrs
-            |> Map.put(:config, config)
-            |> Map.put(:provider_name, device.label)
-
-          _ ->
-            attrs
-        end
-      else
-        attrs
-      end
-
-    %Keystore{}
-    |> Keystore.changeset(attrs)
-    |> repo.insert()
+    with {:ok, attrs} <- resolve_hsm_config(type, tenant_id, attrs) do
+      %Keystore{}
+      |> Keystore.changeset(attrs)
+      |> repo.insert()
+    end
   end
+
+  defp resolve_hsm_config("hsm", tenant_id, attrs) do
+    hsm_device_id = attrs[:hsm_device_id] || attrs["hsm_device_id"]
+
+    case PkiPlatformEngine.HsmManagement.get_device_for_tenant(tenant_id, hsm_device_id) do
+      {:ok, device} ->
+        config = Keystore.encode_config(%{
+          "hsm_device_id" => device.id,
+          "pkcs11_lib_path" => device.pkcs11_lib_path,
+          "slot_id" => device.slot_id,
+          "label" => device.label
+        })
+
+        {:ok,
+         attrs
+         |> Map.put(:config, config)
+         |> Map.put(:provider_name, device.label)}
+
+      {:error, _} ->
+        {:error, :hsm_device_not_found}
+    end
+  end
+  defp resolve_hsm_config(_, _tenant_id, attrs), do: {:ok, attrs}
 
   @doc """
   Lists all keystores for a CA instance.
