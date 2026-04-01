@@ -529,6 +529,9 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   def reset_user_password(_user_id, _opts \\ []), do: {:error, :not_implemented}
 
   @impl true
+  def resend_invitation(_user_id, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
   def list_audit_events(_filters, _opts \\ []), do: {:error, :not_implemented}
 
   # --- Private helpers ---

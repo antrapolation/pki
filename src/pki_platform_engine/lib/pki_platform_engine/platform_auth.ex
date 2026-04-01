@@ -116,6 +116,7 @@ defmodule PkiPlatformEngine.PlatformAuth do
         email: u.email,
         role: r.role,
         status: r.status,
+        must_change_password: u.must_change_password,
         inserted_at: r.inserted_at
       },
       order_by: [asc: r.inserted_at]
@@ -251,6 +252,32 @@ defmodule PkiPlatformEngine.PlatformAuth do
 
     html = PkiPlatformEngine.EmailTemplates.single_admin_credential(tenant_name, role_label, portal_url, user.username, password)
     PkiPlatformEngine.Mailer.send_email(user.email, "Your password has been reset - #{tenant_name}", html)
+  end
+
+  @doc "Resend invitation email with a new temporary password."
+  def resend_invitation(user_profile_id, portal, opts \\ []) do
+    temp_password = generate_temp_password()
+    expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+
+    case PlatformRepo.get(UserProfile, user_profile_id) do
+      nil -> {:error, :not_found}
+      user ->
+        changeset = user
+          |> UserProfile.password_changeset(%{password: temp_password, must_change_password: true})
+          |> Ecto.Changeset.put_change(:credential_expires_at, expires_at)
+
+        case PlatformRepo.update(changeset) do
+          {:ok, updated} ->
+            role = case get_tenant_roles_any_status(user_profile_id, portal: portal) do
+              [r | _] -> r.role
+              [] -> portal
+            end
+            send_invitation_email(updated, role, portal, temp_password, opts)
+            {:ok, updated}
+
+          {:error, _} = err -> err
+        end
+    end
   end
 
   @doc "Format a role string into a human-readable label."

@@ -46,6 +46,7 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback activate_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback delete_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback reset_user_password(String.t(), keyword()) :: :ok | {:error, term()}
+  @callback resend_invitation(String.t(), keyword()) :: :ok | {:error, term()}
   @callback list_audit_events(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
 
   defp impl,
@@ -86,5 +87,6 @@ defmodule PkiRaPortal.RaEngineClient do
   def activate_user_role(role_id, opts \\ []), do: impl().activate_user_role(role_id, opts)
   def delete_user_role(role_id, opts \\ []), do: impl().delete_user_role(role_id, opts)
   def reset_user_password(user_id, opts \\ []), do: impl().reset_user_password(user_id, opts)
+  def resend_invitation(user_id, opts \\ []), do: impl().resend_invitation(user_id, opts)
   def list_audit_events(filters, opts \\ []), do: impl().list_audit_events(filters, opts)
 end

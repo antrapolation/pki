@@ -449,6 +449,15 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def resend_invitation(user_id, opts \\ []) do
+    case auth_post("/api/v1/portal-users/#{user_id}/resend-invitation", %{}, opts) do
+      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {:unexpected_status, status, body}}
+      {:error, reason} -> {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
   def list_audit_events(filters, opts \\ []) do
     params = Enum.map(filters, fn {k, v} -> {to_string(k), v} end)
     case auth_get("/api/v1/platform-audit-events", params: params, tenant_id: opts[:tenant_id]) do

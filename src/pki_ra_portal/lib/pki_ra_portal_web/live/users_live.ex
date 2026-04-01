@@ -94,6 +94,17 @@ defmodule PkiRaPortalWeb.UsersLive do
   end
 
   @impl true
+  def handle_event("resend_invitation", %{"user-id" => user_id}, socket) do
+    case RaEngineClient.resend_invitation(user_id, actor_opts(socket)) do
+      :ok ->
+        {:noreply, put_flash(socket, :info, "Invitation email resent.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to resend invitation: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
   def handle_event("delete_user", %{"role-id" => role_id}, socket) do
     case RaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
@@ -232,23 +243,29 @@ defmodule PkiRaPortalWeb.UsersLive do
                     </span>
                   </td>
                   <td class="text-right space-x-1">
-                    <%= if user.status == "active" do %>
-                      <button phx-click="suspend_user" phx-value-role-id={user.role_id} class="btn btn-warning btn-sm btn-outline">
-                        Suspend
+                    <%= if user.id != @current_user[:id] do %>
+                      <%= if user.status == "active" do %>
+                        <button phx-click="suspend_user" phx-value-role-id={user.role_id} class="btn btn-warning btn-sm btn-outline">
+                          Suspend
+                        </button>
+                      <% else %>
+                        <button phx-click="activate_user" phx-value-role-id={user.role_id} class="btn btn-success btn-sm btn-outline">
+                          Activate
+                        </button>
+                      <% end %>
+                      <button :if={user[:must_change_password]} phx-click="resend_invitation" phx-value-user-id={user.id} class="btn btn-accent btn-sm btn-outline">
+                        <.icon name="hero-envelope" class="size-3.5" />
+                        Resend Invite
                       </button>
-                    <% else %>
-                      <button phx-click="activate_user" phx-value-role-id={user.role_id} class="btn btn-success btn-sm btn-outline">
-                        Activate
+                      <button phx-click="reset_password" phx-value-user-id={user.id} class="btn btn-info btn-sm btn-outline">
+                        Reset Pwd
+                      </button>
+                      <button phx-click="delete_user" phx-value-role-id={user.role_id}
+                        data-confirm="Remove this user's access? They will no longer be able to log in to this portal."
+                        class="btn btn-error btn-sm btn-outline">
+                        <.icon name="hero-trash" class="size-3.5" />
                       </button>
                     <% end %>
-                    <button phx-click="reset_password" phx-value-user-id={user.id} class="btn btn-info btn-sm btn-outline">
-                      Reset Pwd
-                    </button>
-                    <button phx-click="delete_user" phx-value-role-id={user.role_id}
-                      data-confirm="Remove this user's access? They will no longer be able to log in to this portal."
-                      class="btn btn-error btn-sm btn-outline">
-                      <.icon name="hero-trash" class="size-3.5" />
-                    </button>
                   </td>
                 </tr>
               </tbody>

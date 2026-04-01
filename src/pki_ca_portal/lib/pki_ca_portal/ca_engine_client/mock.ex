@@ -341,6 +341,9 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def reset_user_password(_user_id, _opts \\ []), do: :ok
 
   @impl true
+  def resend_invitation(_user_id, _opts \\ []), do: :ok
+
+  @impl true
   def list_audit_events(_filters, _opts \\ []) do
     {:ok, [
       %{id: "evt-1", timestamp: DateTime.utc_now(), action: "user_created", actor_username: "admin1", target_type: "user_profile", details: %{}},
