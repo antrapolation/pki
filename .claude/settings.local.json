@@ -186,7 +186,12 @@
       "Bash(lsof -ti:4003)",
       "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod PLATFORM_ADMIN_USERNAME=admin PLATFORM_ADMIN_PASSWORD=admin mix phx.server)",
       "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod CA_ENGINE_URL=http://localhost:4001 PORT=4002 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev mix phx.server)",
-      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod RA_ENGINE_URL=http://localhost:4003 PORT=4004 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev mix phx.server)"
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod RA_ENGINE_URL=http://localhost:4003 PORT=4004 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev mix phx.server)",
+      "Bash(lsof -ti:4005,4006)",
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod PLATFORM_ADMIN_USERNAME=admin PLATFORM_ADMIN_PASSWORD=admin RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB mix phx.server)",
+      "Bash(lsof -ti:4002,4004)",
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod CA_ENGINE_URL=http://localhost:4001 PORT=4002 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB mix phx.server)",
+      "Bash(POSTGRES_PORT=5434 INTERNAL_API_SECRET=dev-internal-api-secret-change-for-production SECRET_KEY_BASE=dev-secret-key-base-that-is-at-least-64-bytes-long-for-development-only-not-prod RA_ENGINE_URL=http://localhost:4003 PORT=4004 COOKIE_SECURE=false PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5434/pki_platform_dev RESEND_API_KEY=re_UzeHrE8U_DK7czNMX2NnWUpxmk7pB18xB mix:*)"
     ]
   }
 }
