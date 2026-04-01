@@ -64,7 +64,7 @@ defmodule PkiPlatformEngine.AdminManagement do
     allowed = Map.take(attrs, [:display_name, :email, "display_name", "email"])
 
     admin
-    |> PlatformAdmin.changeset(Map.merge(%{username: admin.username}, allowed))
+    |> PlatformAdmin.profile_changeset(allowed)
     |> PlatformRepo.update()
   end
 

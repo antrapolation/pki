@@ -74,6 +74,9 @@ defmodule PkiCaPortalWeb.ProfileLive do
     end
   end
 
+  defp format_error({:validation_error, errors}) when is_map(errors) do
+    Enum.map_join(errors, ", ", fn {field, msgs} -> "#{field}: #{Enum.join(List.wrap(msgs), ", ")}" end)
+  end
   defp format_error(:invalid_current_password), do: "Current password is incorrect."
   defp format_error(:not_found), do: "User not found."
   defp format_error(reason) when is_binary(reason), do: reason

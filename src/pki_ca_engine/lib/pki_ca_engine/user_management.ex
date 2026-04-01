@@ -213,7 +213,7 @@ defmodule PkiCaEngine.UserManagement do
 
       user ->
         allowed = Map.take(attrs, [:display_name, :email, "display_name", "email"])
-        user |> CaUser.update_changeset(allowed) |> repo.update()
+        user |> CaUser.profile_changeset(allowed) |> repo.update()
     end
   end
 

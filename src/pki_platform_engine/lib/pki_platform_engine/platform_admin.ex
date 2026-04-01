@@ -37,6 +37,12 @@ defmodule PkiPlatformEngine.PlatformAdmin do
     |> hash_password()
   end
 
+  def profile_changeset(admin, attrs) do
+    admin
+    |> cast(attrs, [:display_name, :email])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
+  end
+
   def password_changeset(admin, attrs) do
     admin
     |> cast(attrs, [:password])
