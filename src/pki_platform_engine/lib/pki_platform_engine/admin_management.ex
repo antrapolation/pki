@@ -14,6 +14,50 @@ defmodule PkiPlatformEngine.AdminManagement do
     |> PlatformRepo.insert()
   end
 
+  @doc "Creates an admin with a temp password and sends invitation email."
+  def invite_admin(attrs) do
+    temp_password = :crypto.strong_rand_bytes(12) |> Base.encode64(padding: false) |> binary_part(0, 16)
+    expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+
+    invite_attrs = %{
+      username: attrs[:username] || attrs["username"],
+      display_name: attrs[:display_name] || attrs["display_name"],
+      email: attrs[:email] || attrs["email"],
+      password: temp_password,
+      must_change_password: true,
+      credential_expires_at: expires_at
+    }
+
+    case %PlatformAdmin{}
+         |> PlatformAdmin.invitation_changeset(invite_attrs)
+         |> PlatformRepo.insert() do
+      {:ok, admin} ->
+        send_admin_invitation(admin, temp_password)
+        {:ok, admin}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp send_admin_invitation(admin, temp_password) do
+    portal_url = System.get_env("PLATFORM_PORTAL_URL", "http://localhost:4006")
+
+    html = PkiPlatformEngine.EmailTemplates.single_admin_credential(
+      "PQC PKI Platform",
+      "Platform Administrator",
+      portal_url,
+      admin.username,
+      temp_password
+    )
+
+    PkiPlatformEngine.Mailer.send_email(
+      admin.email,
+      "You've been invited as Platform Administrator",
+      html
+    )
+  end
+
   def authenticate(username, password) do
     admin =
       PlatformRepo.one(

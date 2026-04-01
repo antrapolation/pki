@@ -11,8 +11,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
        admins: [],
        loading: true,
        show_form: false,
-       form_error: nil,
-       pw_error: nil
+       form_error: nil
      )}
   end
 
@@ -24,59 +23,45 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
 
   @impl true
   def handle_event("toggle_form", _params, socket) do
-    {:noreply, assign(socket, show_form: !socket.assigns.show_form, form_error: nil, pw_error: nil)}
+    {:noreply, assign(socket, show_form: !socket.assigns.show_form, form_error: nil)}
   end
 
   @impl true
-  def handle_event(
-        "create_admin",
-        %{
-          "username" => username,
-          "display_name" => display_name,
-          "password" => password,
-          "password_confirmation" => password_confirmation
-        },
-        socket
-      ) do
-    cond do
-      String.length(password) < 8 ->
-        {:noreply, assign(socket, pw_error: "Password must be at least 8 characters.")}
+  def handle_event("create_admin", %{"username" => username, "display_name" => display_name, "email" => email}, socket) do
+    attrs = %{username: username, display_name: display_name, email: email}
 
-      password != password_confirmation ->
-        {:noreply, assign(socket, pw_error: "Passwords do not match.")}
+    case PkiPlatformEngine.AdminManagement.invite_admin(attrs) do
+      {:ok, _admin} ->
+        {:noreply,
+         socket
+         |> assign(admins: list_admins(), show_form: false, form_error: nil)
+         |> put_flash(:info, "Admin \"#{username}\" created. Invitation email sent to #{email}.")}
 
-      true ->
-        attrs = %{
-          username: username,
-          display_name: display_name,
-          password: password
-        }
+      {:error, %Ecto.Changeset{} = changeset} ->
+        errors =
+          Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+            Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+              atom_key = try do
+                String.to_existing_atom(key)
+              rescue
+                ArgumentError -> nil
+              end
+              case atom_key && Keyword.get(opts, atom_key) do
+                nil -> key
+                val -> to_string(val)
+              end
+            end)
+          end)
 
-        case PkiPlatformEngine.AdminManagement.register_admin(attrs) do
-          {:ok, _admin} ->
-            {:noreply,
-             socket
-             |> assign(admins: list_admins(), show_form: false, form_error: nil, pw_error: nil)
-             |> put_flash(:info, "Admin \"#{username}\" created successfully.")}
+        error_msg =
+          errors
+          |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
+          |> Enum.join("; ")
 
-          {:error, %Ecto.Changeset{} = changeset} ->
-            errors =
-              Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-                Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-                  opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-                end)
-              end)
+        {:noreply, assign(socket, form_error: error_msg)}
 
-            error_msg =
-              errors
-              |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
-              |> Enum.join("; ")
-
-            {:noreply, assign(socket, form_error: error_msg, pw_error: nil)}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, form_error: "Failed to create admin: #{inspect(reason)}", pw_error: nil)}
-        end
+      {:error, reason} ->
+        {:noreply, assign(socket, form_error: "Failed to create admin: #{inspect(reason)}")}
     end
   end
 
@@ -181,75 +166,31 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
             <span>{@form_error}</span>
           </div>
 
-          <div :if={@pw_error} class="alert alert-error text-sm mb-3">
-            <.icon name="hero-exclamation-circle" class="size-4" />
-            <span>{@pw_error}</span>
-          </div>
-
           <form id="create-admin-form" phx-submit="create_admin" class="space-y-3">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <p class="text-xs text-base-content/50 mb-2">
+              A temporary password will be generated and emailed to the new admin. They must change it on first login.
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
-                <label for="admin-username" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Username
-                </label>
-                <input
-                  type="text"
-                  name="username"
-                  id="admin-username"
-                  required
-                  autocomplete="off"
-                  class="input input-bordered input-sm w-full"
-                  placeholder="e.g. jdoe"
-                />
+                <label for="admin-username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
+                <input type="text" name="username" id="admin-username" required autocomplete="off"
+                  class="input input-bordered input-sm w-full" placeholder="e.g. jdoe" />
               </div>
               <div>
-                <label for="admin-display-name" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Display Name
-                </label>
-                <input
-                  type="text"
-                  name="display_name"
-                  id="admin-display-name"
-                  required
-                  class="input input-bordered input-sm w-full"
-                  placeholder="e.g. Jane Doe"
-                />
+                <label for="admin-display-name" class="block text-xs font-medium text-base-content/60 mb-1">Display Name</label>
+                <input type="text" name="display_name" id="admin-display-name" required
+                  class="input input-bordered input-sm w-full" placeholder="e.g. Jane Doe" />
               </div>
               <div>
-                <label for="admin-password" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Password
-                </label>
-                <input
-                  type="password"
-                  name="password"
-                  id="admin-password"
-                  required
-                  minlength="8"
-                  autocomplete="new-password"
-                  class="input input-bordered input-sm w-full"
-                  placeholder="Min. 8 characters"
-                />
-              </div>
-              <div>
-                <label for="admin-password-confirm" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Confirm Password
-                </label>
-                <input
-                  type="password"
-                  name="password_confirmation"
-                  id="admin-password-confirm"
-                  required
-                  minlength="8"
-                  autocomplete="new-password"
-                  class="input input-bordered input-sm w-full"
-                  placeholder="Re-enter password"
-                />
+                <label for="admin-email" class="block text-xs font-medium text-base-content/60 mb-1">Email</label>
+                <input type="email" name="email" id="admin-email" required
+                  class="input input-bordered input-sm w-full" placeholder="e.g. jane@example.com" />
               </div>
             </div>
             <div class="flex justify-end">
               <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
-                <.icon name="hero-user-plus" class="size-4" />
-                Create Admin
+                <.icon name="hero-envelope" class="size-4" />
+                Create & Send Invite
               </button>
             </div>
           </form>
@@ -269,6 +210,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                 <tr class="text-xs uppercase text-base-content/50">
                   <th>Username</th>
                   <th>Display Name</th>
+                  <th>Email</th>
                   <th>Role</th>
                   <th>Status</th>
                   <th>Created</th>
@@ -277,7 +219,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
               </thead>
               <tbody>
                 <tr :if={@admins == []}>
-                  <td colspan="6" class="text-center text-base-content/50 py-8">No admins found.</td>
+                  <td colspan="7" class="text-center text-base-content/50 py-8">No admins found.</td>
                 </tr>
                 <tr :for={admin <- @admins} id={"admin-#{admin.id}"} class="hover">
                   <td class="font-mono text-sm">
@@ -287,6 +229,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                     </div>
                   </td>
                   <td class="font-medium">{admin.display_name}</td>
+                  <td class="text-xs">{admin.email || "-"}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

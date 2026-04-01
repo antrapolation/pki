@@ -13,6 +13,8 @@ defmodule PkiPlatformEngine.PlatformAdmin do
     field :role, :string, default: "super_admin"
     field :status, :string, default: "active"
     field :email, :string
+    field :must_change_password, :boolean, default: false
+    field :credential_expires_at, :utc_datetime
 
     timestamps()
   end
@@ -45,9 +47,21 @@ defmodule PkiPlatformEngine.PlatformAdmin do
 
   def password_changeset(admin, attrs) do
     admin
-    |> cast(attrs, [:password])
+    |> cast(attrs, [:password, :must_change_password])
     |> validate_required([:password])
     |> validate_length(:password, min: 8, max: 100)
+    |> hash_password()
+  end
+
+  def invitation_changeset(admin, attrs) do
+    admin
+    |> cast(attrs, [:username, :display_name, :email, :password, :must_change_password, :credential_expires_at])
+    |> validate_required([:username, :display_name, :email, :password])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/, message: "must be a valid email address")
+    |> validate_length(:password, min: 8, max: 100)
+    |> unique_constraint(:username)
+    |> unique_constraint(:email)
+    |> maybe_put_id()
     |> hash_password()
   end
 
