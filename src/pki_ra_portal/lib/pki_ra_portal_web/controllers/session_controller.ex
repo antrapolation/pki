@@ -75,6 +75,7 @@ defmodule PkiRaPortalWeb.SessionController do
     %{
       id: user[:id],
       username: user[:username],
+      email: user[:email],
       role: user[:role],
       display_name: user[:display_name],
       tenant_id: user[:tenant_id]

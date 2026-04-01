@@ -39,6 +39,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
         user_map = %{
           id: user.id,
           username: user.username,
+          email: user.email,
           role: role.role,
           display_name: user.display_name,
           tenant_id: role.tenant_id,
@@ -431,6 +432,31 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     ) do
       {:ok, _} ->
         PkiPlatformEngine.PlatformAudit.log("password_reset", %{
+          actor_id: opts[:actor_id],
+          actor_username: opts[:actor_username],
+          target_type: "user_profile",
+          target_id: user_id,
+          tenant_id: tenant_id,
+          portal: "ra"
+        })
+        :ok
+
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def resend_invitation(user_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    portal_url = Application.get_env(:pki_ra_portal, :portal_url, "")
+    tenant_name = get_tenant_name(tenant_id)
+
+    case PkiPlatformEngine.PlatformAuth.resend_invitation(user_id, "ra",
+      portal_url: portal_url,
+      tenant_name: tenant_name
+    ) do
+      {:ok, _} ->
+        PkiPlatformEngine.PlatformAudit.log("invitation_resent", %{
           actor_id: opts[:actor_id],
           actor_username: opts[:actor_username],
           target_type: "user_profile",

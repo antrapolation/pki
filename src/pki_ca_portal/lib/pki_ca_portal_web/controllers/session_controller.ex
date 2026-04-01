@@ -77,14 +77,31 @@ defmodule PkiCaPortalWeb.SessionController do
   end
 
   defp serialize_user(user, ca_instance_id) do
+    resolved_id = resolve_ca_instance_id(user[:ca_instance_id] || ca_instance_id, user[:tenant_id])
+
     %{
       id: user[:id],
       username: user[:username],
+      email: user[:email],
       role: user[:role],
       display_name: user[:display_name],
-      ca_instance_id: user[:ca_instance_id] || ca_instance_id,
+      ca_instance_id: resolved_id,
       tenant_id: user[:tenant_id]
     }
+  end
+
+  defp resolve_ca_instance_id(id, _tenant_id) when is_binary(id) and byte_size(id) > 8 do
+    # Looks like a real UUID — keep it
+    case Ecto.UUID.cast(id) do
+      {:ok, _} -> id
+      :error -> nil
+    end
+  end
+  defp resolve_ca_instance_id(_id, tenant_id) do
+    case CaEngineClient.list_ca_instances(tenant_id: tenant_id) do
+      {:ok, [first | _]} -> first[:id] || first.id
+      _ -> nil
+    end
   end
 
   defp credential_expired?(%{credential_expires_at: nil}), do: false
