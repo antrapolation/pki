@@ -6,7 +6,7 @@ config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
   hostname: "localhost",
   port: 5434,
   database: "pki_platform_dev",
-  pool_size: 10
+  pool_size: 3
 
 config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   hostname: "localhost",

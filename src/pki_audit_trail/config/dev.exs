@@ -8,4 +8,4 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   database: System.get_env("CA_ENGINE_DB", "pki_audit_trail_dev"),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 3

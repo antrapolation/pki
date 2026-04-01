@@ -64,7 +64,7 @@ defmodule PkiPlatformEngine.TenantProcess do
       username: Keyword.get(config, :username, Keyword.get(platform_config, :username, "postgres")),
       password: Keyword.get(config, :password, Keyword.get(platform_config, :password, "postgres")),
       database: database_name,
-      pool_size: 5
+      pool_size: String.to_integer(System.get_env("TENANT_POOL_SIZE", "2"))
     ]
   end
 

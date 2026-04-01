@@ -10,7 +10,7 @@ ra_repo_opts = [
   database: System.get_env("RA_ENGINE_DB", "pki_ra_engine_dev"),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 3
 ]
 
 ra_repo_opts =

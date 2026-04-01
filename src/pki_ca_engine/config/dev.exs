@@ -10,7 +10,7 @@ ca_repo_opts = [
   database: System.get_env("CA_ENGINE_DB", "pki_ca_engine_dev"),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 3
 ]
 
 ca_repo_opts =

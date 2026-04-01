@@ -7,7 +7,7 @@ config :pki_validation, PkiValidation.Repo,
   port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
   database: System.get_env("VALIDATION_DB", "pki_validation_dev"),
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: 3
 
 config :pki_validation, :http, start: true
 config :pki_validation, :http_port, String.to_integer(System.get_env("PORT", "4005"))
