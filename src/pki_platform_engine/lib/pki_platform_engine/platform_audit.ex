@@ -65,7 +65,8 @@ defmodule PkiPlatformEngine.PlatformAudit do
         from(e in q, where: e.action == ^action)
 
       {:actor_username, actor}, q when is_binary(actor) and actor != "" ->
-        from(e in q, where: ilike(e.actor_username, ^"%#{actor}%"))
+        escaped = actor |> String.replace("\\", "\\\\") |> String.replace("%", "\\%") |> String.replace("_", "\\_")
+        from(e in q, where: ilike(e.actor_username, ^"%#{escaped}%"))
 
       {:date_from, date_str}, q when is_binary(date_str) and date_str != "" ->
         case Date.from_iso8601(date_str) do

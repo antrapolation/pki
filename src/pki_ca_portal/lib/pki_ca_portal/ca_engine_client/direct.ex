@@ -460,9 +460,15 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     portal_url = Application.get_env(:pki_ca_portal, :portal_url, "")
     tenant_name = get_tenant_name(tenant_id)
 
+    role_label = case PkiPlatformEngine.PlatformAuth.get_tenant_roles(user_id, portal: "ca") do
+      [role | _] -> PkiPlatformEngine.PlatformAuth.format_role_label(role.role, "ca")
+      [] -> "CA User"
+    end
+
     case PkiPlatformEngine.PlatformAuth.reset_user_password(user_id, "ca",
       portal_url: portal_url,
-      tenant_name: tenant_name
+      tenant_name: tenant_name,
+      role_label: role_label
     ) do
       {:ok, _} ->
         PkiPlatformEngine.PlatformAudit.log("password_reset", %{

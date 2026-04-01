@@ -45,7 +45,7 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback suspend_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback activate_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback delete_user_role(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  @callback reset_user_password(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback reset_user_password(String.t(), keyword()) :: :ok | {:error, term()}
   @callback list_audit_events(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
 
   defp impl,

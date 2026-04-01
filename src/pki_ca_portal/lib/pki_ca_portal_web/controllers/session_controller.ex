@@ -20,6 +20,14 @@ defmodule PkiCaPortalWeb.SessionController do
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact your platform administrator.")
 
           user[:must_change_password] ->
+            PkiPlatformEngine.PlatformAudit.log("login", %{
+              actor_id: user[:id],
+              actor_username: user[:username],
+              tenant_id: tenant_id,
+              portal: "ca",
+              details: %{must_change_password: true}
+            })
+
             conn
             |> configure_session(renew: true)
             |> put_session(:current_user, serialize_user(user, ca_instance_id))

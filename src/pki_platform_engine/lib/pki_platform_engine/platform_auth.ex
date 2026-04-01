@@ -115,36 +115,52 @@ defmodule PkiPlatformEngine.PlatformAuth do
   and sends an invitation email.
   """
   def create_user_for_portal(tenant_id, portal, attrs, opts \\ []) do
-    temp_password = generate_temp_password()
-    expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+    email = attrs[:email] || attrs["email"]
 
-    PlatformRepo.transaction(fn ->
-      user_attrs = %{
-        username: attrs[:username] || attrs["username"],
-        display_name: attrs[:display_name] || attrs["display_name"],
-        email: attrs[:email] || attrs["email"],
-        password: temp_password,
-        must_change_password: true,
-        credential_expires_at: expires_at
-      }
+    unless email && String.contains?(to_string(email), "@") do
+      {:error, :email_required}
+    else
+      temp_password = generate_temp_password()
+      expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+      role = attrs[:role] || attrs["role"]
 
-      case create_user_profile(user_attrs) do
+      result = PlatformRepo.transaction(fn ->
+        user_attrs = %{
+          username: attrs[:username] || attrs["username"],
+          display_name: attrs[:display_name] || attrs["display_name"],
+          email: email,
+          password: temp_password,
+          must_change_password: true,
+          credential_expires_at: expires_at
+        }
+
+        case create_user_profile(user_attrs) do
+          {:ok, user} ->
+            case assign_tenant_role(user.id, tenant_id, %{role: role, portal: portal}) do
+              {:ok, %{id: nil}} ->
+                PlatformRepo.rollback(:duplicate_role)
+
+              {:ok, _role} ->
+                user
+
+              {:error, reason} ->
+                PlatformRepo.rollback(reason)
+            end
+
+          {:error, changeset} ->
+            PlatformRepo.rollback(changeset)
+        end
+      end)
+
+      case result do
         {:ok, user} ->
-          role = attrs[:role] || attrs["role"]
+          send_invitation_email(user, role, portal, temp_password, opts)
+          {:ok, user}
 
-          case assign_tenant_role(user.id, tenant_id, %{role: role, portal: portal}) do
-            {:ok, _role} ->
-              send_invitation_email(user, role, portal, temp_password, opts)
-              user
-
-            {:error, reason} ->
-              PlatformRepo.rollback(reason)
-          end
-
-        {:error, changeset} ->
-          PlatformRepo.rollback(changeset)
+        {:error, _} = err ->
+          err
       end
-    end)
+    end
   end
 
   @doc "Suspend a user's tenant role (prevents login to that portal)."
@@ -223,7 +239,8 @@ defmodule PkiPlatformEngine.PlatformAuth do
     PkiPlatformEngine.Mailer.send_email(user.email, "Your password has been reset - #{tenant_name}", html)
   end
 
-  defp format_role_label(role, portal) do
+  @doc "Format a role string into a human-readable label."
+  def format_role_label(role, portal) do
     case {portal, role} do
       {"ca", "ca_admin"} -> "CA Administrator"
       {"ca", "key_manager"} -> "Key Manager"

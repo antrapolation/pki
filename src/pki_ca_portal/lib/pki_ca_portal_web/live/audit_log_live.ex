@@ -30,7 +30,16 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
     ca_events =
       case CaEngineClient.query_audit_log([], opts) do
-        {:ok, events} -> Enum.map(events, &Map.put(&1, :category, "ca_operations"))
+        {:ok, events} ->
+          Enum.map(events, fn e ->
+            %{
+              event_id: e[:event_id] || Map.get(e, :event_id),
+              timestamp: e[:timestamp] || Map.get(e, :timestamp),
+              action: e[:action] || Map.get(e, :action),
+              actor: e[:actor_did] || Map.get(e, :actor_did, "system"),
+              category: "ca_operations"
+            }
+          end)
         {:error, _} -> []
       end
 
@@ -96,7 +105,16 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
     ca_events =
       case CaEngineClient.query_audit_log([], opts) do
-        {:ok, events} -> Enum.map(events, &Map.put(&1, :category, "ca_operations"))
+        {:ok, events} ->
+          Enum.map(events, fn e ->
+            %{
+              event_id: e[:event_id] || Map.get(e, :event_id),
+              timestamp: e[:timestamp] || Map.get(e, :timestamp),
+              action: e[:action] || Map.get(e, :action),
+              actor: e[:actor_did] || Map.get(e, :actor_did, "system"),
+              category: "ca_operations"
+            }
+          end)
         {:error, _} -> []
       end
 
@@ -207,8 +225,11 @@ defmodule PkiCaPortalWeb.AuditLogLive do
                 <option value="ceremony_initiated" selected={@filter_action == "ceremony_initiated"}>
                   Ceremony Initiated
                 </option>
+                <option value="login_failed" selected={@filter_action == "login_failed"}>Login Failed</option>
                 <option value="user_created" selected={@filter_action == "user_created"}>User Created</option>
                 <option value="user_suspended" selected={@filter_action == "user_suspended"}>User Suspended</option>
+                <option value="user_activated" selected={@filter_action == "user_activated"}>User Activated</option>
+                <option value="user_deleted" selected={@filter_action == "user_deleted"}>User Deleted</option>
                 <option value="password_reset" selected={@filter_action == "password_reset"}>Password Reset</option>
                 <option value="password_changed" selected={@filter_action == "password_changed"}>Password Changed</option>
                 <option value="profile_updated" selected={@filter_action == "profile_updated"}>Profile Updated</option>
