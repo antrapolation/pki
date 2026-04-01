@@ -85,6 +85,22 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   database: "pki_ca_engine_dev",
   pool_size: 2
 
+# PlatformRepo — pki_platform_engine dependency needs its DB configured
+config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
+  username: "postgres",
+  password: System.get_env("POSTGRES_PASSWORD", "postgres"),
+  hostname: "localhost",
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+  database: "pki_platform_dev",
+  pool_size: 3
+
+config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
+  hostname: "localhost",
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+  username: "postgres",
+  password: System.get_env("POSTGRES_PASSWORD", "postgres"),
+  pool_size: 2
+
 # Disable CA engine HTTP server (portal runs Direct, not HTTP)
 config :pki_ca_engine, :start_http, false
 

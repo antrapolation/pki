@@ -60,6 +60,22 @@ config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :pki_ra_portal, dev_routes: true
 
+# PlatformRepo — pki_platform_engine dependency needs its DB configured
+config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
+  username: "postgres",
+  password: System.get_env("POSTGRES_PASSWORD", "postgres"),
+  hostname: "localhost",
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+  database: "pki_platform_dev",
+  pool_size: 3
+
+config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
+  hostname: "localhost",
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+  username: "postgres",
+  password: System.get_env("POSTGRES_PASSWORD", "postgres"),
+  pool_size: 2
+
 # RA Engine client for local dev — Direct calls engine modules in-process (no HTTP)
 # Switch to PkiRaPortal.RaEngineClient.Http for remote/separate deployment
 config :pki_ra_portal,
