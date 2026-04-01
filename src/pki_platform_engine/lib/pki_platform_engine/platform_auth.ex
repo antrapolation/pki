@@ -29,6 +29,19 @@ defmodule PkiPlatformEngine.PlatformAuth do
     PlatformRepo.all(query)
   end
 
+  def get_tenant_roles_any_status(user_profile_id, opts \\ []) do
+    query = from r in UserTenantRole,
+      where: r.user_profile_id == ^user_profile_id,
+      preload: [:tenant]
+
+    query = case Keyword.get(opts, :portal) do
+      nil -> query
+      portal -> from r in query, where: r.portal == ^portal
+    end
+
+    PlatformRepo.all(query)
+  end
+
   def authenticate_for_portal(username, password, portal) do
     with {:ok, user} <- authenticate(username, password) do
       case get_tenant_roles(user.id, portal: portal) do

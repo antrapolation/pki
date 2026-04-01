@@ -354,7 +354,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
         })
         {:ok, %{id: user.id, username: user.username, display_name: user.display_name, email: user.email}}
 
-      {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
+      {:error, %Ecto.Changeset{} = cs} -> {:error, {:validation_error, format_changeset_errors(cs)}}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -419,7 +419,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     portal_url = Application.get_env(:pki_ra_portal, :portal_url, "")
     tenant_name = get_tenant_name(tenant_id)
 
-    role_label = case PkiPlatformEngine.PlatformAuth.get_tenant_roles(user_id, portal: "ra") do
+    role_label = case PkiPlatformEngine.PlatformAuth.get_tenant_roles_any_status(user_id, portal: "ra") do
       [role | _] -> PkiPlatformEngine.PlatformAuth.format_role_label(role.role, "ra")
       [] -> "RA User"
     end

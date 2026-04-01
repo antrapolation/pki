@@ -27,38 +27,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   @impl true
   def handle_info(:load_data, socket) do
     opts = tenant_opts(socket)
-
-    ca_events =
-      case CaEngineClient.query_audit_log([], opts) do
-        {:ok, events} ->
-          Enum.map(events, fn e ->
-            %{
-              event_id: e[:event_id] || Map.get(e, :event_id),
-              timestamp: e[:timestamp] || Map.get(e, :timestamp),
-              action: e[:action] || Map.get(e, :action),
-              actor: e[:actor_did] || Map.get(e, :actor_did, "system"),
-              category: "ca_operations"
-            }
-          end)
-        {:error, _} -> []
-      end
-
-    platform_events =
-      case CaEngineClient.list_audit_events([], opts) do
-        {:ok, events} -> Enum.map(events, fn e ->
-          %{
-            event_id: e[:id] || e.id,
-            timestamp: e[:timestamp] || e.timestamp,
-            action: e[:action] || e.action,
-            actor: e[:actor_username] || Map.get(e, :actor_username, "system"),
-            category: "user_management"
-          }
-        end)
-        {:error, _} -> []
-      end
-
-    all_events = (ca_events ++ platform_events)
-      |> Enum.sort_by(& &1.timestamp, {:desc, DateTime})
+    all_events = load_all_events(opts)
 
     ca_instances =
       case CaEngineClient.list_ca_instances(opts) do
@@ -76,19 +45,13 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
-    filters =
-      []
-      |> maybe_add_filter(:ca_instance_id, ca_instance_id)
-      |> maybe_add_filter(:action, socket.assigns.filter_action)
-      |> maybe_add_filter(:actor, socket.assigns.filter_actor)
-      |> maybe_add_filter(:date_from, socket.assigns.filter_date_from)
-      |> maybe_add_filter(:date_to, socket.assigns.filter_date_to)
+    ca_filters = maybe_add_filter([], :ca_instance_id, ca_instance_id)
+    all_events = load_all_events(tenant_opts(socket), ca_filters)
 
-    events =
-      case CaEngineClient.query_audit_log(filters, tenant_opts(socket)) do
-        {:ok, events} -> events
-        {:error, _} -> []
-      end
+    events = case socket.assigns.category do
+      "all" -> all_events
+      cat -> Enum.filter(all_events, &(&1.category == cat))
+    end
 
     {:noreply,
      assign(socket,
@@ -100,40 +63,9 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def handle_event("filter", params, socket) do
-    opts = tenant_opts(socket)
     category = params["category"] || "all"
-
-    ca_events =
-      case CaEngineClient.query_audit_log([], opts) do
-        {:ok, events} ->
-          Enum.map(events, fn e ->
-            %{
-              event_id: e[:event_id] || Map.get(e, :event_id),
-              timestamp: e[:timestamp] || Map.get(e, :timestamp),
-              action: e[:action] || Map.get(e, :action),
-              actor: e[:actor_did] || Map.get(e, :actor_did, "system"),
-              category: "ca_operations"
-            }
-          end)
-        {:error, _} -> []
-      end
-
-    platform_events =
-      case CaEngineClient.list_audit_events([], opts) do
-        {:ok, events} -> Enum.map(events, fn e ->
-          %{
-            event_id: e[:id] || e.id,
-            timestamp: e[:timestamp] || e.timestamp,
-            action: e[:action] || e.action,
-            actor: e[:actor_username] || Map.get(e, :actor_username, "system"),
-            category: "user_management"
-          }
-        end)
-        {:error, _} -> []
-      end
-
-    all_events = (ca_events ++ platform_events)
-      |> Enum.sort_by(& &1.timestamp, {:desc, DateTime})
+    ca_filters = maybe_add_filter([], :ca_instance_id, socket.assigns.selected_ca_instance_id)
+    all_events = load_all_events(tenant_opts(socket), ca_filters)
 
     events = case category do
       "all" -> all_events
@@ -162,6 +94,41 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
+  defp load_all_events(opts, ca_filters \\ []) do
+    ca_events =
+      case CaEngineClient.query_audit_log(ca_filters, opts) do
+        {:ok, events} ->
+          Enum.map(events, fn e ->
+            %{
+              event_id: e[:event_id] || Map.get(e, :event_id),
+              timestamp: e[:timestamp] || Map.get(e, :timestamp),
+              action: e[:action] || Map.get(e, :action),
+              actor: e[:actor_did] || Map.get(e, :actor_did, "system"),
+              category: "ca_operations"
+            }
+          end)
+        {:error, _} -> []
+      end
+
+    platform_events =
+      case CaEngineClient.list_audit_events([], opts) do
+        {:ok, events} ->
+          Enum.map(events, fn e ->
+            %{
+              event_id: e[:id] || Map.get(e, :id),
+              timestamp: e[:timestamp] || Map.get(e, :timestamp),
+              action: e[:action] || Map.get(e, :action),
+              actor: e[:actor_username] || Map.get(e, :actor_username, "system"),
+              category: "user_management"
+            }
+          end)
+        {:error, _} -> []
+      end
+
+    (ca_events ++ platform_events)
+    |> Enum.sort_by(& &1[:timestamp], {:desc, DateTime})
   end
 
   defp filter_by_actor(events, ""), do: events
@@ -278,7 +245,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
               </thead>
               <tbody id="event-list">
                 <tr :for={event <- paginated_events} id={"event-#{event.event_id}"} class="hover">
-                  <td class="font-mono-data">{Calendar.strftime(event.timestamp, "%Y-%m-%d %H:%M:%S")}</td>
+                  <td class="font-mono-data">{if event[:timestamp], do: Calendar.strftime(event.timestamp, "%Y-%m-%d %H:%M:%S"), else: "—"}</td>
                   <td>
                     <span class={["badge badge-sm", if(event.category == "ca_operations", do: "badge-info", else: "badge-secondary")]}>
                       {if event.category == "ca_operations", do: "CA Ops", else: "User Mgmt"}

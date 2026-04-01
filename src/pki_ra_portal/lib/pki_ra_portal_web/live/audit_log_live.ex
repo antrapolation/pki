@@ -141,7 +141,7 @@ defmodule PkiRaPortalWeb.AuditLogLive do
               </thead>
               <tbody id="event-list">
                 <tr :for={event <- paginated} id={"event-#{event[:id] || event.id}"} class="hover">
-                  <td class="font-mono text-xs">{Calendar.strftime(event[:timestamp] || event.timestamp, "%Y-%m-%d %H:%M:%S")}</td>
+                  <td class="font-mono text-xs">{if ts = event[:timestamp] || Map.get(event, :timestamp), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M:%S"), else: "—"}</td>
                   <td><span class="badge badge-sm badge-ghost">{event[:action] || event.action}</span></td>
                   <td>{event[:actor_username] || Map.get(event, :actor_username, "system")}</td>
                   <td class="text-xs text-base-content/60 max-w-xs truncate">{format_details(event[:details] || Map.get(event, :details, %{}))}</td>
