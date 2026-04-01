@@ -103,6 +103,7 @@ defmodule PkiPlatformEngine.PlatformAuth do
   end
 
   @doc "List users for a specific tenant and portal with their roles."
+  def list_users_for_portal(nil, _portal), do: []
   def list_users_for_portal(tenant_id, portal) do
     query = from r in UserTenantRole,
       where: r.tenant_id == ^tenant_id and r.portal == ^portal,

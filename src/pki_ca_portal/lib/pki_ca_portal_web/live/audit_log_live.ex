@@ -128,7 +128,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
       end
 
     (ca_events ++ platform_events)
-    |> Enum.sort_by(& &1[:timestamp], {:desc, DateTime})
+    |> Enum.sort_by(& &1[:timestamp] || ~U[0000-01-01 00:00:00Z], {:desc, DateTime})
   end
 
   defp filter_by_actor(events, ""), do: events
