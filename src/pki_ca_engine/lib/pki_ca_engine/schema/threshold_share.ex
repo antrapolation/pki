@@ -12,7 +12,8 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     field :total_shares, :integer
 
     belongs_to :issuer_key, PkiCaEngine.Schema.IssuerKey
-    belongs_to :custodian_user, PkiCaEngine.Schema.CaUser, foreign_key: :custodian_user_id
+    # custodian_user_id stores platform user ID (no FK — users live in platform DB)
+    field :custodian_user_id, :binary_id
 
     timestamps()
   end
@@ -22,7 +23,6 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     |> cast(attrs, [:issuer_key_id, :custodian_user_id, :share_index, :encrypted_share, :min_shares, :total_shares])
     |> validate_required([:issuer_key_id, :custodian_user_id, :share_index, :encrypted_share, :min_shares, :total_shares])
     |> foreign_key_constraint(:issuer_key_id)
-    |> foreign_key_constraint(:custodian_user_id)
     |> unique_constraint([:issuer_key_id, :custodian_user_id])
     |> maybe_generate_id()
   end

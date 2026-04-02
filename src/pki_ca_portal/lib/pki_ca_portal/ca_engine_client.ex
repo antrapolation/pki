@@ -48,6 +48,11 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback probe_hsm_device(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback deactivate_hsm_device(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback list_audit_events(keyword(), opts()) :: {:ok, [map()]} | {:error, term()}
+  @callback get_ceremony(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback generate_ceremony_keypair(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback distribute_ceremony_shares(String.t(), binary(), [{String.t(), String.t()}], opts()) :: {:ok, integer()} | {:error, term()}
+  @callback complete_ceremony_root(String.t(), binary(), String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback complete_ceremony_sub_ca(String.t(), binary(), opts()) :: {:ok, {map(), String.t()}} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -87,4 +92,9 @@ defmodule PkiCaPortal.CaEngineClient do
   def probe_hsm_device(id, opts \\ []), do: impl().probe_hsm_device(id, opts)
   def deactivate_hsm_device(id, opts \\ []), do: impl().deactivate_hsm_device(id, opts)
   def list_audit_events(filters, opts \\ []), do: impl().list_audit_events(filters, opts)
+  def get_ceremony(ceremony_id, opts \\ []), do: impl().get_ceremony(ceremony_id, opts)
+  def generate_ceremony_keypair(algorithm, opts \\ []), do: impl().generate_ceremony_keypair(algorithm, opts)
+  def distribute_ceremony_shares(ceremony_id, private_key, custodian_passwords, opts \\ []), do: impl().distribute_ceremony_shares(ceremony_id, private_key, custodian_passwords, opts)
+  def complete_ceremony_root(ceremony_id, private_key, subject_dn, opts \\ []), do: impl().complete_ceremony_root(ceremony_id, private_key, subject_dn, opts)
+  def complete_ceremony_sub_ca(ceremony_id, private_key, opts \\ []), do: impl().complete_ceremony_sub_ca(ceremony_id, private_key, opts)
 end

@@ -312,6 +312,101 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
+  def get_ceremony(ceremony_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(KeyCeremony, ceremony_id) do
+      nil -> {:error, :not_found}
+      ceremony -> {:ok, to_map(ceremony)}
+    end
+  end
+
+  @impl true
+  def generate_ceremony_keypair(algorithm, _opts \\ []) do
+    case SyncCeremony.generate_keypair(algorithm) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, {:unsupported_algorithm, _}} ->
+        # PQC algorithms (KAZ-SIGN, ML-DSA) aren't in PkiCrypto.Registry —
+        # generate via ApJavaCrypto (JRuby/BouncyCastle) instead
+        case pqc_algo_atom(algorithm) do
+          nil -> {:error, {:unsupported_algorithm, algorithm}}
+          algo_atom -> generate_pqc_keypair(algo_atom)
+        end
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @impl true
+  def distribute_ceremony_shares(ceremony_id, private_key, custodian_passwords, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(KeyCeremony, ceremony_id) do
+      nil ->
+        {:error, :not_found}
+
+      ceremony ->
+        case SyncCeremony.distribute_shares(tenant_id, ceremony, private_key, custodian_passwords) do
+          {:ok, count} ->
+            # Update ceremony status to in_progress
+            ceremony
+            |> Ecto.Changeset.change(status: "in_progress")
+            |> repo.update()
+
+            {:ok, count}
+
+          {:error, _} = err ->
+            err
+        end
+    end
+  end
+
+  @impl true
+  def complete_ceremony_root(ceremony_id, private_key, subject_dn, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(KeyCeremony, ceremony_id) do
+      nil ->
+        {:error, :not_found}
+
+      ceremony ->
+        case self_sign_root_cert(private_key, ceremony.algorithm, subject_dn, opts) do
+          {:ok, cert_der, cert_pem} ->
+            case SyncCeremony.complete_as_root(tenant_id, ceremony, cert_der, cert_pem) do
+              {:ok, updated} -> {:ok, to_map(updated)}
+              {:error, _} = err -> err
+            end
+
+          {:error, _} = err ->
+            err
+        end
+    end
+  end
+
+  @impl true
+  def complete_ceremony_sub_ca(ceremony_id, private_key, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(KeyCeremony, ceremony_id) do
+      nil ->
+        {:error, :not_found}
+
+      ceremony ->
+        case SyncCeremony.complete_as_sub_ca(tenant_id, ceremony, private_key) do
+          {:ok, {updated, csr_pem}} -> {:ok, {to_map(updated), csr_pem}}
+          {:error, _} = err -> err
+        end
+    end
+  end
+
+  @impl true
   def list_ceremonies(ca_instance_id, opts \\ []) do
     tenant_id = opts[:tenant_id]
     repo = TenantRepo.ca_repo(tenant_id)
@@ -640,6 +735,141 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
         end
       end)
     end)
+  end
+
+  defp generate_pqc_keypair(algo_atom) do
+    # Check if ApJavaCrypto service is available
+    case ApJavaCrypto.get_ap_java_crypto_service() do
+      pid when is_pid(pid) ->
+        case ApJavaCrypto.generate_keypair(algo_atom) do
+          {:ok, {_algo, :private_key, priv}, {_algo2, :public_key, pub}} ->
+            {:ok, %{public_key: pub, private_key: priv}}
+
+          {:ok, {_algo, :private_key, priv}, {_algo2, :public_key, pub}, _extra} ->
+            {:ok, %{public_key: pub, private_key: priv}}
+
+          {:error, _} = err ->
+            err
+
+          other ->
+            {:error, {:unexpected_keypair_result, other}}
+        end
+
+      _ ->
+        {:error, "PQC crypto service (ApJavaCrypto) is not running. Use a classical algorithm (ECC-P256, ECC-P384, RSA-4096) or start the JRuby service."}
+    end
+  rescue
+    e -> {:error, "PQC keygen failed: #{Exception.message(e)}"}
+  end
+
+  defp pqc_algo_atom(algorithm) do
+    case String.downcase(algorithm) do
+      "kaz-sign-128" -> :kaz_sign_128
+      "kaz-sign-192" -> :kaz_sign_192
+      "kaz-sign-256" -> :kaz_sign_256
+      "ml-dsa-44" -> :ml_dsa_44
+      "ml-dsa-65" -> :ml_dsa_65
+      "ml-dsa-87" -> :ml_dsa_87
+      "slh-dsa-sha2-128f" -> :slh_dsa_sha2_128f
+      "slh-dsa-sha2-128s" -> :slh_dsa_sha2_128s
+      "slh-dsa-sha2-192f" -> :slh_dsa_sha2_192f
+      "slh-dsa-sha2-192s" -> :slh_dsa_sha2_192s
+      "slh-dsa-sha2-256f" -> :slh_dsa_sha2_256f
+      "slh-dsa-sha2-256s" -> :slh_dsa_sha2_256s
+      _ -> nil
+    end
+  end
+
+  defp self_sign_root_cert(private_key_der, algorithm, subject_dn, opts) do
+    algo = String.downcase(algorithm)
+
+    cond do
+      algo in ["rsa-2048", "rsa-4096"] ->
+        native_key = :public_key.der_decode(:RSAPrivateKey, private_key_der)
+        do_self_sign_x509(native_key, subject_dn)
+
+      algo in ["ecc-p256", "ecc-p384"] ->
+        native_key = :public_key.der_decode(:ECPrivateKey, private_key_der)
+        do_self_sign_x509(native_key, subject_dn)
+
+      String.starts_with?(algo, "kaz-sign") or String.starts_with?(algo, "ml-dsa") or String.starts_with?(algo, "slh-dsa") ->
+        public_key = opts[:public_key]
+        do_self_sign_pqc(private_key_der, public_key, algorithm, subject_dn)
+
+      true ->
+        {:error, {:unsupported_algorithm, algorithm}}
+    end
+  rescue
+    e -> {:error, {:self_sign_failed, e}}
+  end
+
+  defp do_self_sign_x509(native_key, subject_dn) do
+    cert =
+      X509.Certificate.self_signed(
+        native_key,
+        subject_dn,
+        validity: 3650,
+        hash: :sha256,
+        extensions: [
+          basic_constraints: X509.Certificate.Extension.basic_constraints(true, 0),
+          key_usage:
+            X509.Certificate.Extension.key_usage([
+              :digitalSignature,
+              :keyCertSign,
+              :cRLSign
+            ]),
+          subject_key_identifier: true
+        ]
+      )
+
+    cert_der = X509.Certificate.to_der(cert)
+    cert_pem = X509.Certificate.to_pem(cert)
+    {:ok, cert_der, cert_pem}
+  end
+
+  defp do_self_sign_pqc(private_key_bytes, public_key_bytes, algorithm, subject_dn) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    not_after = DateTime.add(now, 3650 * 86400, :second)
+    serial = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+
+    public_key_b64 = if public_key_bytes, do: Base.encode64(public_key_bytes), else: nil
+
+    tbs = %{
+      version: 3,
+      serial: serial,
+      algorithm: algorithm,
+      issuer: subject_dn,
+      not_before: DateTime.to_iso8601(now),
+      not_after: DateTime.to_iso8601(not_after),
+      subject: subject_dn,
+      public_key: public_key_b64,
+      is_ca: true
+    }
+
+    tbs_json = Jason.encode!(tbs)
+    digest = :crypto.hash(:sha3_256, tbs_json)
+
+    variant =
+      case String.downcase(algorithm) do
+        "kaz-sign-128" -> :kaz_sign_128
+        "kaz-sign-192" -> :kaz_sign_192
+        "kaz-sign-256" -> :kaz_sign_256
+        "ml-dsa-44" -> :kaz_sign_128
+        "ml-dsa-65" -> :kaz_sign_128
+        "ml-dsa-87" -> :kaz_sign_128
+        _ -> :kaz_sign_128
+      end
+
+    case ApJavaCrypto.sign(digest, {variant, :private_key, private_key_bytes}) do
+      {:ok, signature} ->
+        cert_map = Map.put(tbs, :signature, Base.encode64(signature))
+        cert_json = Jason.encode!(cert_map)
+        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_json)}\n-----END PKI CERTIFICATE-----\n"
+        {:ok, cert_json, cert_pem}
+
+      {:error, reason} ->
+        {:error, {:pqc_sign_failed, reason}}
+    end
   end
 
   defp parse_int(v) when is_integer(v), do: v

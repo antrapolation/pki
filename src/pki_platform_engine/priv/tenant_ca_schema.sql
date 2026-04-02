@@ -233,8 +233,7 @@ ALTER TABLE ONLY ca.issuer_keys
     ADD CONSTRAINT issuer_keys_ca_instance_id_fkey FOREIGN KEY (ca_instance_id) REFERENCES ca.ca_instances(id) ON DELETE CASCADE;
 ALTER TABLE ONLY ca.key_ceremonies
     ADD CONSTRAINT key_ceremonies_ca_instance_id_fkey FOREIGN KEY (ca_instance_id) REFERENCES ca.ca_instances(id) ON DELETE CASCADE;
-ALTER TABLE ONLY ca.key_ceremonies
-    ADD CONSTRAINT key_ceremonies_initiated_by_fkey FOREIGN KEY (initiated_by) REFERENCES ca.ca_users(id) ON DELETE SET NULL;
+-- initiated_by stores platform user ID (no FK — users live in platform DB)
 ALTER TABLE ONLY ca.key_ceremonies
     ADD CONSTRAINT key_ceremonies_issuer_key_id_fkey FOREIGN KEY (issuer_key_id) REFERENCES ca.issuer_keys(id) ON DELETE CASCADE;
 ALTER TABLE ONLY ca.key_ceremonies
@@ -253,7 +252,6 @@ ALTER TABLE ONLY ca.keystores
     ADD CONSTRAINT keystores_ca_instance_id_fkey FOREIGN KEY (ca_instance_id) REFERENCES ca.ca_instances(id) ON DELETE CASCADE;
 ALTER TABLE ONLY ca.managed_keypairs
     ADD CONSTRAINT managed_keypairs_ca_instance_id_fkey FOREIGN KEY (ca_instance_id) REFERENCES ca.ca_instances(id) ON DELETE CASCADE;
-ALTER TABLE ONLY ca.threshold_shares
-    ADD CONSTRAINT threshold_shares_custodian_user_id_fkey FOREIGN KEY (custodian_user_id) REFERENCES ca.ca_users(id) ON DELETE CASCADE;
+-- custodian_user_id stores platform user ID (no FK — users live in platform DB)
 ALTER TABLE ONLY ca.threshold_shares
     ADD CONSTRAINT threshold_shares_issuer_key_id_fkey FOREIGN KEY (issuer_key_id) REFERENCES ca.issuer_keys(id) ON DELETE CASCADE;

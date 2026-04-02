@@ -208,6 +208,50 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def get_ceremony(ceremony_id, _opts \\ []) do
+    ceremonies = get_state(:ceremonies)
+    case Enum.find(ceremonies, &(&1.id == ceremony_id)) do
+      nil -> {:error, :not_found}
+      c -> {:ok, c}
+    end
+  end
+
+  @impl true
+  def generate_ceremony_keypair(_algorithm, _opts \\ []) do
+    {:ok, %{public_key: :crypto.strong_rand_bytes(32), private_key: :crypto.strong_rand_bytes(64)}}
+  end
+
+  @impl true
+  def distribute_ceremony_shares(ceremony_id, _private_key, custodian_passwords, _opts \\ []) do
+    update_state(:ceremonies, fn ceremonies ->
+      Enum.map(ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "in_progress"), else: c
+      end)
+    end)
+    {:ok, length(custodian_passwords)}
+  end
+
+  @impl true
+  def complete_ceremony_root(ceremony_id, _private_key, _subject_dn, _opts \\ []) do
+    update_state(:ceremonies, fn ceremonies ->
+      Enum.map(ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "completed"), else: c
+      end)
+    end)
+    {:ok, %{id: ceremony_id, status: "completed"}}
+  end
+
+  @impl true
+  def complete_ceremony_sub_ca(ceremony_id, _private_key, _opts \\ []) do
+    update_state(:ceremonies, fn ceremonies ->
+      Enum.map(ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "completed"), else: c
+      end)
+    end)
+    {:ok, {%{id: ceremony_id, status: "completed"}, "-----BEGIN CERTIFICATE REQUEST-----\nMOCK\n-----END CERTIFICATE REQUEST-----\n"}}
+  end
+
+  @impl true
   def authenticate(username, _password, _opts \\ []) do
     {:ok, %{id: @user1_id, username: username, role: "ca_admin", display_name: "Mock Admin"}}
   end

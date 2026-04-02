@@ -20,7 +20,8 @@ defmodule PkiCaEngine.Schema.KeyCeremony do
 
     belongs_to :ca_instance, PkiCaEngine.Schema.CaInstance
     belongs_to :issuer_key, PkiCaEngine.Schema.IssuerKey
-    belongs_to :initiator, PkiCaEngine.Schema.CaUser, foreign_key: :initiated_by
+    # initiated_by stores platform user ID (no FK — users live in platform DB)
+    field :initiated_by, :binary_id
     belongs_to :keystore, PkiCaEngine.Schema.Keystore
 
     timestamps()
@@ -38,7 +39,6 @@ defmodule PkiCaEngine.Schema.KeyCeremony do
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:ca_instance_id)
     |> foreign_key_constraint(:issuer_key_id)
-    |> foreign_key_constraint(:initiated_by)
     |> foreign_key_constraint(:keystore_id)
     |> maybe_generate_id()
   end

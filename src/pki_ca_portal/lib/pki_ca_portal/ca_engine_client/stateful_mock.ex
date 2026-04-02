@@ -324,8 +324,69 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   def reset_user_password(_user_id, _opts \\ []), do: :ok
 
   @impl true
+  def resend_invitation(_user_id, _opts \\ []), do: :ok
+
+  @impl true
+  def list_hsm_devices(_opts \\ []), do: {:ok, []}
+
+  @impl true
+  def register_hsm_device(_attrs, _opts \\ []), do: {:error, :not_permitted}
+
+  @impl true
+  def probe_hsm_device(_id, _opts \\ []), do: {:error, :not_found}
+
+  @impl true
+  def deactivate_hsm_device(_id, _opts \\ []), do: {:error, :not_permitted}
+
+  @impl true
   def list_audit_events(_filters, _opts \\ []) do
     {:ok, Agent.get(__MODULE__, & &1.audit_events)}
+  end
+
+  @impl true
+  def get_ceremony(ceremony_id, _opts \\ []) do
+    case Agent.get(__MODULE__, fn s -> Enum.find(s.ceremonies, &(&1.id == ceremony_id)) end) do
+      nil -> {:error, :not_found}
+      c -> {:ok, c}
+    end
+  end
+
+  @impl true
+  def generate_ceremony_keypair(_algorithm, _opts \\ []) do
+    {:ok, %{public_key: :crypto.strong_rand_bytes(32), private_key: :crypto.strong_rand_bytes(64)}}
+  end
+
+  @impl true
+  def distribute_ceremony_shares(ceremony_id, _private_key, custodian_passwords, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "in_progress"), else: c
+      end)
+      %{state | ceremonies: updated}
+    end)
+    {:ok, length(custodian_passwords)}
+  end
+
+  @impl true
+  def complete_ceremony_root(ceremony_id, _private_key, _subject_dn, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "completed"), else: c
+      end)
+      %{state | ceremonies: updated}
+    end)
+    {:ok, %{id: ceremony_id, status: "completed"}}
+  end
+
+  @impl true
+  def complete_ceremony_sub_ca(ceremony_id, _private_key, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "completed"), else: c
+      end)
+      %{state | ceremonies: updated}
+    end)
+    {:ok, {%{id: ceremony_id, status: "completed"}, "-----BEGIN CERTIFICATE REQUEST-----\nMOCK\n-----END CERTIFICATE REQUEST-----\n"}}
   end
 
   # -- Private --
