@@ -323,10 +323,17 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   end
 
   def handle_event("select_custodian", params, socket) do
-    idx = parse_int(params["index"]) || 0
-    user_id = params["custodian_#{idx}"] || ""
-    custodian = if user_id == "", do: nil, else: Enum.find(socket.assigns.key_managers, &(&1.id == user_id))
-    custodians = List.replace_at(socket.assigns.custodians, idx, custodian)
+    # Update ALL custodian selections from form params (not just one)
+    n = length(socket.assigns.custodians)
+    custodians =
+      Enum.map(0..(n - 1), fn idx ->
+        user_id = params["custodian_#{idx}"] || ""
+        if user_id != "" do
+          Enum.find(socket.assigns.key_managers, &(&1.id == user_id))
+        else
+          Enum.at(socket.assigns.custodians, idx)
+        end
+      end)
     {:noreply, assign(socket, custodians: custodians)}
   end
 
@@ -407,7 +414,10 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         root_opts = Keyword.put(opts, :public_key, socket.assigns.public_key)
         CaEngineClient.complete_ceremony_root(ceremony[:id], private_key, subject, root_opts)
       else
-        CaEngineClient.complete_ceremony_sub_ca(ceremony[:id], private_key, opts)
+        subject_dn = socket.assigns.subject_dn
+        subject = if subject_dn == "", do: "/CN=Sub-CA-#{ceremony[:id]}", else: subject_dn
+        sub_opts = opts |> Keyword.put(:public_key, socket.assigns.public_key) |> Keyword.put(:subject_dn, subject)
+        CaEngineClient.complete_ceremony_sub_ca(ceremony[:id], private_key, sub_opts)
       end
 
     case result do
@@ -914,8 +924,6 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             <select
               name={"custodian_#{idx}"}
               class="select select-bordered select-sm w-48"
-              phx-change="select_custodian"
-              phx-value-index={idx}
             >
               <option value="">Select key manager</option>
               <option
@@ -929,9 +937,6 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             <input
               type="password"
               name={"password_#{idx}"}
-              value={Enum.at(@custodian_passwords, idx)}
-              phx-keyup="update_custodian_password"
-              phx-value-index={idx}
               placeholder="Custodian's secret password"
               class="input input-bordered input-sm flex-1"
               autocomplete="off"

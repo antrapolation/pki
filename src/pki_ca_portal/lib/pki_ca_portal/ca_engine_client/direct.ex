@@ -329,11 +329,15 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
         ok
 
       {:error, {:unsupported_algorithm, _}} ->
-        # PQC algorithms (KAZ-SIGN, ML-DSA) aren't in PkiCrypto.Registry —
-        # generate via ApJavaCrypto (JRuby/BouncyCastle) instead
-        case pqc_algo_atom(algorithm) do
-          nil -> {:error, {:unsupported_algorithm, algorithm}}
-          algo_atom -> generate_pqc_keypair(algo_atom)
+        # KAZ-SIGN: use native C NIF (fast, no JRuby needed)
+        case kaz_sign_level(algorithm) do
+          {:ok, level} -> generate_kaz_sign_keypair(level)
+          :error ->
+            # ML-DSA, SLH-DSA: fall back to ApJavaCrypto (JRuby/BouncyCastle)
+            case pqc_algo_atom(algorithm) do
+              nil -> {:error, {:unsupported_algorithm, algorithm}}
+              algo_atom -> generate_pqc_keypair(algo_atom)
+            end
         end
 
       {:error, _} = err ->
@@ -397,11 +401,47 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
         {:error, :not_found}
 
       ceremony ->
-        case SyncCeremony.complete_as_sub_ca(tenant_id, ceremony, private_key) do
-          {:ok, {updated, csr_pem}} -> {:ok, {to_map(updated), csr_pem}}
-          {:error, _} = err -> err
+        case kaz_sign_level(ceremony.algorithm) do
+          {:ok, level} ->
+            # KAZ-SIGN: use NIF for CSR generation
+            complete_sub_ca_kaz(tenant_id, repo, ceremony, private_key, level, opts)
+
+          :error ->
+            # Classical/other: use X509 library
+            case SyncCeremony.complete_as_sub_ca(tenant_id, ceremony, private_key) do
+              {:ok, {updated, csr_pem}} -> {:ok, {to_map(updated), csr_pem}}
+              {:error, _} = err -> err
+            end
         end
     end
+  end
+
+  defp complete_sub_ca_kaz(_tenant_id, _repo, _ceremony, nil, _level, _opts) do
+    {:error, "Private key not available. The ceremony must be restarted — keys are held in memory only and were lost."}
+  end
+
+  defp complete_sub_ca_kaz(tenant_id, repo, ceremony, private_key, level, opts) do
+    public_key = opts[:public_key]
+
+    unless public_key do
+      {:error, "Public key not available. The ceremony must be restarted."}
+    else
+      subject_dn = opts[:subject_dn] || get_in(ceremony.domain_info, ["subject_dn"]) || "/CN=Sub-CA-#{ceremony.ca_instance_id}"
+
+      with :ok <- KazSign.init(level),
+           {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn) do
+      csr_b64 = Base.encode64(csr_der, padding: true)
+      csr_pem = "-----BEGIN CERTIFICATE REQUEST-----\n#{wrap_pem(csr_b64)}\n-----END CERTIFICATE REQUEST-----\n"
+
+      # Mark ceremony completed
+      case ceremony |> Ecto.Changeset.change(status: "completed") |> repo.update() do
+        {:ok, updated} -> {:ok, {to_map(updated), csr_pem}}
+        {:error, reason} -> {:error, {:completion_failed, reason}}
+      end
+    end
+    end
+  rescue
+    e -> {:error, "KAZ-SIGN CSR generation failed: #{Exception.message(e)}"}
   end
 
   @impl true
@@ -848,6 +888,24 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       {:error, "PQC keygen process error: #{inspect(reason)}"}
   end
 
+  defp kaz_sign_level(algorithm) do
+    case String.downcase(algorithm) do
+      "kaz-sign-128" -> {:ok, 128}
+      "kaz-sign-192" -> {:ok, 192}
+      "kaz-sign-256" -> {:ok, 256}
+      _ -> :error
+    end
+  end
+
+  defp generate_kaz_sign_keypair(level) do
+    with :ok <- KazSign.init(level),
+         {:ok, keypair} <- KazSign.keypair(level) do
+      {:ok, %{public_key: keypair.public_key, private_key: keypair.private_key}}
+    end
+  rescue
+    e -> {:error, "KAZ-SIGN keygen failed: #{Exception.message(e)}"}
+  end
+
   defp find_ap_java_crypto_pid do
     # Walk the ApJavaCrypto.Supervisor children to find the GenServer
     case Process.whereis(ApJavaCrypto.Supervisor) do
@@ -894,7 +952,11 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
         native_key = :public_key.der_decode(:ECPrivateKey, private_key_der)
         do_self_sign_x509(native_key, subject_dn)
 
-      String.starts_with?(algo, "kaz-sign") or String.starts_with?(algo, "ml-dsa") or String.starts_with?(algo, "slh-dsa") ->
+      String.starts_with?(algo, "kaz-sign") ->
+        public_key = opts[:public_key]
+        do_self_sign_kaz(private_key_der, public_key, algorithm, subject_dn)
+
+      String.starts_with?(algo, "ml-dsa") or String.starts_with?(algo, "slh-dsa") ->
         public_key = opts[:public_key]
         do_self_sign_pqc(private_key_der, public_key, algorithm, subject_dn)
 
@@ -927,6 +989,31 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     cert_der = X509.Certificate.to_der(cert)
     cert_pem = X509.Certificate.to_pem(cert)
     {:ok, cert_der, cert_pem}
+  end
+
+  defp do_self_sign_kaz(private_key, public_key, algorithm, subject_dn) do
+    {:ok, level} = kaz_sign_level(algorithm)
+
+    with :ok <- KazSign.init(level),
+         # Generate a self-signed CSR first, then issue a self-signed cert
+         {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn),
+         {:ok, cert_der} <-
+           KazSign.issue_certificate(level, private_key, public_key, csr_der,
+             issuer_name: subject_dn,
+             serial: :crypto.strong_rand_bytes(8) |> :binary.decode_unsigned(),
+             days: 3650
+           ) do
+      # Convert DER to PEM
+      cert_b64 = Base.encode64(cert_der, padding: true)
+      cert_pem = "-----BEGIN CERTIFICATE-----\n#{wrap_pem(cert_b64)}\n-----END CERTIFICATE-----\n"
+      {:ok, cert_der, cert_pem}
+    end
+  rescue
+    e -> {:error, {:kaz_sign_self_sign_failed, Exception.message(e)}}
+  end
+
+  defp wrap_pem(b64) do
+    b64 |> String.graphemes() |> Enum.chunk_every(64) |> Enum.map(&Enum.join/1) |> Enum.join("\n")
   end
 
   defp do_self_sign_pqc(private_key_bytes, public_key_bytes, algorithm, subject_dn) do
