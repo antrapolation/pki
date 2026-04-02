@@ -50,6 +50,7 @@ defmodule PkiCaPortalWeb.Layouts do
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/hsm-devices" icon="hero-cpu-chip" label="HSM Devices" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/keystores" icon="hero-key" label="Keystores" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
+          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
           <div :if={role == "ca_admin"} class="divider my-1 px-3"></div>
           <.sidebar_link :if={role == "ca_admin"} href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />

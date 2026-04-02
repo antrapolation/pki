@@ -525,6 +525,244 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Issuer Key Operations
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def get_issuer_key(id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case IssuerKeyManagement.get_issuer_key(tenant_id, id) do
+      {:ok, key} -> {:ok, to_map(key)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
+  def list_threshold_shares(issuer_key_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    shares =
+      from(s in PkiCaEngine.Schema.ThresholdShare,
+        where: s.issuer_key_id == ^issuer_key_id,
+        order_by: [asc: s.share_index]
+      )
+      |> repo.all()
+
+    {:ok, Enum.map(shares, &to_map/1)}
+  end
+
+  @impl true
+  def reconstruct_key(issuer_key_id, custodian_passwords, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+    alias PkiCaEngine.KeyCeremony.ShareEncryption
+
+    # Fetch encrypted shares from DB for each custodian
+    results =
+      Enum.map(custodian_passwords, fn {user_id, password} ->
+        share_record =
+          repo.one(
+            from s in PkiCaEngine.Schema.ThresholdShare,
+              where: s.issuer_key_id == ^issuer_key_id and s.custodian_user_id == ^user_id
+          )
+
+        case share_record do
+          nil -> {:error, {:share_not_found, user_id}}
+          record ->
+            case ShareEncryption.decrypt_share(record.encrypted_share, password) do
+              {:ok, share} -> {:ok, share}
+              {:error, _} -> {:error, {:decryption_failed, user_id}}
+            end
+        end
+      end)
+
+    errors = Enum.filter(results, &match?({:error, _}, &1))
+
+    if errors != [] do
+      {:error, elem(hd(errors), 1)}
+    else
+      shares = Enum.map(results, fn {:ok, s} -> s end)
+
+      case PkiCrypto.Shamir.recover(shares) do
+        {:ok, secret} -> {:ok, secret}
+        {:error, reason} -> {:error, {:reconstruction_failed, reason}}
+      end
+    end
+  end
+
+  @impl true
+  def sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(PkiCaEngine.Schema.IssuerKey, issuer_key_id) do
+      nil ->
+        {:error, :issuer_key_not_found}
+
+      issuer_key ->
+        algorithm = issuer_key.algorithm
+
+        case kaz_sign_level(algorithm) do
+          {:ok, level} ->
+            sign_csr_kaz(level, issuer_key, private_key, csr_pem, cert_profile, opts)
+
+          :error ->
+            sign_csr_classical(tenant_id, issuer_key, private_key, csr_pem, cert_profile, opts)
+        end
+    end
+  end
+
+  defp sign_csr_kaz(level, issuer_key, private_key, csr_pem, cert_profile, _opts) do
+    # Parse CSR from PEM to DER
+    csr_der =
+      csr_pem
+      |> String.replace("-----BEGIN CERTIFICATE REQUEST-----", "")
+      |> String.replace("-----END CERTIFICATE REQUEST-----", "")
+      |> String.replace(~r/\s/, "")
+      |> Base.decode64!()
+
+    issuer_name = cert_profile[:issuer_name] || cert_profile["issuer_name"] || "/CN=Root-CA"
+    validity_days = cert_profile[:validity_days] || cert_profile["validity_days"] || 3650
+    serial = :crypto.strong_rand_bytes(8) |> :binary.decode_unsigned()
+    is_ca = cert_profile[:is_ca] || cert_profile["is_ca"] || false
+
+    # Extract public key from issuer's certificate for the issuer_pk param
+    issuer_pk =
+      if issuer_key.certificate_der do
+        case KazSign.extract_pubkey(level, issuer_key.certificate_der) do
+          {:ok, pk} -> pk
+          _ -> nil
+        end
+      end
+
+    # If no issuer public key from cert, we can't sign
+    unless issuer_pk do
+      {:error, "Issuer key has no certificate — cannot determine public key for signing."}
+    else
+      with :ok <- KazSign.init(level),
+           {:ok, cert_der} <-
+             KazSign.issue_certificate(level, private_key, issuer_pk, csr_der,
+               issuer_name: issuer_name,
+               serial: serial,
+               days: validity_days
+             ) do
+        cert_b64 = Base.encode64(cert_der, padding: true)
+        cert_pem = "-----BEGIN CERTIFICATE-----\n#{wrap_pem(cert_b64)}\n-----END CERTIFICATE-----\n"
+
+        {:ok, %{
+          certificate_der: cert_der,
+          certificate_pem: cert_pem,
+          serial: Integer.to_string(serial, 16) |> String.downcase(),
+          algorithm: issuer_key.algorithm,
+          is_ca: is_ca
+        }}
+      end
+    end
+  rescue
+    e -> {:error, "KAZ-SIGN CSR signing failed: #{Exception.message(e)}"}
+  end
+
+  defp sign_csr_classical(tenant_id, issuer_key, private_key_der, csr_pem, cert_profile, _opts) do
+    # Use the existing CertificateSigning module for classical algorithms
+    # But we need to temporarily make the key available via KeyActivation
+    # Instead, do it directly with X509
+    algorithm = issuer_key.algorithm
+    validity_days = cert_profile[:validity_days] || cert_profile["validity_days"] || 3650
+    subject_dn = cert_profile[:subject_dn] || cert_profile["subject_dn"]
+    is_ca = cert_profile[:is_ca] || cert_profile["is_ca"] || false
+    serial = :crypto.strong_rand_bytes(8) |> :binary.decode_unsigned()
+
+    algo = String.downcase(algorithm)
+    native_key =
+      cond do
+        algo in ["rsa-2048", "rsa-4096"] -> :public_key.der_decode(:RSAPrivateKey, private_key_der)
+        algo in ["ecc-p256", "ecc-p384"] -> :public_key.der_decode(:ECPrivateKey, private_key_der)
+        true -> nil
+      end
+
+    unless native_key do
+      {:error, {:unsupported_algorithm, algorithm}}
+    else
+      case X509.CSR.from_pem(csr_pem) do
+        {:ok, csr} ->
+          unless X509.CSR.valid?(csr) do
+            {:error, :invalid_csr}
+          else
+            public_key = X509.CSR.public_key(csr)
+            subject = subject_dn || X509.RDNSequence.to_string(X509.CSR.subject(csr))
+
+            extensions =
+              if is_ca do
+                [
+                  basic_constraints: X509.Certificate.Extension.basic_constraints(true, 0),
+                  key_usage: X509.Certificate.Extension.key_usage([:digitalSignature, :keyCertSign, :cRLSign]),
+                  subject_key_identifier: true,
+                  authority_key_identifier: true
+                ]
+              else
+                [
+                  basic_constraints: X509.Certificate.Extension.basic_constraints(false),
+                  key_usage: X509.Certificate.Extension.key_usage([:digitalSignature, :keyEncipherment]),
+                  subject_key_identifier: true,
+                  authority_key_identifier: true
+                ]
+              end
+
+            issuer_cert =
+              if issuer_key.certificate_der do
+                X509.Certificate.from_der!(issuer_key.certificate_der)
+              else
+                nil
+              end
+
+            cert =
+              if issuer_cert do
+                X509.Certificate.new(public_key, subject, issuer_cert, native_key,
+                  serial: serial, hash: :sha256, validity: validity_days, extensions: extensions)
+              else
+                X509.Certificate.self_signed(native_key, subject,
+                  serial: serial, hash: :sha256, validity: validity_days, extensions: extensions)
+              end
+
+            cert_der = X509.Certificate.to_der(cert)
+            cert_pem = X509.Certificate.to_pem(cert)
+
+            {:ok, %{
+              certificate_der: cert_der,
+              certificate_pem: cert_pem,
+              serial: Integer.to_string(serial, 16) |> String.downcase(),
+              algorithm: algorithm,
+              is_ca: is_ca
+            }}
+          end
+
+        _ ->
+          {:error, :invalid_csr_pem}
+      end
+    end
+  rescue
+    e -> {:error, "Certificate signing failed: #{Exception.message(e)}"}
+  end
+
+  @impl true
+  def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case IssuerKeyManagement.get_issuer_key(tenant_id, issuer_key_id) do
+      {:ok, key} ->
+        case IssuerKeyManagement.activate_by_certificate(tenant_id, key, cert_attrs) do
+          {:ok, updated} -> {:ok, to_map(updated)}
+          {:error, _} = err -> err
+        end
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
   @impl true
   def list_ceremonies(ca_instance_id, opts \\ []) do
     tenant_id = opts[:tenant_id]

@@ -260,6 +260,31 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def get_issuer_key(_id, _opts \\ []) do
+    {:ok, %{id: @issuer_key1_id, key_alias: "root-1", algorithm: "ECC-P256", status: "active", is_root: true}}
+  end
+
+  @impl true
+  def list_threshold_shares(_issuer_key_id, _opts \\ []) do
+    {:ok, [%{custodian_user_id: "custodian-1", share_index: 1, min_shares: 2, total_shares: 3}]}
+  end
+
+  @impl true
+  def reconstruct_key(_issuer_key_id, _custodian_passwords, _opts \\ []) do
+    {:ok, :crypto.strong_rand_bytes(64)}
+  end
+
+  @impl true
+  def sign_csr(_issuer_key_id, _private_key, _csr_pem, _cert_profile, _opts \\ []) do
+    {:ok, %{certificate_der: "mock", certificate_pem: "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n", serial: "0001", algorithm: "ECC-P256"}}
+  end
+
+  @impl true
+  def activate_issuer_key(_id, _cert_attrs, _opts \\ []) do
+    {:ok, %{id: @issuer_key1_id, status: "active"}}
+  end
+
+  @impl true
   def complete_ceremony_sub_ca(ceremony_id, _private_key, _opts \\ []) do
     update_state(:ceremonies, fn ceremonies ->
       Enum.map(ceremonies, fn c ->

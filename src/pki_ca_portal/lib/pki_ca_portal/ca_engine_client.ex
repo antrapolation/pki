@@ -55,6 +55,11 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback complete_ceremony_sub_ca(String.t(), binary(), opts()) :: {:ok, {map(), String.t()}} | {:error, term()}
   @callback cancel_ceremony(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback delete_ceremony(String.t(), opts()) :: :ok | {:error, term()}
+  @callback get_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback list_threshold_shares(String.t(), opts()) :: {:ok, [map()]} | {:error, term()}
+  @callback reconstruct_key(String.t(), [{String.t(), String.t()}], opts()) :: {:ok, binary()} | {:error, term()}
+  @callback sign_csr(String.t(), binary(), String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback activate_issuer_key(String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -101,4 +106,9 @@ defmodule PkiCaPortal.CaEngineClient do
   def complete_ceremony_sub_ca(ceremony_id, private_key, opts \\ []), do: impl().complete_ceremony_sub_ca(ceremony_id, private_key, opts)
   def cancel_ceremony(ceremony_id, opts \\ []), do: impl().cancel_ceremony(ceremony_id, opts)
   def delete_ceremony(ceremony_id, opts \\ []), do: impl().delete_ceremony(ceremony_id, opts)
+  def get_issuer_key(id, opts \\ []), do: impl().get_issuer_key(id, opts)
+  def list_threshold_shares(issuer_key_id, opts \\ []), do: impl().list_threshold_shares(issuer_key_id, opts)
+  def reconstruct_key(issuer_key_id, custodian_passwords, opts \\ []), do: impl().reconstruct_key(issuer_key_id, custodian_passwords, opts)
+  def sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts \\ []), do: impl().sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts)
+  def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []), do: impl().activate_issuer_key(issuer_key_id, cert_attrs, opts)
 end

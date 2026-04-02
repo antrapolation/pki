@@ -399,6 +399,38 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def get_issuer_key(id, _opts \\ []) do
+    case Agent.get(__MODULE__, fn s -> Enum.find(s.issuer_keys, &(&1.id == id)) end) do
+      nil -> {:error, :not_found}
+      key -> {:ok, key}
+    end
+  end
+
+  @impl true
+  def list_threshold_shares(_issuer_key_id, _opts \\ []), do: {:ok, []}
+
+  @impl true
+  def reconstruct_key(_issuer_key_id, _custodian_passwords, _opts \\ []) do
+    {:ok, :crypto.strong_rand_bytes(64)}
+  end
+
+  @impl true
+  def sign_csr(_issuer_key_id, _private_key, _csr_pem, _cert_profile, _opts \\ []) do
+    {:ok, %{certificate_der: "mock", certificate_pem: "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n", serial: "0001", algorithm: "ECC-P256"}}
+  end
+
+  @impl true
+  def activate_issuer_key(id, _cert_attrs, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.issuer_keys, fn k ->
+        if k.id == id, do: Map.put(k, :status, "active"), else: k
+      end)
+      %{state | issuer_keys: updated}
+    end)
+    {:ok, %{id: id, status: "active"}}
+  end
+
+  @impl true
   def complete_ceremony_sub_ca(ceremony_id, _private_key, _opts \\ []) do
     Agent.update(__MODULE__, fn state ->
       updated = Enum.map(state.ceremonies, fn c ->
