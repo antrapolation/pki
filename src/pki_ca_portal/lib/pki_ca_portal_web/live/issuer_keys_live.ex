@@ -261,7 +261,8 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
               keys = load_keys(socket.assigns.effective_ca_id, opts)
               {:noreply,
                socket
-               |> assign(issuer_keys: keys, modal: nil, modal_key: nil, modal_busy: false)
+               |> reset_modal()
+               |> assign(issuer_keys: keys)
                |> put_flash(:info, "Issuer key activated successfully.")}
 
             {:error, reason} ->
