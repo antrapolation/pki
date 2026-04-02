@@ -87,6 +87,15 @@ defmodule PkiCaPortalWeb.CeremonyLive do
      )}
   end
 
+  def handle_info(:wipe_private_key, socket) do
+    # Safety net: discard private key if still held after error timeout
+    if socket.assigns.private_key do
+      {:noreply, assign(socket, private_key: nil, public_key: nil, wizard_error: "Private key discarded (timeout). Please restart the ceremony.")}
+    else
+      {:noreply, socket}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # List view events
   # ---------------------------------------------------------------------------
@@ -107,7 +116,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   end
 
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, assign(socket, page: parse_int(page) || 1)}
   end
 
   def handle_event("start_wizard", _params, socket) do
@@ -161,7 +170,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
            assign(socket,
              wizard_step: step,
              active_ceremony: ceremony,
-             is_root: ceremony[:is_root] || true,
+             is_root: get_in(ceremony, [:domain_info, "is_root"]) != false,
              subject_dn: get_in(ceremony, [:domain_info, "subject_dn"]) || "",
              custodians: List.duplicate(nil, n),
              custodian_passwords: List.duplicate("", n),
@@ -205,7 +214,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
           keystore_id: params["keystore_id"],
           threshold_k: params["threshold_k"],
           threshold_n: params["threshold_n"],
-          domain_info: %{},
+          domain_info: %{"is_root" => is_root},
           initiated_by: socket.assigns.current_user[:id],
           is_root: is_root,
           key_alias: params["key_alias"]
@@ -271,14 +280,14 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   # ---------------------------------------------------------------------------
 
   def handle_event("update_custodian_password", params, socket) do
-    idx = String.to_integer(params["index"])
+    idx = parse_int(params["index"]) || 0
     value = params["value"] || ""
     passwords = List.replace_at(socket.assigns.custodian_passwords, idx, value)
     {:noreply, assign(socket, custodian_passwords: passwords)}
   end
 
   def handle_event("select_custodian", params, socket) do
-    idx = String.to_integer(params["index"] || "0")
+    idx = parse_int(params["index"]) || 0
     user_id = params["custodian_#{idx}"] || ""
     custodian = if user_id == "", do: nil, else: Enum.find(socket.assigns.key_managers, &(&1.id == user_id))
     custodians = List.replace_at(socket.assigns.custodians, idx, custodian)
@@ -392,6 +401,8 @@ defmodule PkiCaPortalWeb.CeremonyLive do
          )}
 
       {:error, reason} ->
+        # Schedule key wipe — don't hold key in memory indefinitely on error
+        if socket.assigns.private_key, do: Process.send_after(self(), :wipe_private_key, 60_000)
         {:noreply, assign(socket, wizard_busy: false, wizard_error: "Completion failed: #{format_error(reason)}")}
     end
   end
@@ -602,7 +613,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             </thead>
             <tbody>
               <tr :for={c <- paginated} class="hover">
-                <td class="font-mono text-xs">{String.slice(c[:id] || c.id || "", 0..7)}</td>
+                <td class="font-mono text-xs">{String.slice(c[:id] || "", 0..7)}</td>
                 <td class="text-sm">{c[:ceremony_type]}</td>
                 <td class="font-mono text-sm">{c[:algorithm]}</td>
                 <td>
@@ -613,7 +624,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                   <button
                     :if={ceremony_resumable?(c)}
                     phx-click="resume_ceremony"
-                    phx-value-id={c[:id] || c.id}
+                    phx-value-id={c[:id]}
                     class="btn btn-ghost btn-xs"
                   >
                     Resume

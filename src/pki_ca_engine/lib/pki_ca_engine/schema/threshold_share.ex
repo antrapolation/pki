@@ -23,7 +23,7 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     |> cast(attrs, [:issuer_key_id, :custodian_user_id, :share_index, :encrypted_share, :min_shares, :total_shares])
     |> validate_required([:issuer_key_id, :custodian_user_id, :share_index, :encrypted_share, :min_shares, :total_shares])
     |> foreign_key_constraint(:issuer_key_id)
-    |> unique_constraint([:issuer_key_id, :custodian_user_id])
+    |> unique_constraint([:issuer_key_id, :custodian_user_id, :share_index])
     |> maybe_generate_id()
   end
 

@@ -161,22 +161,26 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
     repo = TenantRepo.ca_repo(tenant_id)
 
     repo.transaction(fn ->
-      issuer_key = repo.get!(IssuerKey, ceremony.issuer_key_id)
+      case repo.get(IssuerKey, ceremony.issuer_key_id) do
+        nil ->
+          repo.rollback(:issuer_key_not_found)
 
-      case IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
-             certificate_der: cert_der,
-             certificate_pem: cert_pem
-           }) do
-        {:ok, _key} ->
-          case ceremony
-               |> Ecto.Changeset.change(status: "completed")
-               |> repo.update() do
-            {:ok, updated} -> updated
-            {:error, reason} -> repo.rollback({:operation_failed, reason})
+        issuer_key ->
+          case IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
+                 certificate_der: cert_der,
+                 certificate_pem: cert_pem
+               }) do
+            {:ok, _key} ->
+              case ceremony
+                   |> Ecto.Changeset.change(status: "completed")
+                   |> repo.update() do
+                {:ok, updated} -> updated
+                {:error, reason} -> repo.rollback({:operation_failed, reason})
+              end
+
+            {:error, reason} ->
+              repo.rollback({:operation_failed, reason})
           end
-
-        {:error, reason} ->
-          repo.rollback({:operation_failed, reason})
       end
     end)
   end

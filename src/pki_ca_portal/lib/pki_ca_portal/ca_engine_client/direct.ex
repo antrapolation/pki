@@ -353,12 +353,10 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       ceremony ->
         case SyncCeremony.distribute_shares(tenant_id, ceremony, private_key, custodian_passwords) do
           {:ok, count} ->
-            # Update ceremony status to in_progress
-            ceremony
-            |> Ecto.Changeset.change(status: "in_progress")
-            |> repo.update()
-
-            {:ok, count}
+            case ceremony |> Ecto.Changeset.change(status: "in_progress") |> repo.update() do
+              {:ok, _} -> {:ok, count}
+              {:error, reason} -> {:error, {:status_update_failed, reason}}
+            end
 
           {:error, _} = err ->
             err
@@ -849,16 +847,11 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     tbs_json = Jason.encode!(tbs)
     digest = :crypto.hash(:sha3_256, tbs_json)
 
-    variant =
-      case String.downcase(algorithm) do
-        "kaz-sign-128" -> :kaz_sign_128
-        "kaz-sign-192" -> :kaz_sign_192
-        "kaz-sign-256" -> :kaz_sign_256
-        "ml-dsa-44" -> :kaz_sign_128
-        "ml-dsa-65" -> :kaz_sign_128
-        "ml-dsa-87" -> :kaz_sign_128
-        _ -> :kaz_sign_128
-      end
+    variant = pqc_algo_atom(algorithm)
+
+    unless variant do
+      throw {:error, {:unsupported_pqc_variant, algorithm}}
+    end
 
     case ApJavaCrypto.sign(digest, {variant, :private_key, private_key_bytes}) do
       {:ok, signature} ->
