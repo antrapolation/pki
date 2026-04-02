@@ -242,6 +242,24 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   end
 
   @impl true
+  def cancel_ceremony(ceremony_id, _opts \\ []) do
+    update_state(:ceremonies, fn ceremonies ->
+      Enum.map(ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "failed"), else: c
+      end)
+    end)
+    {:ok, %{id: ceremony_id, status: "failed"}}
+  end
+
+  @impl true
+  def delete_ceremony(ceremony_id, _opts \\ []) do
+    update_state(:ceremonies, fn ceremonies ->
+      Enum.reject(ceremonies, &(&1.id == ceremony_id))
+    end)
+    :ok
+  end
+
+  @impl true
   def complete_ceremony_sub_ca(ceremony_id, _private_key, _opts \\ []) do
     update_state(:ceremonies, fn ceremonies ->
       Enum.map(ceremonies, fn c ->

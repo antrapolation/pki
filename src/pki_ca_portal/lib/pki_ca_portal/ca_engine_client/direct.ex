@@ -405,6 +405,87 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
+  def cancel_ceremony(ceremony_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(KeyCeremony, ceremony_id) do
+      nil ->
+        {:error, :not_found}
+
+      %{status: "completed"} ->
+        {:error, :already_completed}
+
+      %{status: "failed"} ->
+        {:error, :already_cancelled}
+
+      ceremony ->
+        repo.transaction(fn ->
+          # Mark ceremony as failed
+          case ceremony |> Ecto.Changeset.change(status: "failed") |> repo.update() do
+            {:ok, updated} ->
+              # Clean up the pending issuer key if it exists and is still pending
+              if ceremony.issuer_key_id do
+                case repo.get(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id) do
+                  %{status: "pending"} = key -> repo.delete(key)
+                  _ -> :ok
+                end
+              end
+
+              updated
+
+            {:error, reason} ->
+              repo.rollback(reason)
+          end
+        end)
+        |> case do
+          {:ok, updated} -> {:ok, to_map(updated)}
+          {:error, _} = err -> err
+        end
+    end
+  end
+
+  @impl true
+  def delete_ceremony(ceremony_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(KeyCeremony, ceremony_id) do
+      nil ->
+        {:error, :not_found}
+
+      %{status: "completed"} ->
+        {:error, :cannot_delete_completed}
+
+      ceremony ->
+        repo.transaction(fn ->
+          # Delete threshold shares for this ceremony's issuer key
+          if ceremony.issuer_key_id do
+            from(s in PkiCaEngine.Schema.ThresholdShare,
+              where: s.issuer_key_id == ^ceremony.issuer_key_id
+            )
+            |> repo.delete_all()
+
+            # Delete the pending issuer key
+            case repo.get(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id) do
+              %{status: "pending"} = key -> repo.delete(key)
+              _ -> :ok
+            end
+          end
+
+          case repo.delete(ceremony) do
+            {:ok, _} -> :ok
+            {:error, reason} -> repo.rollback(reason)
+          end
+        end)
+        |> case do
+          {:ok, :ok} -> :ok
+          {:error, _} = err -> err
+        end
+    end
+  end
+
+  @impl true
   def list_ceremonies(ca_instance_id, opts \\ []) do
     tenant_id = opts[:tenant_id]
     repo = TenantRepo.ca_repo(tenant_id)
@@ -735,29 +816,52 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     end)
   end
 
+  # PQC keygen via JRuby/BouncyCastle can be slow (30s+ on cold start)
+  @pqc_keygen_timeout 120_000
+
   defp generate_pqc_keypair(algo_atom) do
-    # Check if ApJavaCrypto service is available
-    case ApJavaCrypto.get_ap_java_crypto_service() do
-      pid when is_pid(pid) ->
-        case ApJavaCrypto.generate_keypair(algo_atom) do
-          {:ok, {_algo, :private_key, priv}, {_algo2, :public_key, pub}} ->
-            {:ok, %{public_key: pub, private_key: priv}}
+    pid = find_ap_java_crypto_pid()
 
-          {:ok, {_algo, :private_key, priv}, {_algo2, :public_key, pub}, _extra} ->
-            {:ok, %{public_key: pub, private_key: priv}}
+    if pid do
+      case GenServer.call(pid, {:gen_keypair, algo_atom, %{}}, @pqc_keygen_timeout) do
+        {:ok, {_algo, :private_key, priv}, {_algo2, :public_key, pub}} ->
+          {:ok, %{public_key: pub, private_key: priv}}
 
-          {:error, _} = err ->
-            err
+        {:ok, {_algo, :private_key, priv}, {_algo2, :public_key, pub}, _extra} ->
+          {:ok, %{public_key: pub, private_key: priv}}
 
-          other ->
-            {:error, {:unexpected_keypair_result, other}}
-        end
+        {:error, _} = err ->
+          err
 
-      _ ->
-        {:error, "PQC crypto service (ApJavaCrypto) is not running. Use a classical algorithm (ECC-P256, ECC-P384, RSA-4096) or start the JRuby service."}
+        other ->
+          {:error, {:unexpected_keypair_result, other}}
+      end
+    else
+      {:error, "PQC crypto service (ApJavaCrypto) is not running. Use a classical algorithm (ECC-P256, ECC-P384, RSA-4096) or start the JRuby service."}
     end
   rescue
     e -> {:error, "PQC keygen failed: #{Exception.message(e)}"}
+  catch
+    :exit, {:timeout, _} ->
+      {:error, "PQC key generation timed out. The JRuby/Java service may be starting up — please try again."}
+    :exit, reason ->
+      {:error, "PQC keygen process error: #{inspect(reason)}"}
+  end
+
+  defp find_ap_java_crypto_pid do
+    # Walk the ApJavaCrypto.Supervisor children to find the GenServer
+    case Process.whereis(ApJavaCrypto.Supervisor) do
+      nil -> nil
+      sup_pid ->
+        case Supervisor.which_children(sup_pid) do
+          children when is_list(children) ->
+            Enum.find_value(children, fn
+              {ApJavaCrypto, pid, :worker, _} when is_pid(pid) -> pid
+              _ -> nil
+            end)
+          _ -> nil
+        end
+    end
   end
 
   defp pqc_algo_atom(algorithm) do

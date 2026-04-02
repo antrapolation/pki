@@ -379,6 +379,26 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def cancel_ceremony(ceremony_id, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.ceremonies, fn c ->
+        if c.id == ceremony_id, do: Map.put(c, :status, "failed"), else: c
+      end)
+      %{state | ceremonies: updated}
+    end)
+    {:ok, %{id: ceremony_id, status: "failed"}}
+  end
+
+  @impl true
+  def delete_ceremony(ceremony_id, _opts \\ []) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.reject(state.ceremonies, &(&1.id == ceremony_id))
+      %{state | ceremonies: updated}
+    end)
+    :ok
+  end
+
+  @impl true
   def complete_ceremony_sub_ca(ceremony_id, _private_key, _opts \\ []) do
     Agent.update(__MODULE__, fn state ->
       updated = Enum.map(state.ceremonies, fn c ->

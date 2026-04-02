@@ -119,6 +119,38 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     {:noreply, assign(socket, page: parse_int(page) || 1)}
   end
 
+  def handle_event("cancel_ceremony_record", %{"id" => ceremony_id}, socket) do
+    opts = tenant_opts(socket)
+
+    case CaEngineClient.cancel_ceremony(ceremony_id, opts) do
+      {:ok, _} ->
+        {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
+        {:noreply,
+         socket
+         |> assign(ceremonies: ceremonies)
+         |> put_flash(:info, "Ceremony cancelled.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Cancel failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("delete_ceremony_record", %{"id" => ceremony_id}, socket) do
+    opts = tenant_opts(socket)
+
+    case CaEngineClient.delete_ceremony(ceremony_id, opts) do
+      :ok ->
+        {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
+        {:noreply,
+         socket
+         |> assign(ceremonies: ceremonies)
+         |> put_flash(:info, "Ceremony deleted.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Delete failed: #{format_error(reason)}")}
+    end
+  end
+
   def handle_event("start_wizard", _params, socket) do
     {:noreply,
      assign(socket,
@@ -251,10 +283,14 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   # ---------------------------------------------------------------------------
 
   def handle_event("generate_keypair", _params, socket) do
+    # Return immediately to show spinner, then do keygen async
+    send(self(), :do_generate_keypair)
+    {:noreply, assign(socket, wizard_busy: true, wizard_error: nil)}
+  end
+
+  def handle_info(:do_generate_keypair, socket) do
     ceremony = socket.assigns.active_ceremony
     opts = tenant_opts(socket)
-
-    socket = assign(socket, wizard_busy: true, wizard_error: nil)
 
     case CaEngineClient.generate_ceremony_keypair(ceremony[:algorithm], opts) do
       {:ok, %{public_key: pub, private_key: priv}} ->
@@ -620,7 +656,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                   <span class={"badge badge-sm #{status_badge_class(c[:status])}"}>{c[:status]}</span>
                 </td>
                 <td class="text-xs text-base-content/60">{format_datetime(c[:inserted_at])}</td>
-                <td>
+                <td class="flex items-center gap-1">
                   <button
                     :if={ceremony_resumable?(c)}
                     phx-click="resume_ceremony"
@@ -628,6 +664,24 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                     class="btn btn-ghost btn-xs"
                   >
                     Resume
+                  </button>
+                  <button
+                    :if={c[:status] in ["initiated", "in_progress"]}
+                    phx-click="cancel_ceremony_record"
+                    phx-value-id={c[:id]}
+                    data-confirm="Cancel this ceremony? The pending issuer key will be removed."
+                    class="btn btn-ghost btn-xs text-warning"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    :if={c[:status] in ["failed"]}
+                    phx-click="delete_ceremony_record"
+                    phx-value-id={c[:id]}
+                    data-confirm="Permanently delete this ceremony record?"
+                    class="btn btn-ghost btn-xs text-error"
+                  >
+                    Delete
                   </button>
                 </td>
               </tr>

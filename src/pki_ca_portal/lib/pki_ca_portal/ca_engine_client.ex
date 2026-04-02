@@ -53,6 +53,8 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback distribute_ceremony_shares(String.t(), binary(), [{String.t(), String.t()}], opts()) :: {:ok, integer()} | {:error, term()}
   @callback complete_ceremony_root(String.t(), binary(), String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback complete_ceremony_sub_ca(String.t(), binary(), opts()) :: {:ok, {map(), String.t()}} | {:error, term()}
+  @callback cancel_ceremony(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback delete_ceremony(String.t(), opts()) :: :ok | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -97,4 +99,6 @@ defmodule PkiCaPortal.CaEngineClient do
   def distribute_ceremony_shares(ceremony_id, private_key, custodian_passwords, opts \\ []), do: impl().distribute_ceremony_shares(ceremony_id, private_key, custodian_passwords, opts)
   def complete_ceremony_root(ceremony_id, private_key, subject_dn, opts \\ []), do: impl().complete_ceremony_root(ceremony_id, private_key, subject_dn, opts)
   def complete_ceremony_sub_ca(ceremony_id, private_key, opts \\ []), do: impl().complete_ceremony_sub_ca(ceremony_id, private_key, opts)
+  def cancel_ceremony(ceremony_id, opts \\ []), do: impl().cancel_ceremony(ceremony_id, opts)
+  def delete_ceremony(ceremony_id, opts \\ []), do: impl().delete_ceremony(ceremony_id, opts)
 end
