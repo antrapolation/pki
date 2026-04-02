@@ -19,6 +19,7 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
       PkiCaPortalWeb.HsmDevicesLive,
       PkiCaPortalWeb.KeystoresLive,
       PkiCaPortalWeb.CeremonyLive,
+      PkiCaPortalWeb.IssuerKeysLive,
       PkiCaPortalWeb.ProfileLive
     ],
     "auditor" => [

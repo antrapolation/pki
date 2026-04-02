@@ -77,7 +77,8 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
 
     with {:ok, key} <- CaEngineClient.get_issuer_key(key_id, opts),
          {:ok, shares} <- CaEngineClient.list_threshold_shares(key_id, opts) do
-      k = key[:threshold_config]["k"] || key[:threshold_config][:k] || 2
+      tc = key[:threshold_config] || %{}
+      k = tc["k"] || tc[:k] || 2
       custodian_ids = shares |> Enum.map(& &1[:custodian_user_id]) |> Enum.uniq()
 
       {:noreply,
@@ -122,24 +123,37 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
   end
 
   def handle_event("close_modal", _params, socket) do
-    {:noreply,
-     assign(socket,
-       modal: nil,
-       modal_key: nil,
-       modal_private_key: nil,
-       modal_result: nil,
-       modal_error: nil
-     )}
+    {:noreply, reset_modal(socket)}
+  end
+
+  defp reset_modal(socket) do
+    assign(socket,
+      modal: nil,
+      modal_key: nil,
+      modal_shares: [],
+      modal_passwords: [],
+      modal_custodians: [],
+      modal_private_key: nil,
+      modal_csr_pem: "",
+      modal_cert_pem: "",
+      modal_cert_profile: %{validity_days: 3650, is_ca: true},
+      modal_result: nil,
+      modal_error: nil,
+      modal_busy: false
+    )
   end
 
   # --- Sign CSR flow ---
+
+  def handle_event("reconstruct_and_sign", _params, %{assigns: %{modal_busy: true}} = socket),
+    do: {:noreply, socket}
 
   def handle_event("reconstruct_and_sign", params, socket) do
     key = socket.assigns.modal_key
     shares = socket.assigns.modal_shares
     opts = tenant_opts(socket)
 
-    k = key[:threshold_config]["k"] || key[:threshold_config][:k] || 2
+    k = threshold_k(key)
     custodian_ids = shares |> Enum.map(& &1[:custodian_user_id]) |> Enum.uniq() |> Enum.take(k)
 
     # Collect passwords from form
@@ -208,6 +222,9 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
 
   # --- Activate key ---
 
+  def handle_event("activate_key", _params, %{assigns: %{modal_busy: true}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("activate_key", params, socket) do
     key = socket.assigns.modal_key
     cert_pem = params["cert_pem"] || ""
@@ -218,17 +235,26 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
     else
       socket = assign(socket, modal_busy: true, modal_error: nil)
 
-      # Parse PEM to DER
-      cert_der =
-        cert_pem
-        |> String.replace(~r/-----BEGIN .*?-----/, "")
-        |> String.replace(~r/-----END .*?-----/, "")
-        |> String.replace(~r/\s/, "")
-        |> Base.decode64()
+      # Verify single certificate, parse PEM to DER
+      begin_count = cert_pem |> String.split("-----BEGIN ") |> length() |> Kernel.-(1)
 
-      case cert_der do
-        {:ok, der} ->
-          cert_attrs = %{certificate_der: der, certificate_pem: String.trim(cert_pem)}
+      cond do
+        begin_count > 1 ->
+          {:noreply, assign(socket, modal_busy: false, modal_error: "Please paste a single certificate, not a chain.")}
+
+        begin_count == 0 ->
+          {:noreply, assign(socket, modal_busy: false, modal_error: "No PEM certificate found.")}
+
+        true ->
+          cert_b64 =
+            cert_pem
+            |> String.replace(~r/-----BEGIN .*?-----/, "")
+            |> String.replace(~r/-----END .*?-----/, "")
+            |> String.replace(~r/\s/, "")
+
+          case Base.decode64(cert_b64) do
+            {:ok, der} ->
+              cert_attrs = %{certificate_der: der, certificate_pem: String.trim(cert_pem)}
 
           case CaEngineClient.activate_issuer_key(key[:id], cert_attrs, opts) do
             {:ok, _updated} ->
@@ -242,8 +268,9 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
               {:noreply, assign(socket, modal_busy: false, modal_error: "Activation failed: #{format_error(reason)}")}
           end
 
-        :error ->
-          {:noreply, assign(socket, modal_busy: false, modal_error: "Invalid certificate PEM — could not decode Base64.")}
+            :error ->
+              {:noreply, assign(socket, modal_busy: false, modal_error: "Invalid certificate PEM — could not decode Base64.")}
+          end
       end
     end
   end
@@ -296,6 +323,21 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
     end
   rescue
     _ -> nil
+  end
+
+  defp threshold_k(key) do
+    tc = key[:threshold_config] || %{}
+    tc["k"] || tc[:k] || 2
+  end
+
+  defp can_sign_csr?(key) do
+    key[:status] == "active" && key[:certificate_pem] && kaz_or_classical?(key[:algorithm])
+  end
+
+  defp kaz_or_classical?(nil), do: false
+  defp kaz_or_classical?(algo) do
+    a = String.downcase(algo)
+    a in ["ecc-p256", "ecc-p384", "rsa-2048", "rsa-4096"] or String.starts_with?(a, "kaz-sign")
   end
 
   defp status_class("active"), do: "badge-success"
@@ -356,9 +398,9 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
                     {if k[:certificate_pem], do: "Installed", else: "—"}
                   </td>
                   <td class="flex items-center gap-1">
-                    <%!-- Sign CSR: only for active keys with a certificate --%>
+                    <%!-- Sign CSR: only for active keys with a certificate and supported algorithm --%>
                     <button
-                      :if={k[:status] == "active" && k[:certificate_pem]}
+                      :if={can_sign_csr?(k)}
                       phx-click="open_sign_csr"
                       phx-value-id={k[:id]}
                       class="btn btn-ghost btn-xs"
@@ -472,9 +514,9 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
               <div>
                 <label class="block text-xs font-medium text-base-content/60 mb-2">
                   Key Custodian Passwords
-                  <span class="text-base-content/40">(need {@modal_key[:threshold_config]["k"] || @modal_key[:threshold_config][:k] || 2} of {length(@modal_shares)} shares)</span>
+                  <span class="text-base-content/40">(need {threshold_k(@modal_key)} of {length(@modal_shares)} shares)</span>
                 </label>
-                <% k = @modal_key[:threshold_config]["k"] || @modal_key[:threshold_config][:k] || 2 %>
+                <% k = threshold_k(@modal_key) %>
                 <% custodian_ids = @modal_shares |> Enum.map(& &1[:custodian_user_id]) |> Enum.uniq() |> Enum.take(k) %>
                 <div :for={{uid, idx} <- Enum.with_index(custodian_ids)} class="flex items-center gap-3 mb-2">
                   <span class="text-xs text-base-content/50 w-24 font-mono shrink-0">{String.slice(to_string(uid), 0..7)}...</span>

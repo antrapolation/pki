@@ -617,12 +617,15 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
 
   defp sign_csr_kaz(level, issuer_key, private_key, csr_pem, cert_profile, _opts) do
     # Parse CSR from PEM to DER
-    csr_der =
+    csr_b64 =
       csr_pem
       |> String.replace("-----BEGIN CERTIFICATE REQUEST-----", "")
       |> String.replace("-----END CERTIFICATE REQUEST-----", "")
       |> String.replace(~r/\s/, "")
-      |> Base.decode64!()
+
+    case Base.decode64(csr_b64) do
+      :error -> {:error, :invalid_csr_pem}
+      {:ok, csr_der} ->
 
     issuer_name = cert_profile[:issuer_name] || cert_profile["issuer_name"] || "/CN=Root-CA"
     validity_days = cert_profile[:validity_days] || cert_profile["validity_days"] || 3650
@@ -660,6 +663,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
           is_ca: is_ca
         }}
       end
+    end
     end
   rescue
     e -> {:error, "KAZ-SIGN CSR signing failed: #{Exception.message(e)}"}
