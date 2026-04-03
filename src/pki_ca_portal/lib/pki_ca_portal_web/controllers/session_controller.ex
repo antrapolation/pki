@@ -28,9 +28,12 @@ defmodule PkiCaPortalWeb.SessionController do
           do_authenticate(conn, username, password, ca_instance_id, username_key)
 
         {:deny, _limit} ->
+          ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+          ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
           PkiPlatformEngine.PlatformAudit.log("login_failed", %{
             portal: "ca",
-            details: %{username: username, reason: "rate_limited"}
+            details: %{username: username, reason: "rate_limited", ip: ip, user_agent: ua}
           })
 
           render(conn, :login, layout: false, error: "This account is temporarily locked due to too many failed attempts. Please wait a few minutes.")
@@ -56,12 +59,15 @@ defmodule PkiCaPortalWeb.SessionController do
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact your platform administrator.")
 
           user[:must_change_password] ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
             PkiPlatformEngine.PlatformAudit.log("login", %{
               actor_id: user[:id],
               actor_username: user[:username],
               tenant_id: tenant_id,
               portal: "ca",
-              details: %{must_change_password: true}
+              details: %{must_change_password: true, ip: ip, user_agent: ua}
             })
 
             {:ok, session_id} = create_session_with_detection(conn, user, tenant_id, ca_instance_id)
@@ -75,12 +81,15 @@ defmodule PkiCaPortalWeb.SessionController do
             |> redirect(to: "/change-password")
 
           true ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
             PkiPlatformEngine.PlatformAudit.log("login", %{
               actor_id: user[:id],
               actor_username: user[:username],
               tenant_id: tenant_id,
               portal: "ca",
-              details: %{ca_instance_id: ca_instance_id}
+              details: %{ca_instance_id: ca_instance_id, ip: ip, user_agent: ua}
             })
 
             {:ok, session_id} = create_session_with_detection(conn, user, tenant_id, ca_instance_id)
@@ -94,9 +103,12 @@ defmodule PkiCaPortalWeb.SessionController do
         end
 
       {:error, :invalid_credentials} ->
+        ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+        ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
         PkiPlatformEngine.PlatformAudit.log("login_failed", %{
           portal: "ca",
-          details: %{username: username}
+          details: %{username: username, ip: ip, user_agent: ua}
         })
 
         render(conn, :login, layout: false, error: "Invalid username or password")

@@ -19,6 +19,16 @@ defmodule PkiPlatformPortalWeb.SessionController do
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact another platform admin.")
 
           admin.must_change_password ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+            PkiPlatformEngine.PlatformAudit.log("login", %{
+              actor_id: admin.id,
+              actor_username: admin.username,
+              portal: "platform",
+              details: %{must_change_password: true, ip: ip, user_agent: ua}
+            })
+
             {:ok, session_id} = create_session_with_detection(conn, admin)
 
             conn
@@ -28,6 +38,16 @@ defmodule PkiPlatformPortalWeb.SessionController do
             |> redirect(to: "/change-password")
 
           true ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+            PkiPlatformEngine.PlatformAudit.log("login", %{
+              actor_id: admin.id,
+              actor_username: admin.username,
+              portal: "platform",
+              details: %{ip: ip, user_agent: ua}
+            })
+
             {:ok, session_id} = create_session_with_detection(conn, admin)
 
             conn
@@ -37,6 +57,14 @@ defmodule PkiPlatformPortalWeb.SessionController do
         end
 
       {:error, _} ->
+        ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+        ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+        PkiPlatformEngine.PlatformAudit.log("login_failed", %{
+          portal: "platform",
+          details: %{username: username, ip: ip, user_agent: ua}
+        })
+
         render(conn, :login, layout: false, error: "Invalid credentials")
     end
   end

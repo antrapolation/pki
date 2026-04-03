@@ -24,12 +24,15 @@ defmodule PkiRaPortalWeb.SessionController do
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact your platform administrator.")
 
           user[:must_change_password] ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
             PkiPlatformEngine.PlatformAudit.log("login", %{
               actor_id: user[:id],
               actor_username: user[:username],
               tenant_id: user[:tenant_id],
               portal: "ra",
-              details: %{must_change_password: true}
+              details: %{must_change_password: true, ip: ip, user_agent: ua}
             })
 
             {:ok, session_id} = create_session_with_detection(conn, user)
@@ -43,11 +46,15 @@ defmodule PkiRaPortalWeb.SessionController do
             |> redirect(to: "/change-password")
 
           true ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
             PkiPlatformEngine.PlatformAudit.log("login", %{
               actor_id: user[:id],
               actor_username: user[:username],
               tenant_id: user[:tenant_id],
-              portal: "ra"
+              portal: "ra",
+              details: %{ip: ip, user_agent: ua}
             })
 
             {:ok, session_id} = create_session_with_detection(conn, user)
@@ -61,9 +68,12 @@ defmodule PkiRaPortalWeb.SessionController do
         end
 
       {:error, :invalid_credentials} ->
+        ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+        ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
         PkiPlatformEngine.PlatformAudit.log("login_failed", %{
           portal: "ra",
-          details: %{username: username}
+          details: %{username: username, ip: ip, user_agent: ua}
         })
         render(conn, :login, layout: false, error: "Invalid username or password")
 
