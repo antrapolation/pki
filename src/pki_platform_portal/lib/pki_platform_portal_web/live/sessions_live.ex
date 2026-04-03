@@ -87,19 +87,19 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
         <table class="table table-zebra w-full">
           <thead>
             <tr>
-              <th>User</th>
-              <th>Portal</th>
-              <th>Role</th>
-              <th>Tenant</th>
-              <th>IP</th>
-              <th>Login Time</th>
-              <th>Last Active</th>
-              <th>Actions</th>
+              <th class="w-1/6">User</th>
+              <th class="w-[80px]">Portal</th>
+              <th class="w-[80px]">Role</th>
+              <th class="w-[100px]">Tenant</th>
+              <th class="w-[120px]">IP</th>
+              <th class="w-[100px]">Login Time</th>
+              <th class="w-[100px]">Last Active</th>
+              <th class="w-[100px]">Actions</th>
             </tr>
           </thead>
           <tbody>
             <tr :for={session <- @sessions}>
-              <td class="font-medium">{session.username}</td>
+              <td class="font-medium truncate max-w-[120px]">{session.username}</td>
               <td>
                 <span class={"badge #{portal_badge(session.portal)}"}>
                   {session.portal |> String.upcase()}

@@ -109,15 +109,15 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
       <div class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
           <div class="overflow-x-auto">
-            <table id="tenant-list" class="table table-sm">
+            <table id="tenant-list" class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-1/4">Name</th>
-                  <th>Slug</th>
-                  <th>Status</th>
-                  <th>Email</th>
-                  <th>Created</th>
-                  <th class="text-right">Actions</th>
+                  <th class="w-1/5">Name</th>
+                  <th class="w-1/6">Slug</th>
+                  <th class="w-[80px]">Status</th>
+                  <th class="w-1/5">Email</th>
+                  <th class="w-[120px]">Created</th>
+                  <th class="w-[120px] text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -128,12 +128,12 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                   </td>
                 </tr>
                 <tr :for={tenant <- @paginated_tenants} id={"tenant-#{tenant.id}"} class="hover cursor-pointer">
-                  <td class="font-medium">
+                  <td class="font-medium truncate max-w-[150px]">
                     <.link navigate={"/tenants/#{tenant.id}"} class="hover:text-primary transition-colors">
                       {tenant.name}
                     </.link>
                   </td>
-                  <td class="font-mono text-sm text-base-content/70">{tenant.slug}</td>
+                  <td class="font-mono text-sm text-base-content/70 truncate max-w-[120px]">{tenant.slug}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",
@@ -142,7 +142,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                       tenant.status == "initialized" && "badge-info badge-outline"
                     ]}>{tenant.status}</span>
                   </td>
-                  <td class="font-mono text-sm text-base-content/70">{tenant.email}</td>
+                  <td class="font-mono text-sm text-base-content/70 truncate max-w-[150px]">{tenant.email}</td>
                   <td class="text-base-content/50 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
                   <td class="text-right">
                     <div class="flex gap-1 justify-end">

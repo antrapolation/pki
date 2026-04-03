@@ -219,15 +219,15 @@ defmodule PkiCaPortalWeb.KeystoresLive do
             <h2 class="text-sm font-semibold text-base-content">Configured Keystores</h2>
           </div>
           <div class="overflow-x-auto">
-            <table class="table table-sm">
+            <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th>CA Instance</th>
-                  <th>Type</th>
-                  <th>HSM Device</th>
-                  <th>Status</th>
-                  <th>ID</th>
-                  <th>Created</th>
+                  <th class="w-1/5">CA Instance</th>
+                  <th class="w-[80px]">Type</th>
+                  <th class="w-1/6">HSM Device</th>
+                  <th class="w-[80px]">Status</th>
+                  <th class="w-[100px]">ID</th>
+                  <th class="w-[120px]">Created</th>
                 </tr>
               </thead>
               <tbody id="keystore-list">
@@ -236,17 +236,17 @@ defmodule PkiCaPortalWeb.KeystoresLive do
                   Map.put(ks, :decoded_config, config)
                 end) %>
                 <tr :for={ks <- decoded_keystores} id={"keystore-#{ks.id}"} class="hover">
-                  <td class="font-medium text-sm">{Map.get(ks, :ca_instance_name, "-")}</td>
+                  <td class="font-medium text-sm truncate max-w-[150px]">{Map.get(ks, :ca_instance_name, "-")}</td>
                   <td>
                     <span class={"badge badge-sm #{type_badge_class(ks.type)}"}>{ks.type}</span>
                   </td>
-                  <td class="text-xs">
+                  <td class="text-xs truncate max-w-[120px]">
                     {if ks.decoded_config, do: ks.decoded_config["label"] || "-", else: "-"}
                   </td>
                   <td>
                     <span class={"badge badge-sm #{status_badge_class(ks.status)}"}>{ks.status}</span>
                   </td>
-                  <td class="font-mono text-xs text-base-content/50">{String.slice(ks.id || "", 0..7)}</td>
+                  <td class="font-mono text-xs text-base-content/50 truncate max-w-[100px]">{String.slice(ks.id || "", 0..7)}</td>
                   <td class="text-xs text-base-content/50">
                     {if ks[:inserted_at], do: Calendar.strftime(ks.inserted_at, "%Y-%m-%d %H:%M"), else: "-"}
                   </td>

@@ -109,20 +109,20 @@ defmodule PkiRaPortalWeb.DashboardLive do
         <div class="card-body">
           <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Recent CSRs</h2>
           <div class="overflow-x-auto">
-            <table class="table table-sm">
+            <table class="table table-sm w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider">ID</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Subject</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Profile</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[100px]">ID</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-1/5">Subject</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">Profile</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Status</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :for={csr <- @paged_csrs} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-mono text-xs">{csr.id}</td>
-                  <td>{csr.subject}</td>
-                  <td>{csr.profile_name}</td>
+                  <td class="font-mono text-xs truncate max-w-[100px]">{csr.id}</td>
+                  <td class="truncate max-w-[150px]">{csr.subject}</td>
+                  <td class="truncate max-w-[120px]">{csr.profile_name}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

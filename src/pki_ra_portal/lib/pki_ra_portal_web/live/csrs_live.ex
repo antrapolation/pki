@@ -172,22 +172,22 @@ defmodule PkiRaPortalWeb.CsrsLive do
       <section id="csr-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <div class="overflow-x-auto">
-            <table class="table table-sm">
+            <table class="table table-sm w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider">ID</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Subject</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Profile</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Submitted</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[100px]">ID</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-1/5">Subject</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">Profile</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Submitted</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Actions</th>
                 </tr>
               </thead>
               <tbody id="csr-list">
                 <tr :for={csr <- @paged_csrs} id={"csr-#{csr.id}"} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-mono text-xs">{csr.id}</td>
-                  <td>{csr.subject}</td>
-                  <td>{csr.profile_name}</td>
+                  <td class="font-mono text-xs truncate max-w-[100px]">{csr.id}</td>
+                  <td class="truncate max-w-[150px]">{csr.subject}</td>
+                  <td class="truncate max-w-[120px]">{csr.profile_name}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

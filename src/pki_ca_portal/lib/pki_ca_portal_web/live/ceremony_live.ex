@@ -699,22 +699,22 @@ defmodule PkiCaPortalWeb.CeremonyLive do
           No ceremonies yet for this CA instance.
         </div>
         <div :if={not Enum.empty?(@ceremonies)} class="overflow-x-auto">
-          <table class="table table-sm">
+          <table class="table table-sm w-full">
             <thead>
               <tr class="text-xs uppercase text-base-content/50">
-                <th>ID</th>
-                <th>Type</th>
-                <th>Algorithm</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th></th>
+                <th class="w-[100px]">ID</th>
+                <th class="w-[80px]">Type</th>
+                <th class="w-[120px]">Algorithm</th>
+                <th class="w-[80px]">Status</th>
+                <th class="w-[120px]">Created</th>
+                <th class="w-[100px]"></th>
               </tr>
             </thead>
             <tbody>
               <tr :for={c <- paginated} class="hover">
-                <td class="font-mono text-xs">{String.slice(c[:id] || "", 0..7)}</td>
+                <td class="font-mono text-xs truncate max-w-[100px]">{String.slice(c[:id] || "", 0..7)}</td>
                 <td class="text-sm">{c[:ceremony_type]}</td>
-                <td class="font-mono text-sm">{c[:algorithm]}</td>
+                <td class="font-mono text-sm truncate max-w-[120px]">{c[:algorithm]}</td>
                 <td>
                   <span class={"badge badge-sm #{status_badge_class(c[:status])}"}>{c[:status]}</span>
                 </td>
@@ -968,18 +968,18 @@ defmodule PkiCaPortalWeb.CeremonyLive do
           </h3>
 
           <div class="overflow-x-auto">
-            <table class="table table-sm">
+            <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th>Participant</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Timestamp</th>
+                  <th class="w-1/5">Participant</th>
+                  <th class="w-[80px]">Role</th>
+                  <th class="w-[80px]">Status</th>
+                  <th class="w-[120px]">Timestamp</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :for={p <- @participants} class="hover">
-                  <td class="text-sm font-medium">{p.name}</td>
+                  <td class="text-sm font-medium truncate max-w-[150px]">{p.name}</td>
                   <td>
                     <span class={"badge badge-sm #{participant_role_class(p.role)}"}>{format_role(p.role)}</span>
                   </td>

@@ -180,20 +180,20 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
       <section id="api-key-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <div class="overflow-x-auto">
-            <table class="table table-sm">
+            <table class="table table-sm w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider">Name</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Prefix</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Status</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Created</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider">Actions</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-1/5">Name</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Prefix</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Created</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[100px]">Actions</th>
                 </tr>
               </thead>
               <tbody id="api-key-list">
                 <tr :for={key <- @paged_keys} id={"api-key-#{key.id}"} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-medium">{key.name}</td>
-                  <td class="font-mono text-xs">{key.prefix}</td>
+                  <td class="font-medium truncate max-w-[150px]">{key.name}</td>
+                  <td class="font-mono text-xs truncate max-w-[120px]">{key.prefix}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

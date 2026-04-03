@@ -212,16 +212,16 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
             <span class="text-xs text-base-content/50">{length(@admins)} total</span>
           </div>
           <div class="overflow-x-auto">
-            <table id="admin-list" class="table table-sm">
+            <table id="admin-list" class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th>Username</th>
-                  <th>Display Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                  <th>Actions</th>
+                  <th class="w-1/5">Username</th>
+                  <th class="w-1/6">Display Name</th>
+                  <th class="w-1/5">Email</th>
+                  <th class="w-[80px]">Role</th>
+                  <th class="w-[80px]">Status</th>
+                  <th class="w-[120px]">Created</th>
+                  <th class="w-[120px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -229,14 +229,14 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                   <td colspan="7" class="text-center text-base-content/50 py-8">No admins found.</td>
                 </tr>
                 <tr :for={admin <- @admins} id={"admin-#{admin.id}"} class="hover">
-                  <td class="font-mono text-sm">
+                  <td class="font-mono text-sm truncate max-w-[150px]">
                     <div class="flex items-center gap-2">
                       {admin.username}
                       <span :if={admin.id == @current_user["id"]} class="badge badge-xs badge-neutral">you</span>
                     </div>
                   </td>
-                  <td class="font-medium">{admin.display_name}</td>
-                  <td class="text-xs">{admin.email || "-"}</td>
+                  <td class="font-medium truncate max-w-[120px]">{admin.display_name}</td>
+                  <td class="text-xs truncate max-w-[150px]">{admin.email || "-"}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",
