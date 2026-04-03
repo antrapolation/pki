@@ -10,7 +10,7 @@ defmodule PkiCaPortalWeb.PasswordController do
   end
 
   def update(conn, %{"password" => password, "password_confirmation" => confirmation}) do
-    user = get_session(conn, :current_user)
+    user = lookup_session_user(conn)
 
     cond do
       String.length(password) < 8 ->
@@ -45,6 +45,17 @@ defmodule PkiCaPortalWeb.PasswordController do
       {:ok, _} -> :ok
       {:error, :not_found} -> {:error, "User not found"}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp lookup_session_user(conn) do
+    case get_session(conn, :session_id) do
+      nil -> nil
+      session_id ->
+        case PkiCaPortal.SessionStore.lookup(session_id) do
+          {:ok, sess} -> %{id: sess.user_id, username: sess.username, role: sess.role}
+          _ -> nil
+        end
     end
   end
 end

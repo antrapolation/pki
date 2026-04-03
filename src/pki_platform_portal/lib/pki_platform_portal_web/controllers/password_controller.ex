@@ -10,7 +10,7 @@ defmodule PkiPlatformPortalWeb.PasswordController do
   end
 
   def update(conn, %{"password" => password, "password_confirmation" => confirmation}) do
-    admin_id = get_session(conn, :current_user) |> Map.get("id")
+    admin_id = lookup_session_user_id(conn)
 
     cond do
       String.length(password) < 8 ->
@@ -40,5 +40,16 @@ defmodule PkiPlatformPortalWeb.PasswordController do
 
   def update(conn, _params) do
     render(conn, :change_password, layout: false, error: "Password and confirmation are required.")
+  end
+
+  defp lookup_session_user_id(conn) do
+    case get_session(conn, :session_id) do
+      nil -> nil
+      session_id ->
+        case PkiPlatformPortal.SessionStore.lookup(session_id) do
+          {:ok, sess} -> sess.user_id
+          _ -> nil
+        end
+    end
   end
 end
