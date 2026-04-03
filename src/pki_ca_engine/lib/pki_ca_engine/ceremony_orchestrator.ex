@@ -193,15 +193,25 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
         |> Ecto.Changeset.change(%{status: "generating"})
         |> repo.update!()
 
+        # Build a password lookup map keyed by user_id for safe ordering
+        password_map = Map.new(custodian_passwords)
+
+        # Load shares ordered by share_index to ensure deterministic ordering
+        db_shares = repo.all(
+          from s in ThresholdShare,
+            where: s.issuer_key_id == ^ceremony.issuer_key_id,
+            order_by: [asc: s.share_index]
+        )
+
         # Generate keypair
         case SyncCeremony.generate_keypair(ceremony.algorithm) do
           {:ok, %{public_key: pub, private_key: priv}} ->
             fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower)
 
-            # Sign cert or generate CSR
             is_root = Map.get(ceremony.domain_info || %{}, "is_root", true)
             subject_dn = Map.get(ceremony.domain_info || %{}, "subject_dn", "/CN=CA-#{ceremony.id}")
 
+            # Sign cert or generate CSR
             {cert_or_csr_result, cert_der, cert_pem, csr_pem} =
               if is_root do
                 case generate_self_signed(priv, subject_dn) do
@@ -217,58 +227,67 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
             case cert_or_csr_result do
               :ok ->
-                # Split private key
+                # Split private key — shares come out in index order
                 case PkiCrypto.Shamir.split(priv, ceremony.threshold_k, ceremony.threshold_n) do
-                  {:ok, shares} ->
-                    # Encrypt each share with custodian's password
-                    shares_with_users =
-                      custodian_passwords
-                      |> Enum.with_index()
-                      |> Enum.map(fn {{user_id, password}, idx} ->
-                        share = Enum.at(shares, idx)
-                        {:ok, encrypted} = ShareEncryption.encrypt_share(share, password)
-                        {user_id, encrypted}
+                  {:ok, raw_shares} ->
+                    # Wipe private key immediately after split
+                    _priv = nil
+
+                    # Encrypt each share with the correct custodian's password,
+                    # matching by share_index (db_shares ordered by share_index,
+                    # raw_shares ordered by split index)
+                    encrypted_pairs =
+                      Enum.zip(db_shares, raw_shares)
+                      |> Enum.map(fn {db_share, raw_share} ->
+                        password = Map.fetch!(password_map, db_share.custodian_user_id)
+                        {:ok, encrypted} = ShareEncryption.encrypt_share(raw_share, password)
+                        {db_share, encrypted}
                       end)
 
-                    # Update threshold_share records with encrypted data
-                    Enum.each(shares_with_users, fn {user_id, encrypted_share} ->
-                      share = repo.one!(
-                        from s in ThresholdShare,
-                          where: s.issuer_key_id == ^ceremony.issuer_key_id and
-                                 s.custodian_user_id == ^user_id
-                      )
+                    # All DB writes in a transaction
+                    case repo.transaction(fn ->
+                      # Update each share with encrypted data
+                      Enum.each(encrypted_pairs, fn {db_share, encrypted_share} ->
+                        db_share
+                        |> Ecto.Changeset.change(%{encrypted_share: encrypted_share})
+                        |> repo.update!()
+                      end)
 
-                      share
-                      |> Ecto.Changeset.change(%{encrypted_share: encrypted_share})
+                      # Activate issuer key if root CA
+                      if is_root and cert_der do
+                        issuer_key = repo.get!(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id)
+                        IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
+                          certificate_der: cert_der,
+                          certificate_pem: cert_pem
+                        })
+                      end
+
+                      # Update ceremony to completed
+                      ceremony = repo.get!(KeyCeremony, ceremony_id)
+                      ceremony
+                      |> Ecto.Changeset.change(%{
+                        status: "completed",
+                        domain_info: Map.merge(ceremony.domain_info || %{}, %{
+                          "fingerprint" => fingerprint,
+                          "csr_pem" => csr_pem,
+                          "subject_dn" => subject_dn
+                        })
+                      })
                       |> repo.update!()
-                    end)
+                    end) do
+                      {:ok, _} ->
+                        # Wipe all sensitive variables and force GC
+                        _raw_shares = nil
+                        _encrypted_pairs = nil
+                        _password_map = nil
+                        :erlang.garbage_collect()
 
-                    # Activate issuer key if root CA
-                    if is_root and cert_der do
-                      issuer_key = repo.get!(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id)
-                      IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
-                        certificate_der: cert_der,
-                        certificate_pem: cert_pem
-                      })
+                        {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem}}
+
+                      {:error, reason} ->
+                        fail_ceremony(repo, ceremony_id, "transaction_failed: #{inspect(reason)}")
+                        {:error, reason}
                     end
-
-                    # Update ceremony to completed
-                    ceremony = repo.get!(KeyCeremony, ceremony_id)
-                    ceremony
-                    |> Ecto.Changeset.change(%{
-                      status: "completed",
-                      domain_info: Map.merge(ceremony.domain_info || %{}, %{
-                        "fingerprint" => fingerprint,
-                        "csr_pem" => csr_pem,
-                        "subject_dn" => subject_dn
-                      })
-                    })
-                    |> repo.update!()
-
-                    # Wipe sensitive data
-                    :erlang.garbage_collect()
-
-                    {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem}}
 
                   error ->
                     fail_ceremony(repo, ceremony_id, "shamir_split_failed")
@@ -331,7 +350,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   defp validate_threshold(k, n) when is_integer(k) and is_integer(n) and k >= 2 and k <= n, do: :ok
   defp validate_threshold(_, _), do: {:error, :invalid_threshold}
 
-  defp validate_participants(user_ids, n) when length(user_ids) == n, do: :ok
+  defp validate_participants(user_ids, n) when is_list(user_ids) and length(user_ids) == n, do: :ok
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}
 
   defp generate_self_signed(private_key_der, subject_dn) do
