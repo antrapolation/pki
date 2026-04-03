@@ -10,6 +10,8 @@ defmodule PkiPlatformPortal.Application do
       {DNSCluster,
        query: Application.get_env(:pki_platform_portal, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: PkiPlatformPortal.PubSub},
+      {Task.Supervisor, name: PkiPlatformPortal.TaskSupervisor},
+      PkiPlatformPortal.SessionStore,
       PkiPlatformPortalWeb.Endpoint
     ]
 

@@ -111,3 +111,8 @@ config :hammer,
 
 # Relax rate limiting in dev to avoid being blocked during debugging
 config :pki_platform_portal, :rate_limit_enabled, false
+
+# Longer session timeout in dev to avoid being logged out during debugging
+config :pki_platform_portal,
+  session_idle_timeout_ms: 120 * 60 * 1000,
+  session_ip_pinning: false

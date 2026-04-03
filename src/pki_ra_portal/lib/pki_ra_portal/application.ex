@@ -11,8 +11,8 @@ defmodule PkiRaPortal.Application do
       PkiRaPortalWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:pki_ra_portal, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: PkiRaPortal.PubSub},
-      # Start a worker by calling: PkiRaPortal.Worker.start_link(arg)
-      # {PkiRaPortal.Worker, arg},
+      {Task.Supervisor, name: PkiRaPortal.TaskSupervisor},
+      PkiRaPortal.SessionStore,
       # Start to serve requests, typically the last entry
       PkiRaPortalWeb.Endpoint
     ]

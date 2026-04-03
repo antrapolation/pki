@@ -57,6 +57,9 @@ config :hammer,
 config :pki_platform_portal,
   trusted_proxies: ["127.0.0.1", "::1"]
 
+config :pki_platform_portal,
+  session_idle_timeout_ms: 30 * 60 * 1000
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
