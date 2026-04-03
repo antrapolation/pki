@@ -27,6 +27,9 @@ defmodule PkiCaPortalWeb.CertificatesLive do
        ca_instances: [],
        selected_ca_id: "",
        selected_issuer_key_id: "",
+       selected_key_label: "",
+       key_search: "",
+       key_search_results: [],
        status_filter: "all",
        selected_cert: nil,
        revocation_reasons: @revocation_reasons,
@@ -54,7 +57,7 @@ defmodule PkiCaPortalWeb.CertificatesLive do
 
     issuer_keys = if effective_ca_id do
       case CaEngineClient.list_issuer_keys(effective_ca_id, opts) do
-        {:ok, keys} -> Enum.filter(keys, &(&1[:status] == "active"))
+        {:ok, keys} -> keys
         _ -> []
       end
     else
@@ -88,10 +91,42 @@ defmodule PkiCaPortalWeb.CertificatesLive do
   end
 
   @impl true
+  def handle_event("search_issuer_key", %{"value" => query}, socket) do
+    results = if String.length(query) >= 1 do
+      q = String.downcase(query)
+      socket.assigns.issuer_keys
+      |> Enum.filter(fn key ->
+        String.contains?(String.downcase(key[:key_alias] || ""), q) or
+        String.contains?(String.downcase(key[:algorithm] || ""), q)
+      end)
+    else
+      []
+    end
+
+    {:noreply, assign(socket, key_search: query, key_search_results: results)}
+  end
+
+  @impl true
+  def handle_event("select_issuer_key", %{"issuer_key_id" => id, "label" => label}, socket) do
+    {:noreply,
+     socket
+     |> assign(selected_issuer_key_id: id, selected_key_label: label, key_search: "", key_search_results: [], selected_cert: nil, page: 1)
+     |> load_certificates()}
+  end
+
+  @impl true
   def handle_event("select_issuer_key", %{"issuer_key_id" => id}, socket) do
     {:noreply,
      socket
      |> assign(selected_issuer_key_id: id, selected_cert: nil, page: 1)
+     |> load_certificates()}
+  end
+
+  @impl true
+  def handle_event("clear_issuer_key", _, socket) do
+    {:noreply,
+     socket
+     |> assign(selected_issuer_key_id: "", selected_key_label: "", key_search: "", key_search_results: [], selected_cert: nil, page: 1)
      |> load_certificates()}
   end
 
@@ -247,14 +282,33 @@ defmodule PkiCaPortalWeb.CertificatesLive do
                 </option>
               </select>
             </div>
-            <div>
+            <div class="relative">
               <label class="text-xs font-medium text-base-content/60 mb-1 block">Issuer Key</label>
-              <select phx-change="select_issuer_key" name="issuer_key_id" class="select select-sm select-bordered">
-                <option value="">All Keys</option>
-                <option :for={key <- @issuer_keys} value={key[:id]} selected={key[:id] == @selected_issuer_key_id}>
-                  {key[:key_alias]} ({key[:algorithm]})
-                </option>
-              </select>
+              <input type="text"
+                     name="key_search"
+                     value={@key_search}
+                     phx-keyup="search_issuer_key"
+                     phx-debounce="300"
+                     placeholder="Search key alias or algorithm..."
+                     autocomplete="off"
+                     class="input input-sm input-bordered w-64" />
+              <div :if={@key_search != "" and @key_search_results != []} class="absolute z-30 mt-1 w-64 bg-base-100 border border-base-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                <button :for={key <- @key_search_results}
+                        type="button"
+                        phx-click="select_issuer_key"
+                        phx-value-issuer_key_id={key[:id]}
+                        phx-value-label={"#{key[:key_alias]} (#{key[:algorithm]})"}
+                        class="block w-full text-left px-3 py-2 text-sm hover:bg-base-200">
+                  <span class="font-medium">{key[:key_alias]}</span>
+                  <span class="text-xs text-base-content/50 ml-1">({key[:algorithm]})</span>
+                </button>
+              </div>
+              <div :if={@selected_issuer_key_id != ""} class="mt-1">
+                <span class="badge badge-sm badge-primary gap-1">
+                  {@selected_key_label}
+                  <button type="button" phx-click="clear_issuer_key" class="ml-1">&times;</button>
+                </span>
+              </div>
             </div>
             <div>
               <label class="text-xs font-medium text-base-content/60 mb-1 block">Status</label>
