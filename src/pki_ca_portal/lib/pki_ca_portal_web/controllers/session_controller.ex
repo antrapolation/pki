@@ -75,8 +75,6 @@ defmodule PkiCaPortalWeb.SessionController do
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:session_key, session_info[:session_key])
-            |> put_session(:session_salt, session_info[:session_salt])
             |> put_session(:must_change_password, true)
             |> redirect(to: "/change-password")
 
@@ -97,8 +95,6 @@ defmodule PkiCaPortalWeb.SessionController do
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:session_key, session_info[:session_key])
-            |> put_session(:session_salt, session_info[:session_salt])
             |> redirect(to: "/")
         end
 

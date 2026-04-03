@@ -143,6 +143,7 @@ static ERL_NIF_TERM nif_sign(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]
     }
 
     /* Sign */
+    size_t max_sig_len = sig->length_signature;
     OQS_STATUS rc = OQS_SIG_sign(sig, sig_buf, &sig_len, msg_bin.data, msg_bin.size, sk_bin.data);
     OQS_SIG_free(sig);
 
@@ -151,7 +152,7 @@ static ERL_NIF_TERM nif_sign(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]
     }
 
     /* If actual signature is shorter than max, create a properly-sized binary */
-    if (sig_len < sig->length_signature) {
+    if (sig_len < max_sig_len) {
         ERL_NIF_TERM trimmed;
         unsigned char *trimmed_buf = enif_make_new_binary(env, sig_len, &trimmed);
         memcpy(trimmed_buf, sig_buf, sig_len);

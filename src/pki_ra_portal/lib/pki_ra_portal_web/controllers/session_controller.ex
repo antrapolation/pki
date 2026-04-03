@@ -40,8 +40,6 @@ defmodule PkiRaPortalWeb.SessionController do
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:session_key, session[:session_key])
-            |> put_session(:session_salt, session[:session_salt])
             |> put_session(:must_change_password, true)
             |> redirect(to: "/change-password")
 
@@ -62,8 +60,6 @@ defmodule PkiRaPortalWeb.SessionController do
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:session_key, session[:session_key])
-            |> put_session(:session_salt, session[:session_salt])
             |> redirect(to: "/")
         end
 
