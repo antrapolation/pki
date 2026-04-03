@@ -60,10 +60,11 @@ defmodule PkiPlatformPortalWeb.Live.AuthHook do
 
   defp session_to_user(sess) do
     %{
-      id: sess.user_id,
-      username: sess.username,
-      role: sess.role,
-      tenant_id: sess.tenant_id
+      "id" => sess.user_id,
+      "username" => sess.username,
+      "role" => sess.role,
+      "display_name" => sess.display_name,
+      "email" => sess.email
     }
   end
 end

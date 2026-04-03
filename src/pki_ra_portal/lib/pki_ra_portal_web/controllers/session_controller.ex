@@ -32,88 +32,29 @@ defmodule PkiRaPortalWeb.SessionController do
               details: %{must_change_password: true}
             })
 
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            {:ok, session_id} = PkiRaPortal.SessionStore.create(%{
-              user_id: user[:id],
-              username: user[:username],
-              role: user[:role],
-              tenant_id: user[:tenant_id],
-              ip: ip,
-              user_agent: ua
-            })
-
-            # Check for suspicious patterns
-            existing = PkiRaPortal.SessionStore.list_by_user(user[:id])
-            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
-
-            if ip not in known_ips and length(known_ips) > 0 do
-              PkiRaPortal.SessionSecurity.notify(:new_ip_login, %{
-                username: user[:username], role: user[:role], ip: ip, portal: "ra"
-              })
-            end
-
-            if length(existing) > 1 do
-              PkiRaPortal.SessionSecurity.notify(:concurrent_sessions, %{
-                username: user[:username], role: user[:role],
-                session_count: length(existing), portal: "ra"
-              })
-            end
+            {:ok, session_id} = create_session_with_detection(conn, user)
 
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:current_user, serialize_user(user))
-            |> put_session(:tenant_id, user[:tenant_id])
             |> put_session(:session_key, session[:session_key])
             |> put_session(:session_salt, session[:session_salt])
             |> put_session(:must_change_password, true)
             |> redirect(to: "/change-password")
 
           true ->
-            tenant_id = user[:tenant_id]
             PkiPlatformEngine.PlatformAudit.log("login", %{
               actor_id: user[:id],
               actor_username: user[:username],
-              tenant_id: tenant_id,
+              tenant_id: user[:tenant_id],
               portal: "ra"
             })
 
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            {:ok, session_id} = PkiRaPortal.SessionStore.create(%{
-              user_id: user[:id],
-              username: user[:username],
-              role: user[:role],
-              tenant_id: tenant_id,
-              ip: ip,
-              user_agent: ua
-            })
-
-            # Check for suspicious patterns
-            existing = PkiRaPortal.SessionStore.list_by_user(user[:id])
-            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
-
-            if ip not in known_ips and length(known_ips) > 0 do
-              PkiRaPortal.SessionSecurity.notify(:new_ip_login, %{
-                username: user[:username], role: user[:role], ip: ip, portal: "ra"
-              })
-            end
-
-            if length(existing) > 1 do
-              PkiRaPortal.SessionSecurity.notify(:concurrent_sessions, %{
-                username: user[:username], role: user[:role],
-                session_count: length(existing), portal: "ra"
-              })
-            end
+            {:ok, session_id} = create_session_with_detection(conn, user)
 
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:current_user, serialize_user(user))
-            |> put_session(:tenant_id, tenant_id)
             |> put_session(:session_key, session[:session_key])
             |> put_session(:session_salt, session[:session_salt])
             |> redirect(to: "/")
@@ -143,15 +84,37 @@ defmodule PkiRaPortalWeb.SessionController do
     |> redirect(to: "/login")
   end
 
-  defp serialize_user(user) do
-    %{
-      id: user[:id],
+  defp create_session_with_detection(conn, user) do
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+    ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+    # Check for suspicious patterns BEFORE creating session
+    existing = PkiRaPortal.SessionStore.list_by_user(user[:id])
+    known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
+
+    if ip not in known_ips and length(known_ips) > 0 do
+      PkiRaPortal.SessionSecurity.notify(:new_ip_login, %{
+        username: user[:username], role: user[:role], ip: ip, portal: "ra"
+      })
+    end
+
+    if length(existing) > 0 do
+      PkiRaPortal.SessionSecurity.notify(:concurrent_sessions, %{
+        username: user[:username], role: user[:role],
+        session_count: length(existing) + 1, portal: "ra"
+      })
+    end
+
+    PkiRaPortal.SessionStore.create(%{
+      user_id: user[:id],
       username: user[:username],
-      email: user[:email],
       role: user[:role],
+      tenant_id: user[:tenant_id],
+      ip: ip,
+      user_agent: ua,
       display_name: user[:display_name],
-      tenant_id: user[:tenant_id]
-    }
+      email: user[:email]
+    })
   end
 
   defp credential_expired?(%{credential_expires_at: nil}), do: false

@@ -116,7 +116,10 @@ defmodule PkiCaPortalWeb.Plugs.RequireAuth do
       id: session.user_id,
       username: session.username,
       role: session.role,
-      tenant_id: session.tenant_id
+      tenant_id: session.tenant_id,
+      display_name: session.display_name,
+      email: session.email,
+      ca_instance_id: session.ca_instance_id
     }
   end
 end

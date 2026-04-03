@@ -33,6 +33,9 @@ defmodule PkiCaPortal.SessionStore do
       tenant_id: attrs.tenant_id,
       ip: attrs.ip,
       user_agent: attrs.user_agent,
+      display_name: attrs[:display_name],
+      email: attrs[:email],
+      ca_instance_id: attrs[:ca_instance_id],
       created_at: now,
       last_active_at: now
     }

@@ -64,40 +64,11 @@ defmodule PkiCaPortalWeb.SessionController do
               details: %{must_change_password: true}
             })
 
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            {:ok, session_id} = PkiCaPortal.SessionStore.create(%{
-              user_id: user[:id],
-              username: user[:username],
-              role: user[:role],
-              tenant_id: tenant_id,
-              ip: ip,
-              user_agent: ua
-            })
-
-            # Check for suspicious patterns
-            existing = PkiCaPortal.SessionStore.list_by_user(user[:id])
-            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
-
-            if ip not in known_ips and length(known_ips) > 0 do
-              PkiCaPortal.SessionSecurity.notify(:new_ip_login, %{
-                username: user[:username], role: user[:role], ip: ip, portal: "ca"
-              })
-            end
-
-            if length(existing) > 1 do
-              PkiCaPortal.SessionSecurity.notify(:concurrent_sessions, %{
-                username: user[:username], role: user[:role],
-                session_count: length(existing), portal: "ca"
-              })
-            end
+            {:ok, session_id} = create_session_with_detection(conn, user, tenant_id, ca_instance_id)
 
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:current_user, serialize_user(user, ca_instance_id))
-            |> put_session(:tenant_id, tenant_id)
             |> put_session(:session_key, session_info[:session_key])
             |> put_session(:session_salt, session_info[:session_salt])
             |> put_session(:must_change_password, true)
@@ -112,40 +83,11 @@ defmodule PkiCaPortalWeb.SessionController do
               details: %{ca_instance_id: ca_instance_id}
             })
 
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            {:ok, session_id} = PkiCaPortal.SessionStore.create(%{
-              user_id: user[:id],
-              username: user[:username],
-              role: user[:role],
-              tenant_id: tenant_id,
-              ip: ip,
-              user_agent: ua
-            })
-
-            # Check for suspicious patterns
-            existing = PkiCaPortal.SessionStore.list_by_user(user[:id])
-            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
-
-            if ip not in known_ips and length(known_ips) > 0 do
-              PkiCaPortal.SessionSecurity.notify(:new_ip_login, %{
-                username: user[:username], role: user[:role], ip: ip, portal: "ca"
-              })
-            end
-
-            if length(existing) > 1 do
-              PkiCaPortal.SessionSecurity.notify(:concurrent_sessions, %{
-                username: user[:username], role: user[:role],
-                session_count: length(existing), portal: "ca"
-              })
-            end
+            {:ok, session_id} = create_session_with_detection(conn, user, tenant_id, ca_instance_id)
 
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:current_user, serialize_user(user, ca_instance_id))
-            |> put_session(:tenant_id, tenant_id)
             |> put_session(:session_key, session_info[:session_key])
             |> put_session(:session_salt, session_info[:session_salt])
             |> redirect(to: "/")
@@ -173,6 +115,40 @@ defmodule PkiCaPortalWeb.SessionController do
     conn
     |> clear_session()
     |> redirect(to: "/login")
+  end
+
+  defp create_session_with_detection(conn, user, tenant_id, ca_instance_id) do
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+    ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+    # Check for suspicious patterns BEFORE creating session
+    existing = PkiCaPortal.SessionStore.list_by_user(user[:id])
+    known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
+
+    if ip not in known_ips and length(known_ips) > 0 do
+      PkiCaPortal.SessionSecurity.notify(:new_ip_login, %{
+        username: user[:username], role: user[:role], ip: ip, portal: "ca"
+      })
+    end
+
+    if length(existing) > 0 do
+      PkiCaPortal.SessionSecurity.notify(:concurrent_sessions, %{
+        username: user[:username], role: user[:role],
+        session_count: length(existing) + 1, portal: "ca"
+      })
+    end
+
+    PkiCaPortal.SessionStore.create(%{
+      user_id: user[:id],
+      username: user[:username],
+      role: user[:role],
+      tenant_id: tenant_id,
+      ip: ip,
+      user_agent: ua,
+      display_name: user[:display_name],
+      email: user[:email],
+      ca_instance_id: serialize_user(user, ca_instance_id)[:ca_instance_id]
+    })
   end
 
   defp serialize_user(user, ca_instance_id) do

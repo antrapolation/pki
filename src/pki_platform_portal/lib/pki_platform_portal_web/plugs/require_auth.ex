@@ -113,10 +113,11 @@ defmodule PkiPlatformPortalWeb.Plugs.RequireAuth do
 
   defp session_to_user(session) do
     %{
-      id: session.user_id,
-      username: session.username,
-      role: session.role,
-      tenant_id: session.tenant_id
+      "id" => session.user_id,
+      "username" => session.username,
+      "role" => session.role,
+      "display_name" => session.display_name,
+      "email" => session.email
     }
   end
 end

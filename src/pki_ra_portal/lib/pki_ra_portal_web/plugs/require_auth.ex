@@ -116,7 +116,9 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuth do
       id: session.user_id,
       username: session.username,
       role: session.role,
-      tenant_id: session.tenant_id
+      tenant_id: session.tenant_id,
+      display_name: session.display_name,
+      email: session.email
     }
   end
 end

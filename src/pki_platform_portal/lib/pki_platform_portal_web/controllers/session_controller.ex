@@ -19,76 +19,20 @@ defmodule PkiPlatformPortalWeb.SessionController do
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact another platform admin.")
 
           admin.must_change_password ->
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            {:ok, session_id} = PkiPlatformPortal.SessionStore.create(%{
-              user_id: admin.id,
-              username: admin.username,
-              role: admin.role,
-              tenant_id: nil,
-              ip: ip,
-              user_agent: ua
-            })
-
-            # Check for suspicious patterns
-            existing = PkiPlatformPortal.SessionStore.list_by_user(admin.id)
-            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
-
-            if ip not in known_ips and length(known_ips) > 0 do
-              PkiPlatformPortal.SessionSecurity.notify(:new_ip_login, %{
-                username: admin.username, role: admin.role, ip: ip, portal: "platform"
-              })
-            end
-
-            if length(existing) > 1 do
-              PkiPlatformPortal.SessionSecurity.notify(:concurrent_sessions, %{
-                username: admin.username, role: admin.role,
-                session_count: length(existing), portal: "platform"
-              })
-            end
+            {:ok, session_id} = create_session_with_detection(conn, admin)
 
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:current_user, serialize_admin(admin))
             |> put_session(:must_change_password, true)
             |> redirect(to: "/change-password")
 
           true ->
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            {:ok, session_id} = PkiPlatformPortal.SessionStore.create(%{
-              user_id: admin.id,
-              username: admin.username,
-              role: admin.role,
-              tenant_id: nil,
-              ip: ip,
-              user_agent: ua
-            })
-
-            # Check for suspicious patterns
-            existing = PkiPlatformPortal.SessionStore.list_by_user(admin.id)
-            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
-
-            if ip not in known_ips and length(known_ips) > 0 do
-              PkiPlatformPortal.SessionSecurity.notify(:new_ip_login, %{
-                username: admin.username, role: admin.role, ip: ip, portal: "platform"
-              })
-            end
-
-            if length(existing) > 1 do
-              PkiPlatformPortal.SessionSecurity.notify(:concurrent_sessions, %{
-                username: admin.username, role: admin.role,
-                session_count: length(existing), portal: "platform"
-              })
-            end
+            {:ok, session_id} = create_session_with_detection(conn, admin)
 
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
-            |> put_session(:current_user, serialize_admin(admin))
             |> redirect(to: "/")
         end
 
@@ -97,14 +41,37 @@ defmodule PkiPlatformPortalWeb.SessionController do
     end
   end
 
-  defp serialize_admin(admin) do
-    %{
-      "id" => admin.id,
-      "username" => admin.username,
-      "display_name" => admin.display_name,
-      "email" => admin.email,
-      "role" => admin.role
-    }
+  defp create_session_with_detection(conn, admin) do
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+    ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+    # Check for suspicious patterns BEFORE creating session
+    existing = PkiPlatformPortal.SessionStore.list_by_user(admin.id)
+    known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
+
+    if ip not in known_ips and length(known_ips) > 0 do
+      PkiPlatformPortal.SessionSecurity.notify(:new_ip_login, %{
+        username: admin.username, role: admin.role, ip: ip, portal: "platform"
+      })
+    end
+
+    if length(existing) > 0 do
+      PkiPlatformPortal.SessionSecurity.notify(:concurrent_sessions, %{
+        username: admin.username, role: admin.role,
+        session_count: length(existing) + 1, portal: "platform"
+      })
+    end
+
+    PkiPlatformPortal.SessionStore.create(%{
+      user_id: admin.id,
+      username: admin.username,
+      role: admin.role,
+      tenant_id: nil,
+      ip: ip,
+      user_agent: ua,
+      display_name: admin.display_name,
+      email: admin.email
+    })
   end
 
   defp credential_expired?(%{credential_expires_at: nil}), do: false

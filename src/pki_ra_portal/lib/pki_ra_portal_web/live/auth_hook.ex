@@ -63,7 +63,9 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
       id: sess.user_id,
       username: sess.username,
       role: sess.role,
-      tenant_id: sess.tenant_id
+      tenant_id: sess.tenant_id,
+      display_name: sess.display_name,
+      email: sess.email
     }
   end
 end

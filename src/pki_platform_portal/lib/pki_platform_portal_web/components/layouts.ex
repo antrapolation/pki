@@ -83,6 +83,20 @@ defmodule PkiPlatformPortalWeb.Layouts do
         <%!-- Flash messages --%>
         <.flash_group flash={@flash} />
 
+        <%!-- Session timeout warning --%>
+        <div id="session-timeout-hook"
+             phx-hook="SessionTimeout"
+             data-warning-ms={assigns[:session_warning_ms] || 25 * 60 * 1000}
+             data-timeout-ms={assigns[:session_timeout_ms] || 30 * 60 * 1000}>
+        </div>
+        <div id="session-timeout-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div class="bg-base-100 rounded-lg shadow-xl p-6 max-w-md mx-4">
+            <h3 class="text-lg font-bold text-warning mb-2">Session Expiring</h3>
+            <p class="mb-4">Your session will expire in <span id="session-timeout-countdown" class="font-mono font-bold">5:00</span> due to inactivity.</p>
+            <button id="session-continue-btn" class="btn btn-primary w-full">Continue Working</button>
+          </div>
+        </div>
+
         <%!-- Page content --%>
         <main class="flex-1 p-6">
           {@inner_content}

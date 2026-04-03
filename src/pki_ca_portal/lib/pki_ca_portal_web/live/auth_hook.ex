@@ -93,7 +93,10 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
       id: sess.user_id,
       username: sess.username,
       role: sess.role,
-      tenant_id: sess.tenant_id
+      tenant_id: sess.tenant_id,
+      display_name: sess.display_name,
+      email: sess.email,
+      ca_instance_id: sess.ca_instance_id
     }
   end
 
