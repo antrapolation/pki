@@ -1,8 +1,8 @@
-defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
-  use PkiRaPortalWeb.ConnCase
+defmodule PkiPlatformPortalWeb.Plugs.RequireAuthTest do
+  use PkiPlatformPortalWeb.ConnCase
 
-  alias PkiRaPortal.SessionStore
-  alias PkiRaPortalWeb.Plugs.RequireAuth
+  alias PkiPlatformPortal.SessionStore
+  alias PkiPlatformPortalWeb.Plugs.RequireAuth
 
   setup do
     SessionStore.clear_all()
@@ -12,13 +12,13 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
   defp create_test_session(opts \\ %{}) do
     SessionStore.create(%{
       user_id: opts[:user_id] || "user-1",
-      username: opts[:username] || "raadmin",
-      role: opts[:role] || "ra_admin",
+      username: opts[:username] || "platformadmin",
+      role: opts[:role] || "platform_admin",
       tenant_id: opts[:tenant_id] || "tenant-1",
       ip: opts[:ip] || "127.0.0.1",
       user_agent: opts[:user_agent] || "TestAgent/1.0",
-      display_name: opts[:display_name] || "RA Admin User",
-      email: opts[:email] || "raadmin@test.com"
+      display_name: opts[:display_name] || "Platform Admin User",
+      email: opts[:email] || "platformadmin@test.com"
     })
   end
 
@@ -33,9 +33,9 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
         |> RequireAuth.call([])
 
       refute conn.halted
-      assert conn.assigns.current_user.username == "raadmin"
-      assert conn.assigns.current_user.role == "ra_admin"
-      assert conn.assigns.current_user.display_name == "RA Admin User"
+      assert conn.assigns.current_user["username"] == "platformadmin"
+      assert conn.assigns.current_user["role"] == "platform_admin"
+      assert conn.assigns.current_user["display_name"] == "Platform Admin User"
       assert conn.assigns.session_id == session_id
     end
 
@@ -68,8 +68,8 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
 
   describe "expired session" do
     test "redirects to login and deletes session", %{conn: conn} do
-      prev = Application.get_env(:pki_ra_portal, :session_idle_timeout_ms)
-      Application.put_env(:pki_ra_portal, :session_idle_timeout_ms, 0)
+      prev = Application.get_env(:pki_platform_portal, :session_idle_timeout_ms)
+      Application.put_env(:pki_platform_portal, :session_idle_timeout_ms, 0)
 
       {:ok, session_id} = create_test_session()
       Process.sleep(1)
@@ -85,8 +85,8 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
       assert redirected_to(conn) == "/login"
       assert {:error, :not_found} = SessionStore.lookup(session_id)
 
-      if prev, do: Application.put_env(:pki_ra_portal, :session_idle_timeout_ms, prev),
-        else: Application.delete_env(:pki_ra_portal, :session_idle_timeout_ms)
+      if prev, do: Application.put_env(:pki_platform_portal, :session_idle_timeout_ms, prev),
+        else: Application.delete_env(:pki_platform_portal, :session_idle_timeout_ms)
     end
   end
 
@@ -135,8 +135,8 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
 
   describe "IP pinning" do
     test "continues session on IP change (advisory)", %{conn: conn} do
-      prev = Application.get_env(:pki_ra_portal, :session_ip_pinning)
-      Application.put_env(:pki_ra_portal, :session_ip_pinning, true)
+      prev = Application.get_env(:pki_platform_portal, :session_ip_pinning)
+      Application.put_env(:pki_platform_portal, :session_ip_pinning, true)
 
       {:ok, session_id} = create_test_session(%{ip: "10.0.0.1", user_agent: "TestAgent/1.0"})
 
@@ -152,13 +152,13 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
       {:ok, sess} = SessionStore.lookup(session_id)
       assert sess.ip == "192.168.1.1"
 
-      if prev, do: Application.put_env(:pki_ra_portal, :session_ip_pinning, prev),
-        else: Application.delete_env(:pki_ra_portal, :session_ip_pinning)
+      if prev, do: Application.put_env(:pki_platform_portal, :session_ip_pinning, prev),
+        else: Application.delete_env(:pki_platform_portal, :session_ip_pinning)
     end
 
     test "skips IP check when pinning disabled", %{conn: conn} do
-      prev = Application.get_env(:pki_ra_portal, :session_ip_pinning)
-      Application.put_env(:pki_ra_portal, :session_ip_pinning, false)
+      prev = Application.get_env(:pki_platform_portal, :session_ip_pinning)
+      Application.put_env(:pki_platform_portal, :session_ip_pinning, false)
 
       {:ok, session_id} = create_test_session(%{ip: "10.0.0.1", user_agent: "TestAgent/1.0"})
 
@@ -174,8 +174,8 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuthTest do
       {:ok, sess} = SessionStore.lookup(session_id)
       assert sess.ip == "10.0.0.1"
 
-      if prev, do: Application.put_env(:pki_ra_portal, :session_ip_pinning, prev),
-        else: Application.delete_env(:pki_ra_portal, :session_ip_pinning)
+      if prev, do: Application.put_env(:pki_platform_portal, :session_ip_pinning, prev),
+        else: Application.delete_env(:pki_platform_portal, :session_ip_pinning)
     end
   end
 end
