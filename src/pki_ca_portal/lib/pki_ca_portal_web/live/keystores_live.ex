@@ -248,7 +248,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
                   </td>
                   <td class="font-mono text-xs text-base-content/50 overflow-hidden text-ellipsis whitespace-nowrap">{String.slice(ks.id || "", 0..7)}</td>
                   <td class="text-xs text-base-content/50">
-                    {if ks[:inserted_at], do: Calendar.strftime(ks.inserted_at, "%Y-%m-%d %H:%M"), else: "-"}
+                    {if ks[:inserted_at], do: Calendar.strftime(ks.inserted_at, "%Y-%m-%d %H:%M:%S"), else: "-"}
                   </td>
                 </tr>
               </tbody>

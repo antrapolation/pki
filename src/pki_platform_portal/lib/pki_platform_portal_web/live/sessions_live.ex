@@ -69,7 +69,7 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
   defp format_time(nil), do: "—"
 
   defp format_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%H:%M:%S")
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   end
 
   defp portal_badge("ca"), do: "badge-primary"

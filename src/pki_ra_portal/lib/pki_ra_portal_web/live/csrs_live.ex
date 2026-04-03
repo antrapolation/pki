@@ -198,7 +198,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
                       {csr.status}
                     </span>
                   </td>
-                  <td class="text-xs text-base-content/60">{Calendar.strftime(csr.submitted_at, "%Y-%m-%d %H:%M")}</td>
+                  <td class="text-xs text-base-content/60">{Calendar.strftime(csr.submitted_at, "%Y-%m-%d %H:%M:%S")}</td>
                   <td class="flex gap-1">
                     <button phx-click="view_csr" phx-value-id={csr.id} class="btn btn-xs btn-ghost">
                       View

@@ -579,15 +579,9 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   defp parse_int(_), do: nil
 
   defp format_datetime(nil), do: "-"
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    Calendar.strftime(dt, "%d %b %Y, %H:%M")
-  end
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%d %b %Y, %H:%M")
-  end
-  defp format_datetime(%{year: _, month: _, day: _, hour: _, minute: _} = dt) do
-    Calendar.strftime(dt, "%d %b %Y, %H:%M")
-  end
+  defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp format_datetime(%{year: _, month: _, day: _, hour: _, minute: _} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   defp format_datetime(_), do: "-"
 
   defp status_badge_class("initiated"), do: "badge-warning"

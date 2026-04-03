@@ -481,7 +481,7 @@ defmodule PkiCaPortalWeb.CeremonyCustodianLive do
   defp format_datetime(nil), do: "N/A"
 
   defp format_datetime(dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   rescue
     _ -> inspect(dt)
   end
