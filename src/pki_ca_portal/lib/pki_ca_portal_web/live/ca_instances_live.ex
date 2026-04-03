@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -51,7 +52,8 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
       |> maybe_put_parent_id(parent_id)
 
     case CaEngineClient.create_ca_instance(attrs, tenant_opts(socket)) do
-      {:ok, _instance} ->
+      {:ok, instance} ->
+        audit_log(socket, "ca_instance_created", "ca_instance", instance[:id] || instance["id"], %{name: name, parent_id: parent_id})
         instances = fetch_instances(tenant_opts(socket))
 
         {:noreply,
@@ -84,6 +86,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
     else
       case CaEngineClient.update_ca_instance(id, %{"name" => name}, tenant_opts(socket)) do
         {:ok, _} ->
+          audit_log(socket, "ca_instance_renamed", "ca_instance", id, %{new_name: name})
           instances = fetch_instances(tenant_opts(socket))
           {:noreply,
            socket
@@ -100,6 +103,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
   def handle_event("activate_instance", %{"id" => id}, socket) do
     case CaEngineClient.update_ca_instance(id, %{"status" => "active"}, tenant_opts(socket)) do
       {:ok, _} ->
+        audit_log(socket, "ca_instance_activated", "ca_instance", id)
         instances = fetch_instances(tenant_opts(socket))
         {:noreply, socket |> assign(instances: instances) |> put_flash(:info, "CA instance activated")}
       {:error, {:parent_suspended, _}} ->
@@ -113,6 +117,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
   def handle_event("suspend_instance", %{"id" => id}, socket) do
     case CaEngineClient.update_ca_instance(id, %{"status" => "suspended"}, tenant_opts(socket)) do
       {:ok, _} ->
+        audit_log(socket, "ca_instance_suspended", "ca_instance", id)
         instances = fetch_instances(tenant_opts(socket))
         {:noreply, socket |> assign(instances: instances) |> put_flash(:info, "CA instance suspended. All child CAs have also been suspended.")}
       {:error, _reason} ->

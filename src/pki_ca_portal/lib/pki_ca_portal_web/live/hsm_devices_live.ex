@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.HsmDevicesLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -29,6 +30,7 @@ defmodule PkiCaPortalWeb.HsmDevicesLive do
   def handle_event("probe_device", %{"id" => id}, socket) do
     case CaEngineClient.probe_hsm_device(id, tenant_opts(socket)) do
       {:ok, device} ->
+        audit_log(socket, "hsm_device_probed", "hsm_device", id, %{manufacturer: device[:manufacturer]})
         send(self(), :load_data)
         {:noreply, put_flash(socket, :info, "Device probed: #{device[:manufacturer] || "OK"}")}
 

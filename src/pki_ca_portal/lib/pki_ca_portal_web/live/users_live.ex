@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -45,7 +46,8 @@ defmodule PkiCaPortalWeb.UsersLive do
     }
 
     case CaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
-      {:ok, _user} ->
+      {:ok, user} ->
+        audit_log(socket, "user_created", "user", user[:id] || user["id"], %{username: attrs.username, role: attrs.role, email: attrs.email})
         send(self(), :load_data)
         {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
 
@@ -62,6 +64,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   def handle_event("suspend_user", %{"role-id" => role_id}, socket) do
     case CaEngineClient.suspend_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
+        audit_log(socket, "user_suspended", "user_role", role_id)
         send(self(), :load_data)
         {:noreply, put_flash(socket, :info, "User suspended.")}
 
@@ -74,6 +77,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   def handle_event("activate_user", %{"role-id" => role_id}, socket) do
     case CaEngineClient.activate_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
+        audit_log(socket, "user_activated", "user_role", role_id)
         send(self(), :load_data)
         {:noreply, put_flash(socket, :info, "User activated.")}
 
@@ -86,6 +90,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   def handle_event("reset_password", %{"user-id" => user_id}, socket) do
     case CaEngineClient.reset_user_password(user_id, actor_opts(socket)) do
       :ok ->
+        audit_log(socket, "password_reset", "user_profile", user_id)
         {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
 
       {:error, reason} ->
@@ -97,6 +102,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   def handle_event("resend_invitation", %{"user-id" => user_id}, socket) do
     case CaEngineClient.resend_invitation(user_id, actor_opts(socket)) do
       :ok ->
+        audit_log(socket, "invitation_resent", "user_profile", user_id)
         {:noreply, put_flash(socket, :info, "Invitation email resent.")}
 
       {:error, reason} ->
@@ -108,6 +114,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   def handle_event("delete_user", %{"role-id" => role_id}, socket) do
     case CaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
+        audit_log(socket, "user_deleted", "user_role", role_id)
         send(self(), :load_data)
         {:noreply, put_flash(socket, :info, "User removed.")}
 
@@ -128,7 +135,7 @@ defmodule PkiCaPortalWeb.UsersLive do
   end
 
   defp filter_users(users, "all"), do: users
-  defp filter_users(users, role), do: Enum.filter(users, &(&1.role == role))
+  defp filter_users(users, role), do: Enum.filter(users, fn u -> (u[:role] || u["role"]) == role end)
 
   defp actor_opts(socket) do
     user = socket.assigns.current_user

@@ -6,6 +6,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @algorithms [
     {"ECC-P256", "Classical — fast, widely supported"},
@@ -153,6 +154,15 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
     else
       log ++ [{:ok, "Setup complete! Go to CA Instances to see your hierarchy."}]
     end
+
+    audit_action = if has_errors, do: "quick_setup_failed", else: "quick_setup_completed"
+    audit_log(socket, audit_action, "ca_instance", root_id, %{
+      root_name: root_name,
+      sub_name: sub_name,
+      root_algo: root_algo,
+      sub_algo: sub_algo,
+      has_errors: has_errors
+    })
 
     {:noreply, assign(socket, log: log, running: false, done: true)}
   end

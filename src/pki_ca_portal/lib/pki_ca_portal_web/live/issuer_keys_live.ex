@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -193,6 +194,11 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
 
             case CaEngineClient.sign_csr(key[:id], private_key, csr_pem, cert_profile, opts) do
               {:ok, result} ->
+                audit_log(socket, "csr_signed", "issuer_key", key[:id], %{
+                  key_alias: key[:key_alias],
+                  algorithm: key[:algorithm],
+                  serial: result[:serial]
+                })
                 {:noreply,
                  assign(socket,
                    modal_result: result,
@@ -258,6 +264,7 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
 
           case CaEngineClient.activate_issuer_key(key[:id], cert_attrs, opts) do
             {:ok, _updated} ->
+              audit_log(socket, "issuer_key_activated", "issuer_key", key[:id], %{key_alias: key[:key_alias]})
               keys = load_keys(socket.assigns.effective_ca_id, opts)
               {:noreply,
                socket

@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @algorithms [
     {"KAZ-SIGN-128", "Post-Quantum — KAZ-Sign level 1"},
@@ -124,6 +125,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
     case CaEngineClient.cancel_ceremony(ceremony_id, opts) do
       {:ok, _} ->
+        audit_log(socket, "ceremony_cancelled", "ceremony", ceremony_id)
         {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
         {:noreply,
          socket
@@ -140,6 +142,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
     case CaEngineClient.delete_ceremony(ceremony_id, opts) do
       :ok ->
+        audit_log(socket, "ceremony_deleted", "ceremony", ceremony_id)
         {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
         {:noreply,
          socket
@@ -198,12 +201,13 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
         if step do
           n = ceremony[:threshold_n] || 3
+          domain_info = ceremony[:domain_info] || %{}
           {:noreply,
            assign(socket,
              wizard_step: step,
              active_ceremony: ceremony,
-             is_root: get_in(ceremony, [:domain_info, "is_root"]) != false,
-             subject_dn: get_in(ceremony, [:domain_info, "subject_dn"]) || "",
+             is_root: Map.get(domain_info, "is_root", true),
+             subject_dn: Map.get(domain_info, "subject_dn") || "",
              custodians: List.duplicate(nil, n),
              custodian_passwords: List.duplicate("", n),
              private_key: nil,
@@ -254,6 +258,12 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
         case CaEngineClient.initiate_ceremony(ca_id, ceremony_params, opts) do
           {:ok, ceremony} ->
+            audit_log(socket, "ceremony_initiated", "ceremony", ceremony[:id], %{
+              algorithm: params["algorithm"],
+              ca_instance_id: ca_id,
+              is_root: is_root,
+              key_alias: params["key_alias"]
+            })
             {ceremonies, keystores} = load_for_ca(ca_id, opts)
             n = threshold_n || 3
 
@@ -295,6 +305,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     case CaEngineClient.generate_ceremony_keypair(ceremony[:algorithm], opts) do
       {:ok, %{public_key: pub, private_key: priv}} ->
         fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower) |> format_fingerprint()
+        audit_log(socket, "ceremony_keypair_generated", "ceremony", ceremony[:id], %{algorithm: ceremony[:algorithm]})
 
         {:noreply,
          assign(socket,
@@ -379,6 +390,8 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
         case CaEngineClient.distribute_ceremony_shares(ceremony[:id], private_key, custodian_tuples, opts) do
           {:ok, _count} ->
+            custodian_usernames = Enum.map(custodians, & &1.username)
+            audit_log(socket, "ceremony_shares_distributed", "ceremony", ceremony[:id], %{custodians: custodian_usernames})
             {:noreply,
              assign(socket,
                wizard_step: 4,
@@ -398,6 +411,13 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   def handle_event("update_subject_dn", %{"value" => value}, socket) do
     {:noreply, assign(socket, subject_dn: value)}
+  end
+
+  def handle_event("complete_ceremony", _params, %{assigns: %{private_key: nil}} = socket) do
+    {:noreply,
+     assign(socket,
+       wizard_error: "Private key is not available in this session. Please start a new ceremony to generate a fresh keypair."
+     )}
   end
 
   def handle_event("complete_ceremony", _params, socket) do
@@ -422,6 +442,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
     case result do
       {:ok, {updated_ceremony, csr_pem}} ->
+        audit_log(socket, "ceremony_completed", "ceremony", ceremony[:id], %{is_root: socket.assigns.is_root, has_csr: true})
         {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
         {:noreply,
          assign(socket,
@@ -435,6 +456,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
          )}
 
       {:ok, updated_ceremony} ->
+        audit_log(socket, "ceremony_completed", "ceremony", ceremony[:id], %{is_root: socket.assigns.is_root})
         {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
         {:noreply,
          assign(socket,
@@ -448,7 +470,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
       {:error, reason} ->
         # Schedule key wipe — don't hold key in memory indefinitely on error
-        if socket.assigns.private_key, do: Process.send_after(self(), :wipe_private_key, 60_000)
+        Process.send_after(self(), :wipe_private_key, 60_000)
         {:noreply, assign(socket, wizard_busy: false, wizard_error: "Completion failed: #{format_error(reason)}")}
     end
   end

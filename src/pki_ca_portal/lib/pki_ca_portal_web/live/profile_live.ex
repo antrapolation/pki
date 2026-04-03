@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.ProfileLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -25,15 +26,7 @@ defmodule PkiCaPortalWeb.ProfileLive do
 
     case CaEngineClient.update_user_profile(user_id, %{display_name: display_name, email: email}, opts) do
       {:ok, _updated} ->
-        PkiPlatformEngine.PlatformAudit.log("profile_updated", %{
-          actor_id: user_id,
-          actor_username: user[:username] || user["username"],
-          target_type: "user_profile",
-          target_id: user_id,
-          tenant_id: socket.assigns[:tenant_id],
-          portal: "ca",
-          details: %{display_name: display_name, email: email}
-        })
+        audit_log(socket, "profile_updated", "user_profile", user_id, %{display_name: display_name, email: email})
 
         {:noreply,
          socket
@@ -62,12 +55,7 @@ defmodule PkiCaPortalWeb.ProfileLive do
       true ->
         case CaEngineClient.verify_and_change_password(user_id, current, new_pw, opts) do
           {:ok, _} ->
-            PkiPlatformEngine.PlatformAudit.log("password_changed", %{
-              actor_id: user_id,
-              actor_username: user[:username] || user["username"],
-              tenant_id: socket.assigns[:tenant_id],
-              portal: "ca"
-            })
+            audit_log(socket, "password_changed", "user_profile", user_id)
 
             {:noreply,
              socket

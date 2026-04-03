@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   use PkiCaPortalWeb, :live_view
 
   alias PkiCaPortal.CaEngineClient
+  import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -78,7 +79,10 @@ defmodule PkiCaPortalWeb.KeystoresLive do
           attrs = if type == "hsm", do: Map.put(attrs, :hsm_device_id, hsm_device_id), else: attrs
 
           case CaEngineClient.configure_keystore(ca_instance_id, attrs, tenant_opts(socket)) do
-            {:ok, _keystore} ->
+            {:ok, keystore} ->
+              ks_details = %{ca_instance_id: ca_instance_id, type: type}
+              ks_details = if type == "hsm", do: Map.put(ks_details, :hsm_device_id, hsm_device_id), else: ks_details
+              audit_log(socket, "keystore_configured", "keystore", keystore[:id] || keystore["id"], ks_details)
               send(self(), :load_data)
               {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
 
