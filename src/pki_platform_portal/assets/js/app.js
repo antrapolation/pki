@@ -4,11 +4,36 @@ import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
+import SessionTimeout from "./session_timeout"
+
+let Hooks = {}
+
+Hooks.EngineTimer = {
+  mounted() {
+    this._startTime = performance.now()
+    this._checkReady()
+  },
+  updated() {
+    this._checkReady()
+  },
+  _checkReady() {
+    const ready = this.el.querySelector("[data-status='ready']")
+    if (ready && this._startTime) {
+      const elapsed = performance.now() - this._startTime
+      const timerEl = this.el.querySelector("#engine-timer")
+      if (timerEl) {
+        timerEl.textContent = `${elapsed.toFixed(0)}ms (page → status)`
+      }
+      this._startTime = null
+    }
+  }
+}
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
+  hooks: {...Hooks, SessionTimeout},
 })
 
 // Show progress bar on live navigation and form submits
