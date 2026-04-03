@@ -6,6 +6,7 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
 
   import Phoenix.LiveView
   import Phoenix.Component
+  require Logger
 
   @app :pki_ca_portal
 
@@ -37,6 +38,15 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
          :ok <- check_timeout(session_id, sess) do
       PkiCaPortal.SessionStore.touch(session_id)
       user = session_to_user(sess)
+
+      Logger.metadata(
+        user_id: sess.user_id,
+        username: sess.username,
+        tenant_id: sess.tenant_id,
+        portal: "ca",
+        session_id: session_id
+      )
+
       role = user.role || "auditor"
       view = socket.view
 

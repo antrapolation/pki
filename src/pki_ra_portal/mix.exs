@@ -65,7 +65,8 @@ defmodule PkiRaPortal.MixProject do
       {:uniq, "~> 0.6"},
       {:pki_platform_engine, path: "../pki_platform_engine"},
       {:pki_ra_engine, path: "../pki_ra_engine"},
-      {:pki_ca_engine, path: "../pki_ca_engine"}
+      {:pki_ca_engine, path: "../pki_ca_engine"},
+      {:logger_json, "~> 6.0"}
     ]
   end
 

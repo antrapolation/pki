@@ -27,6 +27,14 @@ defmodule PkiPlatformPortalWeb.Plugs.RequireAuth do
          :ok <- check_ip(conn, session_id, session) do
       PkiPlatformPortal.SessionStore.touch(session_id)
 
+      Logger.metadata(
+        user_id: session.user_id,
+        username: session.username,
+        tenant_id: session.tenant_id,
+        portal: "platform",
+        session_id: session_id
+      )
+
       conn
       |> assign(:current_user, session_to_user(session))
       |> assign(:session_id, session_id)

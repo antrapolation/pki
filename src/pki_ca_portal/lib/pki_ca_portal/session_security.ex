@@ -8,6 +8,9 @@ defmodule PkiCaPortal.SessionSecurity do
   @task_supervisor PkiCaPortal.TaskSupervisor
 
   def notify(event, details) do
+    # Capture current metadata for propagation to async task
+    metadata = Logger.metadata()
+
     # Always log to audit trail (synchronous)
     PkiPlatformEngine.PlatformAudit.log(to_string(event), %{
       portal: details[:portal] || "ca",
@@ -16,6 +19,7 @@ defmodule PkiCaPortal.SessionSecurity do
 
     # Send email notification (async, fire-and-forget)
     Task.Supervisor.start_child(@task_supervisor, fn ->
+      Logger.metadata(metadata)
       send_admin_notification(event, details)
     end)
 

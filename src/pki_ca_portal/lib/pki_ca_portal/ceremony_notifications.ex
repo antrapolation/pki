@@ -76,7 +76,13 @@ defmodule PkiCaPortal.CeremonyNotifications do
   # --- Private ---
 
   defp send_async(fun) do
-    Task.Supervisor.start_child(@task_supervisor, fun)
+    metadata = Logger.metadata()
+
+    Task.Supervisor.start_child(@task_supervisor, fn ->
+      Logger.metadata(metadata)
+      fun.()
+    end)
+
     :ok
   rescue
     e ->

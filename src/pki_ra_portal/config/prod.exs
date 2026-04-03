@@ -26,12 +26,11 @@ if salt = System.get_env("RA_PORTAL_SIGNING_SALT") do
   config :pki_ra_portal, signing_salt: salt
 end
 
-# Structured production logging: info level with metadata for log aggregators
-config :logger, level: :info
+# Structured JSON logging for production — enables log aggregation
+config :logger, :default_handler,
+  formatter: {LoggerJSON.Formatters.Basic, metadata: :all}
 
-config :logger, :console,
-  format: "[$level] $time request_id=$metadata{request_id} remote_ip=$metadata{remote_ip} $message\n",
-  metadata: [:request_id, :remote_ip, :module, :function]
+config :logger, level: :info
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

@@ -5,6 +5,7 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
 
   import Phoenix.LiveView
   import Phoenix.Component
+  require Logger
 
   @app :pki_ra_portal
 
@@ -16,6 +17,15 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
          :ok <- check_timeout(session_id, sess) do
       PkiRaPortal.SessionStore.touch(session_id)
       user = session_to_user(sess)
+
+      Logger.metadata(
+        user_id: sess.user_id,
+        username: sess.username,
+        tenant_id: sess.tenant_id,
+        portal: "ra",
+        session_id: session_id
+      )
+
       timeout_ms = Application.get_env(@app, :session_idle_timeout_ms, 30 * 60 * 1000)
       warning_ms = timeout_ms - 5 * 60 * 1000
 

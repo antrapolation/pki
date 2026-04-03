@@ -27,6 +27,14 @@ defmodule PkiRaPortalWeb.Plugs.RequireAuth do
          :ok <- check_ip(conn, session_id, session) do
       PkiRaPortal.SessionStore.touch(session_id)
 
+      Logger.metadata(
+        user_id: session.user_id,
+        username: session.username,
+        tenant_id: session.tenant_id,
+        portal: "ra",
+        session_id: session_id
+      )
+
       conn
       |> assign(:current_user, session_to_user(session))
       |> assign(:session_id, session_id)
