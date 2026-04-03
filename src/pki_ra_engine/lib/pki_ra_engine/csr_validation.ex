@@ -203,7 +203,8 @@ defmodule PkiRaEngine.CsrValidation do
   defp run_validations(tenant_id, csr) do
     with :ok <- validate_csr_not_empty(csr),
          :ok <- validate_profile_exists(tenant_id, csr),
-         :ok <- validate_csr_key_strength(csr) do
+         :ok <- validate_csr_key_strength(csr),
+         :ok <- validate_subject_dn_policy(tenant_id, csr) do
       :ok
     end
   end
@@ -269,6 +270,101 @@ defmodule PkiRaEngine.CsrValidation do
     case CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
       {:ok, _profile} -> :ok
       {:error, :not_found} -> {:error, :profile_not_found}
+    end
+  end
+
+  defp validate_subject_dn_policy(tenant_id, csr) do
+    case CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
+      {:ok, profile} ->
+        policy = profile.subject_dn_policy || %{}
+
+        if map_size(policy) == 0 do
+          # No policy configured — allow any subject DN
+          :ok
+        else
+          subject_dn = csr.subject_dn || ""
+          check_dn_against_policy(subject_dn, policy)
+        end
+
+      _ ->
+        # Profile not found — already caught by validate_profile_exists
+        :ok
+    end
+  end
+
+  defp check_dn_against_policy(subject_dn, policy) do
+    dn_lower = String.downcase(subject_dn)
+
+    errors =
+      Enum.reduce(policy, [], fn {key, rule}, acc ->
+        case {key, rule} do
+          {"required_fields", fields} when is_list(fields) ->
+            # Check that required DN fields are present (e.g., ["CN", "O", "C"])
+            missing = Enum.filter(fields, fn field ->
+              field_lower = String.downcase(field)
+              not String.contains?(dn_lower, "#{field_lower}=")
+            end)
+
+            if missing == [] do
+              acc
+            else
+              ["Missing required DN fields: #{Enum.join(missing, ", ")}" | acc]
+            end
+
+          {"allowed_domains", domains} when is_list(domains) ->
+            # Check CN matches an allowed domain pattern
+            cn = extract_cn(subject_dn)
+            if cn == nil or Enum.any?(domains, &domain_matches?(cn, &1)) do
+              acc
+            else
+              ["CN '#{cn}' does not match any allowed domain" | acc]
+            end
+
+          {"forbidden_patterns", patterns} when is_list(patterns) ->
+            # Reject DNs containing forbidden strings
+            found = Enum.filter(patterns, &String.contains?(dn_lower, String.downcase(&1)))
+            if found == [] do
+              acc
+            else
+              ["Subject DN contains forbidden pattern: #{Enum.join(found, ", ")}" | acc]
+            end
+
+          _ ->
+            acc
+        end
+      end)
+
+    if errors == [] do
+      :ok
+    else
+      Logger.warning("[csr_validation] Subject DN policy violation: #{Enum.join(errors, "; ")}")
+      {:error, {:dn_policy_violation, errors}}
+    end
+  end
+
+  defp extract_cn(dn) do
+    case Regex.run(~r/CN=([^,\/]+)/i, dn) do
+      [_, cn] -> String.trim(cn)
+      _ -> nil
+    end
+  end
+
+  defp domain_matches?(cn, pattern) do
+    cn_lower = String.downcase(cn)
+    pattern_lower = String.downcase(pattern)
+
+    cond do
+      # Exact match
+      cn_lower == pattern_lower -> true
+      # Wildcard: *.example.com matches sub.example.com
+      String.starts_with?(pattern_lower, "*.") ->
+        suffix = String.slice(pattern_lower, 1..-1//1)
+        String.ends_with?(cn_lower, suffix) and not String.contains?(String.replace_suffix(cn_lower, suffix, ""), ".")
+      # Suffix match: .example.com matches anything.example.com
+      String.starts_with?(pattern_lower, ".") ->
+        String.ends_with?(cn_lower, pattern_lower)
+      true ->
+        false
     end
   end
 
