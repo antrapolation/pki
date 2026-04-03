@@ -2,16 +2,13 @@ defmodule PkiPlatformEngine.DateLogHandler do
   @moduledoc """
   Custom Logger handler that writes logs to daily ISO-date-named files.
 
-  Files: logs/<app_name>/YYYY-MM-DD.log
+  Files: logs/pki/YYYY-MM-DD.log
   Retention: configurable, default 7 days
   Cleanup: runs on startup and at midnight rotation
 
-  ## Configuration
-
-      config :pki_platform_engine, PkiPlatformEngine.DateLogHandler,
-        log_dir: "logs",
-        app_name: "pki_ca_portal",
-        retention_days: 7
+  Started once from the platform engine (shared dependency).
+  All apps in the BEAM node write to the same file. Use the `portal`
+  metadata field to filter by app when searching logs.
   """
 
   use GenServer
@@ -20,17 +17,13 @@ defmodule PkiPlatformEngine.DateLogHandler do
   @default_retention_days 7
 
   def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: name_for(opts[:app_name]))
-  end
-
-  defp name_for(app_name) do
-    :"date_log_handler_#{app_name}"
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @impl true
   def init(opts) do
     log_dir = opts[:log_dir] || "logs"
-    app_name = opts[:app_name] || "app"
+    app_name = opts[:app_name] || "pki"
     retention_days = opts[:retention_days] || @default_retention_days
 
     dir = Path.join(log_dir, app_name)
@@ -40,19 +33,16 @@ defmodule PkiPlatformEngine.DateLogHandler do
     file_path = file_path_for(dir, today)
     {:ok, fd} = File.open(file_path, [:append, :utf8])
 
-    # Clean up old files on startup
     cleanup_old_files(dir, retention_days)
 
-    # Schedule midnight rotation
-    schedule_rotation()
+    # Schedule rotation at midnight instead of polling
+    schedule_midnight_rotation()
 
-    # Attach as a Logger handler
-    handler_id = :"date_log_#{app_name}"
+    # Register as Erlang logger handler
+    handler_id = :pki_date_log
 
     :logger.add_handler(handler_id, __MODULE__, %{
-      config: %{
-        server: name_for(app_name)
-      }
+      config: %{server: __MODULE__}
     })
 
     {:ok,
@@ -69,22 +59,15 @@ defmodule PkiPlatformEngine.DateLogHandler do
 
   # --- Erlang :logger handler callbacks ---
 
-  def adding_handler(config) do
-    {:ok, config}
-  end
-
-  def removing_handler(_config) do
-    :ok
-  end
+  def adding_handler(config), do: {:ok, config}
+  def removing_handler(_config), do: :ok
 
   def log(%{level: level, msg: msg, meta: meta}, %{config: %{server: server}}) do
     formatted = format_log(level, msg, meta)
     GenServer.cast(server, {:write, formatted})
   end
 
-  def changing_config(_action, _old_config, new_config) do
-    {:ok, new_config}
-  end
+  def changing_config(_action, _old_config, new_config), do: {:ok, new_config}
 
   # --- GenServer callbacks ---
 
@@ -104,7 +87,7 @@ defmodule PkiPlatformEngine.DateLogHandler do
   end
 
   @impl true
-  def handle_info(:rotate_check, state) do
+  def handle_info(:rotate, state) do
     today = Date.utc_today()
 
     state =
@@ -114,7 +97,7 @@ defmodule PkiPlatformEngine.DateLogHandler do
         state
       end
 
-    schedule_rotation()
+    schedule_midnight_rotation()
     {:noreply, state}
   end
 
@@ -139,9 +122,12 @@ defmodule PkiPlatformEngine.DateLogHandler do
     %{state | current_date: new_date, fd: new_fd, file_path: new_path}
   end
 
-  defp schedule_rotation do
-    # Check every 60 seconds for date change
-    Process.send_after(self(), :rotate_check, :timer.seconds(60))
+  defp schedule_midnight_rotation do
+    now = DateTime.utc_now()
+    tomorrow = Date.utc_today() |> Date.add(1)
+    midnight = DateTime.new!(tomorrow, ~T[00:00:00], "Etc/UTC")
+    ms = max(DateTime.diff(midnight, now, :millisecond) + 1000, 1000)
+    Process.send_after(self(), :rotate, ms)
   end
 
   defp cleanup_old_files(dir, retention_days) do
@@ -173,7 +159,6 @@ defmodule PkiPlatformEngine.DateLogHandler do
     timestamp = format_timestamp(meta[:time])
     message = format_message(msg)
 
-    # Include key metadata inline
     meta_parts =
       [:request_id, :user_id, :username, :tenant_id, :portal, :session_id]
       |> Enum.map(fn key ->

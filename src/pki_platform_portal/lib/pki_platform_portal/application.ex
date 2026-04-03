@@ -15,17 +15,6 @@ defmodule PkiPlatformPortal.Application do
       PkiPlatformPortalWeb.Endpoint
     ]
 
-    children =
-      if Application.get_env(:pki_platform_portal, :start_date_log_handler, true) do
-        children ++
-          [
-            {PkiPlatformEngine.DateLogHandler,
-             app_name: "pki_platform_portal", log_dir: "logs", retention_days: 7}
-          ]
-      else
-        children
-      end
-
     opts = [strategy: :one_for_one, name: PkiPlatformPortal.Supervisor]
     result = Supervisor.start_link(children, opts)
 

@@ -17,17 +17,6 @@ defmodule PkiRaPortal.Application do
       PkiRaPortalWeb.Endpoint
     ]
 
-    children =
-      if Application.get_env(:pki_ra_portal, :start_date_log_handler, true) do
-        children ++
-          [
-            {PkiPlatformEngine.DateLogHandler,
-             app_name: "pki_ra_portal", log_dir: "logs", retention_days: 7}
-          ]
-      else
-        children
-      end
-
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: PkiRaPortal.Supervisor]

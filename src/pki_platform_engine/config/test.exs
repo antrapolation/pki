@@ -16,4 +16,7 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   password: "postgres",
   pool_size: 2
 
+# Disable date log handler in test
+config :pki_platform_engine, :start_date_log_handler, false
+
 config :logger, level: :warning

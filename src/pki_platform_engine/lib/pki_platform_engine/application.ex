@@ -4,12 +4,13 @@ defmodule PkiPlatformEngine.Application do
   require Logger
 
   def start(_type, _args) do
-    children = [
-      PkiPlatformEngine.PlatformRepo,
-      PkiPlatformEngine.EmailVerification,
-      PkiPlatformEngine.TenantRegistry,
-      PkiPlatformEngine.TenantSupervisor
-    ]
+    children =
+      [
+        PkiPlatformEngine.PlatformRepo,
+        PkiPlatformEngine.EmailVerification,
+        PkiPlatformEngine.TenantRegistry,
+        PkiPlatformEngine.TenantSupervisor
+      ] ++ date_log_handler_child()
 
     opts = [strategy: :one_for_one, name: PkiPlatformEngine.Supervisor]
     result = Supervisor.start_link(children, opts)
@@ -22,5 +23,13 @@ defmodule PkiPlatformEngine.Application do
     end)
 
     result
+  end
+
+  defp date_log_handler_child do
+    if Application.get_env(:pki_platform_engine, :start_date_log_handler, true) do
+      [{PkiPlatformEngine.DateLogHandler, app_name: "pki", log_dir: "logs", retention_days: 7}]
+    else
+      []
+    end
   end
 end
