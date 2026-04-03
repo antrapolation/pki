@@ -64,8 +64,21 @@ defmodule PkiCaPortalWeb.SessionController do
               details: %{must_change_password: true}
             })
 
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+            {:ok, session_id} = PkiCaPortal.SessionStore.create(%{
+              user_id: user[:id],
+              username: user[:username],
+              role: user[:role],
+              tenant_id: tenant_id,
+              ip: ip,
+              user_agent: ua
+            })
+
             conn
             |> configure_session(renew: true)
+            |> put_session(:session_id, session_id)
             |> put_session(:current_user, serialize_user(user, ca_instance_id))
             |> put_session(:tenant_id, tenant_id)
             |> put_session(:session_key, session_info[:session_key])
@@ -82,8 +95,21 @@ defmodule PkiCaPortalWeb.SessionController do
               details: %{ca_instance_id: ca_instance_id}
             })
 
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+            {:ok, session_id} = PkiCaPortal.SessionStore.create(%{
+              user_id: user[:id],
+              username: user[:username],
+              role: user[:role],
+              tenant_id: tenant_id,
+              ip: ip,
+              user_agent: ua
+            })
+
             conn
             |> configure_session(renew: true)
+            |> put_session(:session_id, session_id)
             |> put_session(:current_user, serialize_user(user, ca_instance_id))
             |> put_session(:tenant_id, tenant_id)
             |> put_session(:session_key, session_info[:session_key])
@@ -106,6 +132,10 @@ defmodule PkiCaPortalWeb.SessionController do
   end
 
   def delete(conn, _params) do
+    if session_id = get_session(conn, :session_id) do
+      PkiCaPortal.SessionStore.delete(session_id)
+    end
+
     conn
     |> clear_session()
     |> redirect(to: "/login")
