@@ -60,6 +60,8 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback reconstruct_key(String.t(), [{String.t(), String.t()}], opts()) :: {:ok, binary()} | {:error, term()}
   @callback sign_csr(String.t(), binary(), String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
   @callback activate_issuer_key(String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback list_active_ceremonies() :: {:ok, [map()]} | {:error, term()}
+  @callback fail_ceremony(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ca_portal, :ca_engine_client, PkiCaPortal.CaEngineClient.Mock)
@@ -111,4 +113,6 @@ defmodule PkiCaPortal.CaEngineClient do
   def reconstruct_key(issuer_key_id, custodian_passwords, opts \\ []), do: impl().reconstruct_key(issuer_key_id, custodian_passwords, opts)
   def sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts \\ []), do: impl().sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts)
   def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []), do: impl().activate_issuer_key(issuer_key_id, cert_attrs, opts)
+  def list_active_ceremonies, do: impl().list_active_ceremonies()
+  def fail_ceremony(ceremony_id, reason), do: impl().fail_ceremony(ceremony_id, reason)
 end

@@ -1349,4 +1349,37 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
         end
     end
   end
+
+  @impl true
+  def list_active_ceremonies do
+    # Query all CA instances for active ceremonies
+    case list_ca_instances([]) do
+      {:ok, instances} ->
+        ceremonies =
+          Enum.flat_map(instances, fn instance ->
+            case list_ceremonies(instance[:id] || instance["id"], []) do
+              {:ok, cers} -> cers
+              _ -> []
+            end
+          end)
+          |> Enum.filter(fn c ->
+            status = c[:status] || c["status"]
+            status in ["preparing", "generating"]
+          end)
+
+        {:ok, ceremonies}
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
+  def fail_ceremony(ceremony_id, reason) do
+    cancel_ceremony(ceremony_id, [])
+    |> case do
+      {:ok, ceremony} -> {:ok, Map.put(ceremony, :failure_reason, reason)}
+      error -> error
+    end
+  end
 end

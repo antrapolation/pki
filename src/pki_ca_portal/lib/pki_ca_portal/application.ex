@@ -14,6 +14,7 @@ defmodule PkiCaPortal.Application do
       {Task.Supervisor, name: PkiCaPortal.TaskSupervisor},
       PkiCaPortal.SessionStore,
       PkiCaPortal.CustodianPasswordStore,
+      PkiCaPortal.CeremonyWatchdog,
       # Start to serve requests, typically the last entry
       PkiCaPortalWeb.Endpoint
     ]

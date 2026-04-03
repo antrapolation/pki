@@ -499,4 +499,14 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
        }
      ]}
   end
+
+  @impl true
+  def list_active_ceremonies do
+    {:ok, []}
+  end
+
+  @impl true
+  def fail_ceremony(_ceremony_id, _reason) do
+    {:ok, %{status: "failed"}}
+  end
 end

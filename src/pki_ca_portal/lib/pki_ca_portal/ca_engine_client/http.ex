@@ -615,4 +615,16 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   defp stringify_keys(other), do: other
+
+  @impl true
+  def list_active_ceremonies do
+    # TODO: implement HTTP endpoint for listing active ceremonies
+    {:ok, []}
+  end
+
+  @impl true
+  def fail_ceremony(_ceremony_id, _reason) do
+    # TODO: implement HTTP endpoint for failing a ceremony
+    {:ok, %{status: "failed"}}
+  end
 end

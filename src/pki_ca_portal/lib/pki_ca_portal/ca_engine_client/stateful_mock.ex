@@ -443,6 +443,32 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
 
   # -- Private --
 
+  @impl true
+  def list_active_ceremonies do
+    ceremonies = Agent.get(__MODULE__, fn state -> state.ceremonies end)
+
+    active =
+      Enum.filter(ceremonies, fn c ->
+        c[:status] in ["preparing", "generating"]
+      end)
+
+    {:ok, active}
+  end
+
+  @impl true
+  def fail_ceremony(ceremony_id, _reason) do
+    Agent.update(__MODULE__, fn state ->
+      updated =
+        Enum.map(state.ceremonies, fn c ->
+          if c.id == ceremony_id, do: Map.put(c, :status, "failed"), else: c
+        end)
+
+      %{state | ceremonies: updated}
+    end)
+
+    {:ok, %{id: ceremony_id, status: "failed"}}
+  end
+
   defp provider_for_type("software"), do: "StrapSoftPrivKeyStoreProvider"
   defp provider_for_type("hsm"), do: "StrapSofthsmPrivKeyStoreProvider"
   defp provider_for_type(_), do: "UnknownProvider"
