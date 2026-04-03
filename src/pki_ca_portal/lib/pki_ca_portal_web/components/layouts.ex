@@ -54,8 +54,10 @@ defmodule PkiCaPortalWeb.Layouts do
           <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
-          <div :if={role == "ca_admin"} class="divider my-1 px-3"></div>
-          <.sidebar_link :if={role == "ca_admin"} href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />
+          <%= if role == "ca_admin" and Application.get_env(:pki_ca_portal, :enable_quick_setup, false) do %>
+            <div class="divider my-1 px-3"></div>
+            <.sidebar_link href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />
+          <% end %>
           <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
         </nav>
 

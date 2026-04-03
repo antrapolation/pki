@@ -23,6 +23,9 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    unless Application.get_env(:pki_ca_portal, :enable_quick_setup, false) do
+      {:ok, socket |> put_flash(:error, "Quick Setup is disabled in this environment.") |> redirect(to: "/")}
+    else
     {:ok,
      assign(socket,
        page_title: "Quick Setup",
@@ -35,6 +38,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
        running: false,
        done: false
      )}
+    end
   end
 
   @impl true

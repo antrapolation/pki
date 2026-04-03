@@ -125,6 +125,9 @@ config :phoenix_live_view,
 # Relax rate limiting in dev to avoid being blocked during debugging
 config :pki_ca_portal, :rate_limit_enabled, false
 
+# Enable Quick Setup in dev (disabled by default in production)
+config :pki_ca_portal, :enable_quick_setup, true
+
 # Longer session timeout in dev to avoid being logged out during debugging
 config :pki_ca_portal,
   session_idle_timeout_ms: 120 * 60 * 1000,
