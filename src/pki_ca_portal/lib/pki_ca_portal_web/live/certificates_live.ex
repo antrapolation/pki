@@ -281,9 +281,137 @@ defmodule PkiCaPortalWeb.CertificatesLive do
         %{}
       end
     rescue
+      _ ->
+        # Fallback: raw ASN.1 parsing for PQC certificates (KAZ-SIGN, ML-DSA, etc.)
+        # that the X509/OTP library can't decode
+        parse_x509_raw(cert_data)
+    end
+  end
+
+  defp parse_x509_raw(cert_data) do
+    try do
+      der = cond do
+        is_binary(cert_data) and String.starts_with?(to_string(cert_data), "-----BEGIN") ->
+          case :public_key.pem_decode(cert_data) do
+            [{_type, der, _}] -> der
+            _ -> nil
+          end
+        is_binary(cert_data) -> cert_data
+        true -> nil
+      end
+
+      if der do
+        # Decode as raw :Certificate (not :OTPCertificate) — works with unknown algorithms
+        {:Certificate, tbs_cert, sig_algo, _signature} = :public_key.der_decode(:Certificate, der)
+        {:TBSCertificate, _version, serial, _sig_algo_inner, issuer_rdn, validity, subject_rdn, _subject_pki, _issuer_uid, _subject_uid, extensions} = tbs_cert
+
+        fingerprint = :crypto.hash(:sha256, der)
+        |> Base.encode16(case: :lower)
+        |> format_fingerprint()
+
+        subject = format_rdn_sequence(subject_rdn)
+        issuer = format_rdn_sequence(issuer_rdn)
+
+        serial_hex = if is_integer(serial), do: Integer.to_string(serial, 16), else: to_string(serial)
+
+        # Extract validity
+        {_not_before, _not_after} = validity
+
+        # Extract signature algorithm OID
+        {:AlgorithmIdentifier, sig_oid, _params} = sig_algo
+        sig_algo_str = format_oid(sig_oid)
+
+        # Parse extensions if present
+        ext_list = case extensions do
+          :asn1_NOVALUE -> []
+          exts when is_list(exts) ->
+            Enum.map(exts, fn
+              {:Extension, oid, critical, _value} ->
+                %{oid: format_oid_string(oid), name: extension_name(oid), critical: critical}
+              _ ->
+                %{oid: "?", name: "Unknown", critical: false}
+            end)
+          _ -> []
+        end
+
+        %{
+          fingerprint: fingerprint,
+          subject_dn: subject,
+          issuer_dn: issuer,
+          signature_algorithm: sig_algo_str,
+          public_key_algorithm: "PQC (Post-Quantum)",
+          serial_hex: serial_hex,
+          key_usage: [],
+          basic_constraints: nil,
+          extensions: ext_list
+        }
+      else
+        %{}
+      end
+    rescue
       _ -> %{}
     end
   end
+
+  defp format_rdn_sequence({:rdnSequence, rdn_sets}) do
+    rdn_sets
+    |> List.flatten()
+    |> Enum.map(fn
+      {:AttributeTypeAndValue, oid, value} ->
+        name = rdn_attr_name(oid)
+        val = extract_rdn_value(value)
+        "#{name}=#{val}"
+      _ -> ""
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.reverse()
+    |> Enum.join(", ")
+  end
+  defp format_rdn_sequence(_), do: "-"
+
+  defp rdn_attr_name({2, 5, 4, 3}), do: "CN"
+  defp rdn_attr_name({2, 5, 4, 6}), do: "C"
+  defp rdn_attr_name({2, 5, 4, 7}), do: "L"
+  defp rdn_attr_name({2, 5, 4, 8}), do: "ST"
+  defp rdn_attr_name({2, 5, 4, 10}), do: "O"
+  defp rdn_attr_name({2, 5, 4, 11}), do: "OU"
+  defp rdn_attr_name({1, 2, 840, 113549, 1, 9, 1}), do: "emailAddress"
+  defp rdn_attr_name(oid) when is_tuple(oid), do: Enum.join(Tuple.to_list(oid), ".")
+  defp rdn_attr_name(_), do: "?"
+
+  defp extract_rdn_value(value) when is_binary(value) do
+    # ASN.1 encoded strings — try to extract the printable part
+    case :public_key.der_decode(:X520CommonName, value) do
+      {:utf8String, str} -> to_string(str)
+      {:printableString, str} -> to_string(str)
+      {:ia5String, str} -> to_string(str)
+      {:teletexString, str} -> to_string(str)
+      str when is_binary(str) -> str
+      str when is_list(str) -> to_string(str)
+      _ -> inspect(value)
+    end
+  rescue
+    _ ->
+      # Last resort — try to extract readable ASCII from the binary
+      value
+      |> :binary.bin_to_list()
+      |> Enum.filter(&(&1 >= 32 and &1 <= 126))
+      |> to_string()
+  end
+  defp extract_rdn_value(value), do: to_string(value)
+
+  defp format_oid(oid) when is_tuple(oid) do
+    oid_str = Enum.join(Tuple.to_list(oid), ".")
+    case oid do
+      {1, 2, 840, 113549, 1, 1, 11} -> "SHA-256 with RSA"
+      {1, 2, 840, 10045, 4, 3, 2} -> "ECDSA with SHA-256"
+      _ -> "OID: #{oid_str}"
+    end
+  end
+  defp format_oid(_), do: "Unknown"
+
+  defp format_oid_string(oid) when is_tuple(oid), do: Enum.join(Tuple.to_list(oid), ".")
+  defp format_oid_string(oid), do: to_string(oid)
 
   defp format_signature_algorithm({oid, _params}) do
     case oid do
