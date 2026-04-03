@@ -1,8 +1,11 @@
 defmodule PkiCaPortalWeb.CaInstancesLive do
   use PkiCaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiCaPortal.CaEngineClient
   import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
+  import PkiCaPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -62,7 +65,8 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
          |> put_flash(:info, "CA instance created successfully")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create CA instance: #{inspect(reason)}")}
+        Logger.error("[ca_instances] Failed to create CA instance: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to create CA instance", reason))}
     end
   end
 
@@ -94,7 +98,8 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
            |> put_flash(:info, "CA instance renamed")}
 
         {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Rename failed: #{inspect(reason)}")}
+          Logger.error("[ca_instances] Rename failed: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, sanitize_error("Rename failed", reason))}
       end
     end
   end

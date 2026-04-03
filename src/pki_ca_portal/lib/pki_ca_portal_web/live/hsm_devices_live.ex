@@ -1,8 +1,11 @@
 defmodule PkiCaPortalWeb.HsmDevicesLive do
   use PkiCaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiCaPortal.CaEngineClient
   import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
+  import PkiCaPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -35,7 +38,8 @@ defmodule PkiCaPortalWeb.HsmDevicesLive do
         {:noreply, put_flash(socket, :info, "Device probed: #{device[:manufacturer] || "OK"}")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Probe failed: #{inspect(reason)}")}
+        Logger.error("[hsm_devices] Probe failed: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Probe failed", reason))}
     end
   end
 

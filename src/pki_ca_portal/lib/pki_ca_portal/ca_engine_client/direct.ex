@@ -441,7 +441,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     end
     end
   rescue
-    e -> {:error, "KAZ-SIGN CSR generation failed: #{Exception.message(e)}"}
+    e ->
+      Logger.error("[ca_engine_client] KAZ-SIGN CSR generation failed: #{Exception.message(e)}")
+      {:error, "KAZ-SIGN CSR generation failed"}
   end
 
   @impl true
@@ -666,7 +668,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     end
     end
   rescue
-    e -> {:error, "KAZ-SIGN CSR signing failed: #{Exception.message(e)}"}
+    e ->
+      Logger.error("[ca_engine_client] KAZ-SIGN CSR signing failed: #{Exception.message(e)}")
+      {:error, "KAZ-SIGN CSR signing failed"}
   end
 
   defp sign_csr_classical(tenant_id, issuer_key, private_key_der, csr_pem, cert_profile, _opts) do
@@ -748,7 +752,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       end
     end
   rescue
-    e -> {:error, "Certificate signing failed: #{Exception.message(e)}"}
+    e ->
+      Logger.error("[ca_engine_client] Certificate signing failed: #{Exception.message(e)}")
+      {:error, "Certificate signing failed"}
   end
 
   @impl true
@@ -1122,12 +1128,15 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       {:error, "PQC crypto service (ApJavaCrypto) is not running. Use a classical algorithm (ECC-P256, ECC-P384, RSA-4096) or start the JRuby service."}
     end
   rescue
-    e -> {:error, "PQC keygen failed: #{Exception.message(e)}"}
+    e ->
+      Logger.error("[ca_engine_client] PQC keygen failed: #{Exception.message(e)}")
+      {:error, "PQC key generation failed"}
   catch
     :exit, {:timeout, _} ->
       {:error, "PQC key generation timed out. The JRuby/Java service may be starting up — please try again."}
     :exit, reason ->
-      {:error, "PQC keygen process error: #{inspect(reason)}"}
+      Logger.error("[ca_engine_client] PQC keygen process error: #{inspect(reason)}")
+      {:error, "PQC key generation failed"}
   end
 
   defp kaz_sign_level(algorithm) do
@@ -1145,7 +1154,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       {:ok, %{public_key: keypair.public_key, private_key: keypair.private_key}}
     end
   rescue
-    e -> {:error, "KAZ-SIGN keygen failed: #{Exception.message(e)}"}
+    e ->
+      Logger.error("[ca_engine_client] KAZ-SIGN keygen failed: #{Exception.message(e)}")
+      {:error, "KAZ-SIGN key generation failed"}
   end
 
   defp find_ap_java_crypto_pid do
@@ -1251,7 +1262,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       {:ok, cert_der, cert_pem}
     end
   rescue
-    e -> {:error, {:kaz_sign_self_sign_failed, Exception.message(e)}}
+    e ->
+      Logger.error("[ca_engine_client] KAZ-SIGN self-sign failed: #{Exception.message(e)}")
+      {:error, {:kaz_sign_self_sign_failed, "self-sign operation failed"}}
   end
 
   defp wrap_pem(b64) do

@@ -1,8 +1,11 @@
 defmodule PkiCaPortalWeb.UsersLive do
   use PkiCaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiCaPortal.CaEngineClient
   import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
+  import PkiCaPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -56,7 +59,8 @@ defmodule PkiCaPortalWeb.UsersLive do
         {:noreply, put_flash(socket, :error, "Failed to create user: #{msg}")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create user: #{inspect(reason)}")}
+        Logger.error("[users] Failed to create user: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to create user", reason))}
     end
   end
 
@@ -69,7 +73,8 @@ defmodule PkiCaPortalWeb.UsersLive do
         {:noreply, put_flash(socket, :info, "User suspended.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to suspend user: #{inspect(reason)}")}
+        Logger.error("[users] Failed to suspend user: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to suspend user", reason))}
     end
   end
 
@@ -82,7 +87,8 @@ defmodule PkiCaPortalWeb.UsersLive do
         {:noreply, put_flash(socket, :info, "User activated.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to activate user: #{inspect(reason)}")}
+        Logger.error("[users] Failed to activate user: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to activate user", reason))}
     end
   end
 
@@ -94,7 +100,8 @@ defmodule PkiCaPortalWeb.UsersLive do
         {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to reset password: #{inspect(reason)}")}
+        Logger.error("[users] Failed to reset password: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to reset password", reason))}
     end
   end
 
@@ -106,7 +113,8 @@ defmodule PkiCaPortalWeb.UsersLive do
         {:noreply, put_flash(socket, :info, "Invitation email resent.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to resend invitation: #{inspect(reason)}")}
+        Logger.error("[users] Failed to resend invitation: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to resend invitation", reason))}
     end
   end
 
@@ -119,7 +127,8 @@ defmodule PkiCaPortalWeb.UsersLive do
         {:noreply, put_flash(socket, :info, "User removed.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to remove user: #{inspect(reason)}")}
+        Logger.error("[users] Failed to remove user: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to remove user", reason))}
     end
   end
 

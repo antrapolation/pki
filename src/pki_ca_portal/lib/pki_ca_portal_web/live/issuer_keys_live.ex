@@ -1,8 +1,11 @@
 defmodule PkiCaPortalWeb.IssuerKeysLive do
   use PkiCaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiCaPortal.CaEngineClient
   import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
+  import PkiCaPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -99,7 +102,8 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
        )}
     else
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to load key: #{inspect(reason)}")}
+        Logger.error("[issuer_keys] Failed to load key for sign_csr: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to load key", reason))}
     end
   end
 
@@ -119,7 +123,8 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
          )}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to load key: #{inspect(reason)}")}
+        Logger.error("[issuer_keys] Failed to load key for activate: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to load key", reason))}
     end
   end
 
@@ -320,7 +325,10 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
   defp format_error(:invalid_csr_pem), do: "Invalid CSR PEM format"
   defp format_error({:invalid_status, status}), do: "Key status is '#{status}' — must be 'pending' to activate"
   defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason)
+  defp format_error(reason) do
+    Logger.error("[issuer_keys] Unhandled error reason: #{inspect(reason)}")
+    "an unexpected error occurred"
+  end
 
   defp extract_subject_from_cert_pem(nil), do: nil
   defp extract_subject_from_cert_pem(pem) when is_binary(pem) do

@@ -1,8 +1,11 @@
 defmodule PkiCaPortalWeb.KeystoresLive do
   use PkiCaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiCaPortal.CaEngineClient
   import PkiCaPortalWeb.AuditHelpers, only: [audit_log: 4, audit_log: 5]
+  import PkiCaPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -87,7 +90,8 @@ defmodule PkiCaPortalWeb.KeystoresLive do
               {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
 
             {:error, reason} ->
-              {:noreply, put_flash(socket, :error, "Failed to configure keystore: #{inspect(reason)}")}
+              Logger.error("[keystores] Failed to configure keystore: #{inspect(reason)}")
+              {:noreply, put_flash(socket, :error, sanitize_error("Failed to configure keystore", reason))}
           end
         end
     end
