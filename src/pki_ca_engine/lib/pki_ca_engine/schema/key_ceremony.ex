@@ -6,7 +6,7 @@ defmodule PkiCaEngine.Schema.KeyCeremony do
   @foreign_key_type :binary_id
 
   @ceremony_types ["sync", "async"]
-  @statuses ["initiated", "in_progress", "completed", "failed"]
+  @statuses ["initiated", "in_progress", "preparing", "generating", "completed", "failed"]
 
   schema "key_ceremonies" do
     field :ceremony_type, :string
@@ -17,6 +17,8 @@ defmodule PkiCaEngine.Schema.KeyCeremony do
     field :threshold_n, :integer
     field :domain_info, :map, default: %{}
     field :window_expires_at, :utc_datetime
+    field :auditor_user_id, :binary_id
+    field :time_window_hours, :integer, default: 24
 
     belongs_to :ca_instance, PkiCaEngine.Schema.CaInstance
     belongs_to :issuer_key, PkiCaEngine.Schema.IssuerKey
@@ -32,7 +34,7 @@ defmodule PkiCaEngine.Schema.KeyCeremony do
     |> cast(attrs, [
       :ca_instance_id, :issuer_key_id, :ceremony_type, :status, :initiated_by,
       :participants, :algorithm, :keystore_id, :threshold_k, :threshold_n,
-      :domain_info, :window_expires_at
+      :domain_info, :window_expires_at, :auditor_user_id, :time_window_hours
     ])
     |> validate_required([:ca_instance_id, :ceremony_type])
     |> validate_inclusion(:ceremony_type, @ceremony_types)
