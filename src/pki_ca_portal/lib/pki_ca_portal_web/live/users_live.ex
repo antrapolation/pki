@@ -234,22 +234,22 @@ defmodule PkiCaPortalWeb.UsersLive do
       <div id="user-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
           <div class="overflow-x-auto">
-            <table class="table table-sm">
+            <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th>Username</th>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th class="text-right">Actions</th>
+                  <th class="w-1/5">Username</th>
+                  <th class="w-1/6">Name</th>
+                  <th class="w-1/5">Email</th>
+                  <th class="w-[80px]">Role</th>
+                  <th class="w-[70px]">Status</th>
+                  <th class="w-[100px] text-right">Actions</th>
                 </tr>
               </thead>
               <tbody id="user-list">
                 <tr :for={user <- paginated_users} id={"user-#{user.id}"} class="hover">
-                  <td class="font-mono text-xs">{user.username}</td>
-                  <td>{user.display_name}</td>
-                  <td class="text-xs">{user.email}</td>
+                  <td class="font-mono text-xs truncate max-w-[150px]">{user.username}</td>
+                  <td class="truncate max-w-[120px]">{user.display_name}</td>
+                  <td class="text-xs truncate max-w-[150px]">{user.email}</td>
                   <td>
                     <span class={"badge badge-sm #{role_badge_class(user.role)}"}>{user.role}</span>
                   </td>
