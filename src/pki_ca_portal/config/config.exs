@@ -12,6 +12,9 @@ config :pki_ca_portal,
   # IPs of trusted reverse proxies — only these may set X-Forwarded-For
   trusted_proxies: ["127.0.0.1", "::1"]
 
+config :pki_ca_portal,
+  session_idle_timeout_ms: 30 * 60 * 1000
+
 # Configure the endpoint
 config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
   url: [host: "localhost"],
