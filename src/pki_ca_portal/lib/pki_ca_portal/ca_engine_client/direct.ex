@@ -872,8 +872,19 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
           name = attrs[:name] || attrs["name"]
           CaInstanceManagement.rename(tenant_id, id, name)
 
+        Map.has_key?(attrs, :is_offline) || Map.has_key?(attrs, "is_offline") ->
+          is_offline = attrs[:is_offline] || attrs["is_offline"]
+          repo = TenantRepo.ca_repo(tenant_id)
+
+          case repo.get(PkiCaEngine.Schema.CaInstance, id) do
+            nil -> {:error, :not_found}
+            instance ->
+              instance
+              |> PkiCaEngine.Schema.CaInstance.changeset(%{is_offline: is_offline})
+              |> repo.update()
+          end
+
         true ->
-          # For general updates, try status first as the most common case
           {:error, :no_updatable_fields}
       end
 

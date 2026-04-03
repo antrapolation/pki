@@ -119,6 +119,28 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
   end
 
   @impl true
+  def handle_event("toggle_offline", %{"id" => id, "offline" => offline_str}, socket) do
+    opts = tenant_opts(socket)
+    is_offline = offline_str == "true"
+
+    case CaEngineClient.update_ca_instance(id, %{is_offline: is_offline}, opts) do
+      {:ok, _} ->
+        action = if is_offline, do: "ca_instance_offline", else: "ca_instance_online"
+        audit_log(socket, action, "ca_instance", id)
+        instances = fetch_instances(opts)
+
+        {:noreply,
+         socket
+         |> assign(instances: instances)
+         |> put_flash(:info, if(is_offline, do: "CA instance taken offline.", else: "CA instance brought online."))}
+
+      {:error, reason} ->
+        Logger.error("[ca_instances] Failed to toggle offline: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to update CA instance", reason))}
+    end
+  end
+
+  @impl true
   def handle_event("suspend_instance", %{"id" => id}, socket) do
     case CaEngineClient.update_ca_instance(id, %{"status" => "suspended"}, tenant_opts(socket)) do
       {:ok, _} ->
@@ -314,6 +336,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
             <% else %>
               <p class="text-sm font-medium text-base-content group/name">
                 {@instance.name}
+                <span :if={@instance[:is_offline]} class="badge badge-xs badge-warning ml-1">OFFLINE</span>
                 <button
                   :if={@role == "ca_admin"}
                   class="btn btn-ghost btn-xs opacity-0 group-hover/name:opacity-100 ml-1"
@@ -340,6 +363,16 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
           </div>
         </div>
         <div :if={@role == "ca_admin"} class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            phx-click="toggle_offline"
+            phx-value-id={@instance[:id]}
+            phx-value-offline={to_string(!@instance[:is_offline])}
+            data-confirm={if @instance[:is_offline], do: "Bring this CA online?", else: "Take this CA offline? Certificate signing will be blocked."}
+            title={if @instance[:is_offline], do: "Bring Online", else: "Take Offline"}
+            class={"btn btn-ghost btn-xs #{if @instance[:is_offline], do: "text-emerald-400", else: "text-amber-400"}"}
+          >
+            <.icon name={if @instance[:is_offline], do: "hero-signal", else: "hero-signal-slash"} class="size-4" />
+          </button>
           <button
             :if={@instance[:status] != "active"}
             class="btn btn-ghost btn-xs text-success"

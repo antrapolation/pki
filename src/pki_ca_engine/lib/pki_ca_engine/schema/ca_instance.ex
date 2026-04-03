@@ -13,6 +13,7 @@ defmodule PkiCaEngine.Schema.CaInstance do
     field :domain_info, :map, default: %{}
     field :created_by, :string
     field :parent_id, :binary_id
+    field :is_offline, :boolean, default: false
 
     belongs_to :parent, PkiCaEngine.Schema.CaInstance,
       foreign_key: :parent_id,
@@ -30,7 +31,7 @@ defmodule PkiCaEngine.Schema.CaInstance do
 
   def changeset(instance, attrs) do
     instance
-    |> cast(attrs, [:name, :status, :domain_info, :created_by, :parent_id])
+    |> cast(attrs, [:name, :status, :domain_info, :created_by, :parent_id, :is_offline])
     |> validate_required([:name])
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:name)
