@@ -8,7 +8,9 @@
 import Config
 
 config :pki_ca_portal,
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  # IPs of trusted reverse proxies — only these may set X-Forwarded-For
+  trusted_proxies: ["127.0.0.1", "::1"]
 
 # Configure the endpoint
 config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
@@ -49,6 +51,10 @@ config :logger, :default_formatter,
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+
+# Hammer rate limiter (ETS backend — in-memory, per-node)
+config :hammer,
+  backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

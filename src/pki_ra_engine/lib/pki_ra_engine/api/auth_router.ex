@@ -1,25 +1,36 @@
 defmodule PkiRaEngine.Api.AuthRouter do
   @moduledoc """
   Router for public authentication endpoints.
-  Applies per-IP rate limiting before dispatching to the auth controller.
+  Applies per-IP rate limiting to mutation endpoints (login, register).
+  Read-only endpoints (needs-setup) are not rate-limited.
   """
 
   use Plug.Router
 
-  plug PkiRaEngine.Api.RateLimitPlug
+  @rate_limit_opts PkiRaEngine.Api.RateLimitPlug.init([])
+
   plug :match
   plug :dispatch
 
   post "/login" do
-    PkiRaEngine.Api.AuthController.login(conn)
+    conn
+    |> PkiRaEngine.Api.RateLimitPlug.call(@rate_limit_opts)
+    |> case do
+      %{halted: true} = halted -> halted
+      conn -> PkiRaEngine.Api.AuthController.login(conn)
+    end
   end
 
   post "/register" do
-    PkiRaEngine.Api.AuthController.register(conn)
+    conn
+    |> PkiRaEngine.Api.RateLimitPlug.call(@rate_limit_opts)
+    |> case do
+      %{halted: true} = halted -> halted
+      conn -> PkiRaEngine.Api.AuthController.register(conn)
+    end
   end
 
   get "/needs-setup" do
     PkiRaEngine.Api.AuthController.needs_setup(conn)
   end
-
 end

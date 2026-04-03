@@ -134,3 +134,6 @@ config :phoenix_live_view,
   debug_attributes: true,
   # Enable helpful, but potentially expensive runtime checks
   enable_expensive_runtime_checks: true
+
+# Relax rate limiting in dev to avoid being blocked during debugging
+config :pki_ra_portal, :rate_limit_enabled, false

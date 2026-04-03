@@ -108,3 +108,6 @@ config :pki_validation, :http, start: true, port: 4005
 # Hammer rate limiter config
 config :hammer,
   backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
+
+# Relax rate limiting in dev to avoid being blocked during debugging
+config :pki_platform_portal, :rate_limit_enabled, false

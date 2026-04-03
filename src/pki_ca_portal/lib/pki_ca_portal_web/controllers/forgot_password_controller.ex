@@ -6,6 +6,11 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
   alias PkiCaPortal.CaEngineClient
   alias PkiPlatformEngine.{EmailVerification, Mailer, EmailTemplates}
 
+  # Rate limit reset requests: 3 per 15 minutes per IP
+  plug PkiCaPortalWeb.Plugs.RateLimiter,
+    [key_prefix: "ca_forgot_pw", scale_ms: 900_000, limit: 3]
+    when action in [:create, :update]
+
   def new(conn, _params) do
     render(conn, :new, layout: false, error: nil)
   end

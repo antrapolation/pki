@@ -30,3 +30,6 @@ config :pki_ra_engine,
   ca_engine_url: System.get_env("CA_ENGINE_URL", "http://localhost:4001"),
   internal_api_secret: System.get_env("INTERNAL_API_SECRET", "dev-secret"),
   ca_engine_module: PkiRaEngine.CsrValidation.DefaultCaClient
+
+# Relax rate limiting in dev to avoid being blocked during debugging
+config :pki_ra_engine, :rate_limit_enabled, false

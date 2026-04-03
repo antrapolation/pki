@@ -1,5 +1,11 @@
 defmodule PkiPlatformPortalWeb.SessionController do
   use PkiPlatformPortalWeb, :controller
+  require Logger
+
+  # Rate limit login attempts: 5 per 5 minutes per IP
+  plug PkiPlatformPortalWeb.Plugs.RateLimiter,
+    [key_prefix: "platform_login", scale_ms: 300_000, limit: 5]
+    when action == :create
 
   def new(conn, _params) do
     render(conn, :login, layout: false, error: nil)

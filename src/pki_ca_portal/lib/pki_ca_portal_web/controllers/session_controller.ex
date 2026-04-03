@@ -1,8 +1,14 @@
 defmodule PkiCaPortalWeb.SessionController do
   use PkiCaPortalWeb, :controller
   import Plug.Conn
+  require Logger
 
   alias PkiCaPortal.CaEngineClient
+
+  # Rate limit login attempts: 5 per 5 minutes per IP
+  plug PkiCaPortalWeb.Plugs.RateLimiter,
+    [key_prefix: "login", scale_ms: 300_000, limit: 5]
+    when action == :create
 
   def new(conn, _params) do
     render(conn, :login, layout: false, error: nil)
@@ -11,8 +17,38 @@ defmodule PkiCaPortalWeb.SessionController do
   def create(conn, %{"session" => %{"username" => username, "password" => password} = params}) do
     ca_instance_id = parse_instance_id(params["ca_instance_id"])
 
+    if not Application.get_env(:pki_ca_portal, :rate_limit_enabled, true) do
+      do_authenticate(conn, username, password, ca_instance_id)
+    else
+      # Atomic per-username rate limit — increments and checks in one call.
+      # On successful auth, the bucket is cleared so only failures accumulate.
+      username_key = "login_user:#{String.downcase(username)}"
+      case Hammer.check_rate(username_key, 300_000, 5) do
+        {:allow, _count} ->
+          do_authenticate(conn, username, password, ca_instance_id, username_key)
+
+        {:deny, _limit} ->
+          PkiPlatformEngine.PlatformAudit.log("login_failed", %{
+            portal: "ca",
+            details: %{username: username, reason: "rate_limited"}
+          })
+
+          render(conn, :login, layout: false, error: "This account is temporarily locked due to too many failed attempts. Please wait a few minutes.")
+
+        {:error, reason} ->
+          Logger.error("[rate_limit] Hammer error for username #{username}: #{inspect(reason)}")
+          render(conn, :login, layout: false, error: "Service temporarily unavailable. Please try again.")
+      end
+    end
+  end
+
+  defp do_authenticate(conn, username, password, ca_instance_id, username_key \\ nil) do
     case CaEngineClient.authenticate_with_session(username, password) do
       {:ok, user, session_info} ->
+        # Clear the per-username rate limit bucket on successful auth
+        # so only failures accumulate toward the limit
+        if username_key, do: Hammer.delete_buckets(username_key)
+
         tenant_id = user[:tenant_id]
 
         cond do
@@ -64,7 +100,6 @@ defmodule PkiCaPortalWeb.SessionController do
         render(conn, :login, layout: false, error: "Invalid username or password")
 
       {:error, reason} ->
-        require Logger
         Logger.error("Authentication error: #{inspect(reason)}")
         render(conn, :login, layout: false, error: "Service unavailable. Please try again.")
     end

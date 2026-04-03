@@ -61,6 +61,7 @@ defmodule PkiCaPortal.MixProject do
       {:req, "~> 0.5"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
+      {:hammer, "~> 6.2"},
       {:uniq, "~> 0.6"},
       {:pki_platform_engine, path: "../pki_platform_engine"},
       {:pki_ca_engine, path: "../pki_ca_engine"},

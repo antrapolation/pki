@@ -4,6 +4,11 @@ defmodule PkiRaPortalWeb.SessionController do
 
   alias PkiRaPortal.RaEngineClient
 
+  # Rate limit login attempts: 5 per 5 minutes per IP
+  plug PkiRaPortalWeb.Plugs.RateLimiter,
+    [key_prefix: "ra_login", scale_ms: 300_000, limit: 5]
+    when action == :create
+
   def new(conn, _params) do
     render(conn, :login, layout: false, error: nil)
   end

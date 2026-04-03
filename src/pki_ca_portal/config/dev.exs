@@ -104,10 +104,6 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
 # Disable CA engine HTTP server (portal runs Direct, not HTTP)
 config :pki_ca_engine, :start_http, false
 
-# Hammer rate limiter config (pulled in via pki_ca_engine dependency)
-config :hammer,
-  backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
-
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 
@@ -125,3 +121,6 @@ config :phoenix_live_view,
   debug_attributes: true,
   # Enable helpful, but potentially expensive runtime checks
   enable_expensive_runtime_checks: true
+
+# Relax rate limiting in dev to avoid being blocked during debugging
+config :pki_ca_portal, :rate_limit_enabled, false
