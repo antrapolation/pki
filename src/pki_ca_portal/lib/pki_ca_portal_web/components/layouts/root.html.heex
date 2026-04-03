@@ -7,12 +7,7 @@
     <.live_title default="CA Portal" suffix=" - PKI CA Portal">
       {assigns[:page_title]}
     </.live_title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <%!-- Fonts loaded locally or via system stack to avoid render-blocking on offline/slow networks --%>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
@@ -36,7 +31,7 @@
       })();
     </script>
     <style>
-      body { font-family: 'DM Sans', system-ui, sans-serif; }
+      body { font-family: system-ui, -apple-system, sans-serif; }
     </style>
   </head>
   <body class="bg-base-200 min-h-screen">
