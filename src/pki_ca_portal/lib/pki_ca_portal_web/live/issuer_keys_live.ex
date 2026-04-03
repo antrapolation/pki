@@ -457,7 +457,7 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
           <div :if={Enum.empty?(@issuer_keys)} class="p-8 text-center text-base-content/50 text-sm">
             No issuer keys for this CA instance. Run a key ceremony to create one.
           </div>
-          <div :if={not Enum.empty?(@issuer_keys)} class="overflow-x-auto">
+          <div :if={not Enum.empty?(@issuer_keys)}>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">

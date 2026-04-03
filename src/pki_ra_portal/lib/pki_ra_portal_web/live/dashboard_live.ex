@@ -108,7 +108,7 @@ defmodule PkiRaPortalWeb.DashboardLive do
       <section id="recent-csrs" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Recent CSRs</h2>
-          <div class="overflow-x-auto">
+          <div>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="border-base-300">

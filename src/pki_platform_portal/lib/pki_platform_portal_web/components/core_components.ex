@@ -266,7 +266,6 @@ defmodule PkiPlatformPortalWeb.CoreComponents do
       end
 
     ~H"""
-    <div class="overflow-x-auto">
     <table class="table table-zebra">
       <thead>
         <tr>
@@ -295,7 +294,6 @@ defmodule PkiPlatformPortalWeb.CoreComponents do
         </tr>
       </tbody>
     </table>
-    </div>
     """
   end
 

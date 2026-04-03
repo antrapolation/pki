@@ -72,7 +72,7 @@ defmodule PkiCaPortalWeb.HsmDevicesLive do
           <div :if={Enum.empty?(@devices)} class="p-8 text-center text-base-content/50 text-sm">
             No HSM devices assigned to your tenant.
           </div>
-          <div :if={not Enum.empty?(@devices)} class="overflow-x-auto">
+          <div :if={not Enum.empty?(@devices)}>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">

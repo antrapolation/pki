@@ -218,7 +218,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
           <div class="px-5 py-4 border-b border-base-300">
             <h2 class="text-sm font-semibold text-base-content">Configured Keystores</h2>
           </div>
-          <div class="overflow-x-auto">
+          <div>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">

@@ -698,7 +698,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         <div :if={Enum.empty?(@ceremonies)} class="p-8 text-center text-base-content/50 text-sm">
           No ceremonies yet for this CA instance.
         </div>
-        <div :if={not Enum.empty?(@ceremonies)} class="overflow-x-auto">
+        <div :if={not Enum.empty?(@ceremonies)}>
           <table class="table table-sm w-full">
             <thead>
               <tr class="text-xs uppercase text-base-content/50">
@@ -967,7 +967,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             <.icon name="hero-user-group" class="size-4 inline" /> Participants
           </h3>
 
-          <div class="overflow-x-auto">
+          <div>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">

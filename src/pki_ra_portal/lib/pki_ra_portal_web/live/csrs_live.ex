@@ -171,7 +171,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
       <%!-- CSR Table --%>
       <section id="csr-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
-          <div class="overflow-x-auto">
+          <div>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="border-base-300">

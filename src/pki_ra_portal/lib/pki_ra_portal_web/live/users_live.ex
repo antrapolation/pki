@@ -225,7 +225,7 @@ defmodule PkiRaPortalWeb.UsersLive do
       <% end_idx = min(@page * @per_page, total_users) %>
       <div id="user-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
-          <div class="overflow-x-auto">
+          <div>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">

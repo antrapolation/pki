@@ -108,7 +108,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
       <%!-- Tenant List --%>
       <div class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
-          <div class="overflow-x-auto">
+          <div>
             <table id="tenant-list" class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">

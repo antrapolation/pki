@@ -211,7 +211,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
             <h2 class="text-sm font-semibold text-base-content">All Admins</h2>
             <span class="text-xs text-base-content/50">{length(@admins)} total</span>
           </div>
-          <div class="overflow-x-auto">
+          <div>
             <table id="admin-list" class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">

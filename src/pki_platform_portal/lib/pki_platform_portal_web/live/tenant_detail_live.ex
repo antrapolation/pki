@@ -917,7 +917,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             <%!-- Assigned devices --%>
             <div :if={not Enum.empty?(@hsm_devices)}>
               <p class="text-xs font-medium text-base-content/60 mb-2">Assigned Devices</p>
-              <div class="overflow-x-auto">
+              <div>
                 <table class="table table-sm w-full">
                   <thead>
                     <tr class="text-xs uppercase text-base-content/50">

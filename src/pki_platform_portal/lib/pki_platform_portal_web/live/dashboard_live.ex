@@ -170,7 +170,7 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
             <h2 class="text-sm font-semibold text-base-content">Recent Tenants</h2>
             <.link navigate="/tenants" class="text-xs text-primary hover:underline">View all</.link>
           </div>
-          <div class="overflow-x-auto">
+          <div>
             <table class="table table-sm w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
