@@ -1,6 +1,8 @@
 defmodule PkiRaPortalWeb.ServiceConfigsLive do
   use PkiRaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiRaPortal.RaEngineClient
 
   @impl true
@@ -42,7 +44,8 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
          |> put_flash(:info, "Service configured successfully")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to configure service: #{inspect(reason)}")}
+        Logger.error("[service_configs] Failed to configure service: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to configure service", reason))}
     end
   end
 

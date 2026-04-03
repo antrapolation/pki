@@ -1,6 +1,8 @@
 defmodule PkiRaPortalWeb.ApiKeysLive do
   use PkiRaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiRaPortal.RaEngineClient
 
   @impl true
@@ -75,7 +77,8 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
          |> put_flash(:info, "API key created. Copy the key now - it will not be shown again.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create API key: #{inspect(reason)}")}
+        Logger.error("[api_keys] Failed to create API key: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create API key", reason))}
     end
   end
 
@@ -100,7 +103,8 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
          |> put_flash(:info, "API key revoked")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to revoke API key: #{inspect(reason)}")}
+        Logger.error("[api_keys] Failed to revoke API key: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to revoke API key", reason))}
     end
   end
 

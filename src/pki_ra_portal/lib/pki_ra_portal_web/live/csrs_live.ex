@@ -1,6 +1,8 @@
 defmodule PkiRaPortalWeb.CsrsLive do
   use PkiRaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiRaPortal.RaEngineClient
 
   @impl true
@@ -88,7 +90,8 @@ defmodule PkiRaPortalWeb.CsrsLive do
          |> put_flash(:info, "CSR approved successfully")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to approve CSR: #{inspect(reason)}")}
+        Logger.error("[csrs] Failed to approve CSR: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to approve CSR", reason))}
     end
   end
 
@@ -106,7 +109,8 @@ defmodule PkiRaPortalWeb.CsrsLive do
          |> put_flash(:info, "CSR rejected")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to reject CSR: #{inspect(reason)}")}
+        Logger.error("[csrs] Failed to reject CSR: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to reject CSR", reason))}
     end
   end
 

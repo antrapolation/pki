@@ -1,6 +1,8 @@
 defmodule PkiRaPortalWeb.CertProfilesLive do
   use PkiRaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiRaPortal.RaEngineClient
 
   @impl true
@@ -77,7 +79,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
          |> put_flash(:info, "Certificate profile created")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create profile: #{inspect(reason)}")}
+        Logger.error("[cert_profiles] Failed to create profile: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create profile", reason))}
     end
   end
 
@@ -120,7 +123,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
          |> put_flash(:info, "Profile updated")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update profile: #{inspect(reason)}")}
+        Logger.error("[cert_profiles] Failed to update profile: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to update profile", reason))}
     end
   end
 
@@ -137,7 +141,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
          |> put_flash(:info, "Profile deleted")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete profile: #{inspect(reason)}")}
+        Logger.error("[cert_profiles] Failed to delete profile: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to delete profile", reason))}
     end
   end
 

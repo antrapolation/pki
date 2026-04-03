@@ -1,6 +1,8 @@
 defmodule PkiRaPortalWeb.SetupController do
   use PkiRaPortalWeb, :controller
 
+  require Logger
+
   alias PkiRaPortal.RaEngineClient
 
   def new(conn, params) do
@@ -82,5 +84,11 @@ defmodule PkiRaPortalWeb.SetupController do
 
   defp validate_setup_params(_), do: {:error, "Password must be at least 8 characters"}
 
-  defp format_changeset_error(error), do: inspect(error)
+  defp format_changeset_error(%Ecto.Changeset{} = cs) do
+    PkiRaPortalWeb.ErrorHelpers.sanitize_error("Validation failed", cs)
+  end
+  defp format_changeset_error(error) do
+    Logger.error("[setup] Unexpected error: #{inspect(error)}")
+    "An unexpected error occurred. Please try again."
+  end
 end

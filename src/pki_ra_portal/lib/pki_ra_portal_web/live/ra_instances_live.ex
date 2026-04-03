@@ -1,6 +1,8 @@
 defmodule PkiRaPortalWeb.RaInstancesLive do
   use PkiRaPortalWeb, :live_view
 
+  require Logger
+
   alias PkiRaPortal.RaEngineClient
 
   @impl true
@@ -46,7 +48,8 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
          |> put_flash(:info, "RA instance created successfully")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create RA instance: #{inspect(reason)}")}
+        Logger.error("[ra_instances] Failed to create RA instance: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create RA instance", reason))}
     end
   end
 
