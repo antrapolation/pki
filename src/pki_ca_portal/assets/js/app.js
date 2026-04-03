@@ -25,12 +25,13 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/pki_ca_portal"
 import topbar from "../vendor/topbar"
 import SessionTimeout from "./session_timeout"
+import DownloadHook from "./download_hook"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, SessionTimeout},
+  hooks: {...colocatedHooks, SessionTimeout, DownloadHook},
 })
 
 // Show progress bar on live navigation and form submits

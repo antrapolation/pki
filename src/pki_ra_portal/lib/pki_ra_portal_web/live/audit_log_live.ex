@@ -61,8 +61,44 @@ defmodule PkiRaPortalWeb.AuditLogLive do
   end
 
   @impl true
+  def handle_event("export_csv", _params, socket) do
+    csv = generate_csv(socket.assigns.events)
+    filename = "audit-log-#{Date.to_iso8601(Date.utc_today())}.csv"
+    {:noreply, push_event(socket, "download", %{content: csv, filename: filename, content_type: "text/csv"})}
+  end
+
+  @impl true
+  def handle_event("export_json", _params, socket) do
+    json = Jason.encode!(socket.assigns.events, pretty: true)
+    filename = "audit-log-#{Date.to_iso8601(Date.utc_today())}.json"
+    {:noreply, push_event(socket, "download", %{content: json, filename: filename, content_type: "application/json"})}
+  end
+
+  @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, page: String.to_integer(page))}
+  end
+
+  defp generate_csv(events) do
+    header = "Timestamp,Action,Actor,Event ID\r\n"
+
+    rows = Enum.map(events, fn e ->
+      timestamp = if ts = e[:timestamp] || Map.get(e, :timestamp), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M:%S"), else: ""
+      action = to_string(e[:action] || Map.get(e, :action, ""))
+      actor = to_string(e[:actor_username] || Map.get(e, :actor_username, "system"))
+      event_id = to_string(e[:id] || Map.get(e, :id, ""))
+      "#{csv_escape(timestamp)},#{csv_escape(action)},#{csv_escape(actor)},#{csv_escape(event_id)}\r\n"
+    end)
+
+    header <> Enum.join(rows)
+  end
+
+  defp csv_escape(value) do
+    if String.contains?(value, [",", "\"", "\n"]) do
+      "\"" <> String.replace(value, "\"", "\"\"") <> "\""
+    else
+      value
+    end
   end
 
   defp tenant_opts(socket) do
@@ -79,7 +115,18 @@ defmodule PkiRaPortalWeb.AuditLogLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div id="audit-log-page" class="space-y-6">
+    <div id="audit-log-page" phx-hook="DownloadHook" class="space-y-6">
+      <div class="alert border border-info/30 bg-info/5">
+        <.icon name="hero-shield-check" class="size-5 text-info shrink-0" />
+        <div>
+          <p class="text-sm font-medium text-base-content">Audit Trail</p>
+          <p class="text-xs text-base-content/60 mt-0.5">
+            Tamper-evident audit log supporting WebTrust for CAs, ETSI EN 319 401, ISO 27001, and CA/Browser Forum Baseline Requirements.
+            Export records in CSV or JSON format for compliance review and external audit.
+          </p>
+        </div>
+      </div>
+
       <%!-- Filter form --%>
       <div id="audit-filter" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-4">
@@ -115,6 +162,14 @@ defmodule PkiRaPortalWeb.AuditLogLive do
               <button type="submit" class="btn btn-primary btn-sm">
                 <.icon name="hero-funnel" class="size-4" />
                 Apply Filter
+              </button>
+            </div>
+            <div class="flex gap-1 ml-auto">
+              <button type="button" phx-click="export_csv" title="Export CSV" class="btn btn-ghost btn-sm">
+                <.icon name="hero-document-arrow-down" class="size-4" /> CSV
+              </button>
+              <button type="button" phx-click="export_json" title="Export JSON" class="btn btn-ghost btn-sm">
+                <.icon name="hero-code-bracket" class="size-4" /> JSON
               </button>
             </div>
           </form>
