@@ -76,11 +76,22 @@ defmodule PkiRaEngine.CsrValidation do
     repo = TenantRepo.ra_repo(tenant_id)
 
     with {:ok, csr} <- get_csr(tenant_id, csr_id),
-         :ok <- check_transition(csr.status, "approved") do
-      transition(repo, csr, "approved", %{
-        reviewed_by: reviewer_user_id,
-        reviewed_at: DateTime.utc_now()
-      })
+         :ok <- check_transition(csr.status, "approved"),
+         {:ok, approved_csr} <- transition(repo, csr, "approved", %{
+           reviewed_by: reviewer_user_id,
+           reviewed_at: DateTime.utc_now()
+         }) do
+      # Auto-forward to CA for signing (async, don't block the approval response)
+      Task.start(fn ->
+        case forward_to_ca(tenant_id, csr_id) do
+          {:ok, _} ->
+            Logger.info("[csr_validation] CSR #{csr_id} auto-forwarded to CA for signing")
+          {:error, reason} ->
+            Logger.error("[csr_validation] Auto-forward failed for CSR #{csr_id}: #{inspect(reason)}")
+        end
+      end)
+
+      {:ok, approved_csr}
     end
   end
 
@@ -181,7 +192,8 @@ defmodule PkiRaEngine.CsrValidation do
 
   defp run_validations(tenant_id, csr) do
     with :ok <- validate_csr_not_empty(csr),
-         :ok <- validate_profile_exists(tenant_id, csr) do
+         :ok <- validate_profile_exists(tenant_id, csr),
+         :ok <- validate_csr_key_strength(csr) do
       :ok
     end
   end
@@ -195,6 +207,53 @@ defmodule PkiRaEngine.CsrValidation do
       {:error, :empty_csr}
     end
   end
+
+  defp validate_csr_key_strength(csr) do
+    csr_pem = csr.csr_pem
+
+    try do
+      case X509.CSR.from_pem(csr_pem) do
+        {:ok, parsed_csr} ->
+          pub_key = X509.CSR.public_key(parsed_csr)
+          validate_public_key(pub_key)
+
+        _ ->
+          # Can't parse CSR (PQC or malformed) — skip key validation, let CA handle it
+          :ok
+      end
+    rescue
+      _ -> :ok
+    end
+  end
+
+  defp validate_public_key({:RSAPublicKey, modulus, _exp}) do
+    bit_size = :erlang.bit_size(:binary.encode_unsigned(modulus))
+    if bit_size >= 2048 do
+      :ok
+    else
+      Logger.warning("[csr_validation] RSA key too small: #{bit_size} bits (minimum 2048)")
+      {:error, :weak_key}
+    end
+  end
+
+  defp validate_public_key({{:ECPoint, _point}, {:namedCurve, curve_oid}}) do
+    # Accept P-256, P-384, P-521
+    accepted_curves = [
+      {1, 2, 840, 10045, 3, 1, 7},   # P-256
+      {1, 3, 132, 0, 34},             # P-384
+      {1, 3, 132, 0, 35}              # P-521
+    ]
+
+    if curve_oid in accepted_curves do
+      :ok
+    else
+      Logger.warning("[csr_validation] Unsupported ECC curve OID: #{inspect(curve_oid)}")
+      {:error, :unsupported_curve}
+    end
+  end
+
+  # PQC or unknown key type — allow (CA will validate further)
+  defp validate_public_key(_), do: :ok
 
   defp validate_profile_exists(tenant_id, csr) do
     case CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
