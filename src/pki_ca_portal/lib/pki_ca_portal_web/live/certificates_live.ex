@@ -144,13 +144,19 @@ defmodule PkiCaPortalWeb.CertificatesLive do
 
     case CaEngineClient.get_certificate(serial, opts) do
       {:ok, cert} ->
-        fingerprint = if cert[:cert_der] do
-          :crypto.hash(:sha256, cert[:cert_der]) |> Base.encode16(case: :lower) |> format_fingerprint()
-        else
-          "-"
-        end
+        parsed = parse_x509(cert[:cert_der] || cert[:cert_pem])
 
-        {:noreply, assign(socket, selected_cert: Map.put(cert, :fingerprint, fingerprint))}
+        enriched = cert
+        |> Map.put(:fingerprint, parsed[:fingerprint] || "-")
+        |> Map.put(:issuer_dn, parsed[:issuer_dn])
+        |> Map.put(:signature_algorithm, parsed[:signature_algorithm])
+        |> Map.put(:public_key_algorithm, parsed[:public_key_algorithm])
+        |> Map.put(:serial_hex, parsed[:serial_hex])
+        |> Map.put(:key_usage, parsed[:key_usage])
+        |> Map.put(:basic_constraints, parsed[:basic_constraints])
+        |> Map.put(:extensions, parsed[:extensions])
+
+        {:noreply, assign(socket, selected_cert: enriched)}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Certificate not found.")}
@@ -222,6 +228,132 @@ defmodule PkiCaPortalWeb.CertificatesLive do
   end
 
   defp tenant_opts(socket), do: [tenant_id: socket.assigns[:tenant_id]]
+
+  defp parse_x509(nil), do: %{}
+  defp parse_x509(cert_data) do
+    try do
+      otp_cert = cond do
+        is_binary(cert_data) and String.starts_with?(to_string(cert_data), "-----BEGIN") ->
+          X509.Certificate.from_pem!(cert_data)
+        is_binary(cert_data) ->
+          X509.Certificate.from_der!(cert_data)
+        true ->
+          nil
+      end
+
+      if otp_cert do
+        fingerprint = X509.Certificate.to_der(otp_cert)
+        |> then(&:crypto.hash(:sha256, &1))
+        |> Base.encode16(case: :lower)
+        |> format_fingerprint()
+
+        subject = X509.Certificate.subject(otp_cert)
+        |> X509.RDNSequence.to_string()
+
+        issuer = X509.Certificate.issuer(otp_cert)
+        |> X509.RDNSequence.to_string()
+
+        {_algo_oid, _params} = sig_info = X509.Certificate.signature_algorithm(otp_cert)
+        sig_algo = format_signature_algorithm(sig_info)
+
+        pub_key_algo = format_public_key_algorithm(X509.Certificate.public_key(otp_cert))
+
+        serial = X509.Certificate.serial(otp_cert)
+        serial_hex = if is_integer(serial), do: Integer.to_string(serial, 16), else: to_string(serial)
+
+        extensions = X509.Certificate.extensions(otp_cert)
+        key_usage = extract_key_usage(extensions)
+        basic_constraints = extract_basic_constraints(extensions)
+        ext_list = format_extensions(extensions)
+
+        %{
+          fingerprint: fingerprint,
+          subject_dn: subject,
+          issuer_dn: issuer,
+          signature_algorithm: sig_algo,
+          public_key_algorithm: pub_key_algo,
+          serial_hex: serial_hex,
+          key_usage: key_usage,
+          basic_constraints: basic_constraints,
+          extensions: ext_list
+        }
+      else
+        %{}
+      end
+    rescue
+      _ -> %{}
+    end
+  end
+
+  defp format_signature_algorithm({oid, _params}) do
+    case oid do
+      {1, 2, 840, 113549, 1, 1, 11} -> "SHA-256 with RSA"
+      {1, 2, 840, 113549, 1, 1, 12} -> "SHA-384 with RSA"
+      {1, 2, 840, 113549, 1, 1, 13} -> "SHA-512 with RSA"
+      {1, 2, 840, 10045, 4, 3, 2} -> "ECDSA with SHA-256"
+      {1, 2, 840, 10045, 4, 3, 3} -> "ECDSA with SHA-384"
+      {1, 2, 840, 10045, 4, 3, 4} -> "ECDSA with SHA-512"
+      oid when is_tuple(oid) -> "OID: #{Enum.join(Tuple.to_list(oid), ".")}"
+      _ -> "Unknown"
+    end
+  end
+  defp format_signature_algorithm(_), do: "Unknown"
+
+  defp format_public_key_algorithm({:RSAPublicKey, _modulus, _exp}), do: "RSA"
+  defp format_public_key_algorithm({{:ECPoint, _}, {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}}), do: "ECC P-256"
+  defp format_public_key_algorithm({{:ECPoint, _}, {:namedCurve, {1, 3, 132, 0, 34}}}), do: "ECC P-384"
+  defp format_public_key_algorithm(_), do: "Unknown"
+
+  defp extract_key_usage(extensions) do
+    case Enum.find(extensions, fn ext -> elem(ext, 1) == {2, 5, 29, 15} end) do
+      nil -> []
+      ext ->
+        case elem(ext, 3) do
+          usage when is_list(usage) -> Enum.map(usage, &Atom.to_string/1)
+          _ -> []
+        end
+    end
+  rescue
+    _ -> []
+  end
+
+  defp extract_basic_constraints(extensions) do
+    case Enum.find(extensions, fn ext -> elem(ext, 1) == {2, 5, 29, 19} end) do
+      nil -> nil
+      ext ->
+        case elem(ext, 3) do
+          {:BasicConstraints, is_ca, path_len} ->
+            %{ca: is_ca, path_length: if(path_len == :asn1_NOVALUE, do: nil, else: path_len)}
+          _ -> nil
+        end
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp format_extensions(extensions) do
+    Enum.map(extensions, fn ext ->
+      oid = elem(ext, 1)
+      critical = elem(ext, 2)
+      oid_str = if is_tuple(oid), do: Enum.join(Tuple.to_list(oid), "."), else: to_string(oid)
+      name = extension_name(oid)
+      %{oid: oid_str, name: name, critical: critical}
+    end)
+  rescue
+    _ -> []
+  end
+
+  defp extension_name({2, 5, 29, 15}), do: "Key Usage"
+  defp extension_name({2, 5, 29, 19}), do: "Basic Constraints"
+  defp extension_name({2, 5, 29, 14}), do: "Subject Key Identifier"
+  defp extension_name({2, 5, 29, 35}), do: "Authority Key Identifier"
+  defp extension_name({2, 5, 29, 17}), do: "Subject Alternative Name"
+  defp extension_name({2, 5, 29, 31}), do: "CRL Distribution Points"
+  defp extension_name({1, 3, 6, 1, 5, 5, 7, 1, 1}), do: "Authority Information Access"
+  defp extension_name({2, 5, 29, 37}), do: "Extended Key Usage"
+  defp extension_name({2, 5, 29, 32}), do: "Certificate Policies"
+  defp extension_name(oid) when is_tuple(oid), do: "OID: #{Enum.join(Tuple.to_list(oid), ".")}"
+  defp extension_name(_), do: "Unknown"
 
   defp format_fingerprint(hex) do
     hex
@@ -438,6 +570,57 @@ defmodule PkiCaPortalWeb.CertificatesLive do
               <div class="col-span-2">
                 <label class="text-xs text-base-content/50">SHA-256 Fingerprint</label>
                 <p class="font-mono text-xs break-all">{@selected_cert[:fingerprint] || "-"}</p>
+              </div>
+            </div>
+
+            <%!-- Parsed X.509 Details --%>
+            <div :if={@selected_cert[:issuer_dn] || @selected_cert[:signature_algorithm]} class="mt-4 border-t border-base-300 pt-4">
+              <h3 class="text-sm font-semibold mb-3">
+                <.icon name="hero-magnifying-glass" class="size-4 inline" /> X.509 Certificate Details
+              </h3>
+              <div class="grid grid-cols-2 gap-4 text-sm">
+                <div class="col-span-2">
+                  <label class="text-xs text-base-content/50">Issuer DN</label>
+                  <p class="font-mono text-xs break-all">{@selected_cert[:issuer_dn] || "-"}</p>
+                </div>
+                <div>
+                  <label class="text-xs text-base-content/50">Signature Algorithm</label>
+                  <p>{@selected_cert[:signature_algorithm] || "-"}</p>
+                </div>
+                <div>
+                  <label class="text-xs text-base-content/50">Public Key Algorithm</label>
+                  <p>{@selected_cert[:public_key_algorithm] || "-"}</p>
+                </div>
+                <div>
+                  <label class="text-xs text-base-content/50">Serial (Hex)</label>
+                  <p class="font-mono text-xs break-all">{@selected_cert[:serial_hex] || "-"}</p>
+                </div>
+                <div>
+                  <label class="text-xs text-base-content/50">Basic Constraints</label>
+                  <p>
+                    <%= if bc = @selected_cert[:basic_constraints] do %>
+                      CA: {if bc.ca, do: "Yes", else: "No"}{if bc.path_length, do: ", Path Length: #{bc.path_length}", else: ""}
+                    <% else %>
+                      -
+                    <% end %>
+                  </p>
+                </div>
+                <div :if={@selected_cert[:key_usage] != []} class="col-span-2">
+                  <label class="text-xs text-base-content/50">Key Usage</label>
+                  <div class="flex flex-wrap gap-1 mt-1">
+                    <span :for={usage <- @selected_cert[:key_usage] || []} class="badge badge-sm badge-ghost">{usage}</span>
+                  </div>
+                </div>
+                <div :if={@selected_cert[:extensions] != []} class="col-span-2">
+                  <label class="text-xs text-base-content/50">Extensions</label>
+                  <div class="mt-1 space-y-1">
+                    <div :for={ext <- @selected_cert[:extensions] || []} class="flex items-center gap-2 text-xs">
+                      <span class="font-mono text-base-content/40">{ext.oid}</span>
+                      <span>{ext.name}</span>
+                      <span :if={ext.critical} class="badge badge-xs badge-warning">critical</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
