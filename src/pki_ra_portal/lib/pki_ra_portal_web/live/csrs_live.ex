@@ -200,20 +200,18 @@ defmodule PkiRaPortalWeb.CsrsLive do
                   </td>
                   <td class="text-xs text-base-content/60">{Calendar.strftime(csr.submitted_at, "%Y-%m-%d %H:%M:%S")}</td>
                   <td class="flex gap-1">
-                    <div class="tooltip" data-tip="View Details">
-                      <button phx-click="view_csr" phx-value-id={csr.id} class="btn btn-ghost btn-xs text-info">
-                        <.icon name="hero-eye" class="size-4" />
-                      </button>
-                    </div>
-                    <div :if={csr.status == "pending"} class="tooltip" data-tip="Approve">
-                      <button
-                        phx-click="approve_csr"
-                        phx-value-id={csr.id}
-                        class="btn btn-ghost btn-xs text-success"
-                      >
-                        <.icon name="hero-check" class="size-4" />
-                      </button>
-                    </div>
+                    <button phx-click="view_csr" phx-value-id={csr.id} title="View Details" class="btn btn-ghost btn-xs text-info">
+                      <.icon name="hero-eye" class="size-4" />
+                    </button>
+                    <button
+                      :if={csr.status == "pending"}
+                      phx-click="approve_csr"
+                      phx-value-id={csr.id}
+                      title="Approve"
+                      class="btn btn-ghost btn-xs text-success"
+                    >
+                      <.icon name="hero-check" class="size-4" />
+                    </button>
                   </td>
                 </tr>
               </tbody>

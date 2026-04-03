@@ -938,16 +938,15 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
                       <td class="text-sm text-base-content/60 overflow-hidden text-ellipsis whitespace-nowrap">{dev.manufacturer || "-"}</td>
                       <td>{dev.slot_id}</td>
                       <td class="text-right">
-                        <div class="tooltip" data-tip="Revoke">
-                          <button
-                            phx-click="revoke_hsm"
-                            phx-value-device-id={dev.id}
-                            data-confirm={"Revoke #{dev.label} access from this tenant? Existing keystores using this device will still work, but no new keystores can be created with it."}
-                            class="btn btn-ghost btn-xs text-error"
-                          >
-                            <.icon name="hero-no-symbol" class="size-4" />
-                          </button>
-                        </div>
+                        <button
+                          phx-click="revoke_hsm"
+                          phx-value-device-id={dev.id}
+                          data-confirm={"Revoke #{dev.label} access from this tenant? Existing keystores using this device will still work, but no new keystores can be created with it."}
+                          title="Revoke"
+                          class="btn btn-ghost btn-xs text-error"
+                        >
+                          <.icon name="hero-no-symbol" class="size-4" />
+                        </button>
                       </td>
                     </tr>
                   </tbody>

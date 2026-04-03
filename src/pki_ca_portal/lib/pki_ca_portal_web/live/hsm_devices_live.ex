@@ -94,11 +94,9 @@ defmodule PkiCaPortalWeb.HsmDevicesLive do
                     </span>
                   </td>
                   <td class="text-right">
-                    <div class="tooltip" data-tip="Test connectivity">
-                      <button phx-click="probe_device" phx-value-id={dev.id} class="btn btn-ghost btn-xs text-info">
-                        <.icon name="hero-signal" class="size-4" />
-                      </button>
-                    </div>
+                    <button phx-click="probe_device" phx-value-id={dev.id} title="Test connectivity" class="btn btn-ghost btn-xs text-info">
+                      <.icon name="hero-signal" class="size-4" />
+                    </button>
                   </td>
                 </tr>
               </tbody>

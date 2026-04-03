@@ -207,16 +207,12 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
                   </td>
                   <td class="text-right">
                     <div class="flex items-center justify-end gap-1">
-                      <div class="tooltip" data-tip="Probe connectivity">
-                        <button phx-click="probe_device" phx-value-id={dev.id} class="btn btn-ghost btn-xs text-info">
-                          <.icon name="hero-signal" class="size-4" />
-                        </button>
-                      </div>
-                      <div :if={dev.status == "active"} class="tooltip" data-tip="Deactivate">
-                        <button phx-click="deactivate_device" phx-value-id={dev.id} class="btn btn-ghost btn-xs text-warning">
-                          <.icon name="hero-pause" class="size-4" />
-                        </button>
-                      </div>
+                      <button phx-click="probe_device" phx-value-id={dev.id} title="Probe connectivity" class="btn btn-ghost btn-xs text-info">
+                        <.icon name="hero-signal" class="size-4" />
+                      </button>
+                      <button :if={dev.status == "active"} phx-click="deactivate_device" phx-value-id={dev.id} title="Deactivate" class="btn btn-ghost btn-xs text-warning">
+                        <.icon name="hero-pause" class="size-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>

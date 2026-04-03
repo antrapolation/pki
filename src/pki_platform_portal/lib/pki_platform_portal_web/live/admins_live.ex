@@ -260,35 +260,35 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                   </td>
                   <td>
                     <div class="flex gap-1">
-                      <div :if={admin.status == "active" and admin.id != @current_user["id"]} class="tooltip" data-tip="Suspend">
-                        <button
-                          phx-click="suspend_admin"
-                          phx-value-id={admin.id}
-                          data-confirm={"Suspend admin \"#{admin.username}\"? They will lose access immediately."}
-                          class="btn btn-ghost btn-xs text-warning"
-                        >
-                          <.icon name="hero-pause" class="size-4" />
-                        </button>
-                      </div>
-                      <div :if={admin.status == "suspended"} class="tooltip" data-tip="Activate">
-                        <button
-                          phx-click="activate_admin"
-                          phx-value-id={admin.id}
-                          class="btn btn-ghost btn-xs text-success"
-                        >
-                          <.icon name="hero-play" class="size-4" />
-                        </button>
-                      </div>
-                      <div :if={admin.id != @current_user["id"]} class="tooltip" data-tip="Delete">
-                        <button
-                          phx-click="delete_admin"
-                          phx-value-id={admin.id}
-                          data-confirm={"Permanently delete admin \"#{admin.username}\"? This cannot be undone."}
-                          class="btn btn-ghost btn-xs text-error"
-                        >
-                          <.icon name="hero-trash" class="size-4" />
-                        </button>
-                      </div>
+                      <button
+                        :if={admin.status == "active" and admin.id != @current_user["id"]}
+                        phx-click="suspend_admin"
+                        phx-value-id={admin.id}
+                        data-confirm={"Suspend admin \"#{admin.username}\"? They will lose access immediately."}
+                        title="Suspend"
+                        class="btn btn-ghost btn-xs text-warning"
+                      >
+                        <.icon name="hero-pause" class="size-4" />
+                      </button>
+                      <button
+                        :if={admin.status == "suspended"}
+                        phx-click="activate_admin"
+                        phx-value-id={admin.id}
+                        title="Activate"
+                        class="btn btn-ghost btn-xs text-success"
+                      >
+                        <.icon name="hero-play" class="size-4" />
+                      </button>
+                      <button
+                        :if={admin.id != @current_user["id"]}
+                        phx-click="delete_admin"
+                        phx-value-id={admin.id}
+                        data-confirm={"Permanently delete admin \"#{admin.username}\"? This cannot be undone."}
+                        title="Delete"
+                        class="btn btn-ghost btn-xs text-error"
+                      >
+                        <.icon name="hero-trash" class="size-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>
