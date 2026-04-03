@@ -695,6 +695,12 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def list_certificates_by_ca(_ca_instance_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, []}
+  end
+
+  @impl true
   def get_certificate(_serial_number, _opts \\ []) do
     # TODO: implement HTTP endpoint
     {:ok, %{}}

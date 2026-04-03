@@ -1081,6 +1081,18 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
+  def list_certificates_by_ca(ca_instance_id, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    filters = Keyword.get(opts, :filters, [])
+    certs = PkiCaEngine.CertificateSigning.list_certificates_by_ca(tenant_id, ca_instance_id, filters)
+    {:ok, Enum.map(certs, &to_map/1)}
+  rescue
+    e ->
+      Logger.error("[ca_engine_client] list_certificates_by_ca failed: #{Exception.message(e)}")
+      {:ok, []}
+  end
+
+  @impl true
   def get_certificate(serial_number, opts) do
     tenant_id = Keyword.get(opts, :tenant_id)
     case PkiCaEngine.CertificateSigning.get_certificate(tenant_id, serial_number) do

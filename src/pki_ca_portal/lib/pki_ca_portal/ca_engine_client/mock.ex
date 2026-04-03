@@ -552,6 +552,7 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
 
   @impl true
   def list_certificates(_issuer_key_id, _opts \\ []), do: {:ok, []}
+  def list_certificates_by_ca(_ca_instance_id, _opts \\ []), do: {:ok, []}
 
   @impl true
   def get_certificate(_serial_number, _opts \\ []), do: {:ok, %{}}

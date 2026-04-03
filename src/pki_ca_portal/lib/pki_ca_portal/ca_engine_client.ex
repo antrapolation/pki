@@ -123,6 +123,7 @@ defmodule PkiCaPortal.CaEngineClient do
   def reactivate_issuer_key(issuer_key_id, opts \\ []), do: impl().reactivate_issuer_key(issuer_key_id, opts)
   def archive_issuer_key(issuer_key_id, opts \\ []), do: impl().archive_issuer_key(issuer_key_id, opts)
   def list_certificates(issuer_key_id, opts \\ []), do: impl().list_certificates(issuer_key_id, opts)
+  def list_certificates_by_ca(ca_instance_id, opts \\ []), do: impl().list_certificates_by_ca(ca_instance_id, opts)
   def get_certificate(serial_number, opts \\ []), do: impl().get_certificate(serial_number, opts)
   def revoke_certificate(serial_number, reason, opts \\ []), do: impl().revoke_certificate(serial_number, reason, opts)
   def list_active_ceremonies, do: impl().list_active_ceremonies()

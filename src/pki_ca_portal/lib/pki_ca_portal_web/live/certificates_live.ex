@@ -80,7 +80,7 @@ defmodule PkiCaPortalWeb.CertificatesLive do
     opts = tenant_opts(socket)
 
     issuer_keys = case CaEngineClient.list_issuer_keys(ca_id, opts) do
-      {:ok, keys} -> Enum.filter(keys, &(&1[:status] == "active"))
+      {:ok, keys} -> keys
       _ -> []
     end
 
@@ -145,7 +145,7 @@ defmodule PkiCaPortalWeb.CertificatesLive do
     case CaEngineClient.get_certificate(serial, opts) do
       {:ok, cert} ->
         fingerprint = if cert[:cert_der] do
-          :crypto.hash(:sha256, cert.cert_der) |> Base.encode16(case: :lower) |> format_fingerprint()
+          :crypto.hash(:sha256, cert[:cert_der]) |> Base.encode16(case: :lower) |> format_fingerprint()
         else
           "-"
         end
@@ -163,6 +163,10 @@ defmodule PkiCaPortalWeb.CertificatesLive do
   end
 
   @impl true
+  def handle_event("revoke_cert", _params, %{assigns: %{current_user: %{role: role}}} = socket) when role != "ca_admin" do
+    {:noreply, put_flash(socket, :error, "Only CA administrators can revoke certificates.")}
+  end
+
   def handle_event("revoke_cert", %{"serial" => serial, "reason" => reason}, socket) do
     opts = tenant_opts(socket)
 
@@ -194,23 +198,24 @@ defmodule PkiCaPortalWeb.CertificatesLive do
     issuer_key_id = socket.assigns.selected_issuer_key_id
     status = socket.assigns.status_filter
 
+    filters = if status != "all", do: [status: status], else: []
+
     certs = if issuer_key_id != "" do
-      filters = if status != "all", do: [status: status], else: []
       case CaEngineClient.list_certificates(issuer_key_id, Keyword.merge(opts, filters: filters)) do
         {:ok, certs} -> certs
         _ -> []
       end
     else
-      # Load from all issuer keys for this CA
-      socket.assigns.issuer_keys
-      |> Enum.flat_map(fn key ->
-        filters = if status != "all", do: [status: status], else: []
-        case CaEngineClient.list_certificates(key[:id], Keyword.merge(opts, filters: filters)) do
+      # Single query for all certs across all issuer keys in this CA
+      ca_id = socket.assigns.selected_ca_id
+      if ca_id != "" do
+        case CaEngineClient.list_certificates_by_ca(ca_id, Keyword.merge(opts, filters: filters)) do
           {:ok, certs} -> certs
           _ -> []
         end
-      end)
-      |> Enum.sort_by(& &1[:inserted_at], {:desc, DateTime})
+      else
+        []
+      end
     end
 
     assign(socket, certificates: certs)
