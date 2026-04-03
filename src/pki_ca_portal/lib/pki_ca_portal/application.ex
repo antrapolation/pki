@@ -13,6 +13,7 @@ defmodule PkiCaPortal.Application do
       {Phoenix.PubSub, name: PkiCaPortal.PubSub},
       {Task.Supervisor, name: PkiCaPortal.TaskSupervisor},
       PkiCaPortal.SessionStore,
+      PkiCaPortal.CustodianPasswordStore,
       # Start to serve requests, typically the last entry
       PkiCaPortalWeb.Endpoint
     ]
