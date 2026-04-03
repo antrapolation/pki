@@ -266,7 +266,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                         phx-value-id={admin.id}
                         data-confirm={"Suspend admin \"#{admin.username}\"? They will lose access immediately."}
                         title="Suspend"
-                        class="btn btn-ghost btn-xs text-warning"
+                        class="btn btn-ghost btn-xs text-amber-400"
                       >
                         <.icon name="hero-pause" class="size-4" />
                       </button>
@@ -275,7 +275,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                         phx-click="activate_admin"
                         phx-value-id={admin.id}
                         title="Activate"
-                        class="btn btn-ghost btn-xs text-success"
+                        class="btn btn-ghost btn-xs text-emerald-400"
                       >
                         <.icon name="hero-play" class="size-4" />
                       </button>
@@ -285,7 +285,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                         phx-value-id={admin.id}
                         data-confirm={"Permanently delete admin \"#{admin.username}\"? This cannot be undone."}
                         title="Delete"
-                        class="btn btn-ghost btn-xs text-error"
+                        class="btn btn-ghost btn-xs text-rose-400"
                       >
                         <.icon name="hero-trash" class="size-4" />
                       </button>

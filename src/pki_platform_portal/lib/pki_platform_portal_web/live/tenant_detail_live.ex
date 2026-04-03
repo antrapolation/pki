@@ -943,7 +943,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
                           phx-value-device-id={dev.id}
                           data-confirm={"Revoke #{dev.label} access from this tenant? Existing keystores using this device will still work, but no new keystores can be created with it."}
                           title="Revoke"
-                          class="btn btn-ghost btn-xs text-error"
+                          class="btn btn-ghost btn-xs text-rose-400"
                         >
                           <.icon name="hero-no-symbol" class="size-4" />
                         </button>

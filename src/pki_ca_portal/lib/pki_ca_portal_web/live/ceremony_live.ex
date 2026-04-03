@@ -719,7 +719,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                     phx-click="resume_ceremony"
                     phx-value-id={c[:id]}
                     title="Resume"
-                    class="btn btn-ghost btn-xs text-info"
+                    class="btn btn-ghost btn-xs text-sky-400"
                   >
                     <.icon name="hero-play" class="size-4" />
                   </button>
@@ -729,7 +729,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                     phx-value-id={c[:id]}
                     data-confirm="Cancel this ceremony? The pending issuer key will be removed."
                     title="Cancel"
-                    class="btn btn-ghost btn-xs text-warning"
+                    class="btn btn-ghost btn-xs text-amber-400"
                   >
                     <.icon name="hero-x-mark" class="size-4" />
                   </button>
@@ -739,7 +739,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                     phx-value-id={c[:id]}
                     data-confirm="Permanently delete this ceremony record?"
                     title="Delete"
-                    class="btn btn-ghost btn-xs text-error"
+                    class="btn btn-ghost btn-xs text-rose-400"
                   >
                     <.icon name="hero-trash" class="size-4" />
                   </button>

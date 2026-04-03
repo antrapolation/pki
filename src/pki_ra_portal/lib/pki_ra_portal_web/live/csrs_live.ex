@@ -200,7 +200,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
                   </td>
                   <td class="text-xs text-base-content/60">{Calendar.strftime(csr.submitted_at, "%Y-%m-%d %H:%M:%S")}</td>
                   <td class="flex gap-1">
-                    <button phx-click="view_csr" phx-value-id={csr.id} title="View Details" class="btn btn-ghost btn-xs text-info">
+                    <button phx-click="view_csr" phx-value-id={csr.id} title="View Details" class="btn btn-ghost btn-xs text-sky-400">
                       <.icon name="hero-eye" class="size-4" />
                     </button>
                     <button
@@ -208,7 +208,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
                       phx-click="approve_csr"
                       phx-value-id={csr.id}
                       title="Approve"
-                      class="btn btn-ghost btn-xs text-success"
+                      class="btn btn-ghost btn-xs text-emerald-400"
                     >
                       <.icon name="hero-check" class="size-4" />
                     </button>

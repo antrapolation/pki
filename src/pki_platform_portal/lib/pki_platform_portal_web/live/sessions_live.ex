@@ -117,7 +117,7 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
                   phx-value-session-id={session.session_id}
                   data-confirm={"Force logout #{session.username} from #{session.portal}?"}
                   title="Force Logout"
-                  class="btn btn-ghost btn-xs text-error"
+                  class="btn btn-ghost btn-xs text-rose-400"
                 >
                   <.icon name="hero-arrow-right-on-rectangle" class="size-4" />
                 </button>

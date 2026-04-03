@@ -210,7 +210,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
                       phx-click="revoke_api_key"
                       phx-value-id={key.id}
                       title="Revoke"
-                      class="btn btn-ghost btn-xs text-error"
+                      class="btn btn-ghost btn-xs text-rose-400"
                     >
                       <.icon name="hero-no-symbol" class="size-4" />
                     </button>

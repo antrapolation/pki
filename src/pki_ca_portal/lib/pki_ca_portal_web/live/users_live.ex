@@ -261,35 +261,25 @@ defmodule PkiCaPortalWeb.UsersLive do
                   <td class="text-right">
                     <div :if={user.id != @current_user[:id]} class="flex items-center justify-end gap-1">
                       <%= if user.status == "active" do %>
-                        <div class="tooltip" data-tip="Suspend">
-                          <button phx-click="suspend_user" phx-value-role-id={user.role_id} class="btn btn-ghost btn-xs text-warning">
-                            <.icon name="hero-pause" class="size-4" />
-                          </button>
-                        </div>
+                        <button phx-click="suspend_user" phx-value-role-id={user.role_id} title="Suspend" class="btn btn-ghost btn-xs text-amber-400">
+                          <.icon name="hero-pause" class="size-4" />
+                        </button>
                       <% else %>
-                        <div class="tooltip" data-tip="Activate">
-                          <button phx-click="activate_user" phx-value-role-id={user.role_id} class="btn btn-ghost btn-xs text-success">
-                            <.icon name="hero-play" class="size-4" />
-                          </button>
-                        </div>
+                        <button phx-click="activate_user" phx-value-role-id={user.role_id} title="Activate" class="btn btn-ghost btn-xs text-emerald-400">
+                          <.icon name="hero-play" class="size-4" />
+                        </button>
                       <% end %>
-                      <div :if={user[:must_change_password]} class="tooltip" data-tip="Resend Invite">
-                        <button phx-click="resend_invitation" phx-value-user-id={user.id} class="btn btn-ghost btn-xs text-accent">
-                          <.icon name="hero-envelope" class="size-4" />
-                        </button>
-                      </div>
-                      <div class="tooltip" data-tip="Reset Password">
-                        <button phx-click="reset_password" phx-value-user-id={user.id} class="btn btn-ghost btn-xs text-info">
-                          <.icon name="hero-key" class="size-4" />
-                        </button>
-                      </div>
-                      <div class="tooltip" data-tip="Remove User">
-                        <button phx-click="delete_user" phx-value-role-id={user.role_id}
-                          data-confirm="Remove this user's access? They will no longer be able to log in to this portal."
-                          class="btn btn-ghost btn-xs text-error">
-                          <.icon name="hero-trash" class="size-4" />
-                        </button>
-                      </div>
+                      <button :if={user[:must_change_password]} phx-click="resend_invitation" phx-value-user-id={user.id} title="Resend Invite" class="btn btn-ghost btn-xs text-violet-400">
+                        <.icon name="hero-envelope" class="size-4" />
+                      </button>
+                      <button phx-click="reset_password" phx-value-user-id={user.id} title="Reset Password" class="btn btn-ghost btn-xs text-sky-400">
+                        <.icon name="hero-key" class="size-4" />
+                      </button>
+                      <button phx-click="delete_user" phx-value-role-id={user.role_id}
+                        data-confirm="Remove this user's access? They will no longer be able to log in to this portal."
+                        title="Remove User" class="btn btn-ghost btn-xs text-rose-400">
+                        <.icon name="hero-trash" class="size-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>

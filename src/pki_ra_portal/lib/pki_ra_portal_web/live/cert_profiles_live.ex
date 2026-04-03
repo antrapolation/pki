@@ -219,10 +219,10 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                   <td class="font-mono text-xs">{profile.digest_algo}</td>
                   <td>{profile.validity_days}</td>
                   <td class="flex gap-1">
-                    <button phx-click="edit_profile" phx-value-id={profile.id} title="Edit" class="btn btn-ghost btn-xs text-info">
+                    <button phx-click="edit_profile" phx-value-id={profile.id} title="Edit" class="btn btn-ghost btn-xs text-sky-400">
                       <.icon name="hero-pencil" class="size-4" />
                     </button>
-                    <button phx-click="delete_profile" phx-value-id={profile.id} title="Delete" class="btn btn-ghost btn-xs text-error">
+                    <button phx-click="delete_profile" phx-value-id={profile.id} title="Delete" class="btn btn-ghost btn-xs text-rose-400">
                       <.icon name="hero-trash" class="size-4" />
                     </button>
                   </td>

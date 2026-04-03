@@ -149,7 +149,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                       <.link
                         navigate={"/tenants/#{tenant.id}"}
                         title="View Details"
-                        class="btn btn-ghost btn-xs text-info"
+                        class="btn btn-ghost btn-xs text-sky-400"
                       >
                         <.icon name="hero-eye" class="size-4" />
                       </.link>
@@ -158,7 +158,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                         phx-click="activate_tenant"
                         phx-value-id={tenant.id}
                         title="Activate"
-                        class="btn btn-ghost btn-xs text-success"
+                        class="btn btn-ghost btn-xs text-emerald-400"
                       >
                         <.icon name="hero-play" class="size-4" />
                       </button>
@@ -168,7 +168,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                         phx-value-id={tenant.id}
                         data-confirm="Are you sure you want to suspend this tenant?"
                         title="Suspend"
-                        class="btn btn-ghost btn-xs text-warning"
+                        class="btn btn-ghost btn-xs text-amber-400"
                       >
                         <.icon name="hero-pause" class="size-4" />
                       </button>
@@ -177,7 +177,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                         phx-click="activate_tenant"
                         phx-value-id={tenant.id}
                         title="Activate"
-                        class="btn btn-ghost btn-xs text-success"
+                        class="btn btn-ghost btn-xs text-emerald-400"
                       >
                         <.icon name="hero-play" class="size-4" />
                       </button>
@@ -187,7 +187,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                         phx-value-id={tenant.id}
                         data-confirm="Are you sure? This will permanently delete the tenant and its database."
                         title="Delete"
-                        class="btn btn-ghost btn-xs text-error"
+                        class="btn btn-ghost btn-xs text-rose-400"
                       >
                         <.icon name="hero-trash" class="size-4" />
                       </button>
