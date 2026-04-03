@@ -56,7 +56,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
       </aside>
 
       <%!-- Main content area --%>
-      <div class="flex-1 ml-64 flex flex-col min-h-screen">
+      <div class="flex-1 ml-64 flex flex-col min-h-screen max-w-[calc(100vw-16rem)] overflow-x-hidden">
         <%!-- Topbar --%>
         <header class="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-base-100 border-b border-base-300">
           <h1 class="text-sm font-semibold text-base-content">
