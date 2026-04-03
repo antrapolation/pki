@@ -146,46 +146,52 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                   <td class="text-base-content/50 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
                   <td class="text-right">
                     <div class="flex gap-1 justify-end">
-                      <.link
-                        navigate={"/tenants/#{tenant.id}"}
-                        class="btn btn-ghost btn-xs text-primary"
-                      >
-                        View
-                      </.link>
-                      <button
-                        :if={tenant.status == "initialized"}
-                        phx-click="activate_tenant"
-                        phx-value-id={tenant.id}
-                        class="btn btn-ghost btn-xs text-success"
-                      >
-                        Activate
-                      </button>
-                      <button
-                        :if={tenant.status in ["active", "initialized"]}
-                        phx-click="suspend_tenant"
-                        phx-value-id={tenant.id}
-                        data-confirm="Are you sure you want to suspend this tenant?"
-                        class="btn btn-ghost btn-xs text-warning"
-                      >
-                        Suspend
-                      </button>
-                      <button
-                        :if={tenant.status == "suspended"}
-                        phx-click="activate_tenant"
-                        phx-value-id={tenant.id}
-                        class="btn btn-ghost btn-xs text-success"
-                      >
-                        Activate
-                      </button>
-                      <button
-                        :if={tenant.status == "suspended"}
-                        phx-click="delete_tenant"
-                        phx-value-id={tenant.id}
-                        data-confirm="Are you sure? This will permanently delete the tenant and its database."
-                        class="btn btn-ghost btn-xs text-error"
-                      >
-                        Delete
-                      </button>
+                      <div class="tooltip" data-tip="View Details">
+                        <.link
+                          navigate={"/tenants/#{tenant.id}"}
+                          class="btn btn-ghost btn-xs text-info"
+                        >
+                          <.icon name="hero-eye" class="size-4" />
+                        </.link>
+                      </div>
+                      <div :if={tenant.status == "initialized"} class="tooltip" data-tip="Activate">
+                        <button
+                          phx-click="activate_tenant"
+                          phx-value-id={tenant.id}
+                          class="btn btn-ghost btn-xs text-success"
+                        >
+                          <.icon name="hero-play" class="size-4" />
+                        </button>
+                      </div>
+                      <div :if={tenant.status in ["active", "initialized"]} class="tooltip" data-tip="Suspend">
+                        <button
+                          phx-click="suspend_tenant"
+                          phx-value-id={tenant.id}
+                          data-confirm="Are you sure you want to suspend this tenant?"
+                          class="btn btn-ghost btn-xs text-warning"
+                        >
+                          <.icon name="hero-pause" class="size-4" />
+                        </button>
+                      </div>
+                      <div :if={tenant.status == "suspended"} class="tooltip" data-tip="Activate">
+                        <button
+                          phx-click="activate_tenant"
+                          phx-value-id={tenant.id}
+                          class="btn btn-ghost btn-xs text-success"
+                        >
+                          <.icon name="hero-play" class="size-4" />
+                        </button>
+                      </div>
+                      <div :if={tenant.status == "suspended"} class="tooltip" data-tip="Delete">
+                        <button
+                          phx-click="delete_tenant"
+                          phx-value-id={tenant.id}
+                          data-confirm="Are you sure? This will permanently delete the tenant and its database."
+                          class="btn btn-ghost btn-xs text-error"
+                        >
+                          <.icon name="hero-trash" class="size-4" />
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>

@@ -111,15 +111,17 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
               <td>{format_time(session.created_at)}</td>
               <td>{format_time(session.last_active_at)}</td>
               <td>
-                <button
-                  phx-click="force_logout"
-                  phx-value-portal={session.portal}
-                  phx-value-session-id={session.session_id}
-                  data-confirm={"Force logout #{session.username} from #{session.portal}?"}
-                  class="btn btn-error btn-xs"
-                >
-                  Force Logout
-                </button>
+                <div class="tooltip" data-tip="Force Logout">
+                  <button
+                    phx-click="force_logout"
+                    phx-value-portal={session.portal}
+                    phx-value-session-id={session.session_id}
+                    data-confirm={"Force logout #{session.username} from #{session.portal}?"}
+                    class="btn btn-ghost btn-xs text-error"
+                  >
+                    <.icon name="hero-arrow-right-on-rectangle" class="size-4" />
+                  </button>
+                </div>
               </td>
             </tr>
             <tr :if={@sessions == []}>

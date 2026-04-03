@@ -205,14 +205,15 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
                   </td>
                   <td class="text-xs text-base-content/60">{key.created_at}</td>
                   <td>
-                    <button
-                      :if={key.status == "active"}
-                      phx-click="revoke_api_key"
-                      phx-value-id={key.id}
-                      class="btn btn-xs btn-error btn-outline"
-                    >
-                      Revoke
-                    </button>
+                    <div :if={key.status == "active"} class="tooltip" data-tip="Revoke">
+                      <button
+                        phx-click="revoke_api_key"
+                        phx-value-id={key.id}
+                        class="btn btn-ghost btn-xs text-error"
+                      >
+                        <.icon name="hero-no-symbol" class="size-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>

@@ -714,32 +714,35 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                 </td>
                 <td class="text-xs text-base-content/60">{format_datetime(c[:inserted_at])}</td>
                 <td class="flex items-center gap-1">
-                  <button
-                    :if={ceremony_resumable?(c)}
-                    phx-click="resume_ceremony"
-                    phx-value-id={c[:id]}
-                    class="btn btn-ghost btn-xs"
-                  >
-                    Resume
-                  </button>
-                  <button
-                    :if={c[:status] in ["initiated", "in_progress"]}
-                    phx-click="cancel_ceremony_record"
-                    phx-value-id={c[:id]}
-                    data-confirm="Cancel this ceremony? The pending issuer key will be removed."
-                    class="btn btn-ghost btn-xs text-warning"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    :if={c[:status] in ["failed"]}
-                    phx-click="delete_ceremony_record"
-                    phx-value-id={c[:id]}
-                    data-confirm="Permanently delete this ceremony record?"
-                    class="btn btn-ghost btn-xs text-error"
-                  >
-                    Delete
-                  </button>
+                  <div :if={ceremony_resumable?(c)} class="tooltip" data-tip="Resume">
+                    <button
+                      phx-click="resume_ceremony"
+                      phx-value-id={c[:id]}
+                      class="btn btn-ghost btn-xs text-info"
+                    >
+                      <.icon name="hero-play" class="size-4" />
+                    </button>
+                  </div>
+                  <div :if={c[:status] in ["initiated", "in_progress"]} class="tooltip" data-tip="Cancel">
+                    <button
+                      phx-click="cancel_ceremony_record"
+                      phx-value-id={c[:id]}
+                      data-confirm="Cancel this ceremony? The pending issuer key will be removed."
+                      class="btn btn-ghost btn-xs text-warning"
+                    >
+                      <.icon name="hero-x-mark" class="size-4" />
+                    </button>
+                  </div>
+                  <div :if={c[:status] in ["failed"]} class="tooltip" data-tip="Delete">
+                    <button
+                      phx-click="delete_ceremony_record"
+                      phx-value-id={c[:id]}
+                      data-confirm="Permanently delete this ceremony record?"
+                      class="btn btn-ghost btn-xs text-error"
+                    >
+                      <.icon name="hero-trash" class="size-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>

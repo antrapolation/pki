@@ -480,53 +480,58 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
                   </td>
                   <td class="flex items-center gap-1">
                     <%!-- Sign CSR: only for active keys with a certificate and supported algorithm --%>
-                    <button
-                      :if={can_sign_csr?(k)}
-                      phx-click="open_sign_csr"
-                      phx-value-id={k[:id]}
-                      class="btn btn-ghost btn-xs"
-                    >
-                      Sign CSR
-                    </button>
+                    <div :if={can_sign_csr?(k)} class="tooltip" data-tip="Sign CSR">
+                      <button
+                        phx-click="open_sign_csr"
+                        phx-value-id={k[:id]}
+                        class="btn btn-ghost btn-xs text-primary"
+                      >
+                        <.icon name="hero-pencil-square" class="size-4" />
+                      </button>
+                    </div>
                     <%!-- Activate: only for pending keys --%>
-                    <button
-                      :if={k[:status] == "pending"}
-                      phx-click="open_activate"
-                      phx-value-id={k[:id]}
-                      class="btn btn-ghost btn-xs text-success"
-                    >
-                      Upload Cert
-                    </button>
+                    <div :if={k[:status] == "pending"} class="tooltip" data-tip="Upload Certificate">
+                      <button
+                        phx-click="open_activate"
+                        phx-value-id={k[:id]}
+                        class="btn btn-ghost btn-xs text-success"
+                      >
+                        <.icon name="hero-arrow-up-tray" class="size-4" />
+                      </button>
+                    </div>
                     <%!-- Suspend: only for active keys --%>
-                    <button
-                      :if={k[:status] == "active"}
-                      phx-click="suspend_key"
-                      phx-value-id={k[:id]}
-                      data-confirm="Are you sure you want to suspend this key? It will not be usable until reactivated."
-                      class="btn btn-warning btn-xs"
-                    >
-                      Suspend
-                    </button>
+                    <div :if={k[:status] == "active"} class="tooltip" data-tip="Suspend">
+                      <button
+                        phx-click="suspend_key"
+                        phx-value-id={k[:id]}
+                        data-confirm="Are you sure you want to suspend this key? It will not be usable until reactivated."
+                        class="btn btn-ghost btn-xs text-warning"
+                      >
+                        <.icon name="hero-pause" class="size-4" />
+                      </button>
+                    </div>
                     <%!-- Reactivate: only for suspended keys --%>
-                    <button
-                      :if={k[:status] == "suspended"}
-                      phx-click="reactivate_key"
-                      phx-value-id={k[:id]}
-                      data-confirm="Reactivate this key?"
-                      class="btn btn-success btn-xs"
-                    >
-                      Reactivate
-                    </button>
+                    <div :if={k[:status] == "suspended"} class="tooltip" data-tip="Reactivate">
+                      <button
+                        phx-click="reactivate_key"
+                        phx-value-id={k[:id]}
+                        data-confirm="Reactivate this key?"
+                        class="btn btn-ghost btn-xs text-success"
+                      >
+                        <.icon name="hero-play" class="size-4" />
+                      </button>
+                    </div>
                     <%!-- Archive: for non-archived keys (terminal action) --%>
-                    <button
-                      :if={k[:status] in ["pending", "active", "suspended"]}
-                      phx-click="archive_key"
-                      phx-value-id={k[:id]}
-                      data-confirm="Are you sure you want to archive this key? This action cannot be undone."
-                      class="btn btn-ghost btn-xs text-error"
-                    >
-                      Archive
-                    </button>
+                    <div :if={k[:status] in ["pending", "active", "suspended"]} class="tooltip" data-tip="Archive">
+                      <button
+                        phx-click="archive_key"
+                        phx-value-id={k[:id]}
+                        data-confirm="Are you sure you want to archive this key? This action cannot be undone."
+                        class="btn btn-ghost btn-xs text-error"
+                      >
+                        <.icon name="hero-archive-box" class="size-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
