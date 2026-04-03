@@ -17,7 +17,9 @@ defmodule PkiRaPortalWeb.CertificatesLive do
        selected_cert: nil,
        loading: true,
        page: 1,
-       per_page: 20
+       per_page: 20,
+       revoke_reason: "unspecified",
+       show_revoke_confirm: false
      )}
   end
 
@@ -52,7 +54,54 @@ defmodule PkiRaPortalWeb.CertificatesLive do
 
   @impl true
   def handle_event("close_detail", _, socket) do
-    {:noreply, assign(socket, selected_cert: nil)}
+    {:noreply, assign(socket, selected_cert: nil, revoke_reason: "unspecified", show_revoke_confirm: false)}
+  end
+
+  @impl true
+  def handle_event("select_revoke_reason", %{"reason" => reason}, socket) do
+    {:noreply, assign(socket, revoke_reason: reason)}
+  end
+
+  @impl true
+  def handle_event("show_revoke_confirm", _, socket) do
+    {:noreply, assign(socket, show_revoke_confirm: true)}
+  end
+
+  @impl true
+  def handle_event("cancel_revoke", _, socket) do
+    {:noreply, assign(socket, show_revoke_confirm: false)}
+  end
+
+  @impl true
+  def handle_event("revoke_cert", _, socket) do
+    user = socket.assigns[:current_user]
+    role = user[:role] || user["role"]
+
+    if role != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Only RA administrators can revoke certificates.")}
+    else
+      cert = socket.assigns.selected_cert
+      serial = cert[:serial_number] || cert[:issued_cert_serial]
+      reason = socket.assigns[:revoke_reason] || "unspecified"
+      opts = tenant_opts(socket)
+
+      # Audit log
+      Logger.info(
+        "[certificates_live] Certificate revocation requested: serial=#{serial} reason=#{reason} by=#{user[:username] || user["username"]}"
+      )
+
+      case RaEngineClient.revoke_certificate(serial, reason, opts) do
+        {:ok, _result} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Certificate #{serial} has been revoked.")
+           |> assign(selected_cert: nil, show_revoke_confirm: false, revoke_reason: "unspecified")
+           |> load_certificates()}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to revoke certificate. Please try again or contact support.")}
+      end
+    end
   end
 
   @impl true
@@ -98,7 +147,7 @@ defmodule PkiRaPortalWeb.CertificatesLive do
           <p class="text-sm font-medium text-base-content">Issued Certificates</p>
           <p class="text-xs text-base-content/60 mt-0.5">
             View certificates issued through this Registration Authority. Certificates are issued by
-            the CA after CSR approval. Certificate revocation is managed by the CA Administrator.
+            the CA after CSR approval. RA administrators can revoke certificates when needed.
           </p>
         </div>
       </div>
@@ -151,7 +200,11 @@ defmodule PkiRaPortalWeb.CertificatesLive do
                   {cert[:cert_profile_name] || "-"}
                 </td>
                 <td>
-                  <span class="badge badge-sm badge-success">issued</span>
+                  <%= if cert[:status] == "revoked" do %>
+                    <span class="badge badge-sm badge-error">revoked</span>
+                  <% else %>
+                    <span class="badge badge-sm badge-success">issued</span>
+                  <% end %>
                 </td>
                 <td class="text-xs">{format_datetime(cert[:reviewed_at])}</td>
               </tr>
@@ -199,7 +252,13 @@ defmodule PkiRaPortalWeb.CertificatesLive do
               </div>
               <div>
                 <label class="text-xs text-base-content/50">Status</label>
-                <p><span class="badge badge-sm badge-success">issued</span></p>
+                <p>
+                  <%= if @selected_cert[:status] == "revoked" do %>
+                    <span class="badge badge-sm badge-error">revoked</span>
+                  <% else %>
+                    <span class="badge badge-sm badge-success">issued</span>
+                  <% end %>
+                </p>
               </div>
               <div class="col-span-2">
                 <label class="text-xs text-base-content/50">Subject DN</label>
@@ -222,6 +281,44 @@ defmodule PkiRaPortalWeb.CertificatesLive do
                 <p>{format_datetime(@selected_cert[:reviewed_at])}</p>
               </div>
             </div>
+
+            <%!-- Revocation section (ra_admin only, active certs only) --%>
+            <% user_role = (@current_user || %{})[:role] || (@current_user || %{})["role"] %>
+            <%= if user_role == "ra_admin" and @selected_cert[:status] != "revoked" do %>
+              <div class="mt-4 pt-4 border-t border-base-300">
+                <h3 class="text-sm font-semibold text-error mb-3">
+                  <.icon name="hero-shield-exclamation" class="size-4 inline" /> Revoke Certificate
+                </h3>
+
+                <%= if @show_revoke_confirm do %>
+                  <div class="alert alert-warning text-sm mb-3">
+                    <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
+                    <span>This action is irreversible. The certificate will be added to the CRL.</span>
+                  </div>
+                  <div class="flex items-end gap-3">
+                    <div>
+                      <label class="text-xs font-medium text-base-content/60 mb-1 block">Revocation Reason</label>
+                      <select phx-change="select_revoke_reason" name="reason" class="select select-sm select-bordered">
+                        <option value="unspecified" selected={@revoke_reason == "unspecified"}>Unspecified</option>
+                        <option value="key_compromise" selected={@revoke_reason == "key_compromise"}>Key Compromise</option>
+                        <option value="ca_compromise" selected={@revoke_reason == "ca_compromise"}>CA Compromise</option>
+                        <option value="affiliation_changed" selected={@revoke_reason == "affiliation_changed"}>Affiliation Changed</option>
+                        <option value="superseded" selected={@revoke_reason == "superseded"}>Superseded</option>
+                        <option value="cessation_of_operation" selected={@revoke_reason == "cessation_of_operation"}>Cessation of Operation</option>
+                      </select>
+                    </div>
+                    <button phx-click="revoke_cert" class="btn btn-sm btn-error">
+                      <.icon name="hero-shield-exclamation" class="size-4" /> Confirm Revocation
+                    </button>
+                    <button phx-click="cancel_revoke" class="btn btn-sm btn-ghost">Cancel</button>
+                  </div>
+                <% else %>
+                  <button phx-click="show_revoke_confirm" class="btn btn-sm btn-outline btn-error">
+                    <.icon name="hero-shield-exclamation" class="size-4" /> Revoke this Certificate
+                  </button>
+                <% end %>
+              </div>
+            <% end %>
 
             <div class="mt-4 pt-4 border-t border-base-300">
               <p class="text-xs text-base-content/40">

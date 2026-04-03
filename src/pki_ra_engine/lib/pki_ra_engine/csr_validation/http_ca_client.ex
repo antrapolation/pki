@@ -17,6 +17,7 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
   require Logger
 
   @sign_path "/api/v1/certificates/sign"
+  @revoke_path "/api/v1/certificates/revoke"
 
   @doc """
   Sign a certificate by forwarding the CSR PEM to the CA Engine.
@@ -39,7 +40,52 @@ defmodule PkiRaEngine.CsrValidation.HttpCaClient do
     end
   end
 
+  @doc """
+  Revoke a certificate by forwarding to the CA Engine.
+
+  Returns `{:ok, %{serial_number: serial, status: "revoked"}}` on success,
+  or `{:error, reason}`.
+  """
+  @impl true
+  @spec revoke_certificate(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def revoke_certificate(_tenant_id, serial_number, reason) do
+    ca_url = ca_engine_url()
+    secret = internal_api_secret()
+
+    if is_nil(ca_url) or ca_url == "" do
+      {:error, :ca_engine_url_not_configured}
+    else
+      do_revoke(ca_url, secret, serial_number, reason)
+    end
+  end
+
   # ── Private ─────────────────────────────────────────────────────────
+
+  defp do_revoke(ca_url, secret, serial_number, reason) do
+    url = String.trim_trailing(ca_url, "/") <> @revoke_path
+
+    body = %{"serial_number" => serial_number, "reason" => reason}
+    headers = build_headers(secret)
+
+    case Req.post(url, json: body, headers: headers, receive_timeout: 30_000) do
+      {:ok, %Req.Response{status: status, body: resp_body}} when status in [200, 201] ->
+        {:ok, %{
+          serial_number: serial_number,
+          status: "revoked",
+          reason: reason,
+          revoked_at: Map.get(resp_body, "revoked_at")
+        }}
+
+      {:ok, %Req.Response{status: status, body: resp_body}} ->
+        reason_msg = extract_error(resp_body)
+        Logger.error("CA Engine revocation failed (HTTP #{status}): #{inspect(reason_msg)}")
+        {:error, {:ca_revocation_failed, status, reason_msg}}
+
+      {:error, exception} ->
+        Logger.error("CA Engine revocation request failed: #{inspect(exception)}")
+        {:error, {:ca_engine_unreachable, exception}}
+    end
+  end
 
   defp do_sign(ca_url, secret, csr_pem, cert_profile) do
     url = String.trim_trailing(ca_url, "/") <> @sign_path

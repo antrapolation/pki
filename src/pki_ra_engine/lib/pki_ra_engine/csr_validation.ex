@@ -110,6 +110,16 @@ defmodule PkiRaEngine.CsrValidation do
     end
   end
 
+  @doc "Revoke a certificate by forwarding to CA Engine."
+  @spec revoke_certificate(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def revoke_certificate(tenant_id, serial_number, reason) do
+    ca_module =
+      Application.get_env(:pki_ra_engine, :ca_engine_module) ||
+        raise "ca_engine_module not configured"
+
+    ca_module.revoke_certificate(tenant_id, serial_number, reason)
+  end
+
   @doc "Get a CSR by ID."
   @spec get_csr(String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, :not_found}
   def get_csr(tenant_id, id) do

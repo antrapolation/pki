@@ -52,6 +52,10 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     CertController.show(conn, serial)
   end
 
+  post "/certificates/:serial/revoke" do
+    CertController.revoke(conn, serial)
+  end
+
   # --- User management routes ---
 
   get "/users" do

@@ -34,6 +34,22 @@ defmodule PkiRaEngine.Api.CertController do
     end
   end
 
+  def revoke(conn, serial) do
+    tenant_id = conn.assigns[:tenant_id]
+    reason = get_in(conn.body_params, ["reason"]) || "unspecified"
+
+    case PkiRaEngine.CsrValidation.revoke_certificate(tenant_id, serial, reason) do
+      {:ok, result} ->
+        json(conn, 200, result)
+
+      {:error, {:ca_revocation_failed, status, msg}} ->
+        json(conn, status, %{error: "revocation_failed", message: msg})
+
+      {:error, reason} ->
+        json(conn, 500, %{error: "revocation_failed", message: inspect(reason)})
+    end
+  end
+
   # --- Private ---
 
   defp build_filters(query_params) do

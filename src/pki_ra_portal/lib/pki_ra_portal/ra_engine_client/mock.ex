@@ -619,6 +619,19 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
+  def revoke_certificate(serial_number, reason, _opts \\ []) do
+    update_state(:certificates, fn certs ->
+      Enum.map(certs, fn
+        %{serial_number: ^serial_number} = cert ->
+          Map.merge(cert, %{status: "revoked", revocation_reason: reason, revoked_at: DateTime.utc_now()})
+        cert -> cert
+      end)
+    end)
+
+    {:ok, %{serial_number: serial_number, status: "revoked", reason: reason, revoked_at: DateTime.utc_now()}}
+  end
+
+  @impl true
   def list_audit_events(_filters, _opts \\ []) do
     {:ok, [
       %{id: "evt-1", timestamp: DateTime.utc_now(), action: "user_created", actor_username: "raadmin1", target_type: "user_profile", details: %{}},

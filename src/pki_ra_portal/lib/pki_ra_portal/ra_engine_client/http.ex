@@ -529,6 +529,25 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   end
 
   @impl true
+  def revoke_certificate(serial_number, reason, opts \\ []) do
+    payload = %{"reason" => reason}
+
+    case auth_post("/api/v1/certificates/#{URI.encode(serial_number)}/revoke", payload, opts) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason_err} ->
+        {:error, {:http_error, reason_err}}
+    end
+  end
+
+  @impl true
   def get_certificate(serial, opts \\ []) do
     case auth_get("/api/v1/certificates/#{URI.encode(serial)}", opts) do
       {:ok, %{status: 200, body: body}} ->

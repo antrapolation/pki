@@ -500,6 +500,16 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   end
 
   @impl true
+  def revoke_certificate(serial_number, reason, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.CsrValidation.revoke_certificate(tenant_id, serial_number, reason) do
+      {:ok, result} -> {:ok, result}
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
   def get_certificate(serial, opts \\ []) do
     _tenant_id = opts[:tenant_id]
 

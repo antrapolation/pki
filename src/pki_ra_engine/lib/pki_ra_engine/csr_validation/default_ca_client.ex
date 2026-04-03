@@ -13,4 +13,9 @@ defmodule PkiRaEngine.CsrValidation.DefaultCaClient do
   def sign_certificate(_tenant_id, _issuer_key_id, _csr_pem, _cert_profile) do
     {:error, :ca_engine_not_configured}
   end
+
+  @impl true
+  def revoke_certificate(_tenant_id, _serial_number, _reason) do
+    {:error, :ca_engine_not_configured}
+  end
 end
