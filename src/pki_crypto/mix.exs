@@ -22,7 +22,8 @@ defmodule PkiCrypto.MixProject do
   defp deps do
     [
       {:keyx, path: "../keyx", override: true},
-      {:uniq, "~> 0.6"}
+      {:uniq, "~> 0.6"},
+      {:pki_oqs_nif, path: "../pki_oqs_nif"}
     ]
   end
 end
