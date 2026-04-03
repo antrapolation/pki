@@ -19,15 +19,41 @@ defmodule PkiPlatformPortalWeb.SessionController do
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact another platform admin.")
 
           admin.must_change_password ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+            {:ok, session_id} = PkiPlatformPortal.SessionStore.create(%{
+              user_id: admin.id,
+              username: admin.username,
+              role: admin.role,
+              tenant_id: nil,
+              ip: ip,
+              user_agent: ua
+            })
+
             conn
             |> configure_session(renew: true)
+            |> put_session(:session_id, session_id)
             |> put_session(:current_user, serialize_admin(admin))
             |> put_session(:must_change_password, true)
             |> redirect(to: "/change-password")
 
           true ->
+            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+            {:ok, session_id} = PkiPlatformPortal.SessionStore.create(%{
+              user_id: admin.id,
+              username: admin.username,
+              role: admin.role,
+              tenant_id: nil,
+              ip: ip,
+              user_agent: ua
+            })
+
             conn
             |> configure_session(renew: true)
+            |> put_session(:session_id, session_id)
             |> put_session(:current_user, serialize_admin(admin))
             |> redirect(to: "/")
         end
@@ -54,6 +80,10 @@ defmodule PkiPlatformPortalWeb.SessionController do
   defp credential_expired?(_), do: false
 
   def delete(conn, _params) do
+    if session_id = get_session(conn, :session_id) do
+      PkiPlatformPortal.SessionStore.delete(session_id)
+    end
+
     conn
     |> clear_session()
     |> redirect(to: "/login")
