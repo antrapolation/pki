@@ -121,12 +121,26 @@ defmodule PkiCaEngine.CertificateSigning do
   """
   def list_certificates(tenant_id, issuer_key_id, filters \\ []) do
     repo = TenantRepo.ca_repo(tenant_id)
+    limit = Keyword.get(filters, :limit, 100)
+    offset = Keyword.get(filters, :offset, 0)
+    clean_filters = Keyword.drop(filters, [:limit, :offset])
+
+    IssuedCertificate
+    |> where([c], c.issuer_key_id == ^issuer_key_id)
+    |> apply_eq_filters(clean_filters)
+    |> order_by(desc: :inserted_at)
+    |> limit(^limit)
+    |> offset(^offset)
+    |> repo.all()
+  end
+
+  def count_certificates(tenant_id, issuer_key_id, filters \\ []) do
+    repo = TenantRepo.ca_repo(tenant_id)
 
     IssuedCertificate
     |> where([c], c.issuer_key_id == ^issuer_key_id)
     |> apply_eq_filters(filters)
-    |> order_by(asc: :inserted_at)
-    |> repo.all()
+    |> repo.aggregate(:count)
   end
 
   # -- Private --

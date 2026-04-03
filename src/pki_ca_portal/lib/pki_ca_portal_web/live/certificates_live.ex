@@ -223,7 +223,19 @@ defmodule PkiCaPortalWeb.CertificatesLive do
   def render(assigns) do
     ~H"""
     <div class="space-y-4">
-      <%!--Filters --%>
+      <%!-- Description --%>
+      <div class="alert border border-info/30 bg-info/5">
+        <.icon name="hero-document-text" class="size-5 text-info shrink-0" />
+        <div>
+          <p class="text-sm font-medium text-base-content">Issued Certificates</p>
+          <p class="text-xs text-base-content/60 mt-0.5">
+            View and manage certificates issued by this CA. Select an issuer key to filter certificates.
+            Certificates can be revoked by a CA Admin — revoked certificates are published in the CRL and reflected in OCSP responses.
+          </p>
+        </div>
+      </div>
+
+      <%!-- Filters --%>
       <div class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-4">
           <div class="flex flex-wrap items-end gap-4">
