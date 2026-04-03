@@ -50,6 +50,8 @@ defmodule PkiCaPortalWeb.Layouts do
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/hsm-devices" icon="hero-cpu-chip" label="HSM Devices" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/keystores" icon="hero-key" label="Keystores" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
+          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/ceremony/custodian" icon="hero-key" label="My Shares" current={@page_title} />
+          <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
           <div :if={role == "ca_admin"} class="divider my-1 px-3"></div>
@@ -147,6 +149,9 @@ defmodule PkiCaPortalWeb.Layouts do
   defp is_active?("HSM Devices", "HSM Devices"), do: true
   defp is_active?("Keystores", page) when page in ["Keystores", "Keystore Management"], do: true
   defp is_active?("Key Ceremony", "Key Ceremony"), do: true
+  defp is_active?("My Shares", "My Ceremony Shares"), do: true
+  defp is_active?("Witness", "Ceremony Witness"), do: true
+  defp is_active?("Issuer Keys", "Issuer Keys"), do: true
   defp is_active?("Audit Log", "Audit Log"), do: true
   defp is_active?("Quick Setup", "Quick Setup"), do: true
   defp is_active?("Profile", "Profile"), do: true
