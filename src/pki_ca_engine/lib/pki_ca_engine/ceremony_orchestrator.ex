@@ -27,7 +27,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
          :ok <- validate_participants(params.custodian_user_ids, params.threshold_n),
          {:ok, _keystore} <- KeystoreManagement.get_keystore(tenant_id, params.keystore_id) do
       window_hours = Map.get(params, :time_window_hours, 24)
-      window_expires_at = DateTime.utc_now() |> DateTime.add(window_hours * 3600, :second)
+      window_expires_at = DateTime.utc_now() |> DateTime.add(window_hours * 3600, :second) |> DateTime.truncate(:second)
 
       repo.transaction(fn ->
         case IssuerKeyManagement.create_issuer_key(tenant_id, ca_instance_id, %{
@@ -114,7 +114,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
             |> Ecto.Changeset.change(%{
               key_label: key_label,
               status: "accepted",
-              accepted_at: DateTime.utc_now()
+              accepted_at: DateTime.utc_now() |> DateTime.truncate(:second)
             })
             |> repo.update()
         end
@@ -137,7 +137,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           ceremony_id: ceremony_id,
           auditor_user_id: auditor_user_id,
           phase: phase,
-          attested_at: DateTime.utc_now(),
+          attested_at: DateTime.utc_now() |> DateTime.truncate(:second),
           details: details
         })
         |> repo.insert()
@@ -312,6 +312,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   @doc """
   Marks a ceremony as failed.
   """
+  def fail_ceremony(nil, ceremony_id, reason) do
+    fail_ceremony(PkiCaEngine.Repo, ceremony_id, reason)
+  end
+
   def fail_ceremony(tenant_id, ceremony_id, reason) when is_binary(tenant_id) do
     repo = TenantRepo.ca_repo(tenant_id)
     fail_ceremony(repo, ceremony_id, reason)
