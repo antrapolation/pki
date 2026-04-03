@@ -33,6 +33,9 @@ e2e/test-results/
 e2e/playwright-report/
 erl_crash.dump
 
+# Runtime logs
+logs/
+
 # Git worktrees
 .worktrees/
 .superpowers/

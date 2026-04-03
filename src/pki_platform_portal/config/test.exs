@@ -7,6 +7,9 @@ config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
   secret_key_base: "Hm3nR8xKqT2pL7vJ3dF9bH4yA6cE1gI0sU8oN2kP5mX7zQ3wV6jD4rB9tY1uC0aWm8nT5xKqR2pL7vJ3dF9bH4yA6cE1gI0sU8oN2kP5mX7z",
   server: false
 
+# Disable date log handler in test
+config :pki_platform_portal, :start_date_log_handler, false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 
