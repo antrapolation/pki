@@ -60,17 +60,39 @@ defmodule PkiRaPortalWeb.AuditLogLive do
      )}
   end
 
+  @export_limit 1000
+
   @impl true
   def handle_event("export_csv", _params, socket) do
-    csv = generate_csv(socket.assigns.events)
+    events = socket.assigns.events
+    total = length(events)
+    exported = Enum.take(events, @export_limit)
+    csv = generate_csv(exported)
     filename = "audit-log-#{Date.to_iso8601(Date.utc_today())}.csv"
+
+    socket = if total > @export_limit do
+      put_flash(socket, :info, "Exported #{@export_limit} of #{total} records. Narrow your filters to export the rest.")
+    else
+      socket
+    end
+
     {:noreply, push_event(socket, "download", %{content: csv, filename: filename, content_type: "text/csv"})}
   end
 
   @impl true
   def handle_event("export_json", _params, socket) do
-    json = Jason.encode!(socket.assigns.events, pretty: true)
+    events = socket.assigns.events
+    total = length(events)
+    exported = Enum.take(events, @export_limit)
+    json = Jason.encode!(exported, pretty: true)
     filename = "audit-log-#{Date.to_iso8601(Date.utc_today())}.json"
+
+    socket = if total > @export_limit do
+      put_flash(socket, :info, "Exported #{@export_limit} of #{total} records. Narrow your filters to export the rest.")
+    else
+      socket
+    end
+
     {:noreply, push_event(socket, "download", %{content: json, filename: filename, content_type: "application/json"})}
   end
 
