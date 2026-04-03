@@ -469,6 +469,46 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
     {:ok, %{id: ceremony_id, status: "failed"}}
   end
 
+  @impl true
+  def initiate_witnessed_ceremony(_ca_instance_id, _params, _opts \\ []) do
+    {:ok, %{id: Uniq.UUID.uuid7(), status: "preparing"}}
+  end
+
+  @impl true
+  def accept_ceremony_share(_ceremony_id, _user_id, _key_label, _opts \\ []) do
+    :ok
+  end
+
+  @impl true
+  def attest_ceremony(_ceremony_id, _auditor_user_id, _phase, _details \\ %{}, _opts \\ []) do
+    :ok
+  end
+
+  @impl true
+  def check_ceremony_readiness(_ceremony_id, _opts \\ []) do
+    {:ok, %{ready: false, missing: []}}
+  end
+
+  @impl true
+  def execute_ceremony_keygen(_ceremony_id, _custodian_passwords, _opts \\ []) do
+    {:ok, %{status: "completed"}}
+  end
+
+  @impl true
+  def list_ceremony_attestations(_ceremony_id, _opts \\ []) do
+    {:ok, []}
+  end
+
+  @impl true
+  def list_my_ceremony_shares(_user_id, _opts \\ []) do
+    {:ok, []}
+  end
+
+  @impl true
+  def list_my_witness_ceremonies(_auditor_user_id, _opts \\ []) do
+    {:ok, []}
+  end
+
   defp provider_for_type("software"), do: "StrapSoftPrivKeyStoreProvider"
   defp provider_for_type("hsm"), do: "StrapSofthsmPrivKeyStoreProvider"
   defp provider_for_type(_), do: "UnknownProvider"

@@ -43,6 +43,8 @@ defmodule PkiCaPortalWeb.Router do
       live "/users", UsersLive
       live "/keystores", KeystoresLive
       live "/hsm-devices", HsmDevicesLive
+      live "/ceremony/custodian", CeremonyCustodianLive
+      live "/ceremony/witness", CeremonyWitnessLive
       live "/ceremony", CeremonyLive
       live "/issuer-keys", IssuerKeysLive
       live "/ca-instances", CaInstancesLive

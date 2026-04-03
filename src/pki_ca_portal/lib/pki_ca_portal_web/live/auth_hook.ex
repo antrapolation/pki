@@ -16,7 +16,7 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
       PkiCaPortalWeb.CaInstancesLive,
       PkiCaPortalWeb.HsmDevicesLive,
       PkiCaPortalWeb.KeystoresLive,
-      PkiCaPortalWeb.CeremonyLive,
+      PkiCaPortalWeb.CeremonyCustodianLive,
       PkiCaPortalWeb.IssuerKeysLive,
       PkiCaPortalWeb.ProfileLive
     ],
@@ -24,6 +24,7 @@ defmodule PkiCaPortalWeb.Live.AuthHook do
       PkiCaPortalWeb.DashboardLive,
       PkiCaPortalWeb.CaInstancesLive,
       PkiCaPortalWeb.AuditLogLive,
+      PkiCaPortalWeb.CeremonyWitnessLive,
       PkiCaPortalWeb.ProfileLive
     ]
   }

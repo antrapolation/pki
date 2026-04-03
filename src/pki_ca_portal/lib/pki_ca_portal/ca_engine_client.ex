@@ -115,4 +115,12 @@ defmodule PkiCaPortal.CaEngineClient do
   def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []), do: impl().activate_issuer_key(issuer_key_id, cert_attrs, opts)
   def list_active_ceremonies, do: impl().list_active_ceremonies()
   def fail_ceremony(ceremony_id, reason), do: impl().fail_ceremony(ceremony_id, reason)
+  def initiate_witnessed_ceremony(ca_instance_id, params, opts \\ []), do: impl().initiate_witnessed_ceremony(ca_instance_id, params, opts)
+  def accept_ceremony_share(ceremony_id, user_id, key_label, opts \\ []), do: impl().accept_ceremony_share(ceremony_id, user_id, key_label, opts)
+  def attest_ceremony(ceremony_id, auditor_user_id, phase, details \\ %{}, opts \\ []), do: impl().attest_ceremony(ceremony_id, auditor_user_id, phase, details, opts)
+  def check_ceremony_readiness(ceremony_id, opts \\ []), do: impl().check_ceremony_readiness(ceremony_id, opts)
+  def execute_ceremony_keygen(ceremony_id, custodian_passwords, opts \\ []), do: impl().execute_ceremony_keygen(ceremony_id, custodian_passwords, opts)
+  def list_ceremony_attestations(ceremony_id, opts \\ []), do: impl().list_ceremony_attestations(ceremony_id, opts)
+  def list_my_ceremony_shares(user_id, opts \\ []), do: impl().list_my_ceremony_shares(user_id, opts)
+  def list_my_witness_ceremonies(auditor_user_id, opts \\ []), do: impl().list_my_witness_ceremonies(auditor_user_id, opts)
 end

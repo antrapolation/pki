@@ -627,4 +627,52 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     # TODO: implement HTTP endpoint for failing a ceremony
     {:ok, %{status: "failed"}}
   end
+
+  @impl true
+  def initiate_witnessed_ceremony(_ca_instance_id, _params, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{id: "stub", status: "preparing"}}
+  end
+
+  @impl true
+  def accept_ceremony_share(_ceremony_id, _user_id, _key_label, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    :ok
+  end
+
+  @impl true
+  def attest_ceremony(_ceremony_id, _auditor_user_id, _phase, _details \\ %{}, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    :ok
+  end
+
+  @impl true
+  def check_ceremony_readiness(_ceremony_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{ready: false, missing: []}}
+  end
+
+  @impl true
+  def execute_ceremony_keygen(_ceremony_id, _custodian_passwords, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{status: "completed"}}
+  end
+
+  @impl true
+  def list_ceremony_attestations(_ceremony_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, []}
+  end
+
+  @impl true
+  def list_my_ceremony_shares(_user_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, []}
+  end
+
+  @impl true
+  def list_my_witness_ceremonies(_auditor_user_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, []}
+  end
 end

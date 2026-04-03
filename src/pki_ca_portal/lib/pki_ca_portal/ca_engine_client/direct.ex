@@ -1382,4 +1382,81 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       error -> error
     end
   end
+
+  @impl true
+  def initiate_witnessed_ceremony(ca_instance_id, params, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiCaEngine.CeremonyOrchestrator.initiate(tenant_id, ca_instance_id, params)
+  end
+
+  @impl true
+  def accept_ceremony_share(ceremony_id, user_id, key_label, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiCaEngine.CeremonyOrchestrator.accept_share(tenant_id, ceremony_id, user_id, key_label)
+  end
+
+  @impl true
+  def attest_ceremony(ceremony_id, auditor_user_id, phase, details, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiCaEngine.CeremonyOrchestrator.attest(tenant_id, ceremony_id, auditor_user_id, phase, details)
+  end
+
+  @impl true
+  def check_ceremony_readiness(ceremony_id, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiCaEngine.CeremonyOrchestrator.check_readiness(tenant_id, ceremony_id)
+  end
+
+  @impl true
+  def execute_ceremony_keygen(ceremony_id, custodian_passwords, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiCaEngine.CeremonyOrchestrator.execute_keygen(tenant_id, ceremony_id, custodian_passwords)
+  end
+
+  @impl true
+  def list_ceremony_attestations(ceremony_id, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiCaEngine.CeremonyOrchestrator.list_attestations(tenant_id, ceremony_id)
+  end
+
+  @impl true
+  def list_my_ceremony_shares(user_id, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    repo = PkiCaEngine.TenantRepo.ca_repo(tenant_id)
+
+    shares = repo.all(
+      from s in PkiCaEngine.Schema.ThresholdShare,
+        join: c in PkiCaEngine.Schema.KeyCeremony, on: c.issuer_key_id == s.issuer_key_id,
+        where: s.custodian_user_id == ^user_id and c.status in ["preparing", "generating", "completed"],
+        select: %{
+          ceremony_id: c.id,
+          ceremony_status: c.status,
+          algorithm: c.algorithm,
+          threshold_k: c.threshold_k,
+          threshold_n: c.threshold_n,
+          window_expires_at: c.window_expires_at,
+          share_index: s.share_index,
+          share_status: s.status,
+          key_label: s.key_label,
+          accepted_at: s.accepted_at,
+          domain_info: c.domain_info
+        }
+    )
+
+    {:ok, shares}
+  end
+
+  @impl true
+  def list_my_witness_ceremonies(auditor_user_id, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    repo = PkiCaEngine.TenantRepo.ca_repo(tenant_id)
+
+    ceremonies = repo.all(
+      from c in PkiCaEngine.Schema.KeyCeremony,
+        where: c.auditor_user_id == ^auditor_user_id and c.status in ["preparing", "generating", "completed"],
+        order_by: [desc: c.inserted_at]
+    )
+
+    {:ok, ceremonies}
+  end
 end
