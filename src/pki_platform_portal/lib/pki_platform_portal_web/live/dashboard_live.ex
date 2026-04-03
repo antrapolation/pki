@@ -171,14 +171,14 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
             <.link navigate="/tenants" class="text-xs text-primary hover:underline">View all</.link>
           </div>
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-1/5">Name</th>
-                  <th class="w-1/6">Slug</th>
-                  <th class="w-[80px]">Status</th>
-                  <th class="w-1/5">Email</th>
-                  <th class="w-[120px]">Created</th>
+                  <th class="w-[25%]">Name</th>
+                  <th class="w-[18%]">Slug</th>
+                  <th class="w-[12%]">Status</th>
+                  <th class="w-[27%]">Email</th>
+                  <th class="w-[18%]">Created</th>
                 </tr>
               </thead>
               <tbody>
@@ -189,8 +189,8 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
                   </td>
                 </tr>
                 <tr :for={tenant <- @recent_tenants} class="hover cursor-pointer">
-                  <td class="font-medium truncate max-w-[150px]">{tenant.name}</td>
-                  <td class="font-mono text-sm truncate max-w-[120px]">{tenant.slug}</td>
+                  <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">{tenant.name}</td>
+                  <td class="font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap">{tenant.slug}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",
@@ -199,7 +199,7 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
                       tenant.status == "initialized" && "badge-ghost"
                     ]}>{tenant.status}</span>
                   </td>
-                  <td class="font-mono text-sm truncate max-w-[150px]">{tenant.email}</td>
+                  <td class="font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap">{tenant.email}</td>
                   <td class="text-base-content/60 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
                 </tr>
               </tbody>

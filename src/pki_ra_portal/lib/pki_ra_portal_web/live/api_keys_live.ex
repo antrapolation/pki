@@ -180,20 +180,20 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
       <section id="api-key-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/5">Name</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Prefix</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Status</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Created</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[100px]">Actions</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[30%]">Name</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[22%]">Prefix</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[13%]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[18%]">Created</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[17%]">Actions</th>
                 </tr>
               </thead>
               <tbody id="api-key-list">
                 <tr :for={key <- @paged_keys} id={"api-key-#{key.id}"} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-medium truncate max-w-[150px]">{key.name}</td>
-                  <td class="font-mono text-xs truncate max-w-[120px]">{key.prefix}</td>
+                  <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">{key.name}</td>
+                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{key.prefix}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

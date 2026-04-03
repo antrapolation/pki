@@ -198,24 +198,24 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       <section id="profile-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">Name</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">RA Instance</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">Issuer Key</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Key Usage</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Digest</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Validity (days)</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Actions</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">Name</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">RA Instance</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[18%]">Issuer Key</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">Key Usage</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Digest</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Validity (days)</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[17%]">Actions</th>
                 </tr>
               </thead>
               <tbody id="profile-list">
                 <tr :for={profile <- @paged_profiles} id={"profile-#{profile.id}"} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-medium truncate max-w-[120px]">{profile.name}</td>
-                  <td class="text-xs truncate max-w-[120px]">{ra_instance_name(profile, @ra_instances)}</td>
-                  <td class="text-xs truncate max-w-[120px]">{issuer_key_label(profile, @issuer_keys)}</td>
-                  <td class="font-mono text-xs truncate max-w-[120px]">{profile.key_usage}</td>
+                  <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">{profile.name}</td>
+                  <td class="text-xs overflow-hidden text-ellipsis whitespace-nowrap">{ra_instance_name(profile, @ra_instances)}</td>
+                  <td class="text-xs overflow-hidden text-ellipsis whitespace-nowrap">{issuer_key_label(profile, @issuer_keys)}</td>
+                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{profile.key_usage}</td>
                   <td class="font-mono text-xs">{profile.digest_algo}</td>
                   <td>{profile.validity_days}</td>
                   <td class="flex gap-1">

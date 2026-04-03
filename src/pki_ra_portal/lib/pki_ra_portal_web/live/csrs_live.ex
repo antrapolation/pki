@@ -172,22 +172,22 @@ defmodule PkiRaPortalWeb.CsrsLive do
       <section id="csr-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[100px]">ID</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/5">Subject</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">Profile</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Status</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Submitted</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[120px]">Actions</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[12%]">ID</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[25%]">Subject</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[18%]">Profile</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">Submitted</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[20%]">Actions</th>
                 </tr>
               </thead>
               <tbody id="csr-list">
                 <tr :for={csr <- @paged_csrs} id={"csr-#{csr.id}"} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-mono text-xs truncate max-w-[100px]">{csr.id}</td>
-                  <td class="truncate max-w-[150px]">{csr.subject}</td>
-                  <td class="truncate max-w-[120px]">{csr.profile_name}</td>
+                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{csr.id}</td>
+                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{csr.subject}</td>
+                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{csr.profile_name}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

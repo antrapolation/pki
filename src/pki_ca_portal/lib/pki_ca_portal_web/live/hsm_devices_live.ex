@@ -73,20 +73,20 @@ defmodule PkiCaPortalWeb.HsmDevicesLive do
             No HSM devices assigned to your tenant.
           </div>
           <div :if={not Enum.empty?(@devices)}>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-1/5">Label</th>
-                  <th class="w-1/5">Manufacturer</th>
-                  <th class="w-[80px]">Slot</th>
-                  <th class="w-[80px]">Status</th>
-                  <th class="w-[100px] text-right">Actions</th>
+                  <th class="w-[28%]">Label</th>
+                  <th class="w-[28%]">Manufacturer</th>
+                  <th class="w-[12%]">Slot</th>
+                  <th class="w-[12%]">Status</th>
+                  <th class="w-[20%] text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :for={dev <- @devices} class="hover">
-                  <td class="font-medium truncate max-w-[150px]">{dev.label}</td>
-                  <td class="text-sm truncate max-w-[150px]">{dev[:manufacturer] || "-"}</td>
+                  <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">{dev.label}</td>
+                  <td class="text-sm overflow-hidden text-ellipsis whitespace-nowrap">{dev[:manufacturer] || "-"}</td>
                   <td>{dev.slot_id}</td>
                   <td>
                     <span class={["badge badge-sm", if(dev.status == "active", do: "badge-success", else: "badge-warning")]}>

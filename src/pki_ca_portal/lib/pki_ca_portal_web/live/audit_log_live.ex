@@ -233,14 +233,14 @@ defmodule PkiCaPortalWeb.AuditLogLive do
       <div id="audit-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-[120px]">Timestamp</th>
-                  <th class="w-[80px]">Category</th>
-                  <th class="w-[80px]">Action</th>
-                  <th class="w-1/5">Actor</th>
-                  <th class="w-[100px]">Event ID</th>
+                  <th class="w-[22%]">Timestamp</th>
+                  <th class="w-[15%]">Category</th>
+                  <th class="w-[15%]">Action</th>
+                  <th class="w-[28%]">Actor</th>
+                  <th class="w-[20%]">Event ID</th>
                 </tr>
               </thead>
               <tbody id="event-list">
@@ -254,8 +254,8 @@ defmodule PkiCaPortalWeb.AuditLogLive do
                   <td>
                     <span class="badge badge-sm badge-ghost">{event.action}</span>
                   </td>
-                  <td class="truncate max-w-[150px]">{event.actor}</td>
-                  <td class="font-mono-data truncate max-w-[100px]">{event.event_id}</td>
+                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{event.actor}</td>
+                  <td class="font-mono-data overflow-hidden text-ellipsis whitespace-nowrap">{event.event_id}</td>
                 </tr>
               </tbody>
             </table>

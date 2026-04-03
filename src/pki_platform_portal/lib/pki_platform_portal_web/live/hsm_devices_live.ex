@@ -174,28 +174,28 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
             No HSM devices registered.
           </div>
           <div :if={not Enum.empty?(@devices)}>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-1/6">Label</th>
-                  <th class="w-1/6">Manufacturer</th>
-                  <th class="w-1/5">Library Path</th>
-                  <th class="w-[80px]">Slot</th>
-                  <th class="w-[80px]">Tenants</th>
-                  <th class="w-[80px]">Status</th>
-                  <th class="w-[100px] text-right">Actions</th>
+                  <th class="w-[16%]">Label</th>
+                  <th class="w-[14%]">Manufacturer</th>
+                  <th class="w-[25%]">Library Path</th>
+                  <th class="w-[8%]">Slot</th>
+                  <th class="w-[9%]">Tenants</th>
+                  <th class="w-[10%]">Status</th>
+                  <th class="w-[18%] text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :for={dev <- @devices} id={"hsm-#{dev.id}"} class="hover">
-                  <td class="font-medium truncate max-w-[120px]">
+                  <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">
                     <div class="flex items-center gap-2">
                       <.icon name="hero-cpu-chip" class="size-4 text-warning" />
-                      {dev.label}
+                      <span class="overflow-hidden text-ellipsis whitespace-nowrap">{dev.label}</span>
                     </div>
                   </td>
-                  <td class="text-sm truncate max-w-[120px]">{dev.manufacturer || "-"}</td>
-                  <td class="font-mono text-xs text-base-content/50 max-w-xs truncate">{dev.pkcs11_lib_path}</td>
+                  <td class="text-sm overflow-hidden text-ellipsis whitespace-nowrap">{dev.manufacturer || "-"}</td>
+                  <td class="font-mono text-xs text-base-content/50 overflow-hidden text-ellipsis whitespace-nowrap">{dev.pkcs11_lib_path}</td>
                   <td>{dev.slot_id}</td>
                   <td>
                     <span class="badge badge-sm badge-ghost">{dev.tenant_count}</span>

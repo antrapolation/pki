@@ -130,21 +130,21 @@ defmodule PkiRaPortalWeb.AuditLogLive do
       <div id="audit-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-0">
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-[120px]">Timestamp</th>
-                  <th class="w-[80px]">Action</th>
-                  <th class="w-1/5">Actor</th>
-                  <th>Details</th>
+                  <th class="w-[20%]">Timestamp</th>
+                  <th class="w-[15%]">Action</th>
+                  <th class="w-[22%]">Actor</th>
+                  <th class="w-[43%]">Details</th>
                 </tr>
               </thead>
               <tbody id="event-list">
                 <tr :for={event <- paginated} id={"event-#{event[:id] || event.id}"} class="hover">
                   <td class="font-mono text-xs">{if ts = event[:timestamp] || Map.get(event, :timestamp), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M:%S"), else: "—"}</td>
                   <td><span class="badge badge-sm badge-ghost">{event[:action] || event.action}</span></td>
-                  <td class="truncate max-w-[150px]">{event[:actor_username] || Map.get(event, :actor_username, "system")}</td>
-                  <td class="text-xs text-base-content/60 max-w-xs truncate">{format_details(event[:details] || Map.get(event, :details, %{}))}</td>
+                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{event[:actor_username] || Map.get(event, :actor_username, "system")}</td>
+                  <td class="text-xs text-base-content/60 overflow-hidden text-ellipsis whitespace-nowrap">{format_details(event[:details] || Map.get(event, :details, %{}))}</td>
                 </tr>
               </tbody>
             </table>

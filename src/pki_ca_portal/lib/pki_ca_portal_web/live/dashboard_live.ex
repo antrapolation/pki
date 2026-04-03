@@ -138,18 +138,18 @@ defmodule PkiCaPortalWeb.DashboardLive do
             <h2 class="text-sm font-semibold text-base-content">Recent Ceremonies</h2>
           </div>
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-[100px]">ID</th>
-                  <th class="w-[80px]">Type</th>
-                  <th class="w-[80px]">Status</th>
-                  <th class="w-[120px]">Algorithm</th>
+                  <th class="w-[25%]">ID</th>
+                  <th class="w-[22%]">Type</th>
+                  <th class="w-[22%]">Status</th>
+                  <th class="w-[31%]">Algorithm</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :for={ceremony <- paginated_ceremonies} class="hover">
-                  <td class="font-mono-data truncate max-w-[100px]">{ceremony.id}</td>
+                  <td class="font-mono-data overflow-hidden text-ellipsis whitespace-nowrap">{ceremony.id}</td>
                   <td>{ceremony.ceremony_type}</td>
                   <td>
                     <span class="badge badge-sm badge-ghost">{ceremony.status}</span>

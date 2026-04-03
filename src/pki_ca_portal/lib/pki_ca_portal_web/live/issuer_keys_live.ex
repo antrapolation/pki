@@ -458,21 +458,21 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
             No issuer keys for this CA instance. Run a key ceremony to create one.
           </div>
           <div :if={not Enum.empty?(@issuer_keys)}>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="text-xs uppercase text-base-content/50">
-                  <th class="w-1/5">Alias</th>
-                  <th class="w-[120px]">Algorithm</th>
-                  <th class="w-[60px]">Root?</th>
-                  <th class="w-[80px]">Status</th>
-                  <th class="w-[100px]">Certificate</th>
-                  <th class="w-[120px]">Actions</th>
+                  <th class="w-[22%]">Alias</th>
+                  <th class="w-[15%]">Algorithm</th>
+                  <th class="w-[8%]">Root?</th>
+                  <th class="w-[10%]">Status</th>
+                  <th class="w-[12%]">Certificate</th>
+                  <th class="w-[33%]">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :for={k <- @issuer_keys} class="hover">
-                  <td class="font-mono text-sm truncate max-w-[150px]">{k[:key_alias]}</td>
-                  <td class="font-mono text-sm truncate max-w-[120px]">{k[:algorithm]}</td>
+                  <td class="font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap">{k[:key_alias]}</td>
+                  <td class="font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap">{k[:algorithm]}</td>
                   <td class="text-sm">{if k[:is_root], do: "Yes", else: "No"}</td>
                   <td><span class={"badge badge-sm #{status_class(k[:status])}"}>{k[:status]}</span></td>
                   <td class="text-xs text-base-content/60">

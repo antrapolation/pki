@@ -90,26 +90,26 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
       <section id="config-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <div>
-            <table class="table table-sm w-full">
+            <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">Service Type</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Port</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/5">URL</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Rate Limit</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">IP Whitelist</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-1/6">IP Blacklist</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[80px]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">Service Type</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[8%]">Port</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[22%]">URL</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Rate Limit</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[16%]">IP Whitelist</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[16%]">IP Blacklist</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[13%]">Status</th>
                 </tr>
               </thead>
               <tbody id="config-list">
                 <tr :for={config <- @paged_configs} id={"config-#{config.id}"} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-medium truncate max-w-[120px]">{config.service_type}</td>
+                  <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">{config.service_type}</td>
                   <td class="font-mono text-xs">{config.port}</td>
-                  <td class="font-mono text-xs truncate max-w-[150px]">{config.url}</td>
+                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{config.url}</td>
                   <td>{config.rate_limit}</td>
-                  <td class="font-mono text-xs truncate max-w-[120px]">{format_ip_field(Map.get(config, :ip_whitelist, ""))}</td>
-                  <td class="font-mono text-xs truncate max-w-[120px]">{format_ip_field(Map.get(config, :ip_blacklist, ""))}</td>
+                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{format_ip_field(Map.get(config, :ip_whitelist, ""))}</td>
+                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{format_ip_field(Map.get(config, :ip_blacklist, ""))}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",

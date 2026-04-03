@@ -84,30 +84,30 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
       <h1 class="text-2xl font-bold mb-6">Active Sessions</h1>
 
       <div>
-        <table class="table table-zebra w-full">
+        <table class="table table-zebra table-fixed w-full">
           <thead>
             <tr>
-              <th class="w-1/6">User</th>
-              <th class="w-[80px]">Portal</th>
-              <th class="w-[80px]">Role</th>
-              <th class="w-[100px]">Tenant</th>
-              <th class="w-[120px]">IP</th>
-              <th class="w-[100px]">Login Time</th>
-              <th class="w-[100px]">Last Active</th>
-              <th class="w-[100px]">Actions</th>
+              <th class="w-[16%]">User</th>
+              <th class="w-[10%]">Portal</th>
+              <th class="w-[10%]">Role</th>
+              <th class="w-[12%]">Tenant</th>
+              <th class="w-[14%]">IP</th>
+              <th class="w-[12%]">Login Time</th>
+              <th class="w-[12%]">Last Active</th>
+              <th class="w-[14%]">Actions</th>
             </tr>
           </thead>
           <tbody>
             <tr :for={session <- @sessions}>
-              <td class="font-medium truncate max-w-[120px]">{session.username}</td>
+              <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">{session.username}</td>
               <td>
                 <span class={"badge #{portal_badge(session.portal)}"}>
                   {session.portal |> String.upcase()}
                 </span>
               </td>
               <td>{session.role}</td>
-              <td class="text-xs font-mono">{session.tenant_id || "—"}</td>
-              <td class="font-mono text-sm">{session.ip}</td>
+              <td class="text-xs font-mono overflow-hidden text-ellipsis whitespace-nowrap">{session.tenant_id || "—"}</td>
+              <td class="font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap">{session.ip}</td>
               <td>{format_time(session.created_at)}</td>
               <td>{format_time(session.last_active_at)}</td>
               <td>

@@ -918,24 +918,24 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             <div :if={not Enum.empty?(@hsm_devices)}>
               <p class="text-xs font-medium text-base-content/60 mb-2">Assigned Devices</p>
               <div>
-                <table class="table table-sm w-full">
+                <table class="table table-sm table-fixed w-full">
                   <thead>
                     <tr class="text-xs uppercase text-base-content/50">
-                      <th class="w-1/5">Device</th>
-                      <th class="w-1/5">Manufacturer</th>
-                      <th class="w-[80px]">Slot</th>
-                      <th class="w-[100px] text-right">Actions</th>
+                      <th class="w-[30%]">Device</th>
+                      <th class="w-[30%]">Manufacturer</th>
+                      <th class="w-[15%]">Slot</th>
+                      <th class="w-[25%] text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr :for={dev <- @hsm_devices} class="hover">
-                      <td class="font-medium truncate max-w-[150px]">
+                      <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">
                         <div class="flex items-center gap-2">
                           <.icon name="hero-cpu-chip" class="size-4 text-warning" />
-                          {dev.label}
+                          <span class="overflow-hidden text-ellipsis whitespace-nowrap">{dev.label}</span>
                         </div>
                       </td>
-                      <td class="text-sm text-base-content/60 truncate max-w-[150px]">{dev.manufacturer || "-"}</td>
+                      <td class="text-sm text-base-content/60 overflow-hidden text-ellipsis whitespace-nowrap">{dev.manufacturer || "-"}</td>
                       <td>{dev.slot_id}</td>
                       <td class="text-right">
                         <button
