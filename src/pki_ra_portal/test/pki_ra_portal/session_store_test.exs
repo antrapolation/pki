@@ -132,6 +132,7 @@ defmodule PkiRaPortal.SessionStoreTest do
         tenant_id: "t1", ip: "127.0.0.1", user_agent: "Mozilla"
       })
 
+      Process.sleep(2)
       swept = SessionStore.sweep(0)
       assert swept >= 1
       assert {:error, :not_found} = SessionStore.lookup(session_id)
@@ -156,6 +157,7 @@ defmodule PkiRaPortal.SessionStoreTest do
         tenant_id: "t1", ip: "127.0.0.1", user_agent: "Mozilla"
       })
 
+      Process.sleep(2)
       assert SessionStore.expired?(session_id, 0)
     end
 
