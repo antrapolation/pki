@@ -1,6 +1,11 @@
 defmodule PkiPlatformPortalWeb.SessionControllerTest do
   use PkiPlatformPortalWeb.ConnCase
 
+  setup do
+    PkiPlatformPortal.SessionStore.clear_all()
+    :ok
+  end
+
   describe "GET /login" do
     test "renders login form", %{conn: conn} do
       conn = get(conn, ~p"/login")
@@ -11,7 +16,7 @@ defmodule PkiPlatformPortalWeb.SessionControllerTest do
   end
 
   describe "POST /login" do
-    test "redirects to home with valid credentials", %{conn: conn} do
+    test "sets session_id and creates ETS session on login", %{conn: conn} do
       conn =
         post(conn, ~p"/login", %{
           "session" => %{
@@ -22,9 +27,16 @@ defmodule PkiPlatformPortalWeb.SessionControllerTest do
 
       assert redirected_to(conn) == "/"
 
-      # Follow redirect with session cookie
-      conn = get(recycle(conn), ~p"/")
-      assert html_response(conn, 200) =~ "Dashboard"
+      # Verify session_id is set in cookie session
+      session_id = get_session(conn, :session_id)
+      assert is_binary(session_id)
+
+      # Verify ETS session exists
+      assert {:ok, session} = PkiPlatformPortal.SessionStore.lookup(session_id)
+      assert session.username == "admin"
+
+      # Verify current_user is NOT in cookie (slimmed)
+      assert is_nil(get_session(conn, :current_user))
     end
 
     test "renders error with invalid credentials", %{conn: conn} do
@@ -53,19 +65,25 @@ defmodule PkiPlatformPortalWeb.SessionControllerTest do
   end
 
   describe "DELETE /logout" do
-    test "clears session and redirects to login", %{conn: conn} do
-      user = %{"username" => "admin", "display_name" => "Platform Admin", "role" => "platform_admin"}
-
+    test "clears ETS session and cookie on logout", %{conn: conn} do
+      # Login first to get a session
       conn =
-        conn
-        |> init_test_session(%{current_user: user})
-        |> delete(~p"/logout")
+        post(conn, ~p"/login", %{
+          "session" => %{
+            "username" => "admin",
+            "password" => "admin"
+          }
+        })
 
+      session_id = get_session(conn, :session_id)
+      assert is_binary(session_id)
+
+      # Now logout
+      conn = recycle(conn) |> delete(~p"/logout")
       assert redirected_to(conn) == "/login"
 
-      # After logout, accessing / should redirect to login
-      conn = get(recycle(conn), ~p"/")
-      assert redirected_to(conn) == "/login"
+      # ETS session should be deleted
+      assert {:error, :not_found} = PkiPlatformPortal.SessionStore.lookup(session_id)
     end
 
     test "redirects to /login even when not logged in", %{conn: conn} do
