@@ -24,6 +24,10 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   @svc3_id "019577b0-0032-7000-8000-000000000032"
   @apikey1_id "019577b0-0040-7000-8000-000000000040"
   @apikey2_id "019577b0-0041-7000-8000-000000000041"
+  @cert1_serial "A1B2C3D4E5F60001"
+  @cert2_serial "A1B2C3D4E5F60002"
+  @cert3_serial "A1B2C3D4E5F60003"
+  @cert4_serial "A1B2C3D4E5F60004"
   @ra_instance1_id "019577b0-0050-7000-8000-000000000050"
   @ra_instance2_id "019577b0-0051-7000-8000-000000000051"
 
@@ -196,6 +200,48 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           ca_instance_name: "PQC Issuing CA",
           algorithm: "ML-DSA-65",
           status: "active"
+        }
+      ],
+      certificates: [
+        %{
+          id: "019577b0-0070-7000-8000-000000000070",
+          serial_number: @cert1_serial,
+          subject_dn: "CN=www.example.com,O=Example Corp,C=MY",
+          status: "issued",
+          cert_profile_name: "TLS Server",
+          submitted_at: ~U[2026-03-01 10:00:00Z],
+          reviewed_at: ~U[2026-03-02 14:00:00Z],
+          reviewed_by: "raofficer1"
+        },
+        %{
+          id: "019577b0-0071-7000-8000-000000000071",
+          serial_number: @cert2_serial,
+          subject_dn: "CN=api.example.com,O=Example Corp,C=MY",
+          status: "issued",
+          cert_profile_name: "TLS Server",
+          submitted_at: ~U[2026-02-15 08:30:00Z],
+          reviewed_at: ~U[2026-02-16 09:00:00Z],
+          reviewed_by: "raofficer1"
+        },
+        %{
+          id: "019577b0-0072-7000-8000-000000000072",
+          serial_number: @cert3_serial,
+          subject_dn: "CN=John Doe,O=Example Corp,C=MY",
+          status: "issued",
+          cert_profile_name: "Client Auth",
+          submitted_at: ~U[2026-01-20 12:00:00Z],
+          reviewed_at: ~U[2026-01-21 10:30:00Z],
+          reviewed_by: "raadmin1"
+        },
+        %{
+          id: "019577b0-0073-7000-8000-000000000073",
+          serial_number: @cert4_serial,
+          subject_dn: "CN=mail.example.com,O=Example Corp,C=MY",
+          status: "issued",
+          cert_profile_name: "TLS Server",
+          submitted_at: ~U[2026-03-10 09:00:00Z],
+          reviewed_at: ~U[2026-03-11 11:00:00Z],
+          reviewed_by: "raofficer1"
         }
       ],
       api_keys: [
@@ -556,6 +602,21 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @impl true
   def resend_invitation(_user_id, _opts \\ []), do: :ok
+
+  @impl true
+  def list_certificates(_filters, _opts \\ []) do
+    {:ok, get_state(:certificates)}
+  end
+
+  @impl true
+  def get_certificate(serial, _opts \\ []) do
+    certs = get_state(:certificates)
+
+    case Enum.find(certs, &(&1.serial_number == serial)) do
+      nil -> {:error, :not_found}
+      cert -> {:ok, cert}
+    end
+  end
 
   @impl true
   def list_audit_events(_filters, _opts \\ []) do

@@ -470,6 +470,65 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     end
   end
 
+  # --- Certificates (issued CSRs) ---
+
+  @impl true
+  def list_certificates(filters, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    import Ecto.Query
+
+    query =
+      PkiRaEngine.Schema.CsrRequest
+      |> where([c], c.status == "issued")
+      |> order_by([c], desc: c.reviewed_at)
+
+    query = case Keyword.get(filters, :status) do
+      "active" -> where(query, [c], not is_nil(c.issued_cert_serial))
+      "revoked" -> where(query, [c], is_nil(c.issued_cert_serial))
+      _ -> query
+    end
+
+    query = if tenant_id do
+      query
+    else
+      query
+    end
+
+    certs = PkiRaEngine.Repo.all(query) |> PkiRaEngine.Repo.preload(:cert_profile)
+    {:ok, Enum.map(certs, &cert_to_map/1)}
+  end
+
+  @impl true
+  def get_certificate(serial, opts \\ []) do
+    _tenant_id = opts[:tenant_id]
+
+    import Ecto.Query
+
+    case PkiRaEngine.Repo.one(
+      from c in PkiRaEngine.Schema.CsrRequest,
+        where: c.issued_cert_serial == ^serial,
+        preload: [:cert_profile]
+    ) do
+      nil -> {:error, :not_found}
+      csr -> {:ok, cert_to_map(csr)}
+    end
+  end
+
+  defp cert_to_map(csr) do
+    %{
+      id: csr.id,
+      serial_number: csr.issued_cert_serial,
+      subject_dn: csr.subject_dn,
+      status: "issued",
+      cert_profile_id: csr.cert_profile_id,
+      cert_profile_name: if(csr.cert_profile, do: csr.cert_profile.name, else: nil),
+      submitted_at: csr.submitted_at,
+      reviewed_at: csr.reviewed_at,
+      reviewed_by: csr.reviewed_by
+    }
+  end
+
   @impl true
   def list_audit_events(filters, opts \\ []) do
     tenant_id = opts[:tenant_id]

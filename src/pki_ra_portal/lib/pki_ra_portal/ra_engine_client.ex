@@ -48,6 +48,8 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback reset_user_password(String.t(), keyword()) :: :ok | {:error, term()}
   @callback resend_invitation(String.t(), keyword()) :: :ok | {:error, term()}
   @callback list_audit_events(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  @callback list_certificates(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  @callback get_certificate(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.Mock)
@@ -89,4 +91,6 @@ defmodule PkiRaPortal.RaEngineClient do
   def reset_user_password(user_id, opts \\ []), do: impl().reset_user_password(user_id, opts)
   def resend_invitation(user_id, opts \\ []), do: impl().resend_invitation(user_id, opts)
   def list_audit_events(filters, opts \\ []), do: impl().list_audit_events(filters, opts)
+  def list_certificates(filters \\ [], opts \\ []), do: impl().list_certificates(filters, opts)
+  def get_certificate(serial, opts \\ []), do: impl().get_certificate(serial, opts)
 end

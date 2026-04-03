@@ -508,6 +508,43 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     end
   end
 
+  # --- Certificates ---
+
+  @impl true
+  def list_certificates(filters, opts \\ []) do
+    params =
+      filters
+      |> Enum.map(fn {k, v} -> {to_string(k), v} end)
+
+    case auth_get("/api/v1/certificates", Keyword.merge(opts, params: params)) do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, Enum.map(body, &atomize_keys/1)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def get_certificate(serial, opts \\ []) do
+    case auth_get("/api/v1/certificates/#{URI.encode(serial)}", opts) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
   # --- Platform-level user management (not yet implemented via HTTP) ---
 
   @impl true
