@@ -288,6 +288,71 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
     end
   end
 
+  # --- Lifecycle transitions ---
+
+  def handle_event("suspend_key", %{"id" => id}, socket) do
+    opts = tenant_opts(socket)
+
+    case CaEngineClient.suspend_issuer_key(id, opts) do
+      {:ok, _key} ->
+        audit_log(socket, "issuer_key_suspended", "issuer_key", id)
+        keys = load_keys(socket.assigns.effective_ca_id, opts)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Key suspended successfully.")
+         |> assign(issuer_keys: keys)}
+
+      {:error, reason} ->
+        Logger.error("[issuer_keys] Failed to suspend key #{id}: #{inspect(reason)}")
+
+        {:noreply,
+         put_flash(socket, :error, sanitize_error("Failed to suspend key", reason))}
+    end
+  end
+
+  def handle_event("reactivate_key", %{"id" => id}, socket) do
+    opts = tenant_opts(socket)
+
+    case CaEngineClient.reactivate_issuer_key(id, opts) do
+      {:ok, _key} ->
+        audit_log(socket, "issuer_key_reactivated", "issuer_key", id)
+        keys = load_keys(socket.assigns.effective_ca_id, opts)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Key reactivated successfully.")
+         |> assign(issuer_keys: keys)}
+
+      {:error, reason} ->
+        Logger.error("[issuer_keys] Failed to reactivate key #{id}: #{inspect(reason)}")
+
+        {:noreply,
+         put_flash(socket, :error, sanitize_error("Failed to reactivate key", reason))}
+    end
+  end
+
+  def handle_event("archive_key", %{"id" => id}, socket) do
+    opts = tenant_opts(socket)
+
+    case CaEngineClient.archive_issuer_key(id, opts) do
+      {:ok, _key} ->
+        audit_log(socket, "issuer_key_archived", "issuer_key", id)
+        keys = load_keys(socket.assigns.effective_ca_id, opts)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Key archived successfully.")
+         |> assign(issuer_keys: keys)}
+
+      {:error, reason} ->
+        Logger.error("[issuer_keys] Failed to archive key #{id}: #{inspect(reason)}")
+
+        {:noreply,
+         put_flash(socket, :error, sanitize_error("Failed to archive key", reason))}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
@@ -431,6 +496,36 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
                       class="btn btn-ghost btn-xs text-success"
                     >
                       Upload Cert
+                    </button>
+                    <%!-- Suspend: only for active keys --%>
+                    <button
+                      :if={k[:status] == "active"}
+                      phx-click="suspend_key"
+                      phx-value-id={k[:id]}
+                      data-confirm="Are you sure you want to suspend this key? It will not be usable until reactivated."
+                      class="btn btn-warning btn-xs"
+                    >
+                      Suspend
+                    </button>
+                    <%!-- Reactivate: only for suspended keys --%>
+                    <button
+                      :if={k[:status] == "suspended"}
+                      phx-click="reactivate_key"
+                      phx-value-id={k[:id]}
+                      data-confirm="Reactivate this key?"
+                      class="btn btn-success btn-xs"
+                    >
+                      Reactivate
+                    </button>
+                    <%!-- Archive: for non-archived keys (terminal action) --%>
+                    <button
+                      :if={k[:status] in ["pending", "active", "suspended"]}
+                      phx-click="archive_key"
+                      phx-value-id={k[:id]}
+                      data-confirm="Are you sure you want to archive this key? This action cannot be undone."
+                      class="btn btn-ghost btn-xs text-error"
+                    >
+                      Archive
                     </button>
                   </td>
                 </tr>

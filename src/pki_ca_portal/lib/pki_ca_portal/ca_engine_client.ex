@@ -60,6 +60,9 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback reconstruct_key(String.t(), [{String.t(), String.t()}], opts()) :: {:ok, binary()} | {:error, term()}
   @callback sign_csr(String.t(), binary(), String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
   @callback activate_issuer_key(String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback suspend_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback reactivate_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback archive_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback list_active_ceremonies() :: {:ok, [map()]} | {:error, term()}
   @callback fail_ceremony(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
 
@@ -113,6 +116,9 @@ defmodule PkiCaPortal.CaEngineClient do
   def reconstruct_key(issuer_key_id, custodian_passwords, opts \\ []), do: impl().reconstruct_key(issuer_key_id, custodian_passwords, opts)
   def sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts \\ []), do: impl().sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts)
   def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []), do: impl().activate_issuer_key(issuer_key_id, cert_attrs, opts)
+  def suspend_issuer_key(issuer_key_id, opts \\ []), do: impl().suspend_issuer_key(issuer_key_id, opts)
+  def reactivate_issuer_key(issuer_key_id, opts \\ []), do: impl().reactivate_issuer_key(issuer_key_id, opts)
+  def archive_issuer_key(issuer_key_id, opts \\ []), do: impl().archive_issuer_key(issuer_key_id, opts)
   def list_active_ceremonies, do: impl().list_active_ceremonies()
   def fail_ceremony(ceremony_id, reason), do: impl().fail_ceremony(ceremony_id, reason)
   def initiate_witnessed_ceremony(ca_instance_id, params, opts \\ []), do: impl().initiate_witnessed_ceremony(ca_instance_id, params, opts)

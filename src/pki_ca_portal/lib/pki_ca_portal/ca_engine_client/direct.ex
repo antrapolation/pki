@@ -774,6 +774,54 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
+  def suspend_issuer_key(issuer_key_id, opts) do
+    tenant_id = opts[:tenant_id]
+
+    case IssuerKeyManagement.get_issuer_key(tenant_id, issuer_key_id) do
+      {:ok, key} ->
+        case IssuerKeyManagement.update_status(tenant_id, key, "suspended") do
+          {:ok, updated} -> {:ok, to_map(updated)}
+          {:error, _} = err -> err
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
+  def reactivate_issuer_key(issuer_key_id, opts) do
+    tenant_id = opts[:tenant_id]
+
+    case IssuerKeyManagement.get_issuer_key(tenant_id, issuer_key_id) do
+      {:ok, key} ->
+        case IssuerKeyManagement.update_status(tenant_id, key, "active") do
+          {:ok, updated} -> {:ok, to_map(updated)}
+          {:error, _} = err -> err
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
+  def archive_issuer_key(issuer_key_id, opts) do
+    tenant_id = opts[:tenant_id]
+
+    case IssuerKeyManagement.get_issuer_key(tenant_id, issuer_key_id) do
+      {:ok, key} ->
+        case IssuerKeyManagement.update_status(tenant_id, key, "archived") do
+          {:ok, updated} -> {:ok, to_map(updated)}
+          {:error, _} = err -> err
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
   def list_ceremonies(ca_instance_id, opts \\ []) do
     tenant_id = opts[:tenant_id]
     repo = TenantRepo.ca_repo(tenant_id)

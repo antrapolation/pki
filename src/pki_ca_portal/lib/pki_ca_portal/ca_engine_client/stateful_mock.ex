@@ -509,6 +509,39 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
     {:ok, []}
   end
 
+  @impl true
+  def suspend_issuer_key(id, _opts) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.issuer_keys, fn k ->
+        if k.id == id, do: Map.put(k, :status, "suspended"), else: k
+      end)
+      %{state | issuer_keys: updated}
+    end)
+    {:ok, %{id: id, status: "suspended"}}
+  end
+
+  @impl true
+  def reactivate_issuer_key(id, _opts) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.issuer_keys, fn k ->
+        if k.id == id, do: Map.put(k, :status, "active"), else: k
+      end)
+      %{state | issuer_keys: updated}
+    end)
+    {:ok, %{id: id, status: "active"}}
+  end
+
+  @impl true
+  def archive_issuer_key(id, _opts) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.issuer_keys, fn k ->
+        if k.id == id, do: Map.put(k, :status, "archived"), else: k
+      end)
+      %{state | issuer_keys: updated}
+    end)
+    {:ok, %{id: id, status: "archived"}}
+  end
+
   defp provider_for_type("software"), do: "StrapSoftPrivKeyStoreProvider"
   defp provider_for_type("hsm"), do: "StrapSofthsmPrivKeyStoreProvider"
   defp provider_for_type(_), do: "UnknownProvider"

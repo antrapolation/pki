@@ -687,4 +687,22 @@ defmodule PkiCaPortal.CaEngineClient.Http do
     # TODO: implement HTTP endpoint
     {:ok, []}
   end
+
+  @impl true
+  def suspend_issuer_key(_id, _opts) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{status: "suspended"}}
+  end
+
+  @impl true
+  def reactivate_issuer_key(_id, _opts) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{status: "active"}}
+  end
+
+  @impl true
+  def archive_issuer_key(_id, _opts) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{status: "archived"}}
+  end
 end

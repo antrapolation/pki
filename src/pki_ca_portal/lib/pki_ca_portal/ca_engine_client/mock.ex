@@ -549,4 +549,13 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def list_my_witness_ceremonies(_auditor_user_id, _opts \\ []) do
     {:ok, []}
   end
+
+  @impl true
+  def suspend_issuer_key(_id, _opts), do: {:ok, %{status: "suspended"}}
+
+  @impl true
+  def reactivate_issuer_key(_id, _opts), do: {:ok, %{status: "active"}}
+
+  @impl true
+  def archive_issuer_key(_id, _opts), do: {:ok, %{status: "archived"}}
 end
