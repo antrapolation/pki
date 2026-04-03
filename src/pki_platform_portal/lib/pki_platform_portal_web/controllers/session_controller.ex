@@ -31,6 +31,23 @@ defmodule PkiPlatformPortalWeb.SessionController do
               user_agent: ua
             })
 
+            # Check for suspicious patterns
+            existing = PkiPlatformPortal.SessionStore.list_by_user(admin.id)
+            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
+
+            if ip not in known_ips and length(known_ips) > 0 do
+              PkiPlatformPortal.SessionSecurity.notify(:new_ip_login, %{
+                username: admin.username, role: admin.role, ip: ip, portal: "platform"
+              })
+            end
+
+            if length(existing) > 1 do
+              PkiPlatformPortal.SessionSecurity.notify(:concurrent_sessions, %{
+                username: admin.username, role: admin.role,
+                session_count: length(existing), portal: "platform"
+              })
+            end
+
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
@@ -50,6 +67,23 @@ defmodule PkiPlatformPortalWeb.SessionController do
               ip: ip,
               user_agent: ua
             })
+
+            # Check for suspicious patterns
+            existing = PkiPlatformPortal.SessionStore.list_by_user(admin.id)
+            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
+
+            if ip not in known_ips and length(known_ips) > 0 do
+              PkiPlatformPortal.SessionSecurity.notify(:new_ip_login, %{
+                username: admin.username, role: admin.role, ip: ip, portal: "platform"
+              })
+            end
+
+            if length(existing) > 1 do
+              PkiPlatformPortal.SessionSecurity.notify(:concurrent_sessions, %{
+                username: admin.username, role: admin.role,
+                session_count: length(existing), portal: "platform"
+              })
+            end
 
             conn
             |> configure_session(renew: true)

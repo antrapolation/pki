@@ -76,6 +76,23 @@ defmodule PkiCaPortalWeb.SessionController do
               user_agent: ua
             })
 
+            # Check for suspicious patterns
+            existing = PkiCaPortal.SessionStore.list_by_user(user[:id])
+            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
+
+            if ip not in known_ips and length(known_ips) > 0 do
+              PkiCaPortal.SessionSecurity.notify(:new_ip_login, %{
+                username: user[:username], role: user[:role], ip: ip, portal: "ca"
+              })
+            end
+
+            if length(existing) > 1 do
+              PkiCaPortal.SessionSecurity.notify(:concurrent_sessions, %{
+                username: user[:username], role: user[:role],
+                session_count: length(existing), portal: "ca"
+              })
+            end
+
             conn
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
@@ -106,6 +123,23 @@ defmodule PkiCaPortalWeb.SessionController do
               ip: ip,
               user_agent: ua
             })
+
+            # Check for suspicious patterns
+            existing = PkiCaPortal.SessionStore.list_by_user(user[:id])
+            known_ips = existing |> Enum.map(& &1.ip) |> Enum.uniq()
+
+            if ip not in known_ips and length(known_ips) > 0 do
+              PkiCaPortal.SessionSecurity.notify(:new_ip_login, %{
+                username: user[:username], role: user[:role], ip: ip, portal: "ca"
+              })
+            end
+
+            if length(existing) > 1 do
+              PkiCaPortal.SessionSecurity.notify(:concurrent_sessions, %{
+                username: user[:username], role: user[:role],
+                session_count: length(existing), portal: "ca"
+              })
+            end
 
             conn
             |> configure_session(renew: true)
