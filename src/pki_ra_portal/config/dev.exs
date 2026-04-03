@@ -142,3 +142,6 @@ config :pki_ra_portal, :rate_limit_enabled, false
 config :pki_ra_portal,
   session_idle_timeout_ms: 120 * 60 * 1000,
   session_ip_pinning: false
+
+# Validation service URL for OCSP/CRL status page
+config :pki_ra_portal, :validation_url, "http://localhost:4005"

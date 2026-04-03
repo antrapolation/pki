@@ -45,6 +45,7 @@ defmodule PkiRaPortalWeb.Router do
       live "/csrs", CsrsLive
       live "/cert-profiles", CertProfilesLive
       live "/service-configs", ServiceConfigsLive
+      live "/validation", ValidationStatusLive
       live "/api-keys", ApiKeysLive
       live "/certificates", CertificatesLive
       live "/audit-log", AuditLogLive

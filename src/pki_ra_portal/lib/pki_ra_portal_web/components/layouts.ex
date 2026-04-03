@@ -45,6 +45,7 @@ defmodule PkiRaPortalWeb.Layouts do
           <.sidebar_link href="/csrs" icon="hero-document-check" label="CSRs" current={@page_title} />
           <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Cert Profiles" current={@page_title} />
           <.sidebar_link href="/service-configs" icon="hero-cog-6-tooth" label="Service Configs" current={@page_title} />
+          <.sidebar_link href="/validation" icon="hero-shield-check" label="Validation" current={@page_title} />
           <.sidebar_link href="/api-keys" icon="hero-key" label="API Keys" current={@page_title} />
           <.sidebar_link href="/certificates" icon="hero-document-check" label="Certificates" current={@page_title} />
           <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
@@ -142,6 +143,7 @@ defmodule PkiRaPortalWeb.Layouts do
   defp is_active?("CSRs", page) when page in ["CSRs", "CSR Management"], do: true
   defp is_active?("Cert Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true
   defp is_active?("Service Configs", page) when page in ["Service Configs", "Service Configuration"], do: true
+  defp is_active?("Validation", page) when page in ["Validation", "Validation Services"], do: true
   defp is_active?("API Keys", page) when page in ["API Keys", "API Key Management"], do: true
   defp is_active?("Certificates", "Certificates"), do: true
   defp is_active?("Audit Log", "Audit Log"), do: true
