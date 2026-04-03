@@ -23,9 +23,9 @@ defmodule PkiPlatformPortalWeb.Layouts do
     assigns = assign_new(assigns, :page_title, fn -> nil end)
 
     ~H"""
-    <div class="flex min-h-screen bg-base-200">
+    <div class="min-h-screen bg-base-200">
       <%!-- Sidebar --%>
-      <aside class="fixed top-0 left-0 h-screen w-64 flex flex-col bg-base-100 border-r border-base-300">
+      <aside class="fixed top-0 left-0 h-screen w-64 flex flex-col bg-base-100 border-r border-base-300 z-20">
         <%!-- Logo --%>
         <div class="flex items-center gap-3 px-4 py-4 border-b border-base-300">
           <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
@@ -56,7 +56,7 @@ defmodule PkiPlatformPortalWeb.Layouts do
       </aside>
 
       <%!-- Main content area --%>
-      <div class="flex-1 ml-64 flex flex-col min-h-screen max-w-[calc(100vw-16rem)] overflow-x-hidden">
+      <div class="ml-64 min-h-screen flex flex-col w-[calc(100vw-16rem)]">
         <%!-- Topbar --%>
         <header class="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-base-100 border-b border-base-300">
           <h1 class="text-sm font-semibold text-base-content">
