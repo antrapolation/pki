@@ -489,7 +489,9 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       decode_body: :json
     )
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[ca_engine_http] GET #{path} failed: #{Exception.message(e)}")
+      {:error, "service unavailable"}
   end
 
   defp post(path, body, opts) do
@@ -501,7 +503,9 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       decode_body: :json
     )
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[ca_engine_http] POST #{path} failed: #{Exception.message(e)}")
+      {:error, "service unavailable"}
   end
 
   defp auth_get(path, opts) do
@@ -514,7 +518,9 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       decode_body: :json
     )
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[ca_engine_http] auth_get #{path} failed: #{Exception.message(e)}")
+      {:error, "service unavailable"}
   end
 
   defp auth_post(path, body, opts) do
@@ -526,7 +532,9 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       decode_body: :json
     )
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[ca_engine_http] auth_post #{path} failed: #{Exception.message(e)}")
+      {:error, "service unavailable"}
   end
 
   defp auth_put(path, body, opts) do
@@ -538,7 +546,9 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       decode_body: :json
     )
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[ca_engine_http] auth_put #{path} failed: #{Exception.message(e)}")
+      {:error, "service unavailable"}
   end
 
   defp auth_delete(path, opts) do
@@ -549,7 +559,9 @@ defmodule PkiCaPortal.CaEngineClient.Http do
       decode_body: :json
     )
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[ca_engine_http] auth_delete #{path} failed: #{Exception.message(e)}")
+      {:error, "service unavailable"}
   end
 
   defp auth_headers(opts) do

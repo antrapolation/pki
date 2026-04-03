@@ -1,5 +1,6 @@
 defmodule PkiPlatformPortalWeb.PasswordController do
   use PkiPlatformPortalWeb, :controller
+  require Logger
 
   def edit(conn, _params) do
     if get_session(conn, :must_change_password) do
@@ -33,7 +34,8 @@ defmodule PkiPlatformPortalWeb.PasswordController do
             |> redirect(to: "/")
 
           {:error, reason} ->
-            render(conn, :change_password, layout: false, error: "Failed: #{inspect(reason)}")
+            Logger.error("[password] Failed to change password: #{inspect(reason)}")
+            render(conn, :change_password, layout: false, error: "Failed to change password. Please try again.")
         end
     end
   end
