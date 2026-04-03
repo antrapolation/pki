@@ -510,6 +510,15 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def list_certificates(_issuer_key_id, _opts \\ []), do: {:ok, []}
+
+  @impl true
+  def get_certificate(_serial_number, _opts \\ []), do: {:ok, %{}}
+
+  @impl true
+  def revoke_certificate(_serial_number, _reason, _opts \\ []), do: {:ok, %{status: "revoked"}}
+
+  @impl true
   def suspend_issuer_key(id, _opts) do
     Agent.update(__MODULE__, fn state ->
       updated = Enum.map(state.issuer_keys, fn k ->

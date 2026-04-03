@@ -689,6 +689,24 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def list_certificates(_issuer_key_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, []}
+  end
+
+  @impl true
+  def get_certificate(_serial_number, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{}}
+  end
+
+  @impl true
+  def revoke_certificate(_serial_number, _reason, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{status: "revoked"}}
+  end
+
+  @impl true
   def suspend_issuer_key(_id, _opts) do
     # TODO: implement HTTP endpoint
     {:ok, %{status: "suspended"}}

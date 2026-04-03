@@ -1064,6 +1064,37 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   @impl true
   def deactivate_hsm_device(_id, _opts \\ []), do: {:error, :not_permitted}
 
+  # ---------------------------------------------------------------------------
+  # Certificate Management
+  # ---------------------------------------------------------------------------
+
+  @impl true
+  def list_certificates(issuer_key_id, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    filters = Keyword.get(opts, :filters, [])
+    certs = PkiCaEngine.CertificateSigning.list_certificates(tenant_id, issuer_key_id, filters)
+    {:ok, Enum.map(certs, &to_map/1)}
+  rescue
+    e ->
+      Logger.error("[ca_engine_client] list_certificates failed: #{Exception.message(e)}")
+      {:ok, []}
+  end
+
+  @impl true
+  def get_certificate(serial_number, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    case PkiCaEngine.CertificateSigning.get_certificate(tenant_id, serial_number) do
+      {:ok, cert} -> {:ok, to_map(cert)}
+      error -> error
+    end
+  end
+
+  @impl true
+  def revoke_certificate(serial_number, reason, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiCaEngine.CertificateSigning.revoke_certificate(tenant_id, serial_number, reason)
+  end
+
   @impl true
   def list_audit_events(filters, opts \\ []) do
     tenant_id = opts[:tenant_id]

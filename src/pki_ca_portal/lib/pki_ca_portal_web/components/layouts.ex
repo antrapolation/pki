@@ -53,6 +53,7 @@ defmodule PkiCaPortalWeb.Layouts do
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/ceremony/custodian" icon="hero-key" label="My Shares" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
+          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/certificates" icon="hero-document-text" label="Certificates" current={@page_title} />
           <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
           <%= if role == "ca_admin" and Application.get_env(:pki_ca_portal, :enable_quick_setup, false) do %>
             <div class="divider my-1 px-3"></div>
@@ -154,6 +155,7 @@ defmodule PkiCaPortalWeb.Layouts do
   defp is_active?("My Shares", "My Ceremony Shares"), do: true
   defp is_active?("Witness", "Ceremony Witness"), do: true
   defp is_active?("Issuer Keys", "Issuer Keys"), do: true
+  defp is_active?("Certificates", "Certificates"), do: true
   defp is_active?("Audit Log", "Audit Log"), do: true
   defp is_active?("Quick Setup", "Quick Setup"), do: true
   defp is_active?("Profile", "Profile"), do: true

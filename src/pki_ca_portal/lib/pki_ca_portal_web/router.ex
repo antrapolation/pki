@@ -47,6 +47,7 @@ defmodule PkiCaPortalWeb.Router do
       live "/ceremony/witness", CeremonyWitnessLive
       live "/ceremony", CeremonyLive
       live "/issuer-keys", IssuerKeysLive
+      live "/certificates", CertificatesLive
       live "/ca-instances", CaInstancesLive
       live "/audit-log", AuditLogLive
       live "/quick-setup", QuickSetupLive

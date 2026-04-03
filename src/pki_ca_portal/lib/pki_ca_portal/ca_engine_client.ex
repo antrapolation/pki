@@ -63,6 +63,9 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback suspend_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback reactivate_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback archive_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback list_certificates(String.t(), opts()) :: {:ok, [map()]} | {:error, term()}
+  @callback get_certificate(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback revoke_certificate(String.t(), String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback list_active_ceremonies() :: {:ok, [map()]} | {:error, term()}
   @callback fail_ceremony(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
 
@@ -119,6 +122,9 @@ defmodule PkiCaPortal.CaEngineClient do
   def suspend_issuer_key(issuer_key_id, opts \\ []), do: impl().suspend_issuer_key(issuer_key_id, opts)
   def reactivate_issuer_key(issuer_key_id, opts \\ []), do: impl().reactivate_issuer_key(issuer_key_id, opts)
   def archive_issuer_key(issuer_key_id, opts \\ []), do: impl().archive_issuer_key(issuer_key_id, opts)
+  def list_certificates(issuer_key_id, opts \\ []), do: impl().list_certificates(issuer_key_id, opts)
+  def get_certificate(serial_number, opts \\ []), do: impl().get_certificate(serial_number, opts)
+  def revoke_certificate(serial_number, reason, opts \\ []), do: impl().revoke_certificate(serial_number, reason, opts)
   def list_active_ceremonies, do: impl().list_active_ceremonies()
   def fail_ceremony(ceremony_id, reason), do: impl().fail_ceremony(ceremony_id, reason)
   def initiate_witnessed_ceremony(ca_instance_id, params, opts \\ []), do: impl().initiate_witnessed_ceremony(ca_instance_id, params, opts)
