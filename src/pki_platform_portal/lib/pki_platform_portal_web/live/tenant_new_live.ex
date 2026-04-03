@@ -2,6 +2,9 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   use PkiPlatformPortalWeb, :live_view
 
   alias PkiPlatformEngine.{Provisioner, EmailVerification, Mailer, EmailTemplates}
+  import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
+
+  require Logger
 
   @impl true
   def mount(_params, _session, socket) do
@@ -91,7 +94,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
         {:noreply, assign(socket, verification_sent: true)}
 
       {:error, reason} ->
-        {:noreply, assign(socket, form_error: "Failed to send verification email: #{inspect(reason)}")}
+        Logger.error("[tenant_new] Failed to send verification email: #{inspect(reason)}")
+        {:noreply, assign(socket, form_error: sanitize_error("Failed to send verification email", reason))}
     end
   end
 
@@ -118,7 +122,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
           {:noreply, assign(socket, step: 3, form_error: "Tenant creation failed: #{err}")}
 
         {:error, reason} ->
-          {:noreply, assign(socket, step: 3, form_error: "Tenant creation failed: #{inspect(reason)}")}
+          Logger.error("[tenant_new] Tenant creation failed: #{inspect(reason)}")
+          {:noreply, assign(socket, step: 3, form_error: sanitize_error("Tenant creation failed", reason))}
       end
     end
   end

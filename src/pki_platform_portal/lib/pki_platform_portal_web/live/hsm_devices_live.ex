@@ -2,6 +2,9 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
   use PkiPlatformPortalWeb, :live_view
 
   alias PkiPlatformEngine.HsmManagement
+  import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
+
+  require Logger
 
   @impl true
   def mount(_params, _session, socket) do
@@ -44,7 +47,8 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
         {:noreply, put_flash(socket, :info, "HSM device registered and verified.")}
 
       {:error, {:pkcs11_unreachable, reason}} ->
-        {:noreply, put_flash(socket, :error, "Cannot reach PKCS#11 library: #{inspect(reason)}")}
+        Logger.error("[hsm_devices] Cannot reach PKCS#11 library: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, "Cannot reach PKCS#11 library. Check the path and try again.")}
 
       {:error, {:validation_error, errors}} ->
         {:noreply, put_flash(socket, :error, "Validation failed: #{format_errors(errors)}")}
@@ -53,7 +57,8 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
         {:noreply, put_flash(socket, :error, "Validation failed: #{format_changeset(cs)}")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
+        Logger.error("[hsm_devices] Register device failed: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Registration failed", reason))}
     end
   end
 
@@ -65,10 +70,12 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
         {:noreply, put_flash(socket, :info, "Device probed: #{device.manufacturer || "OK"}")}
 
       {:error, {:pkcs11_unreachable, reason}} ->
-        {:noreply, put_flash(socket, :error, "Probe failed: #{inspect(reason)}")}
+        Logger.error("[hsm_devices] Probe failed - PKCS#11 unreachable: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, "Probe failed: device unreachable.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Probe failed: #{inspect(reason)}")}
+        Logger.error("[hsm_devices] Probe failed: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Probe failed", reason))}
     end
   end
 
@@ -83,7 +90,8 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
         {:noreply, put_flash(socket, :error, "Cannot deactivate: #{count} tenant(s) still assigned. Revoke all tenant access first.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
+        Logger.error("[hsm_devices] Deactivate device failed: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Deactivation failed", reason))}
     end
   end
 

@@ -1,5 +1,8 @@
 defmodule PkiPlatformPortalWeb.AdminsLive do
   use PkiPlatformPortalWeb, :live_view
+  import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
+
+  require Logger
 
   @impl true
   def mount(_params, _session, socket) do
@@ -61,7 +64,8 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
         {:noreply, assign(socket, form_error: error_msg)}
 
       {:error, reason} ->
-        {:noreply, assign(socket, form_error: "Failed to create admin: #{inspect(reason)}")}
+        Logger.error("[admins] Failed to create admin: #{inspect(reason)}")
+        {:noreply, assign(socket, form_error: sanitize_error("Failed to create admin", reason))}
     end
   end
 
@@ -83,7 +87,8 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
             {:noreply, put_flash(socket, :error, "Cannot suspend the last active admin.")}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to suspend admin: #{inspect(reason)}")}
+            Logger.error("[admins] Failed to suspend admin #{id}: #{inspect(reason)}")
+            {:noreply, put_flash(socket, :error, sanitize_error("Failed to suspend admin", reason))}
         end
     end
   end
@@ -103,7 +108,8 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
              |> put_flash(:info, "Admin \"#{admin.username}\" activated.")}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to activate admin: #{inspect(reason)}")}
+            Logger.error("[admins] Failed to activate admin #{id}: #{inspect(reason)}")
+            {:noreply, put_flash(socket, :error, sanitize_error("Failed to activate admin", reason))}
         end
     end
   end
@@ -126,7 +132,8 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
             {:noreply, put_flash(socket, :error, "Cannot delete the last active admin.")}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete admin: #{inspect(reason)}")}
+            Logger.error("[admins] Failed to delete admin #{id}: #{inspect(reason)}")
+            {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete admin", reason))}
         end
     end
   end

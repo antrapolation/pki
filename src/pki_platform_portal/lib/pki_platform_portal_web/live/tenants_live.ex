@@ -1,5 +1,8 @@
 defmodule PkiPlatformPortalWeb.TenantsLive do
   use PkiPlatformPortalWeb, :live_view
+  import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
+
+  require Logger
 
   @per_page 10
 
@@ -30,7 +33,8 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
         {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant suspended.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to suspend: #{inspect(reason)}")}
+        Logger.error("[tenants] Failed to suspend tenant #{id}: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to suspend", reason))}
     end
   end
 
@@ -41,7 +45,8 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
         {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant activated.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
+        Logger.error("[tenants] Failed to activate tenant #{id}: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to activate", reason))}
     end
   end
 
@@ -52,7 +57,8 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
         {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant deleted.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete: #{inspect(reason)}")}
+        Logger.error("[tenants] Failed to delete tenant #{id}: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete", reason))}
     end
   end
 

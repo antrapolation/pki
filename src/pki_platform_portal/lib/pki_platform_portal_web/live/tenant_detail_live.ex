@@ -2,6 +2,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   use PkiPlatformPortalWeb, :live_view
 
   alias PkiPlatformEngine.{Mailer, EmailTemplates}
+  import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   require Logger
 
@@ -32,6 +33,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}",
            ca_engine_status: :checking,
            ra_engine_status: :checking,
+           engine_check_us: nil,
            hsm_devices: [],
            assigned_hsm_ids: [],
            all_hsm_devices: []
@@ -49,7 +51,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
          |> put_flash(:info, "Tenant \"#{updated_tenant.name}\" suspended.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to suspend tenant: #{inspect(reason)}")}
+        Logger.error("[tenant_detail] Failed to suspend tenant: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to suspend tenant", reason))}
     end
   end
 
@@ -73,7 +76,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
          |> push_navigate(to: "/tenants")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete tenant: #{inspect(reason)}")}
+        Logger.error("[tenant_detail] Failed to delete tenant: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete tenant", reason))}
     end
   end
 
@@ -104,7 +108,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         {:noreply, put_flash(socket, :error, "Already assigned.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
+        Logger.error("[tenant_detail] HSM grant failed: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("HSM access grant failed", reason))}
     end
   end
 
@@ -116,7 +121,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         {:noreply, put_flash(socket, :info, "HSM device access revoked.")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed: #{inspect(reason)}")}
+        Logger.error("[tenant_detail] HSM revoke failed: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("HSM access revoke failed", reason))}
     end
   end
 
@@ -124,13 +130,17 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   def handle_info(:check_engines, socket) do
     tenant_id = socket.assigns.tenant.id
 
+    start = System.monotonic_time(:microsecond)
+
     status =
       case PkiPlatformEngine.TenantRegistry.lookup(tenant_id) do
         {:ok, _refs} -> :online
         {:error, :not_found} -> :offline
       end
 
-    {:noreply, assign(socket, ca_engine_status: status, ra_engine_status: status)}
+    elapsed_us = System.monotonic_time(:microsecond) - start
+
+    {:noreply, assign(socket, ca_engine_status: status, ra_engine_status: status, engine_check_us: elapsed_us)}
   end
 
   @impl true
@@ -145,7 +155,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         {:noreply, put_flash(socket, :info, "Tenant activated. Creating admin accounts...")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to activate: #{inspect(reason)}")}
+        Logger.error("[tenant_detail] Failed to activate tenant: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to activate tenant", reason))}
     end
   end
 
@@ -177,7 +188,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         if ca_users == [] do
           case create_ca_admin(tenant, ca_instance_id, ca_username, ca_password) do
             :ok -> errors
-            {:error, reason} -> errors ++ ["CA admin: #{inspect(reason)}"]
+            {:error, reason} ->
+              Logger.error("[tenant_detail] CA admin creation failed: #{inspect(reason)}")
+              errors ++ ["CA admin creation failed"]
           end
         else
           Logger.info("[TenantDetail] CA admin already exists for #{tenant.slug}")
@@ -192,7 +205,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       if PkiRaEngine.UserManagement.needs_setup?(tenant.id) do
         case create_ra_admin(tenant, ra_username, ra_password) do
           :ok -> errors
-          {:error, reason} -> errors ++ ["RA admin: #{inspect(reason)}"]
+          {:error, reason} ->
+            Logger.error("[tenant_detail] RA admin creation failed: #{inspect(reason)}")
+            errors ++ ["RA admin creation failed"]
         end
       else
         Logger.info("[TenantDetail] RA admin already exists for #{tenant.slug}")
@@ -354,7 +369,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       {:error, reason} -> {:error, reason}
     end
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[tenant_detail] CA admin creation failed: #{Exception.message(e)}")
+      {:error, "operation failed"}
   end
 
   defp create_ra_admin(tenant, username, password) do
@@ -392,7 +409,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       {:error, reason} -> {:error, reason}
     end
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("[tenant_detail] RA admin creation failed: #{Exception.message(e)}")
+      {:error, "operation failed"}
   end
 
   defp recreate_ca_admin(tenant, username, password) do
@@ -408,7 +427,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         nil ->
           case create_ca_admin(tenant, ca_instance_id, username, password) do
             :ok -> []
-            {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+            {:error, reason} ->
+              Logger.error("[tenant_detail] CA admin reset failed: #{inspect(reason)}")
+              ["CA admin reset failed"]
           end
 
         user ->
@@ -445,14 +466,18 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
                  must_change_password: true
                }) do
             {:ok, _} -> []
-            {:error, reason} -> ["CA admin reset failed: #{inspect(reason)}"]
+            {:error, reason} ->
+              Logger.error("[tenant_detail] CA admin password reset failed: #{inspect(reason)}")
+              ["CA admin reset failed"]
           end
       end
     else
       ["CA admin reset failed: no default CA instance"]
     end
   rescue
-    e -> ["CA admin reset failed: #{Exception.message(e)}"]
+    e ->
+      Logger.error("[tenant_detail] CA admin reset failed: #{Exception.message(e)}")
+      ["CA admin reset failed"]
   end
 
   # --- Tenant instance bootstrapping ---
@@ -469,14 +494,17 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             []
 
           {:error, reason} ->
-            ["CA instance: #{inspect(reason)}"]
+            Logger.error("[tenant_detail] CA instance creation failed: #{inspect(reason)}")
+            ["CA instance creation failed"]
         end
 
       _instances ->
         []
     end
   rescue
-    e -> ["CA instance: #{Exception.message(e)}"]
+    e ->
+      Logger.error("[tenant_detail] CA instance creation failed: #{Exception.message(e)}")
+      ["CA instance creation failed"]
   end
 
   defp ensure_default_ra_instance(tenant) do
@@ -491,14 +519,17 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             []
 
           {:error, reason} ->
-            ["RA instance: #{inspect(reason)}"]
+            Logger.error("[tenant_detail] RA instance creation failed: #{inspect(reason)}")
+            ["RA instance creation failed"]
         end
 
       _instances ->
         []
     end
   rescue
-    e -> ["RA instance: #{Exception.message(e)}"]
+    e ->
+      Logger.error("[tenant_detail] RA instance creation failed: #{Exception.message(e)}")
+      ["RA instance creation failed"]
   end
 
   defp get_default_ca_instance_id(tenant) do
@@ -519,7 +550,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       nil ->
         case create_ra_admin(tenant, username, password) do
           :ok -> []
-          {:error, reason} -> ["RA admin reset failed: #{inspect(reason)}"]
+          {:error, reason} ->
+            Logger.error("[tenant_detail] RA admin reset failed: #{inspect(reason)}")
+            ["RA admin reset failed"]
         end
 
       user ->
@@ -554,11 +587,15 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
                must_change_password: true
              }) do
           {:ok, _} -> []
-          {:error, reason} -> ["RA admin reset failed: #{inspect(reason)}"]
+          {:error, reason} ->
+            Logger.error("[tenant_detail] RA admin password reset failed: #{inspect(reason)}")
+            ["RA admin reset failed"]
         end
     end
   rescue
-    e -> ["RA admin reset failed: #{Exception.message(e)}"]
+    e ->
+      Logger.error("[tenant_detail] RA admin reset failed: #{Exception.message(e)}")
+      ["RA admin reset failed"]
   end
 
   @impl true
@@ -628,29 +665,30 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
           </div>
 
           <%!-- Engine Status --%>
-          <div class="flex items-center gap-4 px-1">
+          <div id="engine-status" class="flex items-center gap-4 px-1" phx-hook="EngineTimer">
             <div class="flex items-center gap-2 text-sm">
               <span class="text-base-content/50">CA Engine:</span>
               <%= case @ca_engine_status do %>
                 <% :online -> %>
-                  <span class="badge badge-sm badge-success gap-1"><.icon name="hero-check-circle" class="size-3" /> Online</span>
+                  <span data-status="ready" class="badge badge-sm badge-success gap-1"><.icon name="hero-check-circle" class="size-3" /> Online</span>
                 <% :offline -> %>
-                  <span class="badge badge-sm badge-error gap-1"><.icon name="hero-x-circle" class="size-3" /> Offline</span>
+                  <span data-status="ready" class="badge badge-sm badge-error gap-1"><.icon name="hero-x-circle" class="size-3" /> Offline</span>
                 <% :checking -> %>
-                  <span class="badge badge-sm badge-ghost gap-1"><span class="loading loading-spinner loading-xs"></span> Checking</span>
+                  <span data-status="checking" class="badge badge-sm badge-ghost gap-1"><span class="loading loading-spinner loading-xs"></span> Checking</span>
               <% end %>
             </div>
             <div class="flex items-center gap-2 text-sm">
               <span class="text-base-content/50">RA Engine:</span>
               <%= case @ra_engine_status do %>
                 <% :online -> %>
-                  <span class="badge badge-sm badge-success gap-1"><.icon name="hero-check-circle" class="size-3" /> Online</span>
+                  <span data-status="ready" class="badge badge-sm badge-success gap-1"><.icon name="hero-check-circle" class="size-3" /> Online</span>
                 <% :offline -> %>
-                  <span class="badge badge-sm badge-error gap-1"><.icon name="hero-x-circle" class="size-3" /> Offline</span>
+                  <span data-status="ready" class="badge badge-sm badge-error gap-1"><.icon name="hero-x-circle" class="size-3" /> Offline</span>
                 <% :checking -> %>
-                  <span class="badge badge-sm badge-ghost gap-1"><span class="loading loading-spinner loading-xs"></span> Checking</span>
+                  <span data-status="checking" class="badge badge-sm badge-ghost gap-1"><span class="loading loading-spinner loading-xs"></span> Checking</span>
               <% end %>
             </div>
+            <span id="engine-timer" class="text-xs text-base-content/40 font-mono"></span>
           </div>
 
           <%!-- Tenant details grid --%>
