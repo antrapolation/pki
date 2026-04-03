@@ -23,6 +23,18 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     {"RSA-4096", "Classical — legacy, stronger"}
   ]
 
+  @time_window_options [
+    {1, "1 hour"},
+    {2, "2 hours"},
+    {4, "4 hours"},
+    {8, "8 hours"},
+    {12, "12 hours"},
+    {24, "24 hours"},
+    {48, "2 days"},
+    {72, "3 days"},
+    {168, "1 week"}
+  ]
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: send(self(), :load_data)
@@ -34,6 +46,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
        keystores: [],
        ca_instances: [],
        algorithms: @algorithms,
+       time_window_options: @time_window_options,
        effective_ca_id: nil,
        selected_ca_id: "",
        loading: true,
@@ -48,11 +61,15 @@ defmodule PkiCaPortalWeb.CeremonyLive do
        is_root: true,
        subject_dn: "",
        key_managers: [],
+       auditors: [],
        custodians: [],
        custodian_passwords: [],
        csr_pem: nil,
        wizard_error: nil,
-       wizard_busy: false
+       wizard_busy: false,
+       # Progress dashboard state
+       participants: [],
+       activity_log: []
      )}
   end
 
@@ -75,6 +92,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     {ceremonies, keystores} = load_for_ca(effective_ca_id, opts)
 
     key_managers = load_key_managers(opts)
+    auditors = load_auditors(opts)
 
     {:noreply,
      assign(socket,
@@ -84,6 +102,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
        effective_ca_id: effective_ca_id,
        selected_ca_id: effective_ca_id || "",
        key_managers: key_managers,
+       auditors: auditors,
        loading: false
      )}
   end
@@ -95,6 +114,59 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     else
       {:noreply, socket}
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # PubSub handlers for progress dashboard
+  # ---------------------------------------------------------------------------
+
+  def handle_info({:custodian_ready, %{user_id: _uid, username: username} = details}, socket) do
+    participants = update_participant_status(socket.assigns.participants, details[:user_id], "accepted")
+    entry = %{timestamp: DateTime.utc_now(), message: "#{username} accepted their key share"}
+    activity_log = [entry | socket.assigns.activity_log]
+    {:noreply, assign(socket, participants: participants, activity_log: activity_log)}
+  end
+
+  def handle_info({:witness_attested, %{phase: phase} = details}, socket) do
+    auditor_name = details[:auditor_name] || "Auditor"
+    participants = update_participant_status(socket.assigns.participants, details[:auditor_id], "attested (#{phase})")
+    entry = %{timestamp: DateTime.utc_now(), message: "#{auditor_name} attested to #{phase} phase"}
+    activity_log = [entry | socket.assigns.activity_log]
+    {:noreply, assign(socket, participants: participants, activity_log: activity_log)}
+  end
+
+  def handle_info({:phase_changed, %{phase: phase}}, socket) do
+    entry = %{timestamp: DateTime.utc_now(), message: "Ceremony phase changed to: #{phase}"}
+    activity_log = [entry | socket.assigns.activity_log]
+    {:noreply, assign(socket, activity_log: activity_log)}
+  end
+
+  def handle_info({:ceremony_failed, %{reason: reason}}, socket) do
+    entry = %{timestamp: DateTime.utc_now(), message: "Ceremony failed: #{reason}"}
+    activity_log = [entry | socket.assigns.activity_log]
+    opts = tenant_opts(socket)
+    {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
+
+    {:noreply,
+     socket
+     |> assign(activity_log: activity_log, ceremonies: ceremonies)
+     |> put_flash(:error, "Ceremony failed: #{reason}")}
+  end
+
+  def handle_info({:ceremony_completed, _details}, socket) do
+    entry = %{timestamp: DateTime.utc_now(), message: "Ceremony completed successfully"}
+    activity_log = [entry | socket.assigns.activity_log]
+    opts = tenant_opts(socket)
+    {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
+
+    {:noreply,
+     socket
+     |> assign(
+       activity_log: activity_log,
+       ceremonies: ceremonies,
+       wizard_step: :done
+     )
+     |> put_flash(:info, "Ceremony completed successfully.")}
   end
 
   # ---------------------------------------------------------------------------
@@ -168,12 +240,13 @@ defmodule PkiCaPortalWeb.CeremonyLive do
        custodian_passwords: [],
        csr_pem: nil,
        wizard_error: nil,
-       wizard_busy: false
+       wizard_busy: false,
+       participants: [],
+       activity_log: []
      )}
   end
 
   def handle_event("cancel_wizard", _params, socket) do
-    # Discard private key from memory
     {:noreply,
      assign(socket,
        wizard_step: nil,
@@ -183,37 +256,32 @@ defmodule PkiCaPortalWeb.CeremonyLive do
        public_key_fingerprint: nil,
        csr_pem: nil,
        wizard_error: nil,
-       wizard_busy: false
+       wizard_busy: false,
+       participants: [],
+       activity_log: []
      )}
   end
 
-  # Resume wizard for an existing ceremony that's still in progress
+  # Resume ceremony — show progress dashboard for in-progress ceremonies
   def handle_event("resume_ceremony", %{"id" => ceremony_id}, socket) do
     opts = tenant_opts(socket)
 
     case CaEngineClient.get_ceremony(ceremony_id, opts) do
       {:ok, ceremony} ->
-        step = case ceremony[:status] do
-          "initiated" -> 2
-          "in_progress" -> 4
-          _ -> nil
-        end
+        if ceremony[:status] in ["initiated", "in_progress"] do
+          # Subscribe to PubSub for live updates
+          Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{ceremony_id}")
 
-        if step do
-          n = ceremony[:threshold_n] || 3
           domain_info = ceremony[:domain_info] || %{}
+          participants = build_participants_from_ceremony(ceremony)
+
           {:noreply,
            assign(socket,
-             wizard_step: step,
+             wizard_step: :progress,
              active_ceremony: ceremony,
              is_root: Map.get(domain_info, "is_root", true),
-             subject_dn: Map.get(domain_info, "subject_dn") || "",
-             custodians: List.duplicate(nil, n),
-             custodian_passwords: List.duplicate("", n),
-             private_key: nil,
-             public_key: nil,
-             public_key_fingerprint: nil,
-             csr_pem: nil,
+             participants: participants,
+             activity_log: [%{timestamp: DateTime.utc_now(), message: "Resumed monitoring ceremony"}],
              wizard_error: nil,
              wizard_busy: false
            )}
@@ -227,12 +295,16 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   end
 
   # ---------------------------------------------------------------------------
-  # Step 1: Initiate ceremony
+  # Step 1: Initiate witnessed ceremony
   # ---------------------------------------------------------------------------
 
   def handle_event("initiate_ceremony", params, socket) do
     ca_id = params["ca_instance_id"]
     opts = tenant_opts(socket)
+
+    selected_custodian_ids = parse_multi_select(params["custodian_ids"])
+    auditor_user_id = params["auditor_user_id"]
+    time_window_hours = parse_int(params["time_window_hours"]) || 24
 
     cond do
       is_nil(ca_id) or ca_id == "" ->
@@ -241,238 +313,113 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       is_nil(params["keystore_id"]) or params["keystore_id"] == "" ->
         {:noreply, assign(socket, wizard_error: "Please select a Keystore.")}
 
+      Enum.empty?(selected_custodian_ids) ->
+        {:noreply, assign(socket, wizard_error: "Please select at least one key manager as custodian.")}
+
+      is_nil(auditor_user_id) or auditor_user_id == "" ->
+        {:noreply, assign(socket, wizard_error: "Please select an auditor witness.")}
+
       true ->
-        is_root = params["is_root"] == "true"
-        threshold_n = parse_int(params["threshold_n"]) || 3
+        # Rate limit ceremony creation: 10 per hour per tenant
+        tenant_id = socket.assigns[:tenant_id] || "global"
+        rate_key = "ceremony_initiate:#{tenant_id}"
 
-        ceremony_params = %{
-          algorithm: params["algorithm"],
-          keystore_id: params["keystore_id"],
-          threshold_k: params["threshold_k"],
-          threshold_n: params["threshold_n"],
-          domain_info: %{"is_root" => is_root},
-          initiated_by: socket.assigns.current_user[:id],
-          is_root: is_root,
-          key_alias: params["key_alias"]
-        }
+        case Hammer.check_rate(rate_key, 60 * 60 * 1000, 10) do
+          {:deny, _} ->
+            {:noreply, assign(socket, wizard_error: "Too many ceremonies initiated. Please wait before creating another.")}
 
-        case CaEngineClient.initiate_ceremony(ca_id, ceremony_params, opts) do
-          {:ok, ceremony} ->
-            audit_log(socket, "ceremony_initiated", "ceremony", ceremony[:id], %{
+          {:error, reason} ->
+            require Logger
+            Logger.error("[rate_limit] Hammer error for #{rate_key}: #{inspect(reason)}")
+            {:noreply, assign(socket, wizard_error: "Service temporarily unavailable. Please try again.")}
+
+          {:allow, _} ->
+            is_root = params["is_root"] == "true"
+
+            ceremony_params = %{
               algorithm: params["algorithm"],
-              ca_instance_id: ca_id,
+              keystore_id: params["keystore_id"],
+              threshold_k: params["threshold_k"],
+              threshold_n: params["threshold_n"],
+              domain_info: %{"is_root" => is_root},
+              initiated_by: socket.assigns.current_user[:id],
               is_root: is_root,
-              key_alias: params["key_alias"]
-            })
-            {ceremonies, keystores} = load_for_ca(ca_id, opts)
-            n = threshold_n || 3
+              key_alias: params["key_alias"],
+              custodian_user_ids: selected_custodian_ids,
+              auditor_user_id: auditor_user_id,
+              time_window_hours: time_window_hours
+            }
 
-            {:noreply,
-             socket
-             |> assign(
-               ceremonies: ceremonies,
-               keystores: keystores,
-               effective_ca_id: ca_id,
-               active_ceremony: ceremony,
-               is_root: is_root,
-               subject_dn: "",
-               wizard_step: 2,
-               wizard_error: nil,
-               custodians: List.duplicate(nil, n),
-               custodian_passwords: List.duplicate("", n)
-             )}
+            case CaEngineClient.initiate_witnessed_ceremony(ca_id, ceremony_params, opts) do
+              {:ok, ceremony} ->
+                audit_log(socket, "ceremony_initiated", "ceremony", ceremony[:id], %{
+                  algorithm: params["algorithm"],
+                  ca_instance_id: ca_id,
+                  is_root: is_root,
+                  key_alias: params["key_alias"],
+                  custodian_count: length(selected_custodian_ids),
+                  auditor_user_id: auditor_user_id,
+                  time_window_hours: time_window_hours
+                })
 
-          {:error, reason} ->
-            {:noreply, assign(socket, wizard_error: "Failed to initiate: #{format_error(reason)}")}
+                # Send notifications to participants
+                PkiCaPortal.CeremonyNotifications.notify_ceremony_initiated(ceremony, %{
+                  custodian_user_ids: selected_custodian_ids,
+                  auditor_user_id: auditor_user_id
+                })
+
+                # Subscribe to PubSub for live updates
+                Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{ceremony[:id]}")
+
+                {ceremonies, keystores} = load_for_ca(ca_id, opts)
+                participants = build_participants_from_selections(selected_custodian_ids, auditor_user_id, socket.assigns)
+
+                {:noreply,
+                 socket
+                 |> assign(
+                   ceremonies: ceremonies,
+                   keystores: keystores,
+                   effective_ca_id: ca_id,
+                   active_ceremony: ceremony,
+                   is_root: is_root,
+                   wizard_step: :progress,
+                   wizard_error: nil,
+                   participants: participants,
+                   activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — waiting for participants"}]
+                 )}
+
+              {:error, reason} ->
+                {:noreply, assign(socket, wizard_error: "Failed to initiate: #{format_error(reason)}")}
+            end
         end
     end
   end
 
   # ---------------------------------------------------------------------------
-  # Step 2: Generate keypair
+  # Progress dashboard events
   # ---------------------------------------------------------------------------
 
-  def handle_event("generate_keypair", _params, socket) do
-    # Return immediately to show spinner, then do keygen async
-    send(self(), :do_generate_keypair)
-    {:noreply, assign(socket, wizard_busy: true, wizard_error: nil)}
-  end
-
-  def handle_info(:do_generate_keypair, socket) do
+  def handle_event("cancel_active_ceremony", _params, socket) do
     ceremony = socket.assigns.active_ceremony
-    opts = tenant_opts(socket)
 
-    case CaEngineClient.generate_ceremony_keypair(ceremony[:algorithm], opts) do
-      {:ok, %{public_key: pub, private_key: priv}} ->
-        fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower) |> format_fingerprint()
-        audit_log(socket, "ceremony_keypair_generated", "ceremony", ceremony[:id], %{algorithm: ceremony[:algorithm]})
-
-        {:noreply,
-         assign(socket,
-           private_key: priv,
-           public_key: pub,
-           public_key_fingerprint: fingerprint,
-           wizard_step: 3,
-           wizard_busy: false,
-           wizard_error: nil
-         )}
-
-      {:error, reason} ->
-        {:noreply, assign(socket, wizard_busy: false, wizard_error: "Keypair generation failed: #{format_error(reason)}")}
+    if ceremony do
+      CaEngineClient.fail_ceremony(ceremony[:id], "cancelled_by_admin")
+      audit_log(socket, "ceremony_cancelled", "ceremony", ceremony[:id])
     end
-  end
 
-  # ---------------------------------------------------------------------------
-  # Step 3: Distribute shares
-  # ---------------------------------------------------------------------------
-
-  def handle_event("update_custodian_password", params, socket) do
-    idx = parse_int(params["index"]) || 0
-    value = params["value"] || ""
-    passwords = List.replace_at(socket.assigns.custodian_passwords, idx, value)
-    {:noreply, assign(socket, custodian_passwords: passwords)}
-  end
-
-  def handle_event("select_custodian", params, socket) do
-    # Update ALL custodian selections from form params (not just one)
-    n = length(socket.assigns.custodians)
-    custodians =
-      Enum.map(0..(n - 1), fn idx ->
-        user_id = params["custodian_#{idx}"] || ""
-        if user_id != "" do
-          Enum.find(socket.assigns.key_managers, &(&1.id == user_id))
-        else
-          Enum.at(socket.assigns.custodians, idx)
-        end
-      end)
-    {:noreply, assign(socket, custodians: custodians)}
-  end
-
-  def handle_event("distribute_shares", params, socket) do
-    # Pick up passwords and custodian selections from form params
-    n = length(socket.assigns.custodian_passwords)
-    passwords =
-      Enum.map(0..(n - 1), fn idx ->
-        params["password_#{idx}"] || Enum.at(socket.assigns.custodian_passwords, idx, "")
-      end)
-
-    custodians =
-      Enum.map(0..(n - 1), fn idx ->
-        user_id = params["custodian_#{idx}"]
-        if user_id && user_id != "" do
-          Enum.find(socket.assigns.key_managers, &(&1.id == user_id))
-        else
-          Enum.at(socket.assigns.custodians, idx)
-        end
-      end)
-
-    socket = assign(socket, custodian_passwords: passwords, custodians: custodians)
-    ceremony = socket.assigns.active_ceremony
-    private_key = socket.assigns.private_key
     opts = tenant_opts(socket)
+    {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
 
-    cond do
-      Enum.any?(custodians, &is_nil/1) ->
-        {:noreply, assign(socket, wizard_error: "Please select a key manager for each share.")}
-
-      length(Enum.uniq_by(custodians, & &1.id)) != n ->
-        {:noreply, assign(socket, wizard_error: "Each share must be assigned to a different key manager.")}
-
-      Enum.any?(passwords, &(String.trim(&1) == "")) ->
-        {:noreply, assign(socket, wizard_error: "All custodian passwords are required.")}
-
-      true ->
-        socket = assign(socket, wizard_busy: true, wizard_error: nil)
-
-        custodian_tuples =
-          Enum.zip(custodians, passwords)
-          |> Enum.map(fn {custodian, pw} -> {custodian.id, pw} end)
-
-        case CaEngineClient.distribute_ceremony_shares(ceremony[:id], private_key, custodian_tuples, opts) do
-          {:ok, _count} ->
-            custodian_usernames = Enum.map(custodians, & &1.username)
-            audit_log(socket, "ceremony_shares_distributed", "ceremony", ceremony[:id], %{custodians: custodian_usernames})
-            {:noreply,
-             assign(socket,
-               wizard_step: 4,
-               wizard_busy: false,
-               wizard_error: nil
-             )}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, wizard_busy: false, wizard_error: "Share distribution failed: #{format_error(reason)}")}
-        end
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Step 4: Complete ceremony
-  # ---------------------------------------------------------------------------
-
-  def handle_event("update_subject_dn", %{"value" => value}, socket) do
-    {:noreply, assign(socket, subject_dn: value)}
-  end
-
-  def handle_event("complete_ceremony", _params, %{assigns: %{private_key: nil}} = socket) do
     {:noreply,
-     assign(socket,
-       wizard_error: "Private key is not available in this session. Please start a new ceremony to generate a fresh keypair."
-     )}
-  end
-
-  def handle_event("complete_ceremony", _params, socket) do
-    ceremony = socket.assigns.active_ceremony
-    private_key = socket.assigns.private_key
-    opts = tenant_opts(socket)
-
-    socket = assign(socket, wizard_busy: true, wizard_error: nil)
-
-    result =
-      if socket.assigns.is_root do
-        subject_dn = socket.assigns.subject_dn
-        subject = if subject_dn == "", do: "/CN=Root-CA-#{ceremony[:id]}", else: subject_dn
-        root_opts = Keyword.put(opts, :public_key, socket.assigns.public_key)
-        CaEngineClient.complete_ceremony_root(ceremony[:id], private_key, subject, root_opts)
-      else
-        subject_dn = socket.assigns.subject_dn
-        subject = if subject_dn == "", do: "/CN=Sub-CA-#{ceremony[:id]}", else: subject_dn
-        sub_opts = opts |> Keyword.put(:public_key, socket.assigns.public_key) |> Keyword.put(:subject_dn, subject)
-        CaEngineClient.complete_ceremony_sub_ca(ceremony[:id], private_key, sub_opts)
-      end
-
-    case result do
-      {:ok, {updated_ceremony, csr_pem}} ->
-        audit_log(socket, "ceremony_completed", "ceremony", ceremony[:id], %{is_root: socket.assigns.is_root, has_csr: true})
-        {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
-        {:noreply,
-         assign(socket,
-           active_ceremony: updated_ceremony,
-           csr_pem: csr_pem,
-           ceremonies: ceremonies,
-           wizard_step: :done,
-           wizard_busy: false,
-           wizard_error: nil,
-           private_key: nil
-         )}
-
-      {:ok, updated_ceremony} ->
-        audit_log(socket, "ceremony_completed", "ceremony", ceremony[:id], %{is_root: socket.assigns.is_root})
-        {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
-        {:noreply,
-         assign(socket,
-           active_ceremony: updated_ceremony,
-           ceremonies: ceremonies,
-           wizard_step: :done,
-           wizard_busy: false,
-           wizard_error: nil,
-           private_key: nil
-         )}
-
-      {:error, reason} ->
-        # Schedule key wipe — don't hold key in memory indefinitely on error
-        Process.send_after(self(), :wipe_private_key, 60_000)
-        {:noreply, assign(socket, wizard_busy: false, wizard_error: "Completion failed: #{format_error(reason)}")}
-    end
+     socket
+     |> assign(
+       wizard_step: nil,
+       active_ceremony: nil,
+       participants: [],
+       activity_log: [],
+       ceremonies: ceremonies
+     )
+     |> put_flash(:info, "Ceremony cancelled.")}
   end
 
   def handle_event("finish_wizard", _params, socket) do
@@ -485,7 +432,9 @@ defmodule PkiCaPortalWeb.CeremonyLive do
        public_key_fingerprint: nil,
        csr_pem: nil,
        wizard_error: nil,
-       wizard_busy: false
+       wizard_busy: false,
+       participants: [],
+       activity_log: []
      )}
   end
 
@@ -503,6 +452,83 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       {:error, _} -> []
     end
   end
+
+  defp load_auditors(opts) do
+    case CaEngineClient.list_portal_users(opts) do
+      {:ok, users} ->
+        users
+        |> Enum.filter(fn u -> u[:role] == "auditor" and u[:status] == "active" end)
+        |> Enum.map(fn u -> %{id: u[:id], username: u[:username], display_name: u[:display_name]} end)
+
+      {:error, _} -> []
+    end
+  end
+
+  defp build_participants_from_selections(custodian_ids, auditor_id, assigns) do
+    custodian_participants =
+      Enum.map(custodian_ids, fn uid ->
+        km = Enum.find(assigns.key_managers, &(&1.id == uid))
+        %{
+          user_id: uid,
+          name: if(km, do: km.display_name || km.username, else: uid),
+          role: "key_manager",
+          status: "pending",
+          timestamp: nil
+        }
+      end)
+
+    auditor_participant =
+      case Enum.find(assigns.auditors, &(&1.id == auditor_id)) do
+        nil ->
+          %{user_id: auditor_id, name: auditor_id, role: "auditor", status: "waiting", timestamp: nil}
+        aud ->
+          %{user_id: auditor_id, name: aud.display_name || aud.username, role: "auditor", status: "waiting", timestamp: nil}
+      end
+
+    custodian_participants ++ [auditor_participant]
+  end
+
+  defp build_participants_from_ceremony(ceremony) do
+    # Build participant list from ceremony data (shares + attestations)
+    custodians =
+      (ceremony[:shares] || [])
+      |> Enum.map(fn share ->
+        %{
+          user_id: share[:user_id],
+          name: share[:username] || share[:user_id] || "Unknown",
+          role: "key_manager",
+          status: if(share[:status] == "accepted", do: "accepted", else: "pending"),
+          timestamp: share[:updated_at]
+        }
+      end)
+
+    auditor =
+      if ceremony[:auditor_user_id] do
+        %{
+          user_id: ceremony[:auditor_user_id],
+          name: ceremony[:auditor_username] || ceremony[:auditor_user_id],
+          role: "auditor",
+          status: "waiting",
+          timestamp: nil
+        }
+      end
+
+    if auditor, do: custodians ++ [auditor], else: custodians
+  end
+
+  defp update_participant_status(participants, user_id, new_status) do
+    Enum.map(participants, fn p ->
+      if p.user_id == user_id do
+        %{p | status: new_status, timestamp: DateTime.utc_now()}
+      else
+        p
+      end
+    end)
+  end
+
+  defp parse_multi_select(nil), do: []
+  defp parse_multi_select(val) when is_binary(val), do: [val]
+  defp parse_multi_select(val) when is_list(val), do: Enum.filter(val, &(&1 != ""))
 
   defp load_for_ca(nil, _opts), do: {[], []}
   defp load_for_ca(ca_id, opts) do
@@ -534,15 +560,6 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       {"software", _} -> "Software"
       {type, _} -> type
     end
-  end
-
-  defp format_fingerprint(hex) do
-    hex
-    |> String.graphemes()
-    |> Enum.chunk_every(2)
-    |> Enum.map(&Enum.join/1)
-    |> Enum.take(16)
-    |> Enum.join(":")
   end
 
   defp format_error({:validation_error, errors}) when is_map(errors) do
@@ -582,6 +599,20 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   defp ceremony_resumable?(ceremony) do
     ceremony[:status] in ["initiated", "in_progress"]
   end
+
+  defp participant_role_class("key_manager"), do: "badge-info"
+  defp participant_role_class("auditor"), do: "badge-accent"
+  defp participant_role_class(_), do: "badge-ghost"
+
+  defp participant_status_class("accepted"), do: "badge-success"
+  defp participant_status_class("pending"), do: "badge-warning"
+  defp participant_status_class("waiting"), do: "badge-ghost"
+  defp participant_status_class("attested" <> _), do: "badge-success"
+  defp participant_status_class(_), do: "badge-ghost"
+
+  defp format_role("key_manager"), do: "Key Manager"
+  defp format_role("auditor"), do: "Auditor"
+  defp format_role(role), do: role
 
   # ---------------------------------------------------------------------------
   # Render
@@ -744,16 +775,13 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     <div id="ceremony-wizard">
       <%!-- Step indicator --%>
       <ul class="steps steps-horizontal w-full mb-8">
-        <li class={"step #{if @wizard_step == :done or (is_integer(@wizard_step) and @wizard_step >= 1), do: "step-primary"}"}>
+        <li class={"step #{if @wizard_step in [:progress, :done] or @wizard_step == 1, do: "step-primary"}"}>
           <span class="text-xs">Initiate</span>
         </li>
-        <li class={"step #{if @wizard_step == :done or (is_integer(@wizard_step) and @wizard_step >= 2), do: "step-primary"}"}>
-          <span class="text-xs">Generate Key</span>
+        <li class={"step #{if @wizard_step in [:progress, :done], do: "step-primary"}"}>
+          <span class="text-xs">In Progress</span>
         </li>
-        <li class={"step #{if @wizard_step == :done or (is_integer(@wizard_step) and @wizard_step >= 3), do: "step-primary"}"}>
-          <span class="text-xs">Distribute Shares</span>
-        </li>
-        <li class={"step #{if @wizard_step == :done or (is_integer(@wizard_step) and @wizard_step >= 4), do: "step-primary"}"}>
+        <li class={"step #{if @wizard_step == :done, do: "step-primary"}"}>
           <span class="text-xs">Complete</span>
         </li>
       </ul>
@@ -768,21 +796,17 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       <%= case @wizard_step do %>
         <% 1 -> %>
           {render_step_initiate(assigns)}
-        <% 2 -> %>
-          {render_step_generate(assigns)}
-        <% 3 -> %>
-          {render_step_distribute(assigns)}
-        <% 4 -> %>
-          {render_step_complete(assigns)}
+        <% :progress -> %>
+          {render_progress_dashboard(assigns)}
         <% :done -> %>
           {render_step_done(assigns)}
         <% _ -> %>
           <div></div>
       <% end %>
 
-      <%!-- Cancel button (not shown on done) --%>
-      <div :if={@wizard_step != :done} class="mt-6 flex justify-end">
-        <button phx-click="cancel_wizard" class="btn btn-ghost btn-sm">Cancel Ceremony</button>
+      <%!-- Cancel button (only on step 1) --%>
+      <div :if={@wizard_step == 1} class="mt-6 flex justify-end">
+        <button phx-click="cancel_wizard" class="btn btn-ghost btn-sm">Cancel</button>
       </div>
     </div>
     """
@@ -794,7 +818,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     <div class="card bg-base-100 shadow-sm border border-base-300">
       <div class="card-body">
         <h2 class="text-sm font-semibold text-base-content mb-4">
-          <.icon name="hero-shield-check" class="size-4 inline" /> Step 1 — Initiate Key Ceremony
+          <.icon name="hero-shield-check" class="size-4 inline" /> Step 1 — Initiate Witnessed Key Ceremony
         </h2>
 
         <form phx-submit="initiate_ceremony" class="space-y-4">
@@ -837,233 +861,183 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             </div>
           </div>
 
-          <div class="pt-2">
-            <button type="submit" class="btn btn-primary btn-sm">
-              <.icon name="hero-arrow-right" class="size-4" />
-              Initiate & Continue
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-    """
-  end
+          <%!-- Participant assignment section --%>
+          <div class="divider text-xs text-base-content/40">Participant Assignment</div>
 
-  # Step 2: Generate Keypair
-  defp render_step_generate(assigns) do
-    ~H"""
-    <div class="card bg-base-100 shadow-sm border border-base-300">
-      <div class="card-body">
-        <h2 class="text-sm font-semibold text-base-content mb-4">
-          <.icon name="hero-key" class="size-4 inline" /> Step 2 — Generate Keypair
-        </h2>
-
-        <div class="bg-base-200/50 rounded-lg p-4 mb-4 text-sm space-y-1">
-          <div class="flex gap-2">
-            <span class="text-base-content/50 w-28">Ceremony ID:</span>
-            <span class="font-mono">{String.slice(@active_ceremony[:id] || "", 0..7)}</span>
-          </div>
-          <div class="flex gap-2">
-            <span class="text-base-content/50 w-28">Algorithm:</span>
-            <span class="font-mono font-semibold">{@active_ceremony[:algorithm]}</span>
-          </div>
-          <div class="flex gap-2">
-            <span class="text-base-content/50 w-28">Threshold:</span>
-            <span>{@active_ceremony[:threshold_k]}-of-{@active_ceremony[:threshold_n]}</span>
-          </div>
-        </div>
-
-        <div class="alert border border-warning/30 bg-warning/5 mb-4">
-          <.icon name="hero-exclamation-triangle" class="size-5 text-warning shrink-0" />
-          <div class="text-sm">
-            <p class="font-medium">Security Notice</p>
-            <p class="text-xs text-base-content/60 mt-0.5">
-              The private key will be generated and held in server memory only. It is never written to disk or database.
-              After the ceremony completes, only encrypted Shamir shares will persist.
-            </p>
-          </div>
-        </div>
-
-        <button
-          phx-click="generate_keypair"
-          class="btn btn-primary btn-sm"
-          disabled={@wizard_busy}
-        >
-          <%= if @wizard_busy do %>
-            <span class="loading loading-spinner loading-xs"></span> Generating...
-          <% else %>
-            <.icon name="hero-key" class="size-4" /> Generate Keypair
-          <% end %>
-        </button>
-      </div>
-    </div>
-    """
-  end
-
-  # Step 3: Distribute Shares
-  defp render_step_distribute(assigns) do
-    ~H"""
-    <div class="card bg-base-100 shadow-sm border border-base-300">
-      <div class="card-body">
-        <h2 class="text-sm font-semibold text-base-content mb-4">
-          <.icon name="hero-lock-closed" class="size-4 inline" /> Step 3 — Distribute Key Shares
-        </h2>
-
-        <%!-- Public key fingerprint --%>
-        <div :if={@public_key_fingerprint} class="bg-success/5 border border-success/20 rounded-lg p-4 mb-4">
-          <div class="flex items-center gap-2 mb-1">
-            <.icon name="hero-check-circle" class="size-4 text-success" />
-            <span class="text-sm font-medium">Keypair Generated Successfully</span>
-          </div>
-          <p class="text-xs text-base-content/60">
-            Public Key Fingerprint: <span class="font-mono">{@public_key_fingerprint}</span>
-          </p>
-        </div>
-
-        <p class="text-sm text-base-content/70 mb-2">
-          Assign each share to a key manager and have them enter a secret password.
-          The private key will be split into
-          <strong>{length(@custodian_passwords)}</strong> shares using Shamir's Secret Sharing.
-          At least <strong>{@active_ceremony[:threshold_k]}</strong> shares are needed to reconstruct the key.
-        </p>
-
-        <div :if={Enum.empty?(@key_managers)} class="alert alert-warning text-sm mb-4">
-          <.icon name="hero-exclamation-triangle" class="size-4" />
-          <span>No active key managers found. <a href="/users" class="link link-primary">Add key manager users first.</a></span>
-        </div>
-
-        <div :if={length(@key_managers) < length(@custodian_passwords)} class="alert alert-warning text-sm mb-4">
-          <.icon name="hero-exclamation-triangle" class="size-4" />
-          <span>
-            Need at least {length(@custodian_passwords)} key managers but only {length(@key_managers)} available.
-            <a href="/users" class="link link-primary">Add more key manager users.</a>
-          </span>
-        </div>
-
-        <form :if={length(@key_managers) >= length(@custodian_passwords)} phx-submit="distribute_shares" class="space-y-3">
-          <div :for={{_pw, idx} <- Enum.with_index(@custodian_passwords)} class="flex items-center gap-3">
-            <span class="text-sm font-medium text-base-content/60 w-16 shrink-0">Share {idx + 1}</span>
-            <select
-              name={"custodian_#{idx}"}
-              class="select select-bordered select-sm w-48"
-            >
-              <option value="">Select key manager</option>
-              <option
-                :for={km <- @key_managers}
-                value={km.id}
-                selected={Enum.at(@custodians, idx) && Enum.at(@custodians, idx).id == km.id}
-              >
-                {km.display_name || km.username}
-              </option>
-            </select>
-            <input
-              type="password"
-              name={"password_#{idx}"}
-              placeholder="Custodian's secret password"
-              class="input input-bordered input-sm flex-1"
-              autocomplete="off"
-            />
-          </div>
-
-          <div class="pt-2">
-            <button
-              type="submit"
-              class="btn btn-primary btn-sm"
-              disabled={@wizard_busy}
-            >
-              <%= if @wizard_busy do %>
-                <span class="loading loading-spinner loading-xs"></span> Distributing...
-              <% else %>
-                <.icon name="hero-lock-closed" class="size-4" /> Encrypt & Store Shares
-              <% end %>
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-    """
-  end
-
-  # Step 4: Complete
-  defp render_step_complete(assigns) do
-    ~H"""
-    <div class="card bg-base-100 shadow-sm border border-base-300">
-      <div class="card-body">
-        <h2 class="text-sm font-semibold text-base-content mb-4">
-          <.icon name="hero-check-badge" class="size-4 inline" /> Step 4 — Complete Ceremony
-        </h2>
-
-        <div class="bg-success/5 border border-success/20 rounded-lg p-4 mb-4">
-          <div class="flex items-center gap-2 mb-1">
-            <.icon name="hero-check-circle" class="size-4 text-success" />
-            <span class="text-sm font-medium">Key Shares Distributed</span>
-          </div>
-          <p class="text-xs text-base-content/60">
-            All {length(@custodian_passwords)} shares have been encrypted and stored securely.
-          </p>
-        </div>
-
-        <%!-- Subject DN input — needed for both root cert and sub-CA CSR --%>
-        <div class="mb-4">
-          <label class="block text-xs font-medium text-base-content/60 mb-1">Subject DN</label>
-          <input
-            type="text"
-            value={@subject_dn}
-            phx-keyup="update_subject_dn"
-            phx-debounce="300"
-            placeholder="/CN=My Root CA/O=Organization/C=MY"
-            class="input input-bordered input-sm w-full"
-          />
-          <p class="text-xs text-base-content/40 mt-1">
-            The identity on the certificate. Example: <span class="font-mono">/CN=My Root CA/O=Antrapolation Technology/C=MY</span>
-            <br/>If left blank, a default will be generated from the CA instance ID.
-          </p>
-        </div>
-
-        <%= if @is_root do %>
-          <div class="mb-4">
-            <p class="text-sm text-base-content/70 mb-2">
-              This will generate a <strong>self-signed root certificate</strong> and activate the issuer key.
-            </p>
-            <div class="bg-base-200/50 rounded-lg p-3 text-sm">
-              <div class="flex gap-2">
-                <span class="text-base-content/50 w-24">Validity:</span>
-                <span>10 years (3650 days)</span>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-base-content/60 mb-1">
+                Key Manager Custodians
+                <span class="text-base-content/40">(hold Ctrl/Cmd to multi-select)</span>
+              </label>
+              <select name="custodian_ids[]" multiple class="select select-bordered select-sm w-full h-32" required>
+                <option
+                  :for={km <- @key_managers}
+                  value={km.id}
+                >
+                  {km.display_name || km.username}
+                </option>
+              </select>
+              <p :if={Enum.empty?(@key_managers)} class="text-xs text-warning mt-1">
+                No active key managers found. <a href="/users" class="link link-primary">Add key manager users first.</a>
+              </p>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-xs font-medium text-base-content/60 mb-1">Auditor Witness</label>
+                <select name="auditor_user_id" class="select select-bordered select-sm w-full" required>
+                  <option value="" disabled selected>Select Auditor</option>
+                  <option
+                    :for={aud <- @auditors}
+                    value={aud.id}
+                  >
+                    {aud.display_name || aud.username}
+                  </option>
+                </select>
+                <p :if={Enum.empty?(@auditors)} class="text-xs text-warning mt-1">
+                  No active auditors found. <a href="/users" class="link link-primary">Add auditor users first.</a>
+                </p>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-base-content/60 mb-1">Time Window</label>
+                <select name="time_window_hours" class="select select-bordered select-sm w-full">
+                  <%= for {hours, label} <- @time_window_options do %>
+                    <option value={hours} selected={hours == 24}>{label}</option>
+                  <% end %>
+                </select>
+                <p class="text-xs text-base-content/40 mt-1">
+                  All participants must complete their actions within this window.
+                </p>
               </div>
             </div>
           </div>
 
-          <button
-            phx-click="complete_ceremony"
-            class="btn btn-success btn-sm"
-            disabled={@wizard_busy}
-          >
-            <%= if @wizard_busy do %>
-              <span class="loading loading-spinner loading-xs"></span> Signing...
-            <% else %>
-              <.icon name="hero-check-badge" class="size-4" /> Self-Sign & Activate
-            <% end %>
-          </button>
-        <% else %>
-          <div class="mb-4">
-            <p class="text-sm text-base-content/70">
-              This will generate a <strong>PKCS#10 Certificate Signing Request (CSR)</strong> for submission to the parent CA.
-              The issuer key will remain in <em>pending</em> status until a certificate is uploaded.
-            </p>
+          <div class="pt-2">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <.icon name="hero-arrow-right" class="size-4" />
+              Initiate Ceremony
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    """
+  end
+
+  # Progress Dashboard
+  defp render_progress_dashboard(assigns) do
+    ~H"""
+    <div class="space-y-4">
+      <%!-- Ceremony details card --%>
+      <div class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h2 class="text-sm font-semibold text-base-content mb-4">
+            <.icon name="hero-signal" class="size-4 inline" /> Ceremony Progress
+          </h2>
+
+          <div class="bg-base-200/50 rounded-lg p-4 text-sm space-y-1">
+            <div class="flex gap-2">
+              <span class="text-base-content/50 w-28">Ceremony ID:</span>
+              <span class="font-mono">{String.slice(@active_ceremony[:id] || "", 0..7)}</span>
+            </div>
+            <div class="flex gap-2">
+              <span class="text-base-content/50 w-28">Algorithm:</span>
+              <span class="font-mono font-semibold">{@active_ceremony[:algorithm]}</span>
+            </div>
+            <div class="flex gap-2">
+              <span class="text-base-content/50 w-28">Threshold:</span>
+              <span>{@active_ceremony[:threshold_k]}-of-{@active_ceremony[:threshold_n]}</span>
+            </div>
+            <div class="flex gap-2">
+              <span class="text-base-content/50 w-28">Type:</span>
+              <span><%= if @is_root, do: "Root CA (self-signed)", else: "Sub-CA (CSR)" %></span>
+            </div>
+            <div class="flex gap-2">
+              <span class="text-base-content/50 w-28">Status:</span>
+              <span class={"badge badge-sm #{status_badge_class(@active_ceremony[:status])}"}>{@active_ceremony[:status]}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Participant status table --%>
+      <div class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h3 class="text-sm font-semibold text-base-content mb-3">
+            <.icon name="hero-user-group" class="size-4 inline" /> Participants
+          </h3>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="text-xs uppercase text-base-content/50">
+                  <th>Participant</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={p <- @participants} class="hover">
+                  <td class="text-sm font-medium">{p.name}</td>
+                  <td>
+                    <span class={"badge badge-sm #{participant_role_class(p.role)}"}>{format_role(p.role)}</span>
+                  </td>
+                  <td>
+                    <span class={"badge badge-sm #{participant_status_class(p.status)}"}>{p.status}</span>
+                  </td>
+                  <td class="text-xs text-base-content/60">
+                    <%= if p.timestamp do %>
+                      {Calendar.strftime(p.timestamp, "%H:%M:%S")}
+                    <% else %>
+                      —
+                    <% end %>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <button
-            phx-click="complete_ceremony"
-            class="btn btn-primary btn-sm"
-            disabled={@wizard_busy}
-          >
-            <%= if @wizard_busy do %>
-              <span class="loading loading-spinner loading-xs"></span> Generating CSR...
-            <% else %>
-              <.icon name="hero-document-arrow-down" class="size-4" /> Generate CSR & Complete
-            <% end %>
-          </button>
-        <% end %>
+          <div :if={Enum.empty?(@participants)} class="text-sm text-base-content/50 text-center py-4">
+            No participants assigned yet.
+          </div>
+        </div>
+      </div>
+
+      <%!-- Activity log --%>
+      <div class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h3 class="text-sm font-semibold text-base-content mb-3">
+            <.icon name="hero-clock" class="size-4 inline" /> Activity Log
+          </h3>
+
+          <div :if={Enum.empty?(@activity_log)} class="text-sm text-base-content/50 text-center py-4">
+            No activity yet.
+          </div>
+
+          <div :if={not Enum.empty?(@activity_log)} class="space-y-2 max-h-64 overflow-y-auto">
+            <div :for={entry <- @activity_log} class="flex items-start gap-3 text-sm">
+              <span class="text-xs text-base-content/40 font-mono shrink-0 mt-0.5">
+                {Calendar.strftime(entry.timestamp, "%H:%M:%S")}
+              </span>
+              <span class="text-base-content/70">{entry.message}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Cancel button --%>
+      <div class="flex justify-between items-center">
+        <button phx-click="finish_wizard" class="btn btn-ghost btn-sm">
+          <.icon name="hero-arrow-left" class="size-4" /> Back to List
+        </button>
+        <button
+          phx-click="cancel_active_ceremony"
+          data-confirm="Cancel this ceremony? All pending work will be lost."
+          class="btn btn-error btn-sm btn-outline"
+        >
+          <.icon name="hero-x-circle" class="size-4" /> Cancel Ceremony
+        </button>
       </div>
     </div>
     """
@@ -1082,20 +1056,14 @@ defmodule PkiCaPortalWeb.CeremonyLive do
           Ceremony <span class="font-mono">{String.slice(@active_ceremony[:id] || "", 0..7)}</span> has been completed successfully.
         </p>
 
-        <%!-- CSR download for sub-CA --%>
-        <div :if={@csr_pem} class="mb-6 text-left max-w-xl mx-auto">
-          <label class="block text-xs font-medium text-base-content/60 mb-1">Certificate Signing Request (CSR)</label>
-          <textarea class="textarea textarea-bordered w-full font-mono text-xs h-40" readonly>{@csr_pem}</textarea>
-          <p class="text-xs text-base-content/40 mt-1">Copy this CSR and submit it to the parent CA for signing.</p>
-        </div>
-
-        <%!-- Custodian summary --%>
-        <div :if={Enum.any?(@custodians, & &1)} class="mb-6 text-left max-w-xl mx-auto">
-          <label class="block text-xs font-medium text-base-content/60 mb-2">Key Share Custodians</label>
+        <%!-- Participant summary --%>
+        <div :if={not Enum.empty?(@participants)} class="mb-6 text-left max-w-xl mx-auto">
+          <label class="block text-xs font-medium text-base-content/60 mb-2">Ceremony Participants</label>
           <div class="bg-base-200/50 rounded-lg p-3 space-y-1">
-            <div :for={{custodian, idx} <- Enum.with_index(@custodians)} class="flex gap-2 text-sm">
-              <span class="text-base-content/50 w-16">Share {idx + 1}:</span>
-              <span :if={custodian} class="font-medium">{custodian.display_name || custodian.username}</span>
+            <div :for={p <- @participants} class="flex gap-2 text-sm">
+              <span class="text-base-content/50 w-24">{format_role(p.role)}:</span>
+              <span class="font-medium">{p.name}</span>
+              <span class={"badge badge-xs #{participant_status_class(p.status)} ml-auto"}>{p.status}</span>
             </div>
           </div>
         </div>
@@ -1103,7 +1071,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         <div class="alert border border-info/30 bg-info/5 text-left max-w-xl mx-auto mb-6">
           <.icon name="hero-information-circle" class="size-5 text-info shrink-0" />
           <div class="text-sm">
-            <p>The private key has been securely discarded from memory.</p>
+            <p>The private key has been securely handled by the ceremony orchestrator.</p>
             <p class="text-xs text-base-content/60">Only the encrypted Shamir shares remain in the database.</p>
           </div>
         </div>
