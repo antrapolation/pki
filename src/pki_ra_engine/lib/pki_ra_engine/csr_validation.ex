@@ -77,6 +77,7 @@ defmodule PkiRaEngine.CsrValidation do
 
     with {:ok, csr} <- get_csr(tenant_id, csr_id),
          :ok <- check_transition(csr.status, "approved"),
+         :ok <- check_dcv_requirement(tenant_id, csr),
          {:ok, approved_csr} <- transition(repo, csr, "approved", %{
            reviewed_by: reviewer_user_id,
            reviewed_at: DateTime.utc_now()
@@ -175,6 +176,22 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   # ── Private ─────────────────────────────────────────────────────────
+
+  defp check_dcv_requirement(tenant_id, csr) do
+    case CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
+      {:ok, profile} ->
+        policy = profile.subject_dn_policy || %{}
+
+        if policy["require_dcv"] == true do
+          PkiRaEngine.DcvChallenge.check_dcv_passed(tenant_id, csr.id)
+        else
+          :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
 
   defp check_transition(from, to) do
     if Map.get(@api_transitions, {from, to}) do

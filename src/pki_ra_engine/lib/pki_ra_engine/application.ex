@@ -11,12 +11,20 @@ defmodule PkiRaEngine.Application do
       [
         PkiRaEngine.Repo,
         PkiRaEngine.CaEngineConfig
-      ] ++ http_children()
+      ] ++ dcv_poller_children() ++ http_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: PkiRaEngine.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp dcv_poller_children do
+    if Application.get_env(:pki_ra_engine, :start_dcv_poller, true) do
+      [PkiRaEngine.DcvPoller]
+    else
+      []
+    end
   end
 
   defp http_children do

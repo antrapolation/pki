@@ -13,7 +13,8 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     CertProfileController,
     ServiceConfigController,
     ApiKeyController,
-    RaInstanceController
+    RaInstanceController,
+    DcvController
   }
 
   plug PkiRaEngine.Api.AuthPlug
@@ -40,6 +41,20 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
 
   post "/csr/:id/reject" do
     CsrController.reject(conn, id)
+  end
+
+  # --- DCV routes ---
+
+  post "/csr/:id/dcv" do
+    DcvController.create(conn, id)
+  end
+
+  post "/csr/:id/dcv/verify" do
+    DcvController.verify(conn, id)
+  end
+
+  get "/csr/:id/dcv" do
+    DcvController.show(conn, id)
   end
 
   # --- Certificate routes ---
