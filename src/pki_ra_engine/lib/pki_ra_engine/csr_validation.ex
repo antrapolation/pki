@@ -82,8 +82,8 @@ defmodule PkiRaEngine.CsrValidation do
            reviewed_by: reviewer_user_id,
            reviewed_at: DateTime.utc_now()
          }) do
-      # Auto-forward to CA for signing (async, don't block the approval response)
-      Task.start(fn ->
+      # Auto-forward to CA for signing (async, supervised)
+      Task.Supervisor.start_child(PkiRaEngine.TaskSupervisor, fn ->
         case forward_to_ca(tenant_id, csr_id) do
           {:ok, _} ->
             Logger.info("[csr_validation] CSR #{csr_id} auto-forwarded to CA for signing")
@@ -188,8 +188,13 @@ defmodule PkiRaEngine.CsrValidation do
           :ok
         end
 
-      _ ->
+      {:error, :not_found} ->
+        # Profile not found — skip DCV (profile was likely deleted after CSR submission)
         :ok
+
+      {:error, reason} ->
+        # Transient error (DB, etc.) — do NOT silently skip DCV
+        {:error, {:dcv_check_failed, reason}}
     end
   end
 

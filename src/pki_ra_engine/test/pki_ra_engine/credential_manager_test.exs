@@ -16,7 +16,7 @@ defmodule PkiRaEngine.CredentialManagerTest do
       role: "ra_admin"
     }
 
-    CredentialManager.create_user_with_credentials(attrs, @password, opts)
+    CredentialManager.create_user_with_credentials(nil, attrs, @password, opts)
   end
 
   # -- create_user_with_credentials --
@@ -72,7 +72,7 @@ defmodule PkiRaEngine.CredentialManagerTest do
     test "rolls back all records on invalid user attrs" do
       # Missing required username
       attrs = %{display_name: "Bad User", role: "ra_admin"}
-      assert {:error, _changeset} = CredentialManager.create_user_with_credentials(attrs, @password)
+      assert {:error, _changeset} = CredentialManager.create_user_with_credentials(nil, attrs, @password)
 
       # Verify no credentials were left behind
       assert Repo.all(from c in Credential) == []
@@ -85,7 +85,7 @@ defmodule PkiRaEngine.CredentialManagerTest do
     test "succeeds with correct password" do
       {:ok, user} = create_user_with_creds()
 
-      assert {:ok, authed_user, session_info} = CredentialManager.authenticate(user.username, @password)
+      assert {:ok, authed_user, session_info} = CredentialManager.authenticate(nil,user.username, @password)
       assert authed_user.id == user.id
       assert is_binary(session_info.session_key)
       assert byte_size(session_info.session_key) == 32
@@ -95,17 +95,17 @@ defmodule PkiRaEngine.CredentialManagerTest do
     test "fails with wrong password" do
       {:ok, _user} = create_user_with_creds()
 
-      assert {:error, :invalid_credentials} = CredentialManager.authenticate("testuser-wrong", "wrong-password")
+      assert {:error, :invalid_credentials} = CredentialManager.authenticate(nil,"testuser-wrong", "wrong-password")
     end
 
     test "fails with nonexistent user" do
-      assert {:error, :invalid_credentials} = CredentialManager.authenticate("nonexistent-user", "any-password")
+      assert {:error, :invalid_credentials} = CredentialManager.authenticate(nil,"nonexistent-user", "any-password")
     end
 
     test "fails with correct password but wrong username" do
       {:ok, _user} = create_user_with_creds()
 
-      assert {:error, :invalid_credentials} = CredentialManager.authenticate("wrong-username", @password)
+      assert {:error, :invalid_credentials} = CredentialManager.authenticate(nil,"wrong-username", @password)
     end
   end
 

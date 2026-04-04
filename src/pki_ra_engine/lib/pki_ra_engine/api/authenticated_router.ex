@@ -1,7 +1,7 @@
 defmodule PkiRaEngine.Api.AuthenticatedRouter do
   @moduledoc """
   Authenticated router — all routes require a valid API key or internal secret
-  via AuthPlug.
+  via AuthPlug. Routes are additionally guarded by RbacPlug for API key callers.
   """
 
   use Plug.Router
@@ -14,7 +14,8 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     ServiceConfigController,
     ApiKeyController,
     RaInstanceController,
-    DcvController
+    DcvController,
+    RbacPlug
   }
 
   plug PkiRaEngine.Api.AuthPlug
@@ -24,141 +25,145 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
   # --- CSR routes ---
 
   post "/csr" do
-    CsrController.submit(conn)
+    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CsrController.submit/1)
   end
 
   get "/csr" do
-    CsrController.list(conn)
+    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CsrController.list/1)
   end
 
   get "/csr/:id" do
-    CsrController.show(conn, id)
+    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CsrController.show(&1, id))
   end
 
   post "/csr/:id/approve" do
-    CsrController.approve(conn, id)
+    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CsrController.approve(&1, id))
   end
 
   post "/csr/:id/reject" do
-    CsrController.reject(conn, id)
+    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CsrController.reject(&1, id))
   end
 
   # --- DCV routes ---
 
   post "/csr/:id/dcv" do
-    DcvController.create(conn, id)
+    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&DcvController.create(&1, id))
   end
 
   post "/csr/:id/dcv/verify" do
-    DcvController.verify(conn, id)
+    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&DcvController.verify(&1, id))
   end
 
   get "/csr/:id/dcv" do
-    DcvController.show(conn, id)
+    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&DcvController.show(&1, id))
   end
 
   # --- Certificate routes ---
 
   get "/certificates" do
-    CertController.index(conn)
+    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CertController.index/1)
   end
 
   get "/certificates/:serial" do
-    CertController.show(conn, serial)
+    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CertController.show(&1, serial))
   end
 
   post "/certificates/:serial/revoke" do
-    CertController.revoke(conn, serial)
+    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CertController.revoke(&1, serial))
   end
 
   # --- User management routes ---
 
   get "/users" do
-    UserController.index(conn)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&UserController.index/1)
   end
 
   post "/users" do
-    UserController.create(conn)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&UserController.create/1)
   end
 
   put "/users/:id/password" do
-    UserController.update_password(conn, id)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&UserController.update_password(&1, id))
   end
 
   delete "/users/:id" do
-    UserController.delete(conn, id)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&UserController.delete(&1, id))
   end
 
   get "/users/by-username/:username" do
-    UserController.by_username(conn, username)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&UserController.by_username(&1, username))
   end
 
   # --- Cert profile routes ---
 
   get "/cert-profiles" do
-    CertProfileController.index(conn)
+    conn |> RbacPlug.call(:manage_cert_profiles) |> dispatch_unless_halted(&CertProfileController.index/1)
   end
 
   post "/cert-profiles" do
-    CertProfileController.create(conn)
+    conn |> RbacPlug.call(:manage_cert_profiles) |> dispatch_unless_halted(&CertProfileController.create/1)
   end
 
   put "/cert-profiles/:id" do
-    CertProfileController.update(conn, id)
+    conn |> RbacPlug.call(:manage_cert_profiles) |> dispatch_unless_halted(&CertProfileController.update(&1, id))
   end
 
   delete "/cert-profiles/:id" do
-    CertProfileController.delete(conn, id)
+    conn |> RbacPlug.call(:manage_cert_profiles) |> dispatch_unless_halted(&CertProfileController.delete(&1, id))
   end
 
   # --- Service config routes ---
 
   get "/service-configs" do
-    ServiceConfigController.index(conn)
+    conn |> RbacPlug.call(:manage_service_configs) |> dispatch_unless_halted(&ServiceConfigController.index/1)
   end
 
   post "/service-configs" do
-    ServiceConfigController.upsert(conn)
+    conn |> RbacPlug.call(:manage_service_configs) |> dispatch_unless_halted(&ServiceConfigController.upsert/1)
   end
 
   # --- API key routes ---
 
   get "/api-keys" do
-    ApiKeyController.index(conn)
+    conn |> RbacPlug.call(:manage_api_keys) |> dispatch_unless_halted(&ApiKeyController.index/1)
   end
 
   post "/api-keys" do
-    ApiKeyController.create(conn)
+    conn |> RbacPlug.call(:manage_api_keys) |> dispatch_unless_halted(&ApiKeyController.create/1)
   end
 
   post "/api-keys/:id/revoke" do
-    ApiKeyController.revoke(conn, id)
+    conn |> RbacPlug.call(:manage_api_keys) |> dispatch_unless_halted(&ApiKeyController.revoke(&1, id))
   end
 
   # --- RA instance routes ---
 
   get "/ra-instances" do
-    RaInstanceController.index(conn)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&RaInstanceController.index/1)
   end
 
   post "/ra-instances" do
-    RaInstanceController.create(conn)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&RaInstanceController.create/1)
   end
 
   get "/ra-instances/:id" do
-    RaInstanceController.show(conn, id)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&RaInstanceController.show(&1, id))
   end
 
   patch "/ra-instances/:id" do
-    RaInstanceController.update(conn, id)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&RaInstanceController.update(&1, id))
   end
 
   # Available issuer keys (proxy to CA engine)
   get "/available-issuer-keys" do
-    RaInstanceController.available_issuer_keys(conn)
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&RaInstanceController.available_issuer_keys/1)
   end
 
   match _ do
     send_resp(conn, 404, Jason.encode!(%{error: "not_found"}))
   end
+
+  # Helper: only call the controller if RBAC didn't halt the conn
+  defp dispatch_unless_halted(%Plug.Conn{halted: true} = conn, _fun), do: conn
+  defp dispatch_unless_halted(conn, fun), do: fun.(conn)
 end

@@ -51,7 +51,10 @@ defmodule PkiRaPortalWeb.DashboardLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+    case Integer.parse(page) do
+      {p, ""} when p > 0 -> {:noreply, socket |> assign(page: p) |> apply_pagination()}
+      _ -> {:noreply, socket}
+    end
   end
 
   defp apply_pagination(socket) do

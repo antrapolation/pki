@@ -14,8 +14,9 @@ defmodule PkiRaEngine.Api.ApiKeyController do
         json(conn, 200, Enum.map(keys, &serialize_key/1))
 
       _ ->
-        # List all keys when no filter is provided
-        keys = PkiRaEngine.Repo.all(PkiRaEngine.Schema.RaApiKey)
+        # List all keys for this tenant when no user filter is provided
+        repo = PkiRaEngine.TenantRepo.ra_repo(tenant_id)
+        keys = repo.all(PkiRaEngine.Schema.RaApiKey)
         json(conn, 200, Enum.map(keys, &serialize_key/1))
     end
   end

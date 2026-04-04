@@ -7,7 +7,7 @@ defmodule PkiRaEngine.CredentialManager do
   - KEM credential: for key encapsulation (encrypting secrets for the user)
   """
 
-  alias PkiRaEngine.Repo
+  alias PkiRaEngine.TenantRepo
   alias PkiRaEngine.Schema.RaUser
   alias PkiRaEngine.CredentialManager.Credential
   alias PkiCrypto.{Attestation, KeyOps, Kdf}
@@ -26,12 +26,13 @@ defmodule PkiRaEngine.CredentialManager do
       When provided, the admin's signing key attests the new user's public keys.
       When absent (bootstrap), the new user self-attests.
   """
-  def create_user_with_credentials(user_attrs, password, opts \\ []) do
+  def create_user_with_credentials(tenant_id, user_attrs, password, opts \\ []) do
     signing_algo = Keyword.get(opts, :signing_algorithm, "ECC-P256")
     kem_algo = Keyword.get(opts, :kem_algorithm, "ECDH-P256")
     admin_context = Keyword.get(opts, :admin_context)
+    repo = TenantRepo.ra_repo(tenant_id)
 
-    Repo.transaction(fn ->
+    repo.transaction(fn ->
       # 1. Create the user record
       user_changeset =
         RaUser.registration_changeset(
@@ -39,33 +40,33 @@ defmodule PkiRaEngine.CredentialManager do
           Map.merge(user_attrs, %{password: password})
         )
 
-      case Repo.insert(user_changeset) do
+      case repo.insert(user_changeset) do
         {:ok, user} ->
           # 2. Generate signing credential
-          case create_credential(user.id, "signing", signing_algo, password) do
+          case create_credential(repo, user.id, "signing", signing_algo, password) do
             {:ok, signing_cred} ->
               # 3. Generate KEM credential
-              case create_credential(user.id, "kem", kem_algo, password) do
+              case create_credential(repo, user.id, "kem", kem_algo, password) do
                 {:ok, kem_cred} ->
                   # 4. Attest both public keys
-                  case attest_credentials(signing_cred, kem_cred, signing_algo, password, admin_context) do
+                  case attest_credentials(repo, signing_cred, kem_cred, signing_algo, password, admin_context) do
                     :ok ->
-                      Repo.preload(user, :credentials)
+                      repo.preload(user, :credentials)
 
                     {:error, reason} ->
-                      Repo.rollback({:attestation_failed, reason})
+                      repo.rollback({:attestation_failed, reason})
                   end
 
                 {:error, reason} ->
-                  Repo.rollback({:kem_credential_failed, reason})
+                  repo.rollback({:kem_credential_failed, reason})
               end
 
             {:error, reason} ->
-              Repo.rollback({:signing_credential_failed, reason})
+              repo.rollback({:signing_credential_failed, reason})
           end
 
         {:error, changeset} ->
-          Repo.rollback(changeset)
+          repo.rollback(changeset)
       end
     end)
   end
@@ -74,9 +75,10 @@ defmodule PkiRaEngine.CredentialManager do
   Authenticate a user by verifying password hash AND key ownership.
   Returns {:ok, user, session_info} or {:error, :invalid_credentials}.
   """
-  def authenticate(username, password) do
+  def authenticate(tenant_id, username, password) do
+    repo = TenantRepo.ra_repo(tenant_id)
     user =
-      Repo.one(
+      repo.one(
         from u in RaUser,
           where: u.username == ^username and u.status == "active",
           preload: [:credentials]
@@ -126,24 +128,26 @@ defmodule PkiRaEngine.CredentialManager do
   end
 
   @doc "Get a user's signing credential."
-  def get_signing_credential(user_id) do
-    Repo.one(
+  def get_signing_credential(user_id, tenant_id \\ nil) when is_binary(user_id) do
+    repo = TenantRepo.ra_repo(tenant_id)
+    repo.one(
       from c in Credential,
         where: c.user_id == ^user_id and c.credential_type == "signing" and c.status == "active"
     )
   end
 
   @doc "Get a user's KEM credential."
-  def get_kem_credential(user_id) do
-    Repo.one(
+  def get_kem_credential(user_id, tenant_id \\ nil) when is_binary(user_id) do
+    repo = TenantRepo.ra_repo(tenant_id)
+    repo.one(
       from c in Credential,
         where: c.user_id == ^user_id and c.credential_type == "kem" and c.status == "active"
     )
   end
 
   @doc "Sign data using a user's signing key (decrypted via password)."
-  def sign_with_credential(user_id, password, data) do
-    with cred when not is_nil(cred) <- get_signing_credential(user_id),
+  def sign_with_credential(user_id, password, data, tenant_id \\ nil) do
+    with cred when not is_nil(cred) <- get_signing_credential(user_id, tenant_id),
          {:ok, private_key} <-
            KeyOps.decrypt_private_key(cred.encrypted_private_key, cred.salt, password),
          algo when not is_nil(algo) <- PkiCrypto.Registry.get(cred.algorithm) do
@@ -159,14 +163,14 @@ defmodule PkiRaEngine.CredentialManager do
   # Attest both credentials' public keys.
   # Bootstrap (no admin_context): self-attest using the new user's own signing key.
   # Normal (admin_context provided): admin's signing key attests the new user's keys.
-  defp attest_credentials(signing_cred, kem_cred, signing_algo, password, nil) do
+  defp attest_credentials(repo, signing_cred, kem_cred, signing_algo, password, nil) do
     # Bootstrap / self-attestation: decrypt the new user's own signing key
     # The attester is the user themselves — store their own public key as attested_by_key
     with {:ok, signing_key} <- KeyOps.decrypt_private_key(signing_cred.encrypted_private_key, signing_cred.salt, password),
          {:ok, signing_cert} <- Attestation.attest(signing_key, signing_algo, signing_cred.public_key),
          {:ok, kem_cert} <- Attestation.attest(signing_key, signing_algo, kem_cred.public_key),
-         {:ok, _} <- update_certificate(signing_cred, signing_cert, signing_cred.public_key),
-         {:ok, _} <- update_certificate(kem_cred, kem_cert, signing_cred.public_key) do
+         {:ok, _} <- update_certificate(repo, signing_cred, signing_cert, signing_cred.public_key),
+         {:ok, _} <- update_certificate(repo, kem_cred, kem_cert, signing_cred.public_key) do
       :ok
     else
       {:error, reason} -> {:error, reason}
@@ -174,9 +178,12 @@ defmodule PkiRaEngine.CredentialManager do
     end
   end
 
-  defp attest_credentials(signing_cred, kem_cred, _signing_algo, _password, %{user_id: admin_id, password: admin_password}) do
-    # Admin-attested: look up admin's signing credential and decrypt with their password
-    admin_signing = get_signing_credential(admin_id)
+  defp attest_credentials(repo, signing_cred, kem_cred, _signing_algo, _password, %{user_id: admin_id, password: admin_password}) do
+    # Admin-attested: look up admin's signing credential using the same tenant-scoped repo
+    admin_signing = repo.one(
+      from c in Credential,
+        where: c.user_id == ^admin_id and c.credential_type == "signing" and c.status == "active"
+    )
 
     if is_nil(admin_signing) do
       {:error, :admin_signing_credential_not_found}
@@ -184,8 +191,8 @@ defmodule PkiRaEngine.CredentialManager do
       with {:ok, admin_key} <- KeyOps.decrypt_private_key(admin_signing.encrypted_private_key, admin_signing.salt, admin_password),
            {:ok, signing_cert} <- Attestation.attest(admin_key, admin_signing.algorithm, signing_cred.public_key),
            {:ok, kem_cert} <- Attestation.attest(admin_key, admin_signing.algorithm, kem_cred.public_key),
-           {:ok, _} <- update_certificate(signing_cred, signing_cert, admin_signing.public_key),
-           {:ok, _} <- update_certificate(kem_cred, kem_cert, admin_signing.public_key) do
+           {:ok, _} <- update_certificate(repo, signing_cred, signing_cert, admin_signing.public_key),
+           {:ok, _} <- update_certificate(repo, kem_cred, kem_cert, admin_signing.public_key) do
         :ok
       else
         {:error, reason} -> {:error, reason}
@@ -223,13 +230,13 @@ defmodule PkiRaEngine.CredentialManager do
       {:error, :attestation_error}
   end
 
-  defp update_certificate(credential, certificate, attester_public_key) do
+  defp update_certificate(repo, credential, certificate, attester_public_key) do
     credential
     |> Credential.changeset(%{certificate: certificate, attested_by_key: attester_public_key})
-    |> Repo.update()
+    |> repo.update()
   end
 
-  defp create_credential(user_id, credential_type, algorithm, password) do
+  defp create_credential(repo, user_id, credential_type, algorithm, password) do
     case KeyOps.generate_credential_keypair(algorithm, password) do
       {:ok, %{public_key: pub, encrypted_private_key: enc_priv, salt: salt}} ->
         %Credential{}
@@ -241,7 +248,7 @@ defmodule PkiRaEngine.CredentialManager do
           encrypted_private_key: enc_priv,
           salt: salt
         })
-        |> Repo.insert()
+        |> repo.insert()
 
       {:error, reason} ->
         {:error, reason}

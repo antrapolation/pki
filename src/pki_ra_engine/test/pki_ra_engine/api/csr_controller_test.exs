@@ -18,7 +18,7 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
   defp create_user! do
     {:ok, user} =
-      UserManagement.create_user(%{
+      UserManagement.create_user(nil, %{
         display_name: "Controller Test User",
         role: "ra_officer"
       })
@@ -28,14 +28,14 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
   defp create_api_key!(user) do
     {:ok, %{raw_key: raw_key}} =
-      ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "ctrl_test"})
+      ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "ctrl_test"})
 
     raw_key
   end
 
   defp create_profile! do
     {:ok, profile} =
-      CertProfileConfig.create_profile(%{
+      CertProfileConfig.create_profile(nil, %{
         name: "ctrl_profile_#{System.unique_integer([:positive])}"
       })
 
@@ -80,11 +80,11 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
       assert conn.status == 201
       resp = json(conn)
-      assert resp["data"]["id"] != nil
-      assert resp["data"]["csr_pem"] == @sample_csr_pem
-      assert resp["data"]["cert_profile_id"] == profile.id
-      assert resp["data"]["status"] in ["pending", "verified"]
-      assert resp["data"]["submitted_at"] != nil
+      assert resp["id"] != nil
+      assert resp["csr_pem"] == @sample_csr_pem
+      assert resp["cert_profile_id"] == profile.id
+      assert resp["status"] in ["pending", "verified"]
+      assert resp["submitted_at"] != nil
     end
 
     test "422 when csr_pem is missing", %{raw_key: raw_key, profile: profile} do
@@ -125,8 +125,8 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
     setup :setup_auth
 
     test "returns list of CSRs", %{raw_key: raw_key, profile: profile} do
-      CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      CsrValidation.submit_csr(@sample_csr_pem, profile.id)
+      CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr", nil, raw_key)
@@ -134,15 +134,15 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
       assert conn.status == 200
       resp = json(conn)
-      assert is_list(resp["data"])
-      assert length(resp["data"]) == 2
+      assert is_list(resp)
+      assert length(resp) == 2
     end
 
     test "filters by status=pending", %{raw_key: raw_key, profile: profile} do
-      {:ok, csr1} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      {:ok, _csr2} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
+      {:ok, csr1} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      {:ok, _csr2} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
       # validate one so it moves to verified
-      CsrValidation.validate_csr(csr1.id)
+      CsrValidation.validate_csr(nil, csr1.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr?status=pending", nil, raw_key)
@@ -150,12 +150,12 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
       assert conn.status == 200
       resp = json(conn)
-      assert Enum.all?(resp["data"], &(&1["status"] == "pending"))
+      assert Enum.all?(resp, &(&1["status"] == "pending"))
     end
 
     test "filters by status=verified", %{raw_key: raw_key, profile: profile} do
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      CsrValidation.validate_csr(nil, csr.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr?status=verified", nil, raw_key)
@@ -163,8 +163,8 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
       assert conn.status == 200
       resp = json(conn)
-      assert length(resp["data"]) >= 1
-      assert Enum.all?(resp["data"], &(&1["status"] == "verified"))
+      assert length(resp) >= 1
+      assert Enum.all?(resp, &(&1["status"] == "verified"))
     end
 
     test "returns empty list when no CSRs exist", %{raw_key: raw_key} do
@@ -173,7 +173,7 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
         |> Router.call(@opts)
 
       assert conn.status == 200
-      assert json(conn)["data"] == []
+      assert json(conn) == []
     end
   end
 
@@ -183,7 +183,7 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
     setup :setup_auth
 
     test "200 with CSR detail", %{raw_key: raw_key, profile: profile} do
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr/#{csr.id}", nil, raw_key)
@@ -191,9 +191,9 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
       assert conn.status == 200
       resp = json(conn)
-      assert resp["data"]["id"] == csr.id
-      assert resp["data"]["csr_pem"] == @sample_csr_pem
-      assert resp["data"]["subject_dn"] != nil
+      assert resp["id"] == csr.id
+      assert resp["csr_pem"] == @sample_csr_pem
+      assert resp["subject_dn"] != nil
     end
 
     test "404 for non-existent CSR id", %{raw_key: raw_key} do
@@ -212,8 +212,8 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
     setup :setup_auth
 
     test "approves a verified CSR", %{user: user, raw_key: raw_key, profile: profile} do
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id}
 
@@ -223,12 +223,12 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
       assert conn.status == 200
       resp = json(conn)
-      assert resp["data"]["status"] == "approved"
-      assert resp["data"]["reviewed_by"] == user.id
+      assert resp["status"] == "approved"
+      assert resp["reviewed_by"] == user.id
     end
 
     test "422 when CSR is still pending (invalid transition)", %{user: user, raw_key: raw_key, profile: profile} do
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
 
       body = %{"reviewer_user_id" => user.id}
 
@@ -265,8 +265,8 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
     setup :setup_auth
 
     test "rejects a verified CSR with reason", %{user: user, raw_key: raw_key, profile: profile} do
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{
         "reviewer_user_id" => user.id,
@@ -279,14 +279,14 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
 
       assert conn.status == 200
       resp = json(conn)
-      assert resp["data"]["status"] == "rejected"
-      assert resp["data"]["rejection_reason"] == "Policy violation"
-      assert resp["data"]["reviewed_by"] == user.id
+      assert resp["status"] == "rejected"
+      assert resp["rejection_reason"] == "Policy violation"
+      assert resp["reviewed_by"] == user.id
     end
 
     test "422 when reason is missing", %{user: user, raw_key: raw_key, profile: profile} do
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id}
 
@@ -308,7 +308,7 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
     end
 
     test "422 when CSR is still pending (invalid transition)", %{user: user, raw_key: raw_key, profile: profile} do
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
 
       body = %{"reviewer_user_id" => user.id, "reason" => "bad"}
 

@@ -60,21 +60,30 @@ defmodule PkiRaPortalWeb.CsrsLive do
   @impl true
   def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
     filters = build_filters(socket.assigns.status_filter, ra_instance_id)
-    {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
+    csrs = case RaEngineClient.list_csrs(filters, tenant_opts(socket)) do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
     {:noreply, socket |> assign(csrs: csrs, selected_ra_instance_id: ra_instance_id, page: 1) |> apply_pagination()}
   end
 
   @impl true
   def handle_event("filter_status", %{"status" => status}, socket) do
     filters = build_filters(status, socket.assigns.selected_ra_instance_id)
-    {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
+    csrs = case RaEngineClient.list_csrs(filters, tenant_opts(socket)) do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
     {:noreply, socket |> assign(csrs: csrs, status_filter: status, page: 1) |> apply_pagination()}
   end
 
   @impl true
   def handle_event("view_csr", %{"id" => id}, socket) do
     opts = tenant_opts(socket)
-    {:ok, csr} = RaEngineClient.get_csr(id, opts)
+    csr = case RaEngineClient.get_csr(id, opts) do
+      {:ok, c} -> c
+      {:error, _} -> nil
+    end
 
     dcv_challenge =
       case RaEngineClient.get_dcv_status(id, opts) do
@@ -83,6 +92,10 @@ defmodule PkiRaPortalWeb.CsrsLive do
       end
 
     if connected?(socket) do
+      # Unsubscribe from previous CSR's DCV topic to avoid duplicate messages
+      if prev = socket.assigns[:selected_csr] do
+        Phoenix.PubSub.unsubscribe(PkiRaPortal.PubSub, "dcv:#{prev.id}")
+      end
       Phoenix.PubSub.subscribe(PkiRaPortal.PubSub, "dcv:#{id}")
     end
 
@@ -96,82 +109,112 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("approve_csr", %{"id" => id}, socket) do
-    case RaEngineClient.approve_csr(id, %{approved_by: socket.assigns.current_user[:username]}, tenant_opts(socket)) do
-      {:ok, _} ->
-        filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
-        {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
+    if get_role(socket) not in ["ra_admin", "ra_officer"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.approve_csr(id, %{reviewer_user_id: socket.assigns.current_user[:id] || socket.assigns.current_user["id"]}, tenant_opts(socket)) do
+        {:ok, _} ->
+          filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
+          csrs = case RaEngineClient.list_csrs(filters, tenant_opts(socket)) do
+            {:ok, c} -> c
+            {:error, _} -> []
+          end
 
-        {:noreply,
-         socket
-         |> assign(csrs: csrs, selected_csr: nil)
-         |> apply_pagination()
-         |> put_flash(:info, "CSR approved successfully")}
+          {:noreply,
+           socket
+           |> assign(csrs: csrs, selected_csr: nil)
+           |> apply_pagination()
+           |> put_flash(:info, "CSR approved successfully")}
 
-      {:error, reason} ->
-        Logger.error("[csrs] Failed to approve CSR: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to approve CSR", reason))}
+        {:error, reason} ->
+          Logger.error("[csrs] Failed to approve CSR: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to approve CSR", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("reject_csr", %{"csr_id" => id, "reason" => reason}, socket) do
-    case RaEngineClient.reject_csr(id, reason, %{rejected_by: socket.assigns.current_user[:username]}, tenant_opts(socket)) do
-      {:ok, _} ->
-        filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
-        {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
+    if get_role(socket) not in ["ra_admin", "ra_officer"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.reject_csr(id, reason, %{reviewer_user_id: socket.assigns.current_user[:id] || socket.assigns.current_user["id"]}, tenant_opts(socket)) do
+        {:ok, _} ->
+          filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
+          csrs = case RaEngineClient.list_csrs(filters, tenant_opts(socket)) do
+            {:ok, c} -> c
+            {:error, _} -> []
+          end
 
-        {:noreply,
-         socket
-         |> assign(csrs: csrs, selected_csr: nil)
-         |> apply_pagination()
-         |> put_flash(:info, "CSR rejected")}
+          {:noreply,
+           socket
+           |> assign(csrs: csrs, selected_csr: nil)
+           |> apply_pagination()
+           |> put_flash(:info, "CSR rejected")}
 
-      {:error, reason} ->
-        Logger.error("[csrs] Failed to reject CSR: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to reject CSR", reason))}
+        {:error, reason} ->
+          Logger.error("[csrs] Failed to reject CSR: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to reject CSR", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+    case Integer.parse(page) do
+      {p, ""} when p > 0 -> {:noreply, socket |> assign(page: p) |> apply_pagination()}
+      _ -> {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_event("start_dcv", %{"csr_id" => csr_id, "method" => method}, socket) do
-    opts = tenant_opts(socket) ++ [user_id: socket.assigns.current_user[:id]]
+    if get_role(socket) not in ["ra_admin", "ra_officer"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      opts = tenant_opts(socket) ++ [user_id: socket.assigns.current_user[:id]]
 
-    case RaEngineClient.start_dcv(csr_id, method, opts) do
-      {:ok, challenge} ->
-        audit_log(socket, "dcv_started", "csr", csr_id, %{method: method, domain: challenge[:domain]})
-        {:noreply, assign(socket, dcv_challenge: ensure_map(challenge))}
+      case RaEngineClient.start_dcv(csr_id, method, opts) do
+        {:ok, challenge} ->
+          audit_log(socket, "dcv_started", "csr", csr_id, %{method: method, domain: challenge[:domain]})
+          {:noreply, assign(socket, dcv_challenge: ensure_map(challenge))}
 
-      {:error, reason} ->
-        Logger.error("[csrs] Failed to start DCV: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to start domain validation", reason))}
+        {:error, reason} ->
+          Logger.error("[csrs] Failed to start DCV: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to start domain validation", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("verify_dcv", %{"csr-id" => csr_id}, socket) do
-    opts = tenant_opts(socket)
+    if get_role(socket) not in ["ra_admin", "ra_officer"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      opts = tenant_opts(socket)
 
-    case RaEngineClient.verify_dcv(csr_id, opts) do
-      {:ok, result} ->
-        result_map = ensure_map(result)
-        status = result_map[:status]
+      case RaEngineClient.verify_dcv(csr_id, opts) do
+        {:ok, result} ->
+          result_map = ensure_map(result)
+          status = result_map[:status]
 
-        if status == "passed" do
-          audit_log(socket, "dcv_passed", "csr", csr_id, %{})
-          {:noreply, socket |> put_flash(:info, "Domain validation passed!") |> assign(dcv_challenge: result_map)}
-        else
-          {:noreply, assign(socket, dcv_challenge: result_map)}
-        end
+          if status == "passed" do
+            audit_log(socket, "dcv_passed", "csr", csr_id, %{})
+            {:noreply, socket |> put_flash(:info, "Domain validation passed!") |> assign(dcv_challenge: result_map)}
+          else
+            {:noreply, assign(socket, dcv_challenge: result_map)}
+          end
 
-      {:error, reason} ->
-        Logger.error("[csrs] DCV verify failed: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Verification check failed", reason))}
+        {:error, reason} ->
+          Logger.error("[csrs] DCV verify failed: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Verification check failed", reason))}
+      end
     end
+  end
+
+  defp get_role(socket) do
+    user = socket.assigns[:current_user]
+    user[:role] || user["role"]
   end
 
   defp audit_log(socket, action, target_type, target_id, details) do

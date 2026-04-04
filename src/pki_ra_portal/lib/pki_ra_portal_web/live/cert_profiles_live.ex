@@ -58,29 +58,33 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("create_profile", params, socket) do
-    attrs = %{
-      name: params["name"],
-      key_usage: params["key_usage"],
-      ext_key_usage: params["ext_key_usage"],
-      digest_algo: params["digest_algo"],
-      validity_days: parse_int(params["validity_days"], 365),
-      ra_instance_id: params["ra_instance_id"],
-      issuer_key_id: params["issuer_key_id"]
-    }
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      attrs = %{
+        name: params["name"],
+        key_usage: params["key_usage"],
+        ext_key_usage: params["ext_key_usage"],
+        digest_algo: params["digest_algo"],
+        validity_days: parse_int(params["validity_days"], 365),
+        ra_instance_id: params["ra_instance_id"],
+        issuer_key_id: params["issuer_key_id"]
+      }
 
-    case RaEngineClient.create_cert_profile(attrs, tenant_opts(socket)) do
-      {:ok, profile} ->
-        profiles = [profile | socket.assigns.profiles]
+      case RaEngineClient.create_cert_profile(attrs, tenant_opts(socket)) do
+        {:ok, profile} ->
+          profiles = [profile | socket.assigns.profiles]
 
-        {:noreply,
-         socket
-         |> assign(profiles: profiles)
-         |> apply_pagination()
-         |> put_flash(:info, "Certificate profile created")}
+          {:noreply,
+           socket
+           |> assign(profiles: profiles)
+           |> apply_pagination()
+           |> put_flash(:info, "Certificate profile created")}
 
-      {:error, reason} ->
-        Logger.error("[cert_profiles] Failed to create profile: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create profile", reason))}
+        {:error, reason} ->
+          Logger.error("[cert_profiles] Failed to create profile: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create profile", reason))}
+      end
     end
   end
 
@@ -97,58 +101,74 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("update_profile", params, socket) do
-    profile_id = params["profile_id"]
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      profile_id = params["profile_id"]
 
-    attrs = %{
-      name: params["name"],
-      key_usage: params["key_usage"],
-      ext_key_usage: params["ext_key_usage"],
-      digest_algo: params["digest_algo"],
-      validity_days: parse_int(params["validity_days"], 365),
-      ra_instance_id: params["ra_instance_id"],
-      issuer_key_id: params["issuer_key_id"]
-    }
+      attrs = %{
+        name: params["name"],
+        key_usage: params["key_usage"],
+        ext_key_usage: params["ext_key_usage"],
+        digest_algo: params["digest_algo"],
+        validity_days: parse_int(params["validity_days"], 365),
+        ra_instance_id: params["ra_instance_id"],
+        issuer_key_id: params["issuer_key_id"]
+      }
 
-    case RaEngineClient.update_cert_profile(profile_id, attrs, tenant_opts(socket)) do
-      {:ok, updated} ->
-        profiles =
-          Enum.map(socket.assigns.profiles, fn p ->
-            if p.id == profile_id, do: Map.merge(p, updated), else: p
-          end)
+      case RaEngineClient.update_cert_profile(profile_id, attrs, tenant_opts(socket)) do
+        {:ok, updated} ->
+          profiles =
+            Enum.map(socket.assigns.profiles, fn p ->
+              if p.id == profile_id, do: Map.merge(p, updated), else: p
+            end)
 
-        {:noreply,
-         socket
-         |> assign(profiles: profiles, editing: nil)
-         |> apply_pagination()
-         |> put_flash(:info, "Profile updated")}
+          {:noreply,
+           socket
+           |> assign(profiles: profiles, editing: nil)
+           |> apply_pagination()
+           |> put_flash(:info, "Profile updated")}
 
-      {:error, reason} ->
-        Logger.error("[cert_profiles] Failed to update profile: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to update profile", reason))}
+        {:error, reason} ->
+          Logger.error("[cert_profiles] Failed to update profile: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to update profile", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("delete_profile", %{"id" => id}, socket) do
-    case RaEngineClient.delete_cert_profile(id, tenant_opts(socket)) do
-      {:ok, _} ->
-        profiles = Enum.reject(socket.assigns.profiles, &(&1.id == id))
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.delete_cert_profile(id, tenant_opts(socket)) do
+        {:ok, _} ->
+          profiles = Enum.reject(socket.assigns.profiles, &(&1.id == id))
 
-        {:noreply,
-         socket
-         |> assign(profiles: profiles)
-         |> apply_pagination()
-         |> put_flash(:info, "Profile deleted")}
+          {:noreply,
+           socket
+           |> assign(profiles: profiles)
+           |> apply_pagination()
+           |> put_flash(:info, "Profile deleted")}
 
-      {:error, reason} ->
-        Logger.error("[cert_profiles] Failed to delete profile: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to delete profile", reason))}
+        {:error, reason} ->
+          Logger.error("[cert_profiles] Failed to delete profile: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to delete profile", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+    case Integer.parse(page) do
+      {p, ""} when p > 0 -> {:noreply, socket |> assign(page: p) |> apply_pagination()}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  defp get_role(socket) do
+    user = socket.assigns[:current_user]
+    user[:role] || user["role"]
   end
 
   defp parse_int(val, default) when is_binary(val) do

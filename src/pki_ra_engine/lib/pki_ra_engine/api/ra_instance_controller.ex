@@ -20,7 +20,9 @@ defmodule PkiRaEngine.Api.RaInstanceController do
         json(conn, 422, %{errors: errors})
 
       {:error, reason} ->
-        json(conn, 400, %{error: inspect(reason)})
+        require Logger
+        Logger.error("[ra_instance] Create failed: #{inspect(reason)}")
+        json(conn, 400, %{error: "create_failed"})
     end
   end
 
@@ -63,7 +65,10 @@ defmodule PkiRaEngine.Api.RaInstanceController do
       {:ok, keys} -> json(conn, 200, keys)
       {:error, :ca_engine_url_not_configured} -> json(conn, 503, %{error: "ca_engine_url_not_configured"})
       {:error, {:ca_engine_error, status, detail}} -> json(conn, 502, %{error: "ca_engine_returned_#{status}", detail: detail})
-      {:error, reason} -> json(conn, 502, %{error: inspect(reason)})
+      {:error, reason} ->
+        require Logger
+        Logger.error("[ra_instance] Issuer key listing failed: #{inspect(reason)}")
+        json(conn, 502, %{error: "ca_engine_error"})
     end
   end
 

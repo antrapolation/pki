@@ -38,19 +38,28 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
 
   @impl true
   def handle_event("create_instance", %{"name" => name}, socket) do
-    case RaEngineClient.create_ra_instance(%{name: name}, tenant_opts(socket)) do
-      {:ok, _instance} ->
-        instances = fetch_instances(tenant_opts(socket))
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.create_ra_instance(%{name: name}, tenant_opts(socket)) do
+        {:ok, _instance} ->
+          instances = fetch_instances(tenant_opts(socket))
 
-        {:noreply,
-         socket
-         |> assign(instances: instances, show_create_modal: false)
-         |> put_flash(:info, "RA instance created successfully")}
+          {:noreply,
+           socket
+           |> assign(instances: instances, show_create_modal: false)
+           |> put_flash(:info, "RA instance created successfully")}
 
-      {:error, reason} ->
-        Logger.error("[ra_instances] Failed to create RA instance: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create RA instance", reason))}
+        {:error, reason} ->
+          Logger.error("[ra_instances] Failed to create RA instance: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create RA instance", reason))}
+      end
     end
+  end
+
+  defp get_role(socket) do
+    user = socket.assigns[:current_user]
+    user[:role] || user["role"]
   end
 
   defp fetch_instances(opts) do

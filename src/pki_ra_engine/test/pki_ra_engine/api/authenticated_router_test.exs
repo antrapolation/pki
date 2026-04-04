@@ -18,7 +18,7 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
 
   defp create_user! do
     {:ok, user} =
-      UserManagement.create_user(%{
+      UserManagement.create_user(nil, %{
         display_name: "Auth Test User",
         role: "ra_officer"
       })
@@ -28,14 +28,14 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
 
   defp create_api_key!(user) do
     {:ok, %{raw_key: raw_key}} =
-      ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "auth_test"})
+      ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "auth_test"})
 
     raw_key
   end
 
   defp create_profile! do
     {:ok, profile} =
-      CertProfileConfig.create_profile(%{
+      CertProfileConfig.create_profile(nil, %{
         name: "auth_profile_#{System.unique_integer([:positive])}"
       })
 
@@ -154,7 +154,7 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
         |> Router.call(@opts)
 
       assert conn.status == 200
-      assert is_list(json(conn)["data"])
+      assert is_list(json(conn))
     end
 
     test "POST /api/v1/csr with valid data returns 201" do
@@ -175,7 +175,7 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
       user = create_user!()
       raw_key = create_api_key!(user)
       profile = create_profile!()
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr/#{csr.id}", nil, raw_key)
@@ -188,8 +188,8 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
       user = create_user!()
       raw_key = create_api_key!(user)
       profile = create_profile!()
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id}
 
@@ -198,15 +198,15 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
         |> Router.call(@opts)
 
       assert conn.status == 200
-      assert json(conn)["data"]["status"] == "approved"
+      assert json(conn)["status"] == "approved"
     end
 
     test "POST /api/v1/csr/:id/reject returns 200 for valid reject" do
       user = create_user!()
       raw_key = create_api_key!(user)
       profile = create_profile!()
-      {:ok, csr} = CsrValidation.submit_csr(@sample_csr_pem, profile.id)
-      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id, "reason" => "Not compliant"}
 
@@ -215,7 +215,7 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
         |> Router.call(@opts)
 
       assert conn.status == 200
-      assert json(conn)["data"]["status"] == "rejected"
+      assert json(conn)["status"] == "rejected"
     end
 
     test "GET /api/v1/certificates returns 200" do
@@ -266,7 +266,111 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
         |> Router.call(@opts)
 
       assert conn.status == 200
-      assert json(conn) == %{"status" => "ok"}
+      body = json(conn)
+      assert body["status"] == "ok"
+      assert is_map(body["checks"])
+      assert body["checks"]["database"] == "ok"
+    end
+  end
+
+  # ── RBAC enforcement (403) ────────────────────────────────────────
+
+  describe "RBAC enforcement — 403 for insufficient role" do
+    test "ra_officer cannot access GET /api/v1/users (requires manage_ra_admins)" do
+      user = create_user!()  # creates ra_officer
+      raw_key = create_api_key!(user)
+
+      conn =
+        auth_conn(:get, "/api/v1/users", nil, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 403
+      assert json(conn)["error"] == "forbidden"
+    end
+
+    test "ra_officer cannot access POST /api/v1/cert-profiles (requires manage_cert_profiles)" do
+      user = create_user!()
+      raw_key = create_api_key!(user)
+
+      conn =
+        auth_conn(:post, "/api/v1/cert-profiles", %{"name" => "test"}, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 403
+      assert json(conn)["error"] == "forbidden"
+    end
+
+    test "ra_officer cannot access GET /api/v1/service-configs (requires manage_service_configs)" do
+      user = create_user!()
+      raw_key = create_api_key!(user)
+
+      conn =
+        auth_conn(:get, "/api/v1/service-configs", nil, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 403
+      assert json(conn)["error"] == "forbidden"
+    end
+
+    test "ra_officer cannot access POST /api/v1/api-keys (requires manage_api_keys)" do
+      user = create_user!()
+      raw_key = create_api_key!(user)
+
+      conn =
+        auth_conn(:post, "/api/v1/api-keys", %{"ra_user_id" => user.id, "label" => "test"}, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 403
+      assert json(conn)["error"] == "forbidden"
+    end
+
+    test "auditor cannot access POST /api/v1/csr (requires process_csrs)" do
+      {:ok, auditor} = UserManagement.create_user(nil, %{display_name: "Auditor", role: "auditor"})
+      {:ok, %{raw_key: raw_key}} = ApiKeyManagement.create_api_key(nil, %{ra_user_id: auditor.id, label: "audit_key"})
+
+      conn =
+        auth_conn(:post, "/api/v1/csr", %{"csr_pem" => "test", "cert_profile_id" => "test"}, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 403
+      assert json(conn)["error"] == "forbidden"
+    end
+
+    test "auditor cannot access POST /api/v1/csr/:id/approve (requires process_csrs)" do
+      {:ok, auditor} = UserManagement.create_user(nil, %{display_name: "Auditor2", role: "auditor"})
+      {:ok, %{raw_key: raw_key}} = ApiKeyManagement.create_api_key(nil, %{ra_user_id: auditor.id, label: "audit_key2"})
+
+      conn =
+        auth_conn(:post, "/api/v1/csr/#{Uniq.UUID.uuid7()}/approve", %{"reviewer_user_id" => auditor.id}, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 403
+      assert json(conn)["error"] == "forbidden"
+    end
+
+    test "ra_officer CAN access GET /api/v1/csr (has view_csrs)" do
+      user = create_user!()  # ra_officer has :view_csrs
+      raw_key = create_api_key!(user)
+
+      conn =
+        auth_conn(:get, "/api/v1/csr", nil, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 200
+    end
+
+    test "ra_officer CAN access POST /api/v1/csr/:id/approve (has process_csrs)" do
+      user = create_user!()
+      raw_key = create_api_key!(user)
+      profile = create_profile!()
+      {:ok, csr} = CsrValidation.submit_csr(nil, "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
+
+      conn =
+        auth_conn(:post, "/api/v1/csr/#{verified.id}/approve", %{"reviewer_user_id" => user.id}, raw_key)
+        |> Router.call(@opts)
+
+      assert conn.status == 200
     end
   end
 end

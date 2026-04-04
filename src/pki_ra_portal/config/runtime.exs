@@ -64,6 +64,25 @@ if config_env() == :prod do
     ra_engine_url: ra_engine_url,
     internal_api_secret: internal_api_secret
 
+  # Session cookie salts must be set in production — defaults are insecure.
+  signing_salt =
+    System.get_env("RA_PORTAL_SIGNING_SALT") ||
+      raise """
+      environment variable RA_PORTAL_SIGNING_SALT is missing.
+      Generate one with: mix phx.gen.secret 32
+      """
+
+  encryption_salt =
+    System.get_env("RA_PORTAL_ENCRYPTION_SALT") ||
+      raise """
+      environment variable RA_PORTAL_ENCRYPTION_SALT is missing.
+      Generate one with: mix phx.gen.secret 32
+      """
+
+  config :pki_ra_portal,
+    signing_salt: signing_salt,
+    encryption_salt: encryption_salt
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want

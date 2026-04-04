@@ -10,7 +10,47 @@ defmodule PkiRaEngine.Api.Router do
   plug :dispatch
 
   get "/health" do
-    send_resp(conn, 200, Jason.encode!(%{status: "ok"}))
+    db_ok =
+      try do
+        PkiRaEngine.Repo.query!("SELECT 1")
+        true
+      rescue
+        _ -> false
+      end
+
+    ca_url = Application.get_env(:pki_ra_engine, :ca_engine_url)
+    ca_ok =
+      if ca_url do
+        try do
+          case :httpc.request(:get, {~c"#{ca_url}/health", []}, [timeout: 3000], []) do
+            {:ok, {{_, 200, _}, _, _}} -> true
+            _ -> false
+          end
+        rescue
+          _ -> false
+        end
+      else
+        nil
+      end
+
+    status = if db_ok, do: "ok", else: "degraded"
+    http_status = if db_ok, do: 200, else: 503
+
+    body = %{
+      status: status,
+      checks: %{
+        database: if(db_ok, do: "ok", else: "error"),
+        ca_engine: cond do
+          ca_ok == nil -> "not_configured"
+          ca_ok -> "ok"
+          true -> "unreachable"
+        end
+      }
+    }
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(http_status, Jason.encode!(body))
   end
 
   # Auth endpoints (rate-limited, no token required)

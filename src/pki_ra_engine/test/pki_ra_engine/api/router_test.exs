@@ -11,7 +11,7 @@ defmodule PkiRaEngine.Api.RouterTest do
 
   defp create_user! do
     {:ok, user} =
-      UserManagement.create_user(%{
+      UserManagement.create_user(nil, %{
         display_name: "API User",
         role: "ra_officer"
       })
@@ -21,14 +21,14 @@ defmodule PkiRaEngine.Api.RouterTest do
 
   defp create_api_key!(user) do
     {:ok, %{raw_key: raw_key}} =
-      ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "test"})
+      ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "test"})
 
     raw_key
   end
 
   defp create_profile! do
     {:ok, profile} =
-      CertProfileConfig.create_profile(%{
+      CertProfileConfig.create_profile(nil, %{
         name: "api_test_profile_#{System.unique_integer([:positive])}"
       })
 
@@ -60,7 +60,7 @@ defmodule PkiRaEngine.Api.RouterTest do
         |> Router.call(@opts)
 
       assert conn.status == 200
-      assert json_response(conn) == %{"status" => "ok"}
+      assert json_response(conn)["status"] == "ok"
     end
   end
 
@@ -103,8 +103,8 @@ defmodule PkiRaEngine.Api.RouterTest do
       assert conn.status == 201
       resp = json_response(conn)
       # CSR is auto-validated after submission, so status will be "verified"
-      assert resp["data"]["status"] in ["pending", "verified"]
-      assert resp["data"]["id"] != nil
+      assert resp["status"] in ["pending", "verified"]
+      assert resp["id"] != nil
     end
   end
 
@@ -114,7 +114,7 @@ defmodule PkiRaEngine.Api.RouterTest do
       raw_key = create_api_key!(user)
       profile = create_profile!()
 
-      CsrValidation.submit_csr("-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
+      CsrValidation.submit_csr(nil, "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr", nil, raw_key)
@@ -122,7 +122,7 @@ defmodule PkiRaEngine.Api.RouterTest do
 
       assert conn.status == 200
       resp = json_response(conn)
-      assert is_list(resp["data"])
+      assert is_list(resp)
     end
 
     test "filters CSRs by status" do
@@ -130,8 +130,8 @@ defmodule PkiRaEngine.Api.RouterTest do
       raw_key = create_api_key!(user)
       profile = create_profile!()
 
-      {:ok, csr} = CsrValidation.submit_csr("-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
-      CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
+      CsrValidation.validate_csr(nil, csr.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr?status=verified", nil, raw_key)
@@ -139,8 +139,8 @@ defmodule PkiRaEngine.Api.RouterTest do
 
       assert conn.status == 200
       resp = json_response(conn)
-      assert length(resp["data"]) >= 1
-      assert Enum.all?(resp["data"], &(&1["status"] == "verified"))
+      assert length(resp) >= 1
+      assert Enum.all?(resp, &(&1["status"] == "verified"))
     end
   end
 
@@ -150,7 +150,7 @@ defmodule PkiRaEngine.Api.RouterTest do
       raw_key = create_api_key!(user)
       profile = create_profile!()
 
-      {:ok, csr} = CsrValidation.submit_csr("-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
 
       conn =
         auth_conn(:get, "/api/v1/csr/#{csr.id}", nil, raw_key)
@@ -158,7 +158,7 @@ defmodule PkiRaEngine.Api.RouterTest do
 
       assert conn.status == 200
       resp = json_response(conn)
-      assert resp["data"]["id"] == csr.id
+      assert resp["id"] == csr.id
     end
 
     test "returns 404 for non-existent CSR" do
@@ -179,8 +179,8 @@ defmodule PkiRaEngine.Api.RouterTest do
       raw_key = create_api_key!(user)
       profile = create_profile!()
 
-      {:ok, csr} = CsrValidation.submit_csr("-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
-      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id}
 
@@ -190,7 +190,7 @@ defmodule PkiRaEngine.Api.RouterTest do
 
       assert conn.status == 200
       resp = json_response(conn)
-      assert resp["data"]["status"] == "approved"
+      assert resp["status"] == "approved"
     end
   end
 
@@ -200,8 +200,8 @@ defmodule PkiRaEngine.Api.RouterTest do
       raw_key = create_api_key!(user)
       profile = create_profile!()
 
-      {:ok, csr} = CsrValidation.submit_csr("-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
-      {:ok, verified} = CsrValidation.validate_csr(csr.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
+      {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id, "reason" => "Policy violation"}
 
@@ -211,7 +211,7 @@ defmodule PkiRaEngine.Api.RouterTest do
 
       assert conn.status == 200
       resp = json_response(conn)
-      assert resp["data"]["status"] == "rejected"
+      assert resp["status"] == "rejected"
     end
   end
 

@@ -88,6 +88,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     with {:ok, user} <- PkiRaEngine.UserManagement.get_user(tenant_id, user_id),
          {:ok, _} <- PkiRaEngine.UserManagement.update_user_password(tenant_id, user, %{password: new_password}) do
       :ok
+    else
+      {:error, _} = err -> err
     end
   end
 
@@ -489,13 +491,9 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
       _ -> query
     end
 
-    query = if tenant_id do
-      query
-    else
-      query
-    end
+    repo = PkiRaEngine.TenantRepo.ra_repo(tenant_id)
 
-    certs = PkiRaEngine.Repo.all(query) |> PkiRaEngine.Repo.preload(:cert_profile)
+    certs = repo.all(query) |> repo.preload(:cert_profile)
     {:ok, Enum.map(certs, &cert_to_map/1)}
   end
 
@@ -511,11 +509,12 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
 
   @impl true
   def get_certificate(serial, opts \\ []) do
-    _tenant_id = opts[:tenant_id]
+    tenant_id = opts[:tenant_id]
+    repo = PkiRaEngine.TenantRepo.ra_repo(tenant_id)
 
     import Ecto.Query
 
-    case PkiRaEngine.Repo.one(
+    case repo.one(
       from c in PkiRaEngine.Schema.CsrRequest,
         where: c.issued_cert_serial == ^serial,
         preload: [:cert_profile]

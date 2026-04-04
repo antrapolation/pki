@@ -7,7 +7,7 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
 
   defp create_user! do
     {:ok, user} =
-      UserManagement.create_user(%{
+      UserManagement.create_user(nil, %{
         display_name: "API Key User",
         role: "ra_admin"
       })
@@ -20,7 +20,7 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
       user = create_user!()
 
       assert {:ok, %{raw_key: raw_key, api_key: %RaApiKey{} = api_key}} =
-               ApiKeyManagement.create_api_key(%{
+               ApiKeyManagement.create_api_key(nil, %{
                  ra_user_id: user.id,
                  label: "test key"
                })
@@ -40,7 +40,7 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
       expiry = DateTime.add(DateTime.utc_now(), 3600, :second)
 
       assert {:ok, %{api_key: api_key}} =
-               ApiKeyManagement.create_api_key(%{
+               ApiKeyManagement.create_api_key(nil, %{
                  ra_user_id: user.id,
                  label: "expiring key",
                  expiry: expiry,
@@ -53,7 +53,7 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
 
     test "fails without ra_user_id" do
       assert {:error, _changeset} =
-               ApiKeyManagement.create_api_key(%{label: "orphan key"})
+               ApiKeyManagement.create_api_key(nil, %{label: "orphan key"})
     end
   end
 
@@ -62,15 +62,15 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
       user = create_user!()
 
       {:ok, %{raw_key: raw_key, api_key: original}} =
-        ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "verify test"})
+        ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "verify test"})
 
-      assert {:ok, verified} = ApiKeyManagement.verify_key(raw_key)
+      assert {:ok, verified} = ApiKeyManagement.verify_key(nil,raw_key)
       assert verified.id == original.id
     end
 
     test "returns error for unknown key" do
       fake_key = Base.encode64(:crypto.strong_rand_bytes(32))
-      assert {:error, :invalid_key} = ApiKeyManagement.verify_key(fake_key)
+      assert {:error, :invalid_key} = ApiKeyManagement.verify_key(nil,fake_key)
     end
 
     test "returns error for expired key" do
@@ -78,13 +78,13 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
       past = DateTime.add(DateTime.utc_now(), -3600, :second)
 
       {:ok, %{raw_key: raw_key}} =
-        ApiKeyManagement.create_api_key(%{
+        ApiKeyManagement.create_api_key(nil, %{
           ra_user_id: user.id,
           label: "expired key",
           expiry: past
         })
 
-      assert {:error, :expired} = ApiKeyManagement.verify_key(raw_key)
+      assert {:error, :expired} = ApiKeyManagement.verify_key(nil,raw_key)
     end
 
     test "key with expiry 1 microsecond in the past returns expired" do
@@ -92,24 +92,24 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
       past_expiry = DateTime.add(DateTime.utc_now(), -1, :microsecond)
 
       {:ok, %{raw_key: raw_key}} =
-        ApiKeyManagement.create_api_key(%{
+        ApiKeyManagement.create_api_key(nil, %{
           ra_user_id: user.id,
           label: "boundary expired key",
           expiry: past_expiry
         })
 
-      assert {:error, :expired} = ApiKeyManagement.verify_key(raw_key)
+      assert {:error, :expired} = ApiKeyManagement.verify_key(nil,raw_key)
     end
 
     test "returns error for revoked key" do
       user = create_user!()
 
       {:ok, %{raw_key: raw_key, api_key: api_key}} =
-        ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "revoked key"})
+        ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "revoked key"})
 
-      {:ok, _revoked} = ApiKeyManagement.revoke_key(api_key.id)
+      {:ok, _revoked} = ApiKeyManagement.revoke_key(nil,api_key.id)
 
-      assert {:error, :invalid_key} = ApiKeyManagement.verify_key(raw_key)
+      assert {:error, :invalid_key} = ApiKeyManagement.verify_key(nil,raw_key)
     end
   end
 
@@ -117,10 +117,10 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
     test "lists keys for a user" do
       user = create_user!()
 
-      {:ok, _} = ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "key1"})
-      {:ok, _} = ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "key2"})
+      {:ok, _} = ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "key1"})
+      {:ok, _} = ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "key2"})
 
-      keys = ApiKeyManagement.list_keys(user.id)
+      keys = ApiKeyManagement.list_keys(nil,user.id)
       assert length(keys) == 2
     end
 
@@ -128,10 +128,10 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
       user1 = create_user!()
       user2 = create_user!()
 
-      {:ok, _} = ApiKeyManagement.create_api_key(%{ra_user_id: user1.id, label: "u1 key"})
-      {:ok, _} = ApiKeyManagement.create_api_key(%{ra_user_id: user2.id, label: "u2 key"})
+      {:ok, _} = ApiKeyManagement.create_api_key(nil, %{ra_user_id: user1.id, label: "u1 key"})
+      {:ok, _} = ApiKeyManagement.create_api_key(nil, %{ra_user_id: user2.id, label: "u2 key"})
 
-      keys = ApiKeyManagement.list_keys(user1.id)
+      keys = ApiKeyManagement.list_keys(nil,user1.id)
       assert length(keys) == 1
       assert hd(keys).label == "u1 key"
     end
@@ -142,15 +142,15 @@ defmodule PkiRaEngine.ApiKeyManagementTest do
       user = create_user!()
 
       {:ok, %{api_key: api_key}} =
-        ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "to revoke"})
+        ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "to revoke"})
 
-      assert {:ok, revoked} = ApiKeyManagement.revoke_key(api_key.id)
+      assert {:ok, revoked} = ApiKeyManagement.revoke_key(nil,api_key.id)
       assert revoked.status == "revoked"
       assert revoked.revoked_at != nil
     end
 
     test "returns error for non-existent key" do
-      assert {:error, :not_found} = ApiKeyManagement.revoke_key(Uniq.UUID.uuid7())
+      assert {:error, :not_found} = ApiKeyManagement.revoke_key(nil,Uniq.UUID.uuid7())
     end
   end
 end

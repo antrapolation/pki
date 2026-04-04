@@ -98,7 +98,10 @@ defmodule PkiRaPortalWeb.AuditLogLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    case Integer.parse(page) do
+      {p, ""} when p > 0 -> {:noreply, assign(socket, page: p)}
+      _ -> {:noreply, socket}
+    end
   end
 
   defp generate_csv(events) do

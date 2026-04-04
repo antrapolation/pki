@@ -2,20 +2,20 @@ defmodule PkiRaPortalWeb.ValidationStatusLive do
   use PkiRaPortalWeb, :live_view
   require Logger
 
-  @validation_url Application.compile_env(:pki_ra_portal, :validation_url, "http://localhost:4005")
   @refresh_interval 30_000
 
   @impl true
   def mount(_params, _session, socket) do
+    validation_url = Application.get_env(:pki_ra_portal, :validation_url, "http://localhost:4005")
+
     if connected?(socket) do
       send(self(), :refresh)
-      :timer.send_interval(@refresh_interval, :refresh)
     end
 
     {:ok,
      assign(socket,
        page_title: "Validation Services",
-       validation_url: @validation_url,
+       validation_url: validation_url,
        health: nil,
        crl: nil,
        ocsp_serial: "",
@@ -27,14 +27,16 @@ defmodule PkiRaPortalWeb.ValidationStatusLive do
 
   @impl true
   def handle_info(:refresh, socket) do
-    health = fetch_health()
-    crl = fetch_crl()
+    url = socket.assigns.validation_url
+    health = fetch_health(url)
+    crl = fetch_crl(url)
+    if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval)
     {:noreply, assign(socket, health: health, crl: crl, loading: false, error: nil)}
   end
 
   @impl true
   def handle_event("check_ocsp", %{"serial" => serial}, socket) when serial != "" do
-    result = fetch_ocsp(serial)
+    result = fetch_ocsp(serial, socket.assigns.validation_url)
     {:noreply, assign(socket, ocsp_serial: serial, ocsp_result: result)}
   end
 
@@ -48,8 +50,8 @@ defmodule PkiRaPortalWeb.ValidationStatusLive do
     {:noreply, assign(socket, loading: true)}
   end
 
-  defp fetch_health do
-    case Req.get("#{@validation_url}/health", receive_timeout: 5000) do
+  defp fetch_health(url) do
+    case Req.get("#{url}/health", receive_timeout: 5000) do
       {:ok, %{status: 200, body: body}} -> body
       _ -> %{"status" => "unreachable"}
     end
@@ -57,8 +59,8 @@ defmodule PkiRaPortalWeb.ValidationStatusLive do
     _ -> %{"status" => "unreachable"}
   end
 
-  defp fetch_crl do
-    case Req.get("#{@validation_url}/crl", receive_timeout: 5000) do
+  defp fetch_crl(url) do
+    case Req.get("#{url}/crl", receive_timeout: 5000) do
       {:ok, %{status: 200, body: body}} -> body
       _ -> nil
     end
@@ -66,8 +68,8 @@ defmodule PkiRaPortalWeb.ValidationStatusLive do
     _ -> nil
   end
 
-  defp fetch_ocsp(serial) do
-    case Req.post("#{@validation_url}/ocsp", json: %{serial_number: serial}, receive_timeout: 5000) do
+  defp fetch_ocsp(serial, url) do
+    case Req.post("#{url}/ocsp", json: %{serial_number: serial}, receive_timeout: 5000) do
       {:ok, %{status: 200, body: body}} -> body
       {:ok, %{body: body}} -> body
       _ -> %{"status" => "error", "message" => "Service unreachable"}

@@ -59,8 +59,13 @@ defmodule PkiRaEngine.Api.CsrController do
         {:error, :not_found} ->
           not_found(conn)
 
+        {:error, {:invalid_transition, from, to}} ->
+          unprocessable(conn, "invalid transition from #{from} to #{to}")
+
         {:error, reason} ->
-          unprocessable(conn, inspect(reason))
+          require Logger
+          Logger.error("[csr_controller] Approve failed for CSR #{id}: #{inspect(reason)}")
+          unprocessable(conn, "approval_failed")
       end
     else
       {:error, missing_field} ->
@@ -79,8 +84,13 @@ defmodule PkiRaEngine.Api.CsrController do
         {:error, :not_found} ->
           not_found(conn)
 
+        {:error, {:invalid_transition, from, to}} ->
+          unprocessable(conn, "invalid transition from #{from} to #{to}")
+
         {:error, err} ->
-          unprocessable(conn, inspect(err))
+          require Logger
+          Logger.error("[csr_controller] Reject failed for CSR #{id}: #{inspect(err)}")
+          unprocessable(conn, "rejection_failed")
       end
     else
       {:error, missing_field} ->
@@ -133,7 +143,7 @@ defmodule PkiRaEngine.Api.CsrController do
     end)
   end
 
-  defp format_errors(error), do: inspect(error)
+  defp format_errors(_error), do: "submission_failed"
 
   defp json_resp(conn, status, body) do
     conn

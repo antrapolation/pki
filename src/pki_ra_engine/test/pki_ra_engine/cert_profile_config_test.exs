@@ -23,13 +23,13 @@ defmodule PkiRaEngine.CertProfileConfigTest do
   }
 
   defp create_profile!(attrs \\ %{}) do
-    {:ok, profile} = CertProfileConfig.create_profile(Map.merge(@valid_attrs, attrs))
+    {:ok, profile} = CertProfileConfig.create_profile(nil,Map.merge(@valid_attrs, attrs))
     profile
   end
 
   describe "create_profile/1" do
     test "creates profile with all fields" do
-      assert {:ok, profile} = CertProfileConfig.create_profile(@valid_attrs)
+      assert {:ok, profile} = CertProfileConfig.create_profile(nil,@valid_attrs)
       assert profile.name == "standard_tls"
       assert profile.key_usage == "digitalSignature"
       assert profile.subject_dn_policy == %{"required" => ["CN"], "optional" => ["O", "OU"]}
@@ -37,13 +37,13 @@ defmodule PkiRaEngine.CertProfileConfigTest do
     end
 
     test "fails without name" do
-      assert {:error, changeset} = CertProfileConfig.create_profile(%{key_usage: "digitalSignature"})
+      assert {:error, changeset} = CertProfileConfig.create_profile(nil,%{key_usage: "digitalSignature"})
       assert errors_on(changeset)[:name]
     end
 
     test "fails with duplicate name" do
       create_profile!()
-      assert {:error, changeset} = CertProfileConfig.create_profile(@valid_attrs)
+      assert {:error, changeset} = CertProfileConfig.create_profile(nil,@valid_attrs)
       assert errors_on(changeset)[:name]
     end
   end
@@ -51,12 +51,12 @@ defmodule PkiRaEngine.CertProfileConfigTest do
   describe "get_profile/1" do
     test "returns profile by id" do
       profile = create_profile!()
-      assert {:ok, found} = CertProfileConfig.get_profile(profile.id)
+      assert {:ok, found} = CertProfileConfig.get_profile(nil,profile.id)
       assert found.id == profile.id
     end
 
     test "returns error for non-existent id" do
-      assert {:error, :not_found} = CertProfileConfig.get_profile(Uniq.UUID.uuid7())
+      assert {:error, :not_found} = CertProfileConfig.get_profile(nil,Uniq.UUID.uuid7())
     end
   end
 
@@ -65,43 +65,43 @@ defmodule PkiRaEngine.CertProfileConfigTest do
       create_profile!(%{name: "profile_a"})
       create_profile!(%{name: "profile_b"})
 
-      profiles = CertProfileConfig.list_profiles()
+      profiles = CertProfileConfig.list_profiles(nil)
       assert length(profiles) == 2
     end
 
     test "returns empty list when none exist" do
-      assert CertProfileConfig.list_profiles() == []
+      assert CertProfileConfig.list_profiles(nil) == []
     end
   end
 
   describe "update_profile/2" do
     test "updates profile fields" do
       profile = create_profile!()
-      assert {:ok, updated} = CertProfileConfig.update_profile(profile.id, %{key_usage: "keyEncipherment"})
+      assert {:ok, updated} = CertProfileConfig.update_profile(nil,profile.id, %{key_usage: "keyEncipherment"})
       assert updated.key_usage == "keyEncipherment"
     end
 
     test "updates jsonb fields" do
       profile = create_profile!()
       new_policy = %{"days" => 730}
-      assert {:ok, updated} = CertProfileConfig.update_profile(profile.id, %{validity_policy: new_policy})
+      assert {:ok, updated} = CertProfileConfig.update_profile(nil,profile.id, %{validity_policy: new_policy})
       assert updated.validity_policy == new_policy
     end
 
     test "returns error for non-existent profile" do
-      assert {:error, :not_found} = CertProfileConfig.update_profile(Uniq.UUID.uuid7(), %{key_usage: "x"})
+      assert {:error, :not_found} = CertProfileConfig.update_profile(nil,Uniq.UUID.uuid7(), %{key_usage: "x"})
     end
   end
 
   describe "delete_profile/1" do
     test "hard-deletes the profile" do
       profile = create_profile!()
-      assert {:ok, _deleted} = CertProfileConfig.delete_profile(profile.id)
-      assert {:error, :not_found} = CertProfileConfig.get_profile(profile.id)
+      assert {:ok, _deleted} = CertProfileConfig.delete_profile(nil,profile.id)
+      assert {:error, :not_found} = CertProfileConfig.get_profile(nil,profile.id)
     end
 
     test "returns error for non-existent profile" do
-      assert {:error, :not_found} = CertProfileConfig.delete_profile(Uniq.UUID.uuid7())
+      assert {:error, :not_found} = CertProfileConfig.delete_profile(nil,Uniq.UUID.uuid7())
     end
   end
 end

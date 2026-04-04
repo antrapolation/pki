@@ -7,13 +7,13 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, configs} = RaEngineClient.list_service_configs(tenant_opts(socket))
+    if connected?(socket), do: send(self(), :load_data)
 
     {:ok,
      socket
      |> assign(
        page_title: "Service Configuration",
-       configs: configs,
+       configs: [],
        page: 1,
        per_page: 50
      )
@@ -21,43 +21,66 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
   end
 
   @impl true
+  def handle_info(:load_data, socket) do
+    configs = case RaEngineClient.list_service_configs(tenant_opts(socket)) do
+      {:ok, c} -> c
+      {:error, _} -> []
+    end
+
+    {:noreply, socket |> assign(configs: configs) |> apply_pagination()}
+  end
+
+  @impl true
   def handle_event("configure_service", params, socket) do
-    attrs = %{
-      service_type: params["service_type"],
-      port: parse_int(params["port"], 8080),
-      url: params["url"],
-      rate_limit: parse_int(params["rate_limit"], 1000)
-    }
+    role = get_role(socket)
+    if role not in ["ra_admin"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      attrs = %{
+        service_type: params["service_type"],
+        port: parse_int(params["port"], 8080),
+        url: params["url"],
+        rate_limit: parse_int(params["rate_limit"], 1000)
+      }
 
-    case RaEngineClient.configure_service(attrs, tenant_opts(socket)) do
-      {:ok, config} ->
-        configs =
-          case Enum.find_index(socket.assigns.configs, &(&1.service_type == config.service_type)) do
-            nil -> [config | socket.assigns.configs]
-            idx -> List.replace_at(socket.assigns.configs, idx, Map.merge(Enum.at(socket.assigns.configs, idx), config))
-          end
+      case RaEngineClient.configure_service(attrs, tenant_opts(socket)) do
+        {:ok, config} ->
+          configs =
+            case Enum.find_index(socket.assigns.configs, &(&1.service_type == config.service_type)) do
+              nil -> [config | socket.assigns.configs]
+              idx -> List.replace_at(socket.assigns.configs, idx, Map.merge(Enum.at(socket.assigns.configs, idx), config))
+            end
 
-        {:noreply,
-         socket
-         |> assign(configs: configs)
-         |> apply_pagination()
-         |> put_flash(:info, "Service configured successfully")}
+          {:noreply,
+           socket
+           |> assign(configs: configs)
+           |> apply_pagination()
+           |> put_flash(:info, "Service configured successfully")}
 
-      {:error, reason} ->
-        Logger.error("[service_configs] Failed to configure service: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to configure service", reason))}
+        {:error, reason} ->
+          Logger.error("[service_configs] Failed to configure service: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to configure service", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+    case Integer.parse(page) do
+      {p, ""} when p > 0 -> {:noreply, socket |> assign(page: p) |> apply_pagination()}
+      _ -> {:noreply, socket}
+    end
   end
 
   defp format_ip_field(v) when is_map(v) and map_size(v) == 0, do: ""
   defp format_ip_field(v) when is_map(v), do: Jason.encode!(v)
   defp format_ip_field(v) when is_binary(v), do: v
   defp format_ip_field(_), do: ""
+
+  defp get_role(socket) do
+    user = socket.assigns[:current_user]
+    user[:role] || user["role"]
+  end
 
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do

@@ -39,88 +39,112 @@ defmodule PkiRaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("create_user", params, socket) do
-    attrs = %{
-      username: params["username"],
-      display_name: params["display_name"],
-      email: params["email"],
-      role: params["role"]
-    }
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      attrs = %{
+        username: params["username"],
+        display_name: params["display_name"],
+        email: params["email"],
+        role: params["role"]
+      }
 
-    case RaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
-      {:ok, _user} ->
-        send(self(), :load_data)
-        {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
+      case RaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
+        {:ok, _user} ->
+          send(self(), :load_data)
+          {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
 
-      {:error, {:validation_error, errors}} ->
-        msg = format_validation_errors(errors)
-        {:noreply, put_flash(socket, :error, "Failed to create user: #{msg}")}
+        {:error, {:validation_error, errors}} ->
+          msg = format_validation_errors(errors)
+          {:noreply, put_flash(socket, :error, "Failed to create user: #{msg}")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to create user: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create user", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to create user: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create user", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("suspend_user", %{"role-id" => role_id}, socket) do
-    case RaEngineClient.suspend_user_role(role_id, actor_opts(socket)) do
-      {:ok, _} ->
-        send(self(), :load_data)
-        {:noreply, put_flash(socket, :info, "User suspended.")}
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.suspend_user_role(role_id, actor_opts(socket)) do
+        {:ok, _} ->
+          send(self(), :load_data)
+          {:noreply, put_flash(socket, :info, "User suspended.")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to suspend user: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to suspend user", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to suspend user: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to suspend user", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("activate_user", %{"role-id" => role_id}, socket) do
-    case RaEngineClient.activate_user_role(role_id, actor_opts(socket)) do
-      {:ok, _} ->
-        send(self(), :load_data)
-        {:noreply, put_flash(socket, :info, "User activated.")}
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.activate_user_role(role_id, actor_opts(socket)) do
+        {:ok, _} ->
+          send(self(), :load_data)
+          {:noreply, put_flash(socket, :info, "User activated.")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to activate user: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to activate user", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to activate user: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to activate user", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("reset_password", %{"user-id" => user_id}, socket) do
-    case RaEngineClient.reset_user_password(user_id, actor_opts(socket)) do
-      :ok ->
-        {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.reset_user_password(user_id, actor_opts(socket)) do
+        :ok ->
+          {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to reset password: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to reset password", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to reset password: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to reset password", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("resend_invitation", %{"user-id" => user_id}, socket) do
-    case RaEngineClient.resend_invitation(user_id, actor_opts(socket)) do
-      :ok ->
-        {:noreply, put_flash(socket, :info, "Invitation email resent.")}
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.resend_invitation(user_id, actor_opts(socket)) do
+        :ok ->
+          {:noreply, put_flash(socket, :info, "Invitation email resent.")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to resend invitation: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to resend invitation", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to resend invitation: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to resend invitation", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("delete_user", %{"role-id" => role_id}, socket) do
-    case RaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
-      {:ok, _} ->
-        send(self(), :load_data)
-        {:noreply, put_flash(socket, :info, "User removed.")}
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
+        {:ok, _} ->
+          send(self(), :load_data)
+          {:noreply, put_flash(socket, :info, "User removed.")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to remove user: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to remove user", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to remove user: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to remove user", reason))}
+      end
     end
   end
 
@@ -132,7 +156,15 @@ defmodule PkiRaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    case Integer.parse(page) do
+      {p, ""} when p > 0 -> {:noreply, assign(socket, page: p)}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  defp get_role(socket) do
+    user = socket.assigns[:current_user]
+    user[:role] || user["role"]
   end
 
   defp filter_users(users, "all"), do: users

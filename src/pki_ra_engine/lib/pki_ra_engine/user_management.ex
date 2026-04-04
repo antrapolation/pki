@@ -29,7 +29,7 @@ defmodule PkiRaEngine.UserManagement do
     result =
       if password != nil do
         user_attrs = Map.drop(attrs, [:password, "password"])
-        PkiRaEngine.CredentialManager.create_user_with_credentials(user_attrs, password)
+        PkiRaEngine.CredentialManager.create_user_with_credentials(tenant_id, user_attrs, password)
       else
         case %RaUser{} |> RaUser.registration_changeset(attrs) |> repo.insert() do
           {:ok, user} -> {:ok, user}
@@ -103,8 +103,8 @@ defmodule PkiRaEngine.UserManagement do
 
   @doc "Create a new RA user with credentials (password + dual keypairs)."
   @spec create_user_with_credentials(String.t(), map(), String.t(), keyword()) :: {:ok, RaUser.t()} | {:error, term()}
-  def create_user_with_credentials(_tenant_id, attrs, password, opts \\ []) do
-    PkiRaEngine.CredentialManager.create_user_with_credentials(attrs, password, opts)
+  def create_user_with_credentials(tenant_id, attrs, password, opts \\ []) do
+    PkiRaEngine.CredentialManager.create_user_with_credentials(tenant_id, attrs, password, opts)
   end
 
   @doc """
@@ -112,8 +112,8 @@ defmodule PkiRaEngine.UserManagement do
   Returns {:ok, user, session_info} or {:error, :invalid_credentials}.
   """
   @spec authenticate_with_credentials(String.t(), String.t(), String.t()) :: {:ok, RaUser.t(), map()} | {:error, :invalid_credentials}
-  def authenticate_with_credentials(_tenant_id, username, password) do
-    PkiRaEngine.CredentialManager.authenticate(username, password)
+  def authenticate_with_credentials(tenant_id, username, password) do
+    PkiRaEngine.CredentialManager.authenticate(tenant_id, username, password)
   end
 
   @doc "Create a new RA user (without password, for admin-created users)."

@@ -21,27 +21,51 @@ defmodule PkiRaEngine.Api.AuthPlug do
       ["Bearer " <> token] ->
         tenant_id = List.first(Plug.Conn.get_req_header(conn, "x-tenant-id"))
 
-        cond do
-          valid_internal_secret?(token) ->
+        # Validate tenant exists before proceeding (prevents crashes downstream)
+        # nil tenant is allowed (falls back to default repo for single-tenant/bootstrap)
+        case validate_tenant(tenant_id) do
+          {:error, :unknown_tenant} ->
             conn
-            |> assign(:auth_type, :internal)
-            |> assign(:tenant_id, tenant_id)
+            |> put_resp_content_type("application/json")
+            |> send_resp(422, Jason.encode!(%{error: "unknown_tenant", tenant_id: tenant_id}))
+            |> halt()
 
-          true ->
-            case PkiRaEngine.ApiKeyManagement.verify_key(tenant_id, token) do
-              {:ok, api_key} ->
-                conn
-                |> assign(:auth_type, :api_key)
-                |> assign(:current_api_key, api_key)
-                |> assign(:tenant_id, tenant_id)
-
-              _ ->
-                unauthorized(conn)
-            end
+          :ok ->
+            authenticate(conn, token, tenant_id)
         end
 
       _ ->
         unauthorized(conn)
+    end
+  end
+
+  defp authenticate(conn, token, tenant_id) do
+    cond do
+      valid_internal_secret?(token) ->
+        conn
+        |> assign(:auth_type, :internal)
+        |> assign(:tenant_id, tenant_id)
+
+      true ->
+        case PkiRaEngine.ApiKeyManagement.verify_key(tenant_id, token) do
+          {:ok, api_key} ->
+            conn
+            |> assign(:auth_type, :api_key)
+            |> assign(:current_api_key, api_key)
+            |> assign(:tenant_id, tenant_id)
+
+          _ ->
+            unauthorized(conn)
+        end
+    end
+  end
+
+  defp validate_tenant(nil), do: :ok
+  defp validate_tenant(""), do: :ok
+  defp validate_tenant(tenant_id) do
+    case PkiRaEngine.TenantRepo.ra_repo_safe(tenant_id) do
+      {:ok, _repo} -> :ok
+      {:error, :tenant_not_found} -> {:error, :unknown_tenant}
     end
   end
 

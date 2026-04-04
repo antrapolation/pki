@@ -9,7 +9,7 @@ defmodule PkiRaEngine.Api.AuthPlugTest do
 
   defp create_user! do
     {:ok, user} =
-      UserManagement.create_user(%{
+      UserManagement.create_user(nil, %{
         display_name: "Auth Plug User",
         role: "ra_officer"
       })
@@ -19,7 +19,7 @@ defmodule PkiRaEngine.Api.AuthPlugTest do
 
   defp create_api_key!(user) do
     {:ok, %{raw_key: raw_key}} =
-      ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "auth plug test"})
+      ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "auth plug test"})
 
     raw_key
   end
@@ -72,9 +72,9 @@ defmodule PkiRaEngine.Api.AuthPlugTest do
       user = create_user!()
 
       {:ok, %{raw_key: raw_key, api_key: api_key}} =
-        ApiKeyManagement.create_api_key(%{ra_user_id: user.id, label: "revoke test"})
+        ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "revoke test"})
 
-      {:ok, _revoked} = ApiKeyManagement.revoke_key(api_key.id)
+      {:ok, _revoked} = ApiKeyManagement.revoke_key(nil, api_key.id)
 
       conn =
         Plug.Test.conn(:get, "/api/v1/csr")
@@ -113,7 +113,7 @@ defmodule PkiRaEngine.Api.AuthPlugTest do
       past = DateTime.add(DateTime.utc_now(), -3600, :second)
 
       {:ok, %{raw_key: raw_key}} =
-        ApiKeyManagement.create_api_key(%{
+        ApiKeyManagement.create_api_key(nil, %{
           ra_user_id: user.id,
           label: "expired key",
           expiry: past

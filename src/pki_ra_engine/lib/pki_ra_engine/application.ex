@@ -10,7 +10,8 @@ defmodule PkiRaEngine.Application do
     children =
       [
         PkiRaEngine.Repo,
-        PkiRaEngine.CaEngineConfig
+        PkiRaEngine.CaEngineConfig,
+        {Task.Supervisor, name: PkiRaEngine.TaskSupervisor}
       ] ++ dcv_poller_children() ++ http_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
@@ -29,7 +30,8 @@ defmodule PkiRaEngine.Application do
 
   defp http_children do
     if Application.get_env(:pki_ra_engine, :start_http, false) do
-      [{Plug.Cowboy, scheme: :http, plug: PkiRaEngine.Api.Router, options: [port: 4003]}]
+      port = Application.get_env(:pki_ra_engine, :http_port, 4003)
+      [{Plug.Cowboy, scheme: :http, plug: PkiRaEngine.Api.Router, options: [port: port]}]
     else
       []
     end

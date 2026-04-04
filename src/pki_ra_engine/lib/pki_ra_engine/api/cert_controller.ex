@@ -10,10 +10,12 @@ defmodule PkiRaEngine.Api.CertController do
   import Plug.Conn
   import Ecto.Query
 
-  alias PkiRaEngine.Repo
+  alias PkiRaEngine.TenantRepo
   alias PkiRaEngine.Schema.CsrRequest
 
   def index(conn) do
+    tenant_id = conn.assigns[:tenant_id]
+    repo = TenantRepo.ra_repo(tenant_id)
     filters = build_filters(conn.query_params)
 
     certs =
@@ -21,14 +23,17 @@ defmodule PkiRaEngine.Api.CertController do
       |> where([c], c.status == "issued")
       |> apply_filters(filters)
       |> order_by([c], desc: c.reviewed_at)
-      |> Repo.all()
-      |> Repo.preload(:cert_profile)
+      |> repo.all()
+      |> repo.preload(:cert_profile)
 
     json(conn, 200, Enum.map(certs, &serialize_cert/1))
   end
 
   def show(conn, serial) do
-    case Repo.one(from c in CsrRequest, where: c.issued_cert_serial == ^serial, preload: [:cert_profile]) do
+    tenant_id = conn.assigns[:tenant_id]
+    repo = TenantRepo.ra_repo(tenant_id)
+
+    case repo.one(from c in CsrRequest, where: c.issued_cert_serial == ^serial, preload: [:cert_profile]) do
       nil -> json(conn, 404, %{error: "not_found"})
       csr -> json(conn, 200, serialize_cert(csr))
     end
@@ -46,7 +51,9 @@ defmodule PkiRaEngine.Api.CertController do
         json(conn, status, %{error: "revocation_failed", message: msg})
 
       {:error, reason} ->
-        json(conn, 500, %{error: "revocation_failed", message: inspect(reason)})
+        require Logger
+        Logger.error("[cert_controller] Revocation failed: #{inspect(reason)}")
+        json(conn, 500, %{error: "revocation_failed"})
     end
   end
 

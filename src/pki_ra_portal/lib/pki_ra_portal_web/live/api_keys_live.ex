@@ -52,7 +52,10 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
   @impl true
   def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
     filters = if ra_instance_id == "", do: [], else: [ra_instance_id: ra_instance_id]
-    {:ok, keys} = RaEngineClient.list_api_keys(filters, tenant_opts(socket))
+    keys = case RaEngineClient.list_api_keys(filters, tenant_opts(socket)) do
+      {:ok, k} -> k
+      {:error, _} -> []
+    end
 
     {:noreply,
      socket
@@ -62,23 +65,27 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("create_api_key", %{"name" => name}, socket) do
-    user_id = get_in(socket.assigns, [:current_user, "id"]) ||
-              get_in(socket.assigns, [:current_user, :id])
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      user_id = get_in(socket.assigns, [:current_user, "id"]) ||
+                get_in(socket.assigns, [:current_user, :id])
 
-    case RaEngineClient.create_api_key(%{name: name, ra_user_id: user_id}, tenant_opts(socket)) do
-      {:ok, key} ->
-        normalized = normalize_key(key)
-        keys = [Map.drop(normalized, [:raw_key]) | socket.assigns.api_keys]
+      case RaEngineClient.create_api_key(%{name: name, ra_user_id: user_id}, tenant_opts(socket)) do
+        {:ok, key} ->
+          normalized = normalize_key(key)
+          keys = [Map.drop(normalized, [:raw_key]) | socket.assigns.api_keys]
 
-        {:noreply,
-         socket
-         |> assign(api_keys: keys, new_raw_key: key[:raw_key] || key["raw_key"])
-         |> apply_pagination()
-         |> put_flash(:info, "API key created. Copy the key now - it will not be shown again.")}
+          {:noreply,
+           socket
+           |> assign(api_keys: keys, new_raw_key: key[:raw_key] || key["raw_key"])
+           |> apply_pagination()
+           |> put_flash(:info, "API key created. Copy the key now - it will not be shown again.")}
 
-      {:error, reason} ->
-        Logger.error("[api_keys] Failed to create API key: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create API key", reason))}
+        {:error, reason} ->
+          Logger.error("[api_keys] Failed to create API key: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create API key", reason))}
+      end
     end
   end
 
@@ -89,28 +96,40 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("revoke_api_key", %{"id" => id}, socket) do
-    case RaEngineClient.revoke_api_key(id, tenant_opts(socket)) do
-      {:ok, _} ->
-        keys =
-          Enum.map(socket.assigns.api_keys, fn k ->
-            if k.id == id, do: Map.put(k, :status, "revoked"), else: k
-          end)
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case RaEngineClient.revoke_api_key(id, tenant_opts(socket)) do
+        {:ok, _} ->
+          keys =
+            Enum.map(socket.assigns.api_keys, fn k ->
+              if k.id == id, do: Map.put(k, :status, "revoked"), else: k
+            end)
 
-        {:noreply,
-         socket
-         |> assign(api_keys: keys)
-         |> apply_pagination()
-         |> put_flash(:info, "API key revoked")}
+          {:noreply,
+           socket
+           |> assign(api_keys: keys)
+           |> apply_pagination()
+           |> put_flash(:info, "API key revoked")}
 
-      {:error, reason} ->
-        Logger.error("[api_keys] Failed to revoke API key: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to revoke API key", reason))}
+        {:error, reason} ->
+          Logger.error("[api_keys] Failed to revoke API key: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to revoke API key", reason))}
+      end
     end
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
+    case Integer.parse(page) do
+      {p, ""} when p > 0 -> {:noreply, socket |> assign(page: p) |> apply_pagination()}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  defp get_role(socket) do
+    user = socket.assigns[:current_user]
+    user[:role] || user["role"]
   end
 
   defp normalize_key(key) do

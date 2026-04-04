@@ -9,25 +9,25 @@ defmodule PkiRaEngine.UserManagementTest do
   }
 
   defp create_user!(attrs \\ %{}) do
-    {:ok, user} = UserManagement.create_user(Map.merge(@valid_attrs, attrs))
+    {:ok, user} = UserManagement.create_user(nil,Map.merge(@valid_attrs, attrs))
     user
   end
 
   describe "create_user/1" do
     test "creates user with valid attrs" do
-      assert {:ok, user} = UserManagement.create_user(@valid_attrs)
+      assert {:ok, user} = UserManagement.create_user(nil,@valid_attrs)
       assert user.display_name == "Alice Admin"
       assert user.role == "ra_admin"
       assert user.status == "active"
     end
 
     test "fails with missing required fields" do
-      assert {:error, changeset} = UserManagement.create_user(%{})
+      assert {:error, changeset} = UserManagement.create_user(nil,%{})
       assert errors_on(changeset)[:role]
     end
 
     test "fails with invalid role" do
-      assert {:error, changeset} = UserManagement.create_user(%{@valid_attrs | role: "superadmin"})
+      assert {:error, changeset} = UserManagement.create_user(nil,%{@valid_attrs | role: "superadmin"})
       assert errors_on(changeset)[:role]
     end
 
@@ -38,7 +38,7 @@ defmodule PkiRaEngine.UserManagementTest do
       create_user!(%{role: "ra_admin"})
       create_user!(%{role: "ra_officer"})
 
-      users = UserManagement.list_users([])
+      users = UserManagement.list_users(nil,[])
       assert length(users) == 2
     end
 
@@ -46,7 +46,7 @@ defmodule PkiRaEngine.UserManagementTest do
       create_user!(%{role: "ra_admin"})
       create_user!(%{role: "ra_officer"})
 
-      users = UserManagement.list_users(role: "ra_admin")
+      users = UserManagement.list_users(nil,role: "ra_admin")
       assert length(users) == 1
       assert hd(users).role == "ra_admin"
     end
@@ -54,9 +54,9 @@ defmodule PkiRaEngine.UserManagementTest do
     test "filters by status" do
       user = create_user!()
       create_user!()
-      UserManagement.delete_user(user.id)
+      UserManagement.delete_user(nil,user.id)
 
-      users = UserManagement.list_users(status: "suspended")
+      users = UserManagement.list_users(nil,status: "suspended")
       assert length(users) == 1
       assert hd(users).status == "suspended"
     end
@@ -65,48 +65,48 @@ defmodule PkiRaEngine.UserManagementTest do
   describe "get_user/1" do
     test "returns user by id" do
       user = create_user!()
-      assert {:ok, found} = UserManagement.get_user(user.id)
+      assert {:ok, found} = UserManagement.get_user(nil,user.id)
       assert found.id == user.id
     end
 
     test "returns error for non-existent id" do
-      assert {:error, :not_found} = UserManagement.get_user(Uniq.UUID.uuid7())
+      assert {:error, :not_found} = UserManagement.get_user(nil,Uniq.UUID.uuid7())
     end
   end
 
   describe "update_user/2" do
     test "updates display_name" do
       user = create_user!()
-      assert {:ok, updated} = UserManagement.update_user(user.id, %{display_name: "Bob"})
+      assert {:ok, updated} = UserManagement.update_user(nil,user.id, %{display_name: "Bob"})
       assert updated.display_name == "Bob"
     end
 
     test "updates status" do
       user = create_user!()
-      assert {:ok, updated} = UserManagement.update_user(user.id, %{status: "suspended"})
+      assert {:ok, updated} = UserManagement.update_user(nil,user.id, %{status: "suspended"})
       assert updated.status == "suspended"
     end
 
     test "cannot update role" do
       user = create_user!()
-      assert {:ok, updated} = UserManagement.update_user(user.id, %{role: "auditor"})
+      assert {:ok, updated} = UserManagement.update_user(nil,user.id, %{role: "auditor"})
       assert updated.role == "ra_admin"
     end
 
     test "returns error for non-existent user" do
-      assert {:error, :not_found} = UserManagement.update_user(Uniq.UUID.uuid7(), %{display_name: "X"})
+      assert {:error, :not_found} = UserManagement.update_user(nil,Uniq.UUID.uuid7(), %{display_name: "X"})
     end
   end
 
   describe "delete_user/1" do
     test "soft-deletes by setting status to suspended" do
       user = create_user!()
-      assert {:ok, deleted} = UserManagement.delete_user(user.id)
+      assert {:ok, deleted} = UserManagement.delete_user(nil,user.id)
       assert deleted.status == "suspended"
     end
 
     test "returns error for non-existent user" do
-      assert {:error, :not_found} = UserManagement.delete_user(Uniq.UUID.uuid7())
+      assert {:error, :not_found} = UserManagement.delete_user(nil,Uniq.UUID.uuid7())
     end
   end
 

@@ -29,7 +29,9 @@ defmodule PkiRaEngine.Api.UserController do
           json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
 
         {:error, reason} ->
-          json(conn, 422, %{error: "credential_error", message: inspect(reason)})
+          require Logger
+          Logger.error("[user_controller] Credential creation failed: #{inspect(reason)}")
+          json(conn, 422, %{error: "credential_error"})
       end
     else
       # Legacy: create user without credentials

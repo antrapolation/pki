@@ -65,8 +65,8 @@ defmodule PkiRaPortal.SessionSecurity do
     <h2 style="color: #b91c1c;">PKI Security Alert</h2>
     <table style="border-collapse: collapse; width: 100%;">
     <tr><td style="padding: 8px; font-weight: bold;">Event</td><td style="padding: 8px;">#{format_event(event)}</td></tr>
-    <tr><td style="padding: 8px; font-weight: bold;">User</td><td style="padding: 8px;">#{details[:username]} (#{details[:role]})</td></tr>
-    <tr><td style="padding: 8px; font-weight: bold;">Portal</td><td style="padding: 8px;">#{details[:portal]}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">User</td><td style="padding: 8px;">#{esc(details[:username])} (#{esc(details[:role])})</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">Portal</td><td style="padding: 8px;">#{esc(details[:portal])}</td></tr>
     <tr><td style="padding: 8px; font-weight: bold;">Timestamp</td><td style="padding: 8px;">#{timestamp}</td></tr>
     #{event_specific_rows(event, details)}
     </table>
@@ -79,30 +79,33 @@ defmodule PkiRaPortal.SessionSecurity do
 
   defp event_specific_rows(:session_hijack_suspected, details) do
     """
-    <tr><td style="padding: 8px; font-weight: bold;">Old User-Agent</td><td style="padding: 8px;">#{details[:old_user_agent]}</td></tr>
-    <tr><td style="padding: 8px; font-weight: bold;">New User-Agent</td><td style="padding: 8px;">#{details[:new_user_agent]}</td></tr>
-    <tr><td style="padding: 8px; font-weight: bold;">IP</td><td style="padding: 8px;">#{details[:ip]}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">Old User-Agent</td><td style="padding: 8px;">#{esc(details[:old_user_agent])}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">New User-Agent</td><td style="padding: 8px;">#{esc(details[:new_user_agent])}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">IP</td><td style="padding: 8px;">#{esc(details[:ip])}</td></tr>
     """
   end
 
   defp event_specific_rows(:session_ip_changed, details) do
     """
-    <tr><td style="padding: 8px; font-weight: bold;">Old IP</td><td style="padding: 8px;">#{details[:old_ip]}</td></tr>
-    <tr><td style="padding: 8px; font-weight: bold;">New IP</td><td style="padding: 8px;">#{details[:new_ip]}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">Old IP</td><td style="padding: 8px;">#{esc(details[:old_ip])}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">New IP</td><td style="padding: 8px;">#{esc(details[:new_ip])}</td></tr>
     """
   end
 
   defp event_specific_rows(:new_ip_login, details) do
     """
-    <tr><td style="padding: 8px; font-weight: bold;">IP</td><td style="padding: 8px;">#{details[:ip]}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">IP</td><td style="padding: 8px;">#{esc(details[:ip])}</td></tr>
     """
   end
 
   defp event_specific_rows(:concurrent_sessions, details) do
     """
-    <tr><td style="padding: 8px; font-weight: bold;">Active Sessions</td><td style="padding: 8px;">#{details[:session_count]}</td></tr>
+    <tr><td style="padding: 8px; font-weight: bold;">Active Sessions</td><td style="padding: 8px;">#{esc(details[:session_count])}</td></tr>
     """
   end
 
   defp event_specific_rows(_, _), do: ""
+
+  defp esc(nil), do: ""
+  defp esc(val), do: val |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 end
