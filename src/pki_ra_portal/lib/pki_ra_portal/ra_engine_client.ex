@@ -31,6 +31,9 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback list_ra_instances(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback create_ra_instance(map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback available_issuer_keys(keyword()) :: {:ok, [map()]} | {:error, term()}
+  @callback list_ca_connections(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  @callback create_ca_connection(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback delete_ca_connection(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
   @callback authenticate_with_session(String.t(), String.t()) :: {:ok, map(), map()} | {:error, term()}
   @callback register_user(map()) :: {:ok, map()} | {:error, term()}
@@ -78,6 +81,9 @@ defmodule PkiRaPortal.RaEngineClient do
   def list_ra_instances(opts \\ []), do: impl().list_ra_instances(opts)
   def create_ra_instance(attrs, opts \\ []), do: impl().create_ra_instance(attrs, opts)
   def available_issuer_keys(opts \\ []), do: impl().available_issuer_keys(opts)
+  def list_ca_connections(filters \\ [], opts \\ []), do: impl().list_ca_connections(filters, opts)
+  def create_ca_connection(attrs, opts \\ []), do: impl().create_ca_connection(attrs, opts)
+  def delete_ca_connection(id, opts \\ []), do: impl().delete_ca_connection(id, opts)
   def authenticate(username, password), do: impl().authenticate(username, password)
   def authenticate_with_session(username, password), do: impl().authenticate_with_session(username, password)
   def register_user(attrs), do: impl().register_user(attrs)

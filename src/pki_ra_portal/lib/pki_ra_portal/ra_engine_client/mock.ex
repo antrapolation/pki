@@ -202,6 +202,7 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
           status: "active"
         }
       ],
+      ca_connections: [],
       certificates: [
         %{
           id: "019577b0-0070-7000-8000-000000000070",
@@ -509,6 +510,36 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   @impl true
   def available_issuer_keys(_opts \\ []) do
     {:ok, get_state(:available_issuer_keys)}
+  end
+
+  @impl true
+  def list_ca_connections(_filters, _opts \\ []) do
+    {:ok, get_state(:ca_connections)}
+  end
+
+  @impl true
+  def create_ca_connection(attrs, _opts \\ []) do
+    conn = Map.merge(%{
+      id: Uniq.UUID.uuid7(),
+      status: "active",
+      connected_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    }, attrs)
+    update_state(:ca_connections, fn conns -> conns ++ [conn] end)
+    {:ok, conn}
+  end
+
+  @impl true
+  def delete_ca_connection(id, _opts \\ []) do
+    conn = get_state(:ca_connections) |> Enum.find(&(&1.id == id || &1[:id] == id))
+
+    if conn do
+      update_state(:ca_connections, fn conns ->
+        Enum.reject(conns, &(&1.id == id || &1[:id] == id))
+      end)
+      {:ok, Map.put(conn, :status, "revoked")}
+    else
+      {:error, :not_found}
+    end
   end
 
   @impl true

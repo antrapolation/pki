@@ -294,6 +294,61 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     {:ok, Enum.map(keys, &to_map/1)}
   end
 
+  # --- CA connections ---
+
+  @impl true
+  def list_ca_connections(_filters, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id) do
+      [ra | _] ->
+        connections = PkiRaEngine.CaConnectionManagement.list_connections(tenant_id, ra.id)
+        {:ok, Enum.map(connections, &connection_to_map/1)}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  @impl true
+  def create_ca_connection(attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id) do
+      [ra | _] ->
+        case PkiRaEngine.CaConnectionManagement.connect(tenant_id, ra.id, attrs) do
+          {:ok, conn} -> {:ok, connection_to_map(conn)}
+          {:error, _} = err -> err
+        end
+
+      _ ->
+        {:error, :no_ra_instance}
+    end
+  end
+
+  @impl true
+  def delete_ca_connection(id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.CaConnectionManagement.disconnect(tenant_id, id) do
+      {:ok, conn} -> {:ok, connection_to_map(conn)}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp connection_to_map(conn) do
+    %{
+      id: conn.id,
+      ra_instance_id: conn.ra_instance_id,
+      issuer_key_id: conn.issuer_key_id,
+      issuer_key_name: conn.issuer_key_name,
+      algorithm: conn.algorithm,
+      ca_instance_name: conn.ca_instance_name,
+      status: conn.status,
+      connected_at: conn.connected_at
+    }
+  end
+
   # --- API keys ---
 
   @impl true

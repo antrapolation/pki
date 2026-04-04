@@ -455,6 +455,50 @@ defmodule PkiRaPortal.RaEngineClient.Http do
     end
   end
 
+  # --- CA connections ---
+
+  @impl true
+  def list_ca_connections(_filters, opts \\ []) do
+    case auth_get("/api/v1/ca-connections", opts) do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, Enum.map(body, &atomize_keys/1)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def create_ca_connection(attrs, opts \\ []) do
+    case auth_post("/api/v1/ca-connections", attrs, opts) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def delete_ca_connection(id, opts \\ []) do
+    case auth_delete("/api/v1/ca-connections/#{id}", opts) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
   # --- API keys ---
 
   @impl true
