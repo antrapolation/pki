@@ -7,6 +7,13 @@ if platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || System.get_env("
     pool_size: String.to_integer(System.get_env("POOL_SIZE", "5"))
 end
 
+# Production rate limiting: use Mnesia backend (survives restarts, works in clusters)
+# Dev/test uses ETS (configured in config.exs)
+if config_env() == :prod do
+  config :hammer,
+    backend: {Hammer.Backend.Mnesia, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("RA_ENGINE_DATABASE_URL") ||

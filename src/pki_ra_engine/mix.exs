@@ -44,6 +44,7 @@ defmodule PkiRaEngine.MixProject do
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"},
       {:hammer, "~> 6.2"},
+      {:hammer_backend_mnesia, "~> 0.6"},
       {:keyx, path: "../keyx", override: true},
       {:x509, path: "../x509", override: true},
       {:ex_ccrypto, path: "../ex_ccrypto"},
