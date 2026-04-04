@@ -58,12 +58,4 @@ defmodule PkiRaEngine.CaConnectionManagement do
     |> repo.aggregate(:count) > 0
   end
 
-  def get_connection(tenant_id, connection_id) do
-    repo = TenantRepo.ra_repo(tenant_id)
-
-    case repo.get(RaCaConnection, connection_id) do
-      nil -> {:error, :not_found}
-      conn -> {:ok, conn}
-    end
-  end
 end

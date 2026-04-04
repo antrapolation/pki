@@ -9,28 +9,33 @@ defmodule PkiRaEngine.Api.CaConnectionController do
 
   def index(conn) do
     tenant_id = conn.assigns[:tenant_id]
-    ra_instance_id = conn.query_params["ra_instance_id"]
 
-    connections =
-      if ra_instance_id do
-        CaConnectionManagement.list_connections(tenant_id, ra_instance_id)
-      else
-        []
-      end
+    case conn.query_params["ra_instance_id"] do
+      nil ->
+        json(conn, 400, %{error: "missing_parameter", parameter: "ra_instance_id"})
 
-    json(conn, 200, Enum.map(connections, &serialize/1))
+      ra_instance_id ->
+        connections = CaConnectionManagement.list_connections(tenant_id, ra_instance_id)
+        json(conn, 200, Enum.map(connections, &serialize/1))
+    end
   end
 
   def create(conn) do
     tenant_id = conn.assigns[:tenant_id]
     ra_instance_id = conn.body_params["ra_instance_id"]
 
+    # connected_by comes from the authenticated session, not the request body
+    connected_by = case conn.assigns do
+      %{current_api_key: api_key} -> api_key.ra_user_id
+      _ -> nil
+    end
+
     attrs = %{
       issuer_key_id: conn.body_params["issuer_key_id"],
       issuer_key_name: conn.body_params["issuer_key_name"],
       algorithm: conn.body_params["algorithm"],
       ca_instance_name: conn.body_params["ca_instance_name"],
-      connected_by: conn.body_params["connected_by"]
+      connected_by: connected_by
     }
 
     case CaConnectionManagement.connect(tenant_id, ra_instance_id, attrs) do
