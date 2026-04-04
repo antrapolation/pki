@@ -7,6 +7,7 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
   use Plug.Router
 
   alias PkiRaEngine.Api.{
+    CaConnectionController,
     CsrController,
     CertController,
     UserController,
@@ -157,6 +158,24 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
   # Available issuer keys (proxy to CA engine)
   get "/available-issuer-keys" do
     conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&RaInstanceController.available_issuer_keys/1)
+  end
+
+  # --- CA connection routes ---
+
+  get "/ca-connections" do
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&CaConnectionController.index/1)
+  end
+
+  post "/ca-connections" do
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&CaConnectionController.create/1)
+  end
+
+  get "/ca-connections/keys" do
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&CaConnectionController.connected_keys/1)
+  end
+
+  delete "/ca-connections/:id" do
+    conn |> RbacPlug.call(:manage_ra_admins) |> dispatch_unless_halted(&CaConnectionController.delete(&1, id))
   end
 
   match _ do
