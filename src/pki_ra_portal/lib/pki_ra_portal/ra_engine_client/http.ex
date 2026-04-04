@@ -590,6 +590,64 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   @impl true
   def list_audit_events(_filters, _opts \\ []), do: {:error, :not_implemented}
 
+  # --- DCV (Domain Control Validation) ---
+
+  @impl true
+  def start_dcv(csr_id, method, opts \\ []) do
+    payload = %{"method" => method}
+
+    case auth_post("/api/v1/csr/#{csr_id}/dcv", payload, opts) do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def verify_dcv(csr_id, opts \\ []) do
+    case auth_post("/api/v1/csr/#{csr_id}/dcv/verify", %{}, opts) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
+  def get_dcv_status(csr_id, opts \\ []) do
+    case auth_get("/api/v1/csr/#{csr_id}/dcv", opts) do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, Enum.map(body, &atomize_keys/1)}
+
+      {:ok, %{status: 200, body: body}} when is_map(body) ->
+        {:ok, [atomize_keys(body)]}
+
+      {:ok, %{status: 404}} ->
+        {:ok, []}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
   # --- Private helpers ---
 
   defp base_url do

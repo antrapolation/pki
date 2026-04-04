@@ -564,6 +564,56 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     |> Enum.map_join(", ", fn {field, errors} -> "#{field}: #{Enum.join(errors, ", ")}" end)
   end
 
+  # --- DCV (Domain Control Validation) ---
+
+  @impl true
+  def start_dcv(csr_id, method, opts \\ []) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    user_id = Keyword.get(opts, :user_id)
+
+    case PkiRaEngine.CsrValidation.get_csr(tenant_id, csr_id) do
+      {:ok, csr} ->
+        domain = extract_domain_from_dn(csr.subject_dn)
+        timeout_hours = Keyword.get(opts, :timeout_hours, 24)
+        PkiRaEngine.DcvChallenge.create(tenant_id, csr_id, domain, method, user_id, timeout_hours)
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
+  def verify_dcv(csr_id, opts \\ []) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+
+    case PkiRaEngine.DcvChallenge.get_for_csr(tenant_id, csr_id) do
+      challenges when is_list(challenges) ->
+        pending = Enum.find(challenges, &(&1.status == "pending"))
+
+        if pending do
+          PkiRaEngine.DcvChallenge.verify(tenant_id, pending.id)
+        else
+          {:error, :no_pending_challenge}
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
+  def get_dcv_status(csr_id, opts \\ []) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    PkiRaEngine.DcvChallenge.get_for_csr(tenant_id, csr_id)
+  end
+
+  defp extract_domain_from_dn(dn) do
+    case Regex.run(~r/CN=([^,\/]+)/i, dn || "") do
+      [_, cn] -> String.trim(cn)
+      _ -> "unknown"
+    end
+  end
+
   # --- Struct to map conversion helpers ---
 
   defp to_map(%{__struct__: _} = struct) do

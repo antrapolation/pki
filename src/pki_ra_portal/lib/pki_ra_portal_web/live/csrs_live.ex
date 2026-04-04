@@ -19,6 +19,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
        selected_ra_instance_id: "",
        status_filter: "all",
        selected_csr: nil,
+       dcv_challenge: nil,
        reject_reason: "",
        page: 1,
        per_page: 10
@@ -52,6 +53,11 @@ defmodule PkiRaPortalWeb.CsrsLive do
   end
 
   @impl true
+  def handle_info({:dcv_updated, challenge}, socket) do
+    {:noreply, assign(socket, dcv_challenge: ensure_map(challenge))}
+  end
+
+  @impl true
   def handle_event("filter_ra_instance", %{"ra_instance_id" => ra_instance_id}, socket) do
     filters = build_filters(socket.assigns.status_filter, ra_instance_id)
     {:ok, csrs} = RaEngineClient.list_csrs(filters, tenant_opts(socket))
@@ -67,13 +73,25 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_event("view_csr", %{"id" => id}, socket) do
-    {:ok, csr} = RaEngineClient.get_csr(id, tenant_opts(socket))
-    {:noreply, assign(socket, selected_csr: csr)}
+    opts = tenant_opts(socket)
+    {:ok, csr} = RaEngineClient.get_csr(id, opts)
+
+    dcv_challenge =
+      case RaEngineClient.get_dcv_status(id, opts) do
+        {:ok, challenges} when is_list(challenges) -> List.first(challenges)
+        _ -> nil
+      end
+
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(PkiRaPortal.PubSub, "dcv:#{id}")
+    end
+
+    {:noreply, assign(socket, selected_csr: csr, dcv_challenge: dcv_challenge)}
   end
 
   @impl true
   def handle_event("close_detail", _params, socket) do
-    {:noreply, assign(socket, selected_csr: nil)}
+    {:noreply, assign(socket, selected_csr: nil, dcv_challenge: nil)}
   end
 
   @impl true
@@ -118,6 +136,65 @@ defmodule PkiRaPortalWeb.CsrsLive do
   def handle_event("change_page", %{"page" => page}, socket) do
     {:noreply, socket |> assign(page: String.to_integer(page)) |> apply_pagination()}
   end
+
+  @impl true
+  def handle_event("start_dcv", %{"csr_id" => csr_id, "method" => method}, socket) do
+    opts = tenant_opts(socket) ++ [user_id: socket.assigns.current_user[:id]]
+
+    case RaEngineClient.start_dcv(csr_id, method, opts) do
+      {:ok, challenge} ->
+        audit_log(socket, "dcv_started", "csr", csr_id, %{method: method, domain: challenge[:domain]})
+        {:noreply, assign(socket, dcv_challenge: ensure_map(challenge))}
+
+      {:error, reason} ->
+        Logger.error("[csrs] Failed to start DCV: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to start domain validation", reason))}
+    end
+  end
+
+  @impl true
+  def handle_event("verify_dcv", %{"csr-id" => csr_id}, socket) do
+    opts = tenant_opts(socket)
+
+    case RaEngineClient.verify_dcv(csr_id, opts) do
+      {:ok, result} ->
+        result_map = ensure_map(result)
+        status = result_map[:status]
+
+        if status == "passed" do
+          audit_log(socket, "dcv_passed", "csr", csr_id, %{})
+          {:noreply, socket |> put_flash(:info, "Domain validation passed!") |> assign(dcv_challenge: result_map)}
+        else
+          {:noreply, assign(socket, dcv_challenge: result_map)}
+        end
+
+      {:error, reason} ->
+        Logger.error("[csrs] DCV verify failed: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Verification check failed", reason))}
+    end
+  end
+
+  defp audit_log(socket, action, target_type, target_id, details) do
+    PkiPlatformEngine.PlatformAudit.log(action, %{
+      actor_id: socket.assigns.current_user[:id],
+      actor_username: socket.assigns.current_user[:username],
+      target_type: target_type,
+      target_id: target_id,
+      tenant_id: socket.assigns[:tenant_id],
+      portal: "ra",
+      details: details
+    })
+  end
+
+  defp ensure_map(%{__struct__: _} = struct), do: Map.from_struct(struct)
+  defp ensure_map(map) when is_map(map), do: map
+  defp ensure_map(_), do: nil
+
+  defp dcv_status_class("passed"), do: "badge-success"
+  defp dcv_status_class("pending"), do: "badge-warning"
+  defp dcv_status_class("expired"), do: "badge-error"
+  defp dcv_status_class("failed"), do: "badge-error"
+  defp dcv_status_class(_), do: "badge-ghost"
 
   defp build_filters(status, ra_instance_id) do
     filters = if status == "all", do: [], else: [status: status]
@@ -298,6 +375,58 @@ defmodule PkiRaPortalWeb.CsrsLive do
                 <.icon name="hero-x-mark" class="size-4" /> Reject
               </button>
             </form>
+          </div>
+
+          <%!-- DCV Section --%>
+          <div :if={@selected_csr.status in ["verified", "approved"]} class="mt-4 border-t border-base-300 pt-4">
+            <h3 class="text-sm font-semibold mb-3">
+              <.icon name="hero-globe-alt" class="size-4 inline" /> Domain Validation
+            </h3>
+
+            <%= if @dcv_challenge do %>
+              <div class="bg-base-200/50 rounded-lg p-3 text-sm space-y-2">
+                <div class="flex items-center justify-between">
+                  <span>Status:</span>
+                  <span class={["badge badge-sm", dcv_status_class(@dcv_challenge[:status])]}>
+                    {@dcv_challenge[:status]}
+                  </span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span>Method:</span>
+                  <span class="font-mono text-xs">{@dcv_challenge[:method]}</span>
+                </div>
+                <div :if={@dcv_challenge[:status] == "pending"}>
+                  <div class="alert alert-info text-xs mt-2">
+                    <%= if @dcv_challenge[:method] == "http-01" do %>
+                      <p>Place this content at:<br/>
+                      <code class="break-all">http://{@dcv_challenge[:domain]}/.well-known/pki-validation/{@dcv_challenge[:token]}</code></p>
+                      <p class="mt-1">Content: <code class="break-all">{@dcv_challenge[:token_value]}</code></p>
+                    <% else %>
+                      <p>Add TXT record:<br/>
+                      <code>_pki-validation.{@dcv_challenge[:domain]}</code></p>
+                      <p class="mt-1">Value: <code class="break-all">{@dcv_challenge[:token_value]}</code></p>
+                    <% end %>
+                  </div>
+                  <button phx-click="verify_dcv" phx-value-csr-id={@selected_csr.id} class="btn btn-primary btn-sm mt-2">
+                    <.icon name="hero-arrow-path" class="size-4" /> Verify Now
+                  </button>
+                </div>
+              </div>
+            <% else %>
+              <form phx-submit="start_dcv" class="flex items-end gap-3">
+                <input type="hidden" name="csr_id" value={@selected_csr.id} />
+                <div>
+                  <label class="text-xs text-base-content/50 mb-1 block">Method</label>
+                  <select name="method" class="select select-sm select-bordered">
+                    <option value="http-01">HTTP-01</option>
+                    <option value="dns-01">DNS-01</option>
+                  </select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <.icon name="hero-play" class="size-4" /> Start DCV
+                </button>
+              </form>
+            <% end %>
           </div>
         </div>
       </section>

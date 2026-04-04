@@ -51,6 +51,9 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback list_certificates(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback get_certificate(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback revoke_certificate(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback start_dcv(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback verify_dcv(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback get_dcv_status(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
 
   defp impl,
     do: Application.get_env(:pki_ra_portal, :ra_engine_client, PkiRaPortal.RaEngineClient.Mock)
@@ -95,4 +98,7 @@ defmodule PkiRaPortal.RaEngineClient do
   def list_certificates(filters \\ [], opts \\ []), do: impl().list_certificates(filters, opts)
   def get_certificate(serial, opts \\ []), do: impl().get_certificate(serial, opts)
   def revoke_certificate(serial_number, reason, opts \\ []), do: impl().revoke_certificate(serial_number, reason, opts)
+  def start_dcv(csr_id, method, opts \\ []), do: impl().start_dcv(csr_id, method, opts)
+  def verify_dcv(csr_id, opts \\ []), do: impl().verify_dcv(csr_id, opts)
+  def get_dcv_status(csr_id, opts \\ []), do: impl().get_dcv_status(csr_id, opts)
 end

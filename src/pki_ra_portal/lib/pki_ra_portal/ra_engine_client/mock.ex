@@ -662,4 +662,35 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
 
   @impl true
   def reset_password(_user_id, _new_password, _opts \\ []), do: :ok
+
+  # --- DCV (Domain Control Validation) ---
+
+  @impl true
+  def start_dcv(_csr_id, method, _opts \\ []) do
+    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    domain = "example.com"
+    token_value = Base.encode16(:crypto.hash(:sha256, token <> domain), case: :lower)
+
+    {:ok,
+     %{
+       id: "dcv-#{Uniq.UUID.uuid7()}",
+       method: method,
+       domain: domain,
+       token: token,
+       token_value: token_value,
+       status: "pending",
+       expires_at: DateTime.add(DateTime.utc_now(), 24 * 3600, :second),
+       attempts: 0
+     }}
+  end
+
+  @impl true
+  def verify_dcv(_csr_id, _opts \\ []) do
+    {:ok, %{status: "passed", verified_at: DateTime.utc_now()}}
+  end
+
+  @impl true
+  def get_dcv_status(_csr_id, _opts \\ []) do
+    {:ok, []}
+  end
 end
