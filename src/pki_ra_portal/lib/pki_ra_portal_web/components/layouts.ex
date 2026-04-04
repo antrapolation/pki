@@ -38,19 +38,36 @@ defmodule PkiRaPortalWeb.Layouts do
         </div>
 
         <%!-- Navigation --%>
-        <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-          <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
-          <.sidebar_link href="/ra-instances" icon="hero-server" label="RA Instances" current={@page_title} />
-          <.sidebar_link href="/users" icon="hero-users" label="Users" current={@page_title} />
-          <.sidebar_link href="/csrs" icon="hero-document-check" label="CSRs" current={@page_title} />
-          <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Cert Profiles" current={@page_title} />
-          <.sidebar_link href="/service-configs" icon="hero-cog-6-tooth" label="Service Configs" current={@page_title} />
-          <.sidebar_link href="/validation" icon="hero-shield-check" label="Validation" current={@page_title} />
-          <.sidebar_link href="/api-keys" icon="hero-key" label="API Keys" current={@page_title} />
-          <.sidebar_link href="/certificates" icon="hero-document-check" label="Certificates" current={@page_title} />
-          <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
+        <nav class="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
+          <%!-- OVERVIEW — all roles --%>
+          <.sidebar_section label="OVERVIEW">
+            <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
+          </.sidebar_section>
+
+          <%!-- OPERATIONS — ra_admin and ra_officer only --%>
+          <.sidebar_section :if={user_role(@current_user) in ["ra_admin", "ra_officer"]} label="OPERATIONS">
+            <.sidebar_link href="/csrs" icon="hero-document-check" label="CSR Management" current={@page_title} />
+            <.sidebar_link href="/certificates" icon="hero-shield-exclamation" label="Certificates" current={@page_title} />
+            <.sidebar_link href="/validation" icon="hero-shield-check" label="Validation Services" current={@page_title} />
+          </.sidebar_section>
+
+          <%!-- CONFIGURATION — ra_admin only --%>
+          <.sidebar_section :if={user_role(@current_user) == "ra_admin"} label="CONFIGURATION">
+            <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Certificate Profiles" current={@page_title} />
+            <.sidebar_link href="/ca-connection" icon="hero-link" label="CA Connection" current={@page_title} />
+            <.sidebar_link href="/service-configs" icon="hero-cog-6-tooth" label="Service Configs" current={@page_title} />
+          </.sidebar_section>
+
+          <%!-- ADMINISTRATION — ra_admin gets all, auditor gets only Audit Log --%>
+          <.sidebar_section :if={user_role(@current_user) in ["ra_admin", "auditor"]} label="ADMINISTRATION">
+            <.sidebar_link :if={user_role(@current_user) == "ra_admin"} href="/users" icon="hero-users" label="Users" current={@page_title} />
+            <.sidebar_link :if={user_role(@current_user) == "ra_admin"} href="/api-keys" icon="hero-key" label="API Keys" current={@page_title} />
+            <.sidebar_link :if={user_role(@current_user) == "ra_admin"} href="/ra-instances" icon="hero-server" label="RA Instances" current={@page_title} />
+            <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
+          </.sidebar_section>
+
           <div class="divider my-1 px-3"></div>
-          <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
+          <.sidebar_link href="/profile" icon="hero-user-circle" label="My Profile" current={@page_title} />
         </nav>
 
         <%!-- Sidebar footer --%>
@@ -111,6 +128,20 @@ defmodule PkiRaPortalWeb.Layouts do
     """
   end
 
+  attr :label, :string, required: true
+  slot :inner_block, required: true
+
+  defp sidebar_section(assigns) do
+    ~H"""
+    <div class="pt-3 first:pt-0">
+      <p class="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-base-content/30">{@label}</p>
+      <div class="space-y-0.5">
+        {render_slot(@inner_block)}
+      </div>
+    </div>
+    """
+  end
+
   attr :href, :string, required: true
   attr :icon, :string, required: true
   attr :label, :string, required: true
@@ -137,17 +168,25 @@ defmodule PkiRaPortalWeb.Layouts do
     """
   end
 
+  defp user_role(nil), do: nil
+  defp user_role(user), do: user[:role] || user["role"]
+
   defp is_active?("Dashboard", "Dashboard"), do: true
   defp is_active?("RA Instances", "RA Instances"), do: true
   defp is_active?("Users", page) when page in ["Users", "User Management"], do: true
   defp is_active?("CSRs", page) when page in ["CSRs", "CSR Management"], do: true
+  defp is_active?("CSR Management", page) when page in ["CSRs", "CSR Management"], do: true
   defp is_active?("Cert Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true
+  defp is_active?("Certificate Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true
   defp is_active?("Service Configs", page) when page in ["Service Configs", "Service Configuration"], do: true
   defp is_active?("Validation", page) when page in ["Validation", "Validation Services"], do: true
+  defp is_active?("Validation Services", page) when page in ["Validation", "Validation Services"], do: true
   defp is_active?("API Keys", page) when page in ["API Keys", "API Key Management"], do: true
   defp is_active?("Certificates", "Certificates"), do: true
   defp is_active?("Audit Log", "Audit Log"), do: true
+  defp is_active?("CA Connection", "CA Connection"), do: true
   defp is_active?("Profile", "Profile"), do: true
+  defp is_active?("My Profile", "Profile"), do: true
   defp is_active?(_, _), do: false
 
   @doc """
