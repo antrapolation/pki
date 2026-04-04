@@ -93,9 +93,9 @@ defmodule PkiRaEngine.CsrValidation do
       Task.Supervisor.start_child(PkiRaEngine.TaskSupervisor, fn ->
         case forward_to_ca(tenant_id, csr_id) do
           {:ok, _} ->
-            Logger.info("[csr_validation] CSR #{csr_id} auto-forwarded to CA for signing")
+            Logger.info("csr_auto_forwarded csr_id=#{csr_id}")
           {:error, reason} ->
-            Logger.error("[csr_validation] Auto-forward failed for CSR #{csr_id}: #{inspect(reason)}")
+            Logger.error("csr_auto_forward_failed csr_id=#{csr_id} reason=#{inspect(reason)}")
         end
       end)
 
@@ -498,7 +498,7 @@ defmodule PkiRaEngine.CsrValidation do
     })
   rescue
     e ->
-      Logger.error("[csr_validation] Audit log failed for #{action}: #{Exception.message(e)}")
+      Logger.error("audit_log_failed action=#{action} error=#{Exception.message(e)}")
   end
 
 end

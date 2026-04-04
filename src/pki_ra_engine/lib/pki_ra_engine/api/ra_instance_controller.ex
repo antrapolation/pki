@@ -21,7 +21,7 @@ defmodule PkiRaEngine.Api.RaInstanceController do
 
       {:error, reason} ->
         require Logger
-        Logger.error("[ra_instance] Create failed: #{inspect(reason)}")
+        Logger.error("ra_instance_create_failed reason=#{inspect(reason)}")
         json(conn, 400, %{error: "create_failed"})
     end
   end
@@ -67,7 +67,7 @@ defmodule PkiRaEngine.Api.RaInstanceController do
       {:error, {:ca_engine_error, status, detail}} -> json(conn, 502, %{error: "ca_engine_returned_#{status}", detail: detail})
       {:error, reason} ->
         require Logger
-        Logger.error("[ra_instance] Issuer key listing failed: #{inspect(reason)}")
+        Logger.error("issuer_key_listing_failed reason=#{inspect(reason)}")
         json(conn, 502, %{error: "ca_engine_error"})
     end
   end

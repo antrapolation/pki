@@ -48,7 +48,7 @@ defmodule PkiRaEngine.Api.RateLimitPlug do
           |> halt()
 
         {:error, reason} ->
-          Logger.error("[rate_limit] Hammer error for #{key}: #{inspect(reason)}")
+          Logger.error("rate_limit_error key=#{key} reason=#{inspect(reason)}")
 
           conn
           |> put_resp_content_type("application/json")

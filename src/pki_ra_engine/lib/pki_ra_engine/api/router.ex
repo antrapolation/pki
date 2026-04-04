@@ -5,6 +5,8 @@ defmodule PkiRaEngine.Api.Router do
 
   use Plug.Router
 
+  plug Plug.RequestId
+  plug Plug.Telemetry, event_prefix: [:pki, :ra, :endpoint]
   plug :match
   plug Plug.Parsers, parsers: [:json], json_decoder: Jason
   plug :dispatch

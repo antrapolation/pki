@@ -24,7 +24,7 @@ defmodule PkiRaEngine.Api.DcvController do
 
         {:error, reason} ->
           require Logger
-          Logger.error("[dcv_controller] DCV create failed for CSR #{csr_id}: #{inspect(reason)}")
+          Logger.error("dcv_create_failed csr_id=#{csr_id} reason=#{inspect(reason)}")
           unprocessable(conn, "dcv_creation_failed")
       end
     else

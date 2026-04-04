@@ -13,6 +13,7 @@ defmodule PkiRaEngine.Api.AuthPlug do
   """
 
   import Plug.Conn
+  require Logger
 
   def init(opts), do: opts
 
@@ -42,6 +43,8 @@ defmodule PkiRaEngine.Api.AuthPlug do
   defp authenticate(conn, token, tenant_id) do
     cond do
       valid_internal_secret?(token) ->
+        Logger.metadata(engine: "ra", auth_type: :internal, tenant_id: tenant_id)
+
         conn
         |> assign(:auth_type, :internal)
         |> assign(:tenant_id, tenant_id)
@@ -49,6 +52,14 @@ defmodule PkiRaEngine.Api.AuthPlug do
       true ->
         case PkiRaEngine.ApiKeyManagement.verify_key(tenant_id, token) do
           {:ok, api_key} ->
+            Logger.metadata(
+              engine: "ra",
+              auth_type: :api_key,
+              tenant_id: tenant_id,
+              api_key_id: api_key.id,
+              ra_user_id: api_key.ra_user_id
+            )
+
             conn
             |> assign(:auth_type, :api_key)
             |> assign(:current_api_key, api_key)

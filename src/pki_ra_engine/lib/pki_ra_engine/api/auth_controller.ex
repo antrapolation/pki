@@ -51,7 +51,7 @@ defmodule PkiRaEngine.Api.AuthController do
 
       {:error, reason} ->
         require Logger
-        Logger.error("[auth_controller] Registration failed: #{inspect(reason)}")
+        Logger.error("registration_failed reason=#{inspect(reason)}")
         json(conn, 422, %{error: "registration_failed"})
     end
   end

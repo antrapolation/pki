@@ -52,7 +52,7 @@ defmodule PkiRaEngine.Api.CertController do
 
       {:error, reason} ->
         require Logger
-        Logger.error("[cert_controller] Revocation failed: #{inspect(reason)}")
+        Logger.error("cert_revocation_failed serial=#{serial} reason=#{inspect(reason)}")
         json(conn, 500, %{error: "revocation_failed"})
     end
   end

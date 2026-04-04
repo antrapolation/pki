@@ -62,7 +62,7 @@ defmodule PkiRaEngine.DcvChallenge do
       update_attrs =
         case result do
           :ok ->
-            Logger.info("[dcv] Challenge #{challenge_id} passed for #{challenge.domain}")
+            Logger.info("dcv_challenge_passed challenge_id=#{challenge_id} domain=#{challenge.domain}")
 
             %{
               status: "passed",
@@ -73,9 +73,7 @@ defmodule PkiRaEngine.DcvChallenge do
             }
 
           {:error, reason} ->
-            Logger.info(
-              "[dcv] Challenge #{challenge_id} check failed for #{challenge.domain}: #{reason}"
-            )
+            Logger.info("dcv_challenge_check_failed challenge_id=#{challenge_id} domain=#{challenge.domain} reason=#{reason}")
 
             %{
               last_checked_at: now,

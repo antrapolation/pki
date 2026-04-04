@@ -64,7 +64,7 @@ defmodule PkiRaEngine.Api.CsrController do
 
         {:error, reason} ->
           require Logger
-          Logger.error("[csr_controller] Approve failed for CSR #{id}: #{inspect(reason)}")
+          Logger.error("csr_approve_failed csr_id=#{id} reason=#{inspect(reason)}")
           unprocessable(conn, "approval_failed")
       end
     else
@@ -89,7 +89,7 @@ defmodule PkiRaEngine.Api.CsrController do
 
         {:error, err} ->
           require Logger
-          Logger.error("[csr_controller] Reject failed for CSR #{id}: #{inspect(err)}")
+          Logger.error("csr_reject_failed csr_id=#{id} reason=#{inspect(err)}")
           unprocessable(conn, "rejection_failed")
       end
     else

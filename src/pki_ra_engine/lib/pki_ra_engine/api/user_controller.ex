@@ -30,7 +30,7 @@ defmodule PkiRaEngine.Api.UserController do
 
         {:error, reason} ->
           require Logger
-          Logger.error("[user_controller] Credential creation failed: #{inspect(reason)}")
+          Logger.error("credential_creation_failed reason=#{inspect(reason)}")
           json(conn, 422, %{error: "credential_error"})
       end
     else
