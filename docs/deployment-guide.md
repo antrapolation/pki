@@ -529,6 +529,14 @@ sudo systemctl enable caddy
 
 Caddy auto-provisions Let's Encrypt certificates.
 
+### 5.3 Security Notes
+
+- **All services listen on plain HTTP (localhost only).** TLS termination is handled by Caddy.
+- **Do not expose internal ports (4001-4006) to the internet.** Only ports 80/443 should be open in the firewall.
+- The RA Engine API port (4003) is exposed via `api.straptrust.com` through Caddy for external API key clients. Caddy handles TLS for this traffic.
+- Internal service-to-service communication (RA Engine -> CA Engine) uses HTTP over localhost. This is secure because both processes run on the same host and localhost traffic does not traverse the network.
+- For multi-server deployments, use a private network or VPN between hosts and configure TLS on inter-service connections.
+
 ---
 
 ## 6. HSM Configuration
