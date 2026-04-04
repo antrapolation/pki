@@ -169,6 +169,14 @@ defmodule PkiRaPortalWeb.AuditLogLive do
                 <option value="password_reset" selected={@filter_action == "password_reset"}>Password Reset</option>
                 <option value="password_changed" selected={@filter_action == "password_changed"}>Password Changed</option>
                 <option value="profile_updated" selected={@filter_action == "profile_updated"}>Profile Updated</option>
+                <option value="csr_approved" selected={@filter_action == "csr_approved"}>CSR Approved</option>
+                <option value="csr_rejected" selected={@filter_action == "csr_rejected"}>CSR Rejected</option>
+                <option value="cert_issued" selected={@filter_action == "cert_issued"}>Certificate Issued</option>
+                <option value="cert_revoked" selected={@filter_action == "cert_revoked"}>Certificate Revoked</option>
+                <option value="api_key_created" selected={@filter_action == "api_key_created"}>API Key Created</option>
+                <option value="api_key_revoked" selected={@filter_action == "api_key_revoked"}>API Key Revoked</option>
+                <option value="dcv_started" selected={@filter_action == "dcv_started"}>DCV Started</option>
+                <option value="dcv_passed" selected={@filter_action == "dcv_passed"}>DCV Passed</option>
               </select>
             </div>
             <div>

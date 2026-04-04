@@ -31,10 +31,14 @@ defmodule PkiPlatformEngine.PlatformAuditEvent do
     ceremony_completed ceremony_cancelled ceremony_deleted
     issuer_key_activated csr_signed
     quick_setup_completed quick_setup_failed
+    csr_approved csr_rejected cert_issued cert_revoked
+    api_key_created api_key_revoked
+    dcv_started dcv_passed
+    session_expired
   )
 
-  # login_failed may not have an actor (unknown username attempt)
-  @system_actions ~w(login login_failed)
+  # Actions that may not have an actor (automated/system-triggered)
+  @system_actions ~w(login login_failed session_expired cert_issued cert_revoked api_key_created api_key_revoked)
 
   def changeset(event, attrs) do
     event

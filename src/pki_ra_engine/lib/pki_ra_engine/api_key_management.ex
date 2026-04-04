@@ -29,6 +29,10 @@ defmodule PkiRaEngine.ApiKeyManagement do
 
     case %RaApiKey{} |> RaApiKey.changeset(api_key_attrs) |> repo.insert() do
       {:ok, api_key} ->
+        audit("api_key_created", tenant_id, "api_key", api_key.id, %{
+          ra_user_id: api_key.ra_user_id,
+          label: api_key.label
+        })
         {:ok, %{raw_key: Base.encode64(raw_key), api_key: api_key}}
 
       {:error, changeset} ->
@@ -83,9 +87,19 @@ defmodule PkiRaEngine.ApiKeyManagement do
         {:error, :not_found}
 
       api_key ->
-        api_key
-        |> RaApiKey.changeset(%{status: "revoked", revoked_at: DateTime.utc_now()})
-        |> repo.update()
+        case api_key
+             |> RaApiKey.changeset(%{status: "revoked", revoked_at: DateTime.utc_now()})
+             |> repo.update() do
+          {:ok, revoked} ->
+            audit("api_key_revoked", tenant_id, "api_key", id, %{
+              ra_user_id: revoked.ra_user_id,
+              label: revoked.label
+            })
+            {:ok, revoked}
+
+          error ->
+            error
+        end
     end
   end
 
@@ -93,6 +107,18 @@ defmodule PkiRaEngine.ApiKeyManagement do
 
   defp hash_key(raw_key) do
     Base.encode16(:crypto.hash(:sha3_256, raw_key), case: :lower)
+  end
+
+  defp audit(action, tenant_id, target_type, target_id, details) do
+    PkiPlatformEngine.PlatformAudit.log(action, %{
+      target_type: target_type,
+      target_id: target_id,
+      tenant_id: tenant_id,
+      portal: "ra",
+      details: details
+    })
+  rescue
+    _ -> :ok
   end
 
   defp expired?(%RaApiKey{expiry: nil}), do: false

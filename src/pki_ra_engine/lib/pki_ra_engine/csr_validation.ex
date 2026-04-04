@@ -16,6 +16,7 @@ defmodule PkiRaEngine.CsrValidation do
   alias PkiRaEngine.TenantRepo
   alias PkiRaEngine.Schema.CsrRequest
   alias PkiRaEngine.CertProfileConfig
+  alias PkiRaEngine.UserManagement
 
   # Transitions allowed via explicit API calls (approve, reject, mark_issued)
   @api_transitions %{
@@ -82,6 +83,12 @@ defmodule PkiRaEngine.CsrValidation do
            reviewed_by: reviewer_user_id,
            reviewed_at: DateTime.utc_now()
          }) do
+      # Audit: CSR approved
+      audit("csr_approved", tenant_id, reviewer_user_id, "csr", csr_id, %{
+        subject_dn: approved_csr.subject_dn,
+        cert_profile_id: approved_csr.cert_profile_id
+      })
+
       # Auto-forward to CA for signing (async, supervised)
       Task.Supervisor.start_child(PkiRaEngine.TaskSupervisor, fn ->
         case forward_to_ca(tenant_id, csr_id) do
@@ -102,12 +109,18 @@ defmodule PkiRaEngine.CsrValidation do
     repo = TenantRepo.ra_repo(tenant_id)
 
     with {:ok, csr} <- get_csr(tenant_id, csr_id),
-         :ok <- check_transition(csr.status, "rejected") do
-      transition(repo, csr, "rejected", %{
-        reviewed_by: reviewer_user_id,
-        reviewed_at: DateTime.utc_now(),
-        rejection_reason: reason
+         :ok <- check_transition(csr.status, "rejected"),
+         {:ok, rejected_csr} <- transition(repo, csr, "rejected", %{
+           reviewed_by: reviewer_user_id,
+           reviewed_at: DateTime.utc_now(),
+           rejection_reason: reason
+         }) do
+      audit("csr_rejected", tenant_id, reviewer_user_id, "csr", csr_id, %{
+        subject_dn: rejected_csr.subject_dn,
+        reason: reason
       })
+
+      {:ok, rejected_csr}
     end
   end
 
@@ -118,7 +131,14 @@ defmodule PkiRaEngine.CsrValidation do
       Application.get_env(:pki_ra_engine, :ca_engine_module) ||
         raise "ca_engine_module not configured"
 
-    ca_module.revoke_certificate(tenant_id, serial_number, reason)
+    case ca_module.revoke_certificate(tenant_id, serial_number, reason) do
+      {:ok, result} ->
+        audit("cert_revoked", tenant_id, nil, "certificate", serial_number, %{reason: reason})
+        {:ok, result}
+
+      error ->
+        error
+    end
   end
 
   @doc "Get a CSR by ID."
@@ -170,8 +190,14 @@ defmodule PkiRaEngine.CsrValidation do
     repo = TenantRepo.ra_repo(tenant_id)
 
     with {:ok, csr} <- get_csr(tenant_id, csr_id),
-         :ok <- check_transition(csr.status, "issued") do
-      transition(repo, csr, "issued", %{issued_cert_serial: cert_serial})
+         :ok <- check_transition(csr.status, "issued"),
+         {:ok, issued_csr} <- transition(repo, csr, "issued", %{issued_cert_serial: cert_serial}) do
+      audit("cert_issued", tenant_id, nil, "csr", csr_id, %{
+        serial_number: cert_serial,
+        subject_dn: issued_csr.subject_dn
+      })
+
+      {:ok, issued_csr}
     end
   end
 
@@ -446,6 +472,33 @@ defmodule PkiRaEngine.CsrValidation do
     _ ->
       Logger.warning("CSR DER decode failed, falling back to CN=unknown")
       "CN=unknown"
+  end
+
+  # Audit helper — fire-and-forget, never fails the caller
+  defp audit(action, tenant_id, actor_id, target_type, target_id, details) do
+    # Look up actor username if we have an actor_id
+    actor_username =
+      if actor_id do
+        case UserManagement.get_user(tenant_id, actor_id) do
+          {:ok, user} -> user.username || user.display_name
+          _ -> nil
+        end
+      else
+        nil
+      end
+
+    PkiPlatformEngine.PlatformAudit.log(action, %{
+      actor_id: actor_id,
+      actor_username: actor_username,
+      target_type: target_type,
+      target_id: target_id,
+      tenant_id: tenant_id,
+      portal: "ra",
+      details: details
+    })
+  rescue
+    e ->
+      Logger.error("[csr_validation] Audit log failed for #{action}: #{Exception.message(e)}")
   end
 
 end
