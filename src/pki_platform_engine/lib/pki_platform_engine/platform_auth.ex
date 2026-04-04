@@ -136,7 +136,7 @@ defmodule PkiPlatformEngine.PlatformAuth do
       {:error, :email_required}
     else
       temp_password = generate_temp_password()
-      expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+      expires_at = DateTime.utc_now() |> DateTime.add(24 * 3600, :second) |> DateTime.truncate(:second)
       role = attrs[:role] || attrs["role"]
 
       result = PlatformRepo.transaction(fn ->
@@ -257,7 +257,7 @@ defmodule PkiPlatformEngine.PlatformAuth do
   @doc "Resend invitation email with a new temporary password."
   def resend_invitation(user_profile_id, portal, opts \\ []) do
     temp_password = generate_temp_password()
-    expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
+    expires_at = DateTime.utc_now() |> DateTime.add(24 * 3600, :second) |> DateTime.truncate(:second)
 
     case PlatformRepo.get(UserProfile, user_profile_id) do
       nil -> {:error, :not_found}

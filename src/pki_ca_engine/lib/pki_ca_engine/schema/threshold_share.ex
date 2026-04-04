@@ -13,6 +13,7 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     field :key_label, :string
     field :status, :string, default: "pending"
     field :accepted_at, :utc_datetime
+    field :encrypted_password, :binary
 
     belongs_to :issuer_key, PkiCaEngine.Schema.IssuerKey
     # custodian_user_id stores platform user ID (no FK — users live in platform DB)

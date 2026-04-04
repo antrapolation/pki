@@ -7,6 +7,10 @@ defmodule PkiCrypto.Registry do
     "ECC-P256"  => %PkiCrypto.Signing.ECCP256{},
     "ECC-P384"  => %PkiCrypto.Signing.ECCP384{},
     "ECDH-P256" => %PkiCrypto.Kem.ECDHP256{},
+    # KAZ-SIGN (Malaysia PQC) — via NIF
+    "KAZ-SIGN-128" => %PkiCrypto.Signing.KazSign128{},
+    "KAZ-SIGN-192" => %PkiCrypto.Signing.KazSign192{},
+    "KAZ-SIGN-256" => %PkiCrypto.Signing.KazSign256{},
     # ML-DSA (FIPS 204) — via liboqs NIF
     "ML-DSA-44" => %PkiCrypto.Signing.MlDsa44{},
     "ML-DSA-65" => %PkiCrypto.Signing.MlDsa65{},

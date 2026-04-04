@@ -66,12 +66,6 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
   defp store_for_portal("ra"), do: PkiRaPortal.SessionStore
   defp store_for_portal("platform"), do: PkiPlatformPortal.SessionStore
 
-  defp format_time(nil), do: "—"
-
-  defp format_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-  end
-
   defp portal_badge("ca"), do: "badge-primary"
   defp portal_badge("ra"), do: "badge-secondary"
   defp portal_badge("platform"), do: "badge-accent"
@@ -108,8 +102,8 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
               <td>{session.role}</td>
               <td class="text-xs font-mono overflow-hidden text-ellipsis whitespace-nowrap">{session.tenant_id || "—"}</td>
               <td class="font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap">{session.ip}</td>
-              <td>{format_time(session.created_at)}</td>
-              <td>{format_time(session.last_active_at)}</td>
+              <td><.local_time dt={session.created_at} /></td>
+              <td><.local_time dt={session.last_active_at} /></td>
               <td>
                 <button
                   phx-click="force_logout"

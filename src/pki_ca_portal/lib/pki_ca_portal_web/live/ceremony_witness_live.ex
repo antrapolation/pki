@@ -113,13 +113,14 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
       ceremony ->
         attestations = load_attestations(ceremony_id, opts)
         shares = load_shares(ceremony, opts)
+        timeline = build_ceremony_timeline(ceremony, shares, attestations)
 
         {:noreply,
          assign(socket,
            selected_ceremony: ceremony,
            attestations: attestations,
            shares: shares,
-           activity_log: [],
+           activity_log: timeline,
            witness_password: "",
            attest_error: nil,
            keygen_result: nil
@@ -307,10 +308,66 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
     end
   end
 
+  defp build_ceremony_timeline(ceremony, shares, attestations) do
+    # 1. Ceremony initiated
+    initiated = [%{
+      time: ceremony[:inserted_at],
+      message: "Ceremony initiated — #{ceremony[:algorithm]}, #{ceremony[:threshold_k]}-of-#{ceremony[:threshold_n]} threshold"
+    }]
+
+    # 2. Custodian share assignments (from inserted_at on shares)
+    assigned = shares
+    |> Enum.map(fn share ->
+      name = share[:custodian_username] || "Custodian #{share[:share_index]}"
+      %{
+        time: share[:inserted_at],
+        message: "Share ##{share[:share_index]} assigned to #{name}"
+      }
+    end)
+
+    # 3. Custodian share acceptances
+    accepted = shares
+    |> Enum.filter(fn s -> s[:status] == "accepted" and s[:accepted_at] end)
+    |> Enum.map(fn share ->
+      name = share[:custodian_username] || "Custodian #{share[:share_index]}"
+      %{
+        time: share[:accepted_at],
+        message: "#{name} accepted share ##{share[:share_index]} (label: #{share[:key_label] || "—"})"
+      }
+    end)
+
+    # 4. Witness attestations
+    attested = attestations
+    |> Enum.map(fn att ->
+      phase = att[:phase] || att["phase"] || "unknown"
+      %{
+        time: att[:attested_at] || att[:inserted_at],
+        message: "Auditor witnessed #{phase} phase"
+      }
+    end)
+
+    # 5. Ceremony completion
+    completed = if ceremony[:status] == "completed" do
+      [%{time: ceremony[:updated_at], message: "Ceremony completed successfully"}]
+    else
+      []
+    end
+
+    (initiated ++ assigned ++ accepted ++ attested ++ completed)
+    |> Enum.filter(fn e -> e.time != nil end)
+    |> Enum.sort_by(fn e -> to_comparable_time(e.time) end)
+  end
+
+  defp to_comparable_time(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+  defp to_comparable_time(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
+  defp to_comparable_time(%{year: y, month: mo, day: d, hour: h, minute: mi, second: s}),
+    do: :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B", [y, mo, d, h, mi, s]) |> IO.iodata_to_binary()
+  defp to_comparable_time(_), do: ""
+
   defp add_activity(socket, message) do
     entry = %{
       message: message,
-      timestamp: DateTime.utc_now() |> Calendar.strftime("%H:%M:%S")
+      time: DateTime.utc_now()
     }
 
     update(socket, :activity_log, fn log -> [entry | log] |> Enum.take(50) end)
@@ -418,9 +475,10 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
                 </span>
               </div>
               <div class="flex items-center gap-4 text-xs text-base-content/60">
+                <span class="font-medium text-base-content/70">{ceremony[:ca_instance_name] || "—"}</span>
                 <span>{ceremony[:algorithm]}</span>
                 <span>{ceremony[:threshold_k]}-of-{ceremony[:threshold_n]}</span>
-                <span>{format_datetime(ceremony[:initiated_at] || ceremony[:inserted_at])}</span>
+                <span><.local_time dt={ceremony[:initiated_at] || ceremony[:inserted_at]} /></span>
                 <.icon name="hero-chevron-right" class="size-4" />
               </div>
             </div>
@@ -452,7 +510,11 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
         <h3 class="text-xs font-semibold text-base-content/60 uppercase tracking-wider mb-3">
           Ceremony Details
         </h3>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+          <div>
+            <div class="text-xs text-base-content/50">CA Instance</div>
+            <div class="font-medium">{@selected_ceremony[:ca_instance_name] || "—"}</div>
+          </div>
           <div>
             <div class="text-xs text-base-content/50">Algorithm</div>
             <div class="font-medium">{@selected_ceremony[:algorithm]}</div>
@@ -467,7 +529,25 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
           </div>
           <div>
             <div class="text-xs text-base-content/50">Initiated</div>
-            <div class="font-medium">{format_datetime(@selected_ceremony[:initiated_at] || @selected_ceremony[:inserted_at])}</div>
+            <div class="font-medium"><.local_time dt={@selected_ceremony[:initiated_at] || @selected_ceremony[:inserted_at]} /></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Ceremony Timeline --%>
+    <div class="card bg-base-100 shadow-sm border border-base-300">
+      <div class="card-body p-4">
+        <h3 class="text-xs font-semibold text-base-content/60 uppercase tracking-wider mb-3">
+          Ceremony Timeline
+        </h3>
+        <div :if={Enum.empty?(@activity_log)} class="text-xs text-base-content/40 italic py-2">
+          No events recorded yet.
+        </div>
+        <div :if={not Enum.empty?(@activity_log)} class="space-y-1.5">
+          <div :for={entry <- @activity_log} class="flex items-start gap-3 text-xs">
+            <span class="text-base-content/40 font-mono shrink-0 w-36"><.local_time dt={entry.time} /></span>
+            <span class="text-base-content/70">{entry.message}</span>
           </div>
         </div>
       </div>
@@ -484,21 +564,6 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
     <div :if={@attest_error} class="alert alert-error text-sm">
       <.icon name="hero-exclamation-circle" class="size-4" />
       <span>{@attest_error}</span>
-    </div>
-
-    <%!-- Activity log --%>
-    <div :if={not Enum.empty?(@activity_log)} class="card bg-base-100 shadow-sm border border-base-300">
-      <div class="card-body p-4">
-        <h3 class="text-xs font-semibold text-base-content/60 uppercase tracking-wider mb-3">
-          Activity Log
-        </h3>
-        <div class="space-y-1">
-          <div :for={entry <- @activity_log} class="flex items-start gap-2 text-xs">
-            <span class="text-base-content/40 font-mono shrink-0">{entry.timestamp}</span>
-            <span class="text-base-content/70">{entry.message}</span>
-          </div>
-        </div>
-      </div>
     </div>
     """
   end
@@ -649,7 +714,7 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
             <div :for={att <- @attestations} class="flex items-center gap-2 text-xs">
               <.icon name="hero-check-circle" class="size-3 text-success" />
               <span class="font-medium">{att[:phase] || att["phase"]}</span>
-              <span class="text-base-content/40">{format_datetime(att[:attested_at] || att[:inserted_at])}</span>
+              <span class="text-base-content/40"><.local_time dt={att[:attested_at] || att[:inserted_at]} /></span>
             </div>
           </div>
         </div>
@@ -678,8 +743,6 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
           <input
             type="password"
             name="password"
-            value={@witness_password}
-            phx-change="update_witness_password"
             class="input input-bordered input-sm w-full"
             placeholder="Your password"
             required

@@ -707,7 +707,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             </div>
             <div>
               <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider mb-1">Created</p>
-              <p class="text-sm font-medium">{Calendar.strftime(@tenant.inserted_at, "%Y-%m-%d")}</p>
+              <p class="text-sm font-medium"><.local_time dt={@tenant.inserted_at} format="date" /></p>
             </div>
           </div>
         </div>

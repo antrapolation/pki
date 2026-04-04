@@ -9,8 +9,6 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :load_data)
-
     {:ok,
      assign(socket,
        page_title: "User Management",
@@ -24,17 +22,27 @@ defmodule PkiCaPortalWeb.UsersLive do
   end
 
   @impl true
-  def handle_info(:load_data, socket) do
+  def handle_params(params, _uri, socket) do
+    if connected?(socket), do: send(self(), {:load_data, params["role"]})
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:load_data, url_role}, socket) do
     opts = actor_opts(socket)
     users = case CaEngineClient.list_portal_users(opts) do
       {:ok, u} -> u
       {:error, _} -> []
     end
 
+    role = url_role || "all"
+    filtered = filter_users(users, role)
+
     {:noreply,
      assign(socket,
        users: users,
-       filtered_users: users,
+       filtered_users: filtered,
+       role_filter: role,
        loading: false
      )}
   end
@@ -51,7 +59,7 @@ defmodule PkiCaPortalWeb.UsersLive do
     case CaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
       {:ok, user} ->
         audit_log(socket, "user_created", "user", user[:id] || user["id"], %{username: attrs.username, role: attrs.role, email: attrs.email})
-        send(self(), :load_data)
+        send(self(), {:load_data, socket.assigns.role_filter})
         {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
 
       {:error, {:validation_error, errors}} ->
@@ -69,7 +77,7 @@ defmodule PkiCaPortalWeb.UsersLive do
     case CaEngineClient.suspend_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
         audit_log(socket, "user_suspended", "user_role", role_id)
-        send(self(), :load_data)
+        send(self(), {:load_data, socket.assigns.role_filter})
         {:noreply, put_flash(socket, :info, "User suspended.")}
 
       {:error, reason} ->
@@ -83,7 +91,7 @@ defmodule PkiCaPortalWeb.UsersLive do
     case CaEngineClient.activate_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
         audit_log(socket, "user_activated", "user_role", role_id)
-        send(self(), :load_data)
+        send(self(), {:load_data, socket.assigns.role_filter})
         {:noreply, put_flash(socket, :info, "User activated.")}
 
       {:error, reason} ->
@@ -123,7 +131,7 @@ defmodule PkiCaPortalWeb.UsersLive do
     case CaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
       {:ok, _} ->
         audit_log(socket, "user_deleted", "user_role", role_id)
-        send(self(), :load_data)
+        send(self(), {:load_data, socket.assigns.role_filter})
         {:noreply, put_flash(socket, :info, "User removed.")}
 
       {:error, reason} ->
@@ -134,8 +142,8 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("filter_role", %{"role" => role}, socket) do
-    filtered = filter_users(socket.assigns.users, role)
-    {:noreply, assign(socket, role_filter: role, filtered_users: filtered, page: 1)}
+    path = if role == "all", do: "/users", else: "/users?role=#{role}"
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @impl true
@@ -213,16 +221,19 @@ defmodule PkiCaPortalWeb.UsersLive do
       </div>
 
       <%!-- Filter --%>
-      <div id="user-filter" class="flex items-center justify-end">
-        <form phx-change="filter_role" class="flex items-center gap-2">
-          <label for="role" class="text-sm text-base-content/60">Filter by role:</label>
-          <select name="role" id="role-filter" class="select select-sm select-bordered">
-            <option value="all" selected={@role_filter == "all"}>All</option>
+      <div id="user-filter" class="flex items-center gap-4">
+        <form phx-change="filter_role">
+          <label class="text-xs font-medium text-base-content/60 mb-1 block">Role</label>
+          <select name="role" class="select select-sm select-bordered">
+            <option value="all" selected={@role_filter == "all"}>All Roles</option>
             <option value="ca_admin" selected={@role_filter == "ca_admin"}>CA Admin</option>
             <option value="key_manager" selected={@role_filter == "key_manager"}>Key Manager</option>
             <option value="auditor" selected={@role_filter == "auditor"}>Auditor</option>
           </select>
         </form>
+        <div class="text-sm text-base-content/50 self-end pb-1">
+          {length(@filtered_users)} user(s)
+        </div>
       </div>
 
       <%!-- Users table --%>

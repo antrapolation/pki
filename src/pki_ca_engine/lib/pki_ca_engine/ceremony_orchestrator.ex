@@ -13,6 +13,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   alias PkiCaEngine.Schema.{KeyCeremony, ThresholdShare, CeremonyAttestation}
   alias PkiCaEngine.{IssuerKeyManagement, KeystoreManagement}
   alias PkiCaEngine.KeyCeremony.{SyncCeremony, ShareEncryption}
+  alias PkiCaEngine.CeremonyPassword
   import Ecto.Query
 
   @doc """
@@ -93,9 +94,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   end
 
   @doc """
-  Records a custodian accepting their share (key_label stored in DB, password NOT stored in DB).
+  Records a custodian accepting their share. The password is encrypted and stored
+  in the DB so it survives server restarts within the ceremony time window.
   """
-  def accept_share(tenant_id, ceremony_id, user_id, key_label) do
+  def accept_share(tenant_id, ceremony_id, user_id, key_label, password \\ nil) do
     repo = TenantRepo.ca_repo(tenant_id)
 
     case get_ceremony(repo, ceremony_id) do
@@ -110,12 +112,21 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
             {:error, :share_not_found}
 
           share ->
-            share
-            |> Ecto.Changeset.change(%{
+            changes = %{
               key_label: key_label,
               status: "accepted",
               accepted_at: DateTime.utc_now() |> DateTime.truncate(:second)
-            })
+            }
+
+            changes = if password do
+              {:ok, encrypted} = CeremonyPassword.encrypt(password)
+              Map.put(changes, :encrypted_password, encrypted)
+            else
+              changes
+            end
+
+            share
+            |> Ecto.Changeset.change(changes)
             |> repo.update()
         end
 
@@ -193,15 +204,27 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
         |> Ecto.Changeset.change(%{status: "generating"})
         |> repo.update!()
 
-        # Build a password lookup map keyed by user_id for safe ordering
-        password_map = Map.new(custodian_passwords)
-
         # Load shares ordered by share_index to ensure deterministic ordering
         db_shares = repo.all(
           from s in ThresholdShare,
             where: s.issuer_key_id == ^ceremony.issuer_key_id,
             order_by: [asc: s.share_index]
         )
+
+        # Build password map: prefer passed-in passwords (ETS), fall back to DB-stored encrypted passwords
+        password_map =
+          if custodian_passwords == [] or custodian_passwords == %{} do
+            # Read from DB
+            db_shares
+            |> Enum.reduce(%{}, fn share, acc ->
+              case CeremonyPassword.decrypt(share.encrypted_password) do
+                {:ok, pw} -> Map.put(acc, share.custodian_user_id, pw)
+                _ -> acc
+              end
+            end)
+          else
+            Map.new(custodian_passwords)
+          end
 
         # Generate keypair
         case SyncCeremony.generate_keypair(ceremony.algorithm) do
@@ -214,12 +237,12 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
             # Sign cert or generate CSR
             {cert_or_csr_result, cert_der, cert_pem, csr_pem} =
               if is_root do
-                case generate_self_signed(priv, subject_dn) do
+                case generate_self_signed(ceremony.algorithm, priv, pub, subject_dn) do
                   {:ok, der, pem} -> {:ok, der, pem, nil}
                   error -> {error, nil, nil, nil}
                 end
               else
-                case generate_csr(priv, subject_dn) do
+                case generate_csr(ceremony.algorithm, priv, pub, subject_dn) do
                   {:ok, pem} -> {:ok, nil, nil, pem}
                   error -> {error, nil, nil, nil}
                 end
@@ -276,6 +299,9 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
                       |> repo.update!()
                     end) do
                       {:ok, _} ->
+                        # Wipe encrypted passwords from DB
+                        wipe_stored_passwords(repo, ceremony.issuer_key_id)
+
                         # Wipe all sensitive variables and force GC
                         _raw_shares = nil
                         _encrypted_pairs = nil
@@ -351,33 +377,74 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
+  defp wipe_stored_passwords(repo, issuer_key_id) do
+    from(s in ThresholdShare, where: s.issuer_key_id == ^issuer_key_id)
+    |> repo.update_all(set: [encrypted_password: nil])
+  end
+
   defp validate_threshold(k, n) when is_integer(k) and is_integer(n) and k >= 2 and k <= n, do: :ok
   defp validate_threshold(_, _), do: {:error, :invalid_threshold}
 
   defp validate_participants(user_ids, n) when is_list(user_ids) and length(user_ids) == n, do: :ok
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}
 
-  defp generate_self_signed(private_key_der, subject_dn) do
-    try do
-      native_key = decode_private_key(private_key_der)
-      root_cert = X509.Certificate.self_signed(native_key, subject_dn,
-        template: :root_ca, hash: :sha256, serial: {:random, 8}, validity: 365 * 25)
-      cert_der = X509.Certificate.to_der(root_cert)
-      cert_pem = X509.Certificate.to_pem(root_cert)
-      {:ok, cert_der, cert_pem}
-    rescue
-      e -> {:error, e}
+  defp generate_self_signed(algorithm, private_key, public_key, subject_dn) do
+    case kaz_sign_level(algorithm) do
+      {:ok, level} ->
+        with :ok <- KazSign.init(level),
+             {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn),
+             {:ok, cert_der} <- KazSign.self_sign(level, private_key, public_key, csr_der, 365 * 25) do
+          cert_pem = pem_encode("CERTIFICATE", cert_der)
+          {:ok, cert_der, cert_pem}
+        end
+
+      :error ->
+        try do
+          native_key = decode_private_key(private_key)
+          root_cert = X509.Certificate.self_signed(native_key, subject_dn,
+            template: :root_ca, hash: :sha256, serial: {:random, 8}, validity: 365 * 25)
+          cert_der = X509.Certificate.to_der(root_cert)
+          cert_pem = X509.Certificate.to_pem(root_cert)
+          {:ok, cert_der, cert_pem}
+        rescue
+          e -> {:error, e}
+        end
     end
   end
 
-  defp generate_csr(private_key_der, subject_dn) do
-    try do
-      native_key = decode_private_key(private_key_der)
-      csr = X509.CSR.new(native_key, subject_dn)
-      {:ok, X509.CSR.to_pem(csr)}
-    rescue
-      e -> {:error, e}
+  defp generate_csr(algorithm, private_key, public_key, subject_dn) do
+    case kaz_sign_level(algorithm) do
+      {:ok, level} ->
+        with :ok <- KazSign.init(level),
+             {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn) do
+          csr_pem = pem_encode("CERTIFICATE REQUEST", csr_der)
+          {:ok, csr_pem}
+        end
+
+      :error ->
+        try do
+          native_key = decode_private_key(private_key)
+          csr = X509.CSR.new(native_key, subject_dn)
+          {:ok, X509.CSR.to_pem(csr)}
+        rescue
+          e -> {:error, e}
+        end
     end
+  end
+
+  defp kaz_sign_level(algorithm) do
+    case String.downcase(algorithm) do
+      "kaz-sign-128" -> {:ok, 128}
+      "kaz-sign-192" -> {:ok, 192}
+      "kaz-sign-256" -> {:ok, 256}
+      _ -> :error
+    end
+  end
+
+  defp pem_encode(label, der) do
+    b64 = Base.encode64(der, padding: true)
+    lines = Regex.scan(~r/.{1,64}/, b64) |> Enum.map(&hd/1) |> Enum.join("\n")
+    "-----BEGIN #{label}-----\n#{lines}\n-----END #{label}-----\n"
   end
 
   defp decode_private_key(der) do

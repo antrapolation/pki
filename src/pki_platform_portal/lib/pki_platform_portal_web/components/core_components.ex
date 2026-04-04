@@ -354,4 +354,50 @@ defmodule PkiPlatformPortalWeb.CoreComponents do
   def translate_errors(errors, field) when is_list(errors) do
     for {^field, {msg, opts}} <- errors, do: translate_error({msg, opts})
   end
+
+  @doc """
+  Renders a timestamp converted to the browser's local timezone via JS.
+
+  Formats: "datetime" (default), "date", "time".
+
+  ## Examples
+
+      <.local_time dt={@ceremony.inserted_at} />
+      <.local_time dt={@cert.not_after} format="date" />
+  """
+  attr :dt, :any, required: true, doc: "DateTime, NaiveDateTime, or ISO8601 string"
+  attr :format, :string, default: "datetime", values: ["datetime", "date", "time"]
+  attr :class, :string, default: nil
+
+  def local_time(%{dt: nil} = assigns) do
+    ~H"""
+    <span class={@class}>—</span>
+    """
+  end
+
+  def local_time(assigns) do
+    iso = to_iso8601(assigns.dt)
+    fallback = format_utc_fallback(assigns.dt, assigns.format)
+    assigns = assign(assigns, iso: iso, fallback: fallback)
+
+    ~H"""
+    <time datetime={@iso} data-local data-local-format={@format} class={@class}>{@fallback}</time>
+    """
+  end
+
+  defp to_iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp to_iso8601(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
+  defp to_iso8601(%{year: y, month: mo, day: d, hour: h, minute: mi, second: s}),
+    do: :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B", [y, mo, d, h, mi, s]) |> IO.iodata_to_binary()
+  defp to_iso8601(str) when is_binary(str), do: str
+  defp to_iso8601(_), do: ""
+
+  defp format_utc_fallback(dt, "date"), do: safe_strftime(dt, "%Y-%m-%d")
+  defp format_utc_fallback(dt, "time"), do: safe_strftime(dt, "%H:%M:%S")
+  defp format_utc_fallback(dt, _), do: safe_strftime(dt, "%Y-%m-%d %H:%M:%S")
+
+  defp safe_strftime(%DateTime{} = dt, fmt), do: Calendar.strftime(dt, fmt)
+  defp safe_strftime(%NaiveDateTime{} = dt, fmt), do: Calendar.strftime(dt, fmt)
+  defp safe_strftime(%{year: _, month: _, day: _} = dt, fmt), do: Calendar.strftime(dt, fmt)
+  defp safe_strftime(_, _), do: "—"
 end

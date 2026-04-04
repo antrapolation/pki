@@ -5,6 +5,7 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import SessionTimeout from "./session_timeout"
+import "./local_time"
 
 let Hooks = {}
 
@@ -32,7 +33,11 @@ Hooks.EngineTimer = {
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
-  params: {_csrf_token: csrfToken},
+  params: {
+    _csrf_token: csrfToken,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone_offset: -(new Date().getTimezoneOffset())
+  },
   hooks: {...Hooks, SessionTimeout},
 })
 

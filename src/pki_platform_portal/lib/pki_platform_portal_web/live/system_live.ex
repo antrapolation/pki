@@ -212,7 +212,7 @@ defmodule PkiPlatformPortalWeb.SystemLive do
               </div>
               <div>
                 <span class="font-medium text-base-content/40 uppercase tracking-wider block mb-0.5">Checked</span>
-                <span>{if service[:checked_at], do: Calendar.strftime(service.checked_at, "%H:%M:%S"), else: "—"}</span>
+                <span><.local_time dt={service[:checked_at]} format="time" /></span>
               </div>
             </div>
           </div>

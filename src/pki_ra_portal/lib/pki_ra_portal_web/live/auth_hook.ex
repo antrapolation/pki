@@ -29,11 +29,20 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
       timeout_ms = Application.get_env(@app, :session_idle_timeout_ms, 30 * 60 * 1000)
       warning_ms = timeout_ms - 5 * 60 * 1000
 
+      {timezone, tz_offset_min} = case get_connect_params(socket) do
+        %{"timezone" => tz, "timezone_offset" => off} when is_binary(tz) and tz != "" ->
+          {tz, off || 0}
+        _ ->
+          {"UTC", 0}
+      end
+
       base_socket =
         socket
         |> assign(:current_user, user)
         |> assign(:tenant_id, sess.tenant_id)
         |> assign(:session_id, session_id)
+        |> assign(:timezone, timezone)
+        |> assign(:timezone_offset_min, tz_offset_min)
         |> assign(:session_timeout_ms, timeout_ms)
         |> assign(:session_warning_ms, warning_ms)
         |> attach_hook(:session_keep_alive, :handle_event, fn
@@ -78,14 +87,22 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
     opts = [tenant_id: socket.assigns[:current_user][:tenant_id] || socket.assigns[:current_user]["tenant_id"]]
 
     has_connections =
-      case PkiRaPortal.RaEngineClient.list_ca_connections([], opts) do
-        {:ok, conns} -> length(conns) > 0
+      try do
+        case PkiRaPortal.RaEngineClient.list_ca_connections([], opts) do
+          {:ok, conns} -> length(conns) > 0
+          _ -> false
+        end
+      rescue
         _ -> false
       end
 
     has_profiles =
-      case PkiRaPortal.RaEngineClient.list_cert_profiles(opts) do
-        {:ok, profiles} -> length(profiles) > 0
+      try do
+        case PkiRaPortal.RaEngineClient.list_cert_profiles(opts) do
+          {:ok, profiles} -> length(profiles) > 0
+          _ -> false
+        end
+      rescue
         _ -> false
       end
 

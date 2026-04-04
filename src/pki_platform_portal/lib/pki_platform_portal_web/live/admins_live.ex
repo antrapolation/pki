@@ -256,7 +256,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
                     </span>
                   </td>
                   <td class="text-base-content/60 text-sm">
-                    {Calendar.strftime(admin.inserted_at, "%Y-%m-%d")}
+                    <.local_time dt={admin.inserted_at} format="date" />
                   </td>
                   <td>
                     <div class="flex gap-1">

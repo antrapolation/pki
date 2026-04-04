@@ -29,11 +29,20 @@ defmodule PkiPlatformPortalWeb.Live.AuthHook do
       timeout_ms = Application.get_env(@app, :session_idle_timeout_ms, 30 * 60 * 1000)
       warning_ms = timeout_ms - 5 * 60 * 1000
 
+      {timezone, tz_offset_min} = case get_connect_params(socket) do
+        %{"timezone" => tz, "timezone_offset" => off} when is_binary(tz) and tz != "" ->
+          {tz, off || 0}
+        _ ->
+          {"UTC", 0}
+      end
+
       {:cont,
        socket
        |> assign(:current_user, user)
        |> assign(:tenant_id, sess.tenant_id)
        |> assign(:session_id, session_id)
+       |> assign(:timezone, timezone)
+       |> assign(:timezone_offset_min, tz_offset_min)
        |> assign(:session_timeout_ms, timeout_ms)
        |> assign(:session_warning_ms, warning_ms)
        |> attach_hook(:session_keep_alive, :handle_event, fn

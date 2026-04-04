@@ -17,8 +17,6 @@ defmodule PkiCaPortalWeb.CertificatesLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :load_data)
-
     {:ok,
      assign(socket,
        page_title: "Certificates",
@@ -41,19 +39,31 @@ defmodule PkiCaPortalWeb.CertificatesLive do
   end
 
   @impl true
-  def handle_info(:load_data, socket) do
+  def handle_params(params, _uri, socket) do
+    if connected?(socket), do: send(self(), {:load_data, params})
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:load_data, params}, socket) do
     opts = tenant_opts(socket)
-    ca_id = socket.assigns.current_user[:ca_instance_id]
+    user_ca_id = socket.assigns.current_user[:ca_instance_id]
 
     ca_instances = case CaEngineClient.list_ca_instances(opts) do
       {:ok, instances} -> instances
       _ -> []
     end
 
-    effective_ca_id = ca_id || case ca_instances do
-      [first | _] -> first[:id]
-      _ -> nil
-    end
+    effective_ca_id =
+      cond do
+        params["ca"] && params["ca"] != "" -> params["ca"]
+        user_ca_id -> user_ca_id
+        true ->
+          case ca_instances do
+            [first | _] -> first[:id]
+            _ -> nil
+          end
+      end
 
     issuer_keys = if effective_ca_id do
       case CaEngineClient.list_issuer_keys(effective_ca_id, opts) do
@@ -64,30 +74,46 @@ defmodule PkiCaPortalWeb.CertificatesLive do
       []
     end
 
+    url_key_id = params["key"] || ""
+    url_status = params["status"] || "all"
+
+    key_label = if url_key_id != "" do
+      case Enum.find(issuer_keys, fn k -> k[:id] == url_key_id end) do
+        nil -> ""
+        key -> "#{key[:key_alias]} (#{key[:algorithm]})"
+      end
+    else
+      ""
+    end
+
     {:noreply,
      socket
      |> assign(
        ca_instances: ca_instances,
        selected_ca_id: effective_ca_id || "",
        issuer_keys: issuer_keys,
-       loading: false
+       selected_issuer_key_id: url_key_id,
+       selected_key_label: key_label,
+       status_filter: url_status,
+       selected_cert: nil,
+       loading: false,
+       page: 1
      )
      |> load_certificates()}
   end
 
   @impl true
-  def handle_event("select_ca_instance", %{"ca_id" => ca_id}, socket) do
-    opts = tenant_opts(socket)
+  def handle_event("search", params, socket) do
+    ca_id = params["ca_id"] || socket.assigns.selected_ca_id
+    status = params["status"] || "all"
+    key_id = socket.assigns.selected_issuer_key_id
 
-    issuer_keys = case CaEngineClient.list_issuer_keys(ca_id, opts) do
-      {:ok, keys} -> keys
-      _ -> []
-    end
+    query = URI.encode_query(
+      Enum.reject([ca: ca_id, key: key_id, status: status], fn {_, v} -> v == "" or v == "all" end)
+    )
 
-    {:noreply,
-     socket
-     |> assign(selected_ca_id: ca_id, issuer_keys: issuer_keys, selected_issuer_key_id: "", selected_cert: nil, page: 1)
-     |> load_certificates()}
+    path = if query == "", do: "/certificates", else: "/certificates?#{query}"
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @impl true
@@ -108,34 +134,21 @@ defmodule PkiCaPortalWeb.CertificatesLive do
 
   @impl true
   def handle_event("select_issuer_key", %{"issuer_key_id" => id, "label" => label}, socket) do
-    {:noreply,
-     socket
-     |> assign(selected_issuer_key_id: id, selected_key_label: label, key_search: "", key_search_results: [], selected_cert: nil, page: 1)
-     |> load_certificates()}
+    {:noreply, assign(socket, selected_issuer_key_id: id, selected_key_label: label, key_search: "", key_search_results: [])}
   end
 
   @impl true
   def handle_event("select_issuer_key", %{"issuer_key_id" => id}, socket) do
-    {:noreply,
-     socket
-     |> assign(selected_issuer_key_id: id, selected_cert: nil, page: 1)
-     |> load_certificates()}
+    label = case Enum.find(socket.assigns.issuer_keys, fn k -> k[:id] == id end) do
+      nil -> ""
+      key -> "#{key[:key_alias]} (#{key[:algorithm]})"
+    end
+    {:noreply, assign(socket, selected_issuer_key_id: id, selected_key_label: label, key_search: "", key_search_results: [])}
   end
 
   @impl true
   def handle_event("clear_issuer_key", _, socket) do
-    {:noreply,
-     socket
-     |> assign(selected_issuer_key_id: "", selected_key_label: "", key_search: "", key_search_results: [], selected_cert: nil, page: 1)
-     |> load_certificates()}
-  end
-
-  @impl true
-  def handle_event("filter_status", %{"status" => status}, socket) do
-    {:noreply,
-     socket
-     |> assign(status_filter: status, selected_cert: nil, page: 1)
-     |> load_certificates()}
+    {:noreply, assign(socket, selected_issuer_key_id: "", selected_key_label: "", key_search: "", key_search_results: [])}
   end
 
   @impl true
@@ -536,12 +549,12 @@ defmodule PkiCaPortalWeb.CertificatesLive do
       </div>
 
       <%!-- Filters --%>
-      <div class="card bg-base-100 shadow-sm border border-base-300">
+      <form phx-submit="search" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-4">
           <div class="flex flex-wrap items-end gap-4">
             <div>
               <label class="text-xs font-medium text-base-content/60 mb-1 block">CA Instance</label>
-              <select phx-change="select_ca_instance" name="ca_id" class="select select-sm select-bordered">
+              <select name="ca_id" class="select select-sm select-bordered">
                 <option :for={ca <- @ca_instances} value={ca[:id]} selected={ca[:id] == @selected_ca_id}>
                   {ca[:name]}
                 </option>
@@ -550,7 +563,6 @@ defmodule PkiCaPortalWeb.CertificatesLive do
             <div class="relative">
               <label class="text-xs font-medium text-base-content/60 mb-1 block">Issuer Key</label>
               <input type="text"
-                     name="key_search"
                      value={@key_search}
                      phx-keyup="search_issuer_key"
                      phx-debounce="300"
@@ -577,18 +589,22 @@ defmodule PkiCaPortalWeb.CertificatesLive do
             </div>
             <div>
               <label class="text-xs font-medium text-base-content/60 mb-1 block">Status</label>
-              <select phx-change="filter_status" name="status" class="select select-sm select-bordered">
+              <select name="status" class="select select-sm select-bordered">
                 <option value="all" selected={@status_filter == "all"}>All</option>
                 <option value="active" selected={@status_filter == "active"}>Active</option>
                 <option value="revoked" selected={@status_filter == "revoked"}>Revoked</option>
               </select>
             </div>
+            <button type="submit" class="btn btn-primary btn-sm gap-1">
+              <.icon name="hero-magnifying-glass" class="size-4" />
+              Search
+            </button>
             <div class="text-sm text-base-content/50">
               {length(@certificates)} certificate(s)
             </div>
           </div>
         </div>
-      </div>
+      </form>
 
       <%!--Certificates table --%>
       <% paginated = @certificates |> Enum.drop((@page - 1) * @per_page) |> Enum.take(@per_page) %>
@@ -613,7 +629,7 @@ defmodule PkiCaPortalWeb.CertificatesLive do
                 <td class="text-xs overflow-hidden text-ellipsis whitespace-nowrap">
                   {find_key_alias(cert[:issuer_key_id], @issuer_keys)}
                 </td>
-                <td class="text-xs">{format_datetime(cert[:not_after])}</td>
+                <td class="text-xs"><.local_time dt={cert[:not_after]} /></td>
                 <td>
                   <span class={["badge badge-sm", if(cert[:status] == "active", do: "badge-success", else: "badge-error")]}>
                     {cert[:status]}
@@ -676,7 +692,7 @@ defmodule PkiCaPortalWeb.CertificatesLive do
                   </span>
                   <%= if @selected_cert[:revoked_at] do %>
                     <span class="text-xs text-base-content/50 ml-2">
-                      Revoked: {format_datetime(@selected_cert[:revoked_at])} ({@selected_cert[:revocation_reason]})
+                      Revoked: <.local_time dt={@selected_cert[:revoked_at]} /> ({@selected_cert[:revocation_reason]})
                     </span>
                   <% end %>
                 </p>
@@ -687,12 +703,12 @@ defmodule PkiCaPortalWeb.CertificatesLive do
               </div>
               <div>
                 <label class="text-xs text-base-content/50">Not Before</label>
-                <p>{format_datetime(@selected_cert[:not_before])}</p>
+                <p><.local_time dt={@selected_cert[:not_before]} /></p>
               </div>
               <div>
                 <label class="text-xs text-base-content/50">Not After</label>
                 <p class={validity_class(@selected_cert[:not_after])}>
-                  {format_datetime(@selected_cert[:not_after])} ({days_remaining(@selected_cert[:not_after])})
+                  <.local_time dt={@selected_cert[:not_after]} /> ({days_remaining(@selected_cert[:not_after])})
                 </p>
               </div>
               <div class="col-span-2">

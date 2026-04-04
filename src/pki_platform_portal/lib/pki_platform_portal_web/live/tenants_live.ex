@@ -143,7 +143,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                     ]}>{tenant.status}</span>
                   </td>
                   <td class="font-mono text-sm text-base-content/70 overflow-hidden text-ellipsis whitespace-nowrap">{tenant.email}</td>
-                  <td class="text-base-content/50 text-sm">{Calendar.strftime(tenant.inserted_at, "%Y-%m-%d")}</td>
+                  <td class="text-base-content/50 text-sm"><.local_time dt={tenant.inserted_at} format="date" /></td>
                   <td class="text-right">
                     <div class="flex gap-1 justify-end">
                       <.link

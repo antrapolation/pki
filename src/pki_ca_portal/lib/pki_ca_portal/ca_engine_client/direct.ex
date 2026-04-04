@@ -21,6 +21,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   alias PkiCaEngine.KeyCeremony.SyncCeremony
   alias PkiCaEngine.TenantRepo
   alias PkiCaEngine.Schema.KeyCeremony
+  alias PkiCaEngine.Schema.ThresholdShare
 
   # ---------------------------------------------------------------------------
   # Authentication
@@ -317,8 +318,40 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     repo = TenantRepo.ca_repo(tenant_id)
 
     case repo.get(KeyCeremony, ceremony_id) do
-      nil -> {:error, :not_found}
-      ceremony -> {:ok, to_map(ceremony)}
+      nil ->
+        {:error, :not_found}
+
+      ceremony ->
+        ceremony_map = to_map(ceremony)
+
+        # Load threshold shares for this ceremony's issuer key
+        shares =
+          if ceremony.issuer_key_id do
+            repo.all(
+              from s in ThresholdShare,
+                where: s.issuer_key_id == ^ceremony.issuer_key_id,
+                order_by: [asc: s.share_index]
+            )
+            |> Enum.map(fn share ->
+              share_map = to_map(share)
+              # Resolve username from platform user profile
+              username = resolve_username(share.custodian_user_id, tenant_id)
+              Map.put(share_map, :username, username)
+            end)
+          else
+            []
+          end
+
+        # Resolve auditor username
+        auditor_username =
+          if ceremony.auditor_user_id do
+            resolve_username(ceremony.auditor_user_id, tenant_id)
+          end
+
+        ceremony_map
+        |> Map.put(:shares, shares)
+        |> Map.put(:auditor_username, auditor_username)
+        |> then(&{:ok, &1})
     end
   end
 
@@ -552,8 +585,12 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
         order_by: [asc: s.share_index]
       )
       |> repo.all()
+      |> Enum.map(fn share ->
+        username = resolve_username(share.custodian_user_id, tenant_id)
+        share |> to_map() |> Map.put(:custodian_username, username)
+      end)
 
-    {:ok, Enum.map(shares, &to_map/1)}
+    {:ok, shares}
   end
 
   @impl true
@@ -1172,6 +1209,14 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   defp to_map_value(list) when is_list(list), do: Enum.map(list, &to_map_value/1)
   defp to_map_value(other), do: other
 
+  defp resolve_username(nil, _tenant_id), do: nil
+  defp resolve_username(user_id, _tenant_id) do
+    case PkiPlatformEngine.PlatformAuth.get_user_profile(user_id) do
+      {:ok, profile} -> profile.display_name || profile.username
+      {:error, _} -> String.slice(user_id, 0..7)
+    end
+  end
+
   # Flatten a tree of CA instances (with nested :children) into a flat list
   defp flatten_tree(instances) do
     Enum.flat_map(instances, fn instance ->
@@ -1501,13 +1546,19 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   @impl true
   def initiate_witnessed_ceremony(ca_instance_id, params, opts) do
     tenant_id = Keyword.get(opts, :tenant_id)
-    PkiCaEngine.CeremonyOrchestrator.initiate(tenant_id, ca_instance_id, params)
+
+    case PkiCaEngine.CeremonyOrchestrator.initiate(tenant_id, ca_instance_id, params) do
+      {:ok, {ceremony, _issuer_key, _shares}} -> {:ok, to_map(ceremony)}
+      {:ok, {ceremony, _issuer_key}} -> {:ok, to_map(ceremony)}
+      {:error, _} = err -> err
+    end
   end
 
   @impl true
   def accept_ceremony_share(ceremony_id, user_id, key_label, opts) do
     tenant_id = Keyword.get(opts, :tenant_id)
-    PkiCaEngine.CeremonyOrchestrator.accept_share(tenant_id, ceremony_id, user_id, key_label)
+    password = Keyword.get(opts, :password)
+    PkiCaEngine.CeremonyOrchestrator.accept_share(tenant_id, ceremony_id, user_id, key_label, password)
   end
 
   @impl true
@@ -1531,7 +1582,19 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   @impl true
   def list_ceremony_attestations(ceremony_id, opts) do
     tenant_id = Keyword.get(opts, :tenant_id)
-    PkiCaEngine.CeremonyOrchestrator.list_attestations(tenant_id, ceremony_id)
+    attestations = PkiCaEngine.CeremonyOrchestrator.list_attestations(tenant_id, ceremony_id)
+    {:ok, Enum.map(attestations, &to_map/1)}
+  end
+
+  @impl true
+  def get_ceremony_by_issuer_key(issuer_key_id, opts) do
+    tenant_id = Keyword.get(opts, :tenant_id)
+    repo = PkiCaEngine.TenantRepo.ca_repo(tenant_id)
+
+    case repo.one(from c in KeyCeremony, where: c.issuer_key_id == ^issuer_key_id, order_by: [desc: c.inserted_at], limit: 1) do
+      nil -> {:error, :not_found}
+      ceremony -> {:ok, to_map(ceremony)}
+    end
   end
 
   @impl true
@@ -1542,6 +1605,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     shares = repo.all(
       from s in PkiCaEngine.Schema.ThresholdShare,
         join: c in PkiCaEngine.Schema.KeyCeremony, on: c.issuer_key_id == s.issuer_key_id,
+        left_join: ca in PkiCaEngine.Schema.CaInstance, on: ca.id == c.ca_instance_id,
         where: s.custodian_user_id == ^user_id and c.status in ["preparing", "generating", "completed"],
         select: %{
           ceremony_id: c.id,
@@ -1554,7 +1618,9 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
           share_status: s.status,
           key_label: s.key_label,
           accepted_at: s.accepted_at,
-          domain_info: c.domain_info
+          domain_info: c.domain_info,
+          ca_instance_id: c.ca_instance_id,
+          ca_instance_name: ca.name
         }
     )
 
@@ -1568,10 +1634,14 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
 
     ceremonies = repo.all(
       from c in PkiCaEngine.Schema.KeyCeremony,
+        left_join: ca in PkiCaEngine.Schema.CaInstance, on: ca.id == c.ca_instance_id,
         where: c.auditor_user_id == ^auditor_user_id and c.status in ["preparing", "generating", "completed"],
-        order_by: [desc: c.inserted_at]
+        order_by: [desc: c.inserted_at],
+        select: {c, ca.name}
     )
 
-    {:ok, ceremonies}
+    {:ok, Enum.map(ceremonies, fn {c, ca_name} ->
+      c |> to_map() |> Map.put(:ca_instance_name, ca_name)
+    end)}
   end
 end

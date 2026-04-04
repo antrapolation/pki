@@ -3,6 +3,14 @@ defmodule PkiCaPortalWeb.DashboardLive do
 
   alias PkiCaPortal.CaEngineClient
 
+  @setup_steps [
+    %{key: :has_users, label: "Invite Team Members", desc: "Add key managers and auditors to participate in ceremonies", icon: "hero-users", href: "/users", required: false},
+    %{key: :has_hsm, label: "Configure HSM Devices", desc: "Register hardware security modules for key storage", icon: "hero-cpu-chip", href: "/hsm-devices", required: false},
+    %{key: :has_keystores, label: "Create Keystores", desc: "Set up software or HSM-backed keystores for key material", icon: "hero-key", href: "/keystores", required: true},
+    %{key: :has_ceremony, label: "Run Key Ceremony", desc: "Generate root or sub-CA keys with threshold secret sharing", icon: "hero-shield-check", href: "/ceremony", required: true},
+    %{key: :has_active_keys, label: "Activate Issuer Keys", desc: "Activate generated keys so they can sign certificates", icon: "hero-finger-print", href: "/issuer-keys", required: true}
+  ]
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: send(self(), :load_data)
@@ -15,7 +23,10 @@ defmodule PkiCaPortalWeb.DashboardLive do
        recent_ceremonies: [],
        loading: true,
        page: 1,
-       per_page: 10
+       per_page: 10,
+       setup_steps: @setup_steps,
+       setup_status: %{},
+       setup_dismissed: false
      )}
   end
 
@@ -24,7 +35,7 @@ defmodule PkiCaPortalWeb.DashboardLive do
     opts = tenant_opts(socket)
     ca_id = socket.assigns.current_user[:ca_instance_id]
 
-    {status, keys, ceremonies} =
+    {status, keys, ceremonies, keystores, users} =
       if ca_id do
         status =
           case CaEngineClient.get_engine_status(ca_id, opts) do
@@ -44,16 +55,42 @@ defmodule PkiCaPortalWeb.DashboardLive do
             {:error, _} -> []
           end
 
-        {status, keys, ceremonies}
+        keystores =
+          case CaEngineClient.list_keystores(ca_id, opts) do
+            {:ok, k} -> k
+            {:error, _} -> []
+          end
+
+        users =
+          case CaEngineClient.list_portal_users(opts) do
+            {:ok, u} -> u
+            {:error, _} -> []
+          end
+
+        {status, keys, ceremonies, keystores, users}
       else
-        {%{status: "no CA instance", uptime_seconds: 0, active_keys: 0}, [], []}
+        {%{status: "no CA instance", uptime_seconds: 0, active_keys: 0}, [], [], [], []}
       end
+
+    non_admin_users = Enum.filter(users, fn u -> (u[:role] || u.role) != "ca_admin" end)
+    hsm_keystores = Enum.filter(keystores, fn k -> k[:type] == "hsm" end)
+    active_keys = Enum.filter(keys, fn k -> k[:status] == "active" end)
+    completed_ceremonies = Enum.filter(ceremonies, fn c -> c[:status] == "completed" end)
+
+    setup_status = %{
+      has_users: length(non_admin_users) > 0,
+      has_hsm: length(hsm_keystores) > 0,
+      has_keystores: length(keystores) > 0,
+      has_ceremony: length(completed_ceremonies) > 0,
+      has_active_keys: length(active_keys) > 0
+    }
 
     {:noreply,
      assign(socket,
        engine_status: status,
        active_keys: keys,
        recent_ceremonies: ceremonies,
+       setup_status: setup_status,
        loading: false
      )}
   end
@@ -63,11 +100,20 @@ defmodule PkiCaPortalWeb.DashboardLive do
     {:noreply, assign(socket, page: String.to_integer(page))}
   end
 
+  def handle_event("dismiss_setup", _params, socket) do
+    {:noreply, assign(socket, setup_dismissed: true)}
+  end
+
   defp tenant_opts(socket) do
     case socket.assigns[:tenant_id] do
       nil -> []
       tid -> [tenant_id: tid]
     end
+  end
+
+  defp all_setup_done?(status) do
+    status[:has_keystores] && status[:has_ceremony] && status[:has_active_keys] &&
+      status[:has_users] && status[:has_hsm]
   end
 
   @impl true
@@ -121,6 +167,61 @@ defmodule PkiCaPortalWeb.DashboardLive do
                   <span id="key-count">{length(@active_keys)}</span>
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Setup Guide — shown to ca_admin until required steps are done --%>
+      <div
+        :if={@current_user[:role] == "ca_admin" && !@setup_dismissed && !all_setup_done?(@setup_status)}
+        class="card bg-base-100 shadow-sm border border-primary/20"
+      >
+        <div class="card-body p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <.icon name="hero-rocket-launch" class="size-5 text-primary" />
+              <h2 class="text-sm font-semibold text-base-content">Setup Guide</h2>
+              <span class="badge badge-sm badge-primary badge-outline">
+                {Enum.count(@setup_steps, fn s -> @setup_status[s.key] end)}/{length(@setup_steps)}
+              </span>
+            </div>
+            <button phx-click="dismiss_setup" class="btn btn-ghost btn-xs text-base-content/40">
+              <.icon name="hero-x-mark" class="size-4" /> Dismiss
+            </button>
+          </div>
+
+          <div class="space-y-2">
+            <div :for={step <- @setup_steps} class="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-base-300 transition-colors hover:border-primary/30">
+              <div class={[
+                "flex items-center justify-center w-8 h-8 rounded-full shrink-0",
+                if(@setup_status[step.key], do: "bg-success/10", else: "bg-base-200")
+              ]}>
+                <.icon
+                  :if={@setup_status[step.key]}
+                  name="hero-check"
+                  class="size-4 text-success"
+                />
+                <.icon
+                  :if={!@setup_status[step.key]}
+                  name={step.icon}
+                  class="size-4 text-base-content/40"
+                />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class={["text-sm font-medium", if(@setup_status[step.key], do: "text-base-content/40 line-through", else: "text-base-content")]}>
+                    {step.label}
+                  </span>
+                  <span :if={step.required} class="badge badge-xs badge-warning">required</span>
+                  <span :if={!step.required} class="badge badge-xs badge-ghost">optional</span>
+                </div>
+                <p class="text-xs text-base-content/50 truncate">{step.desc}</p>
+              </div>
+              <a :if={!@setup_status[step.key]} href={step.href} class="btn btn-primary btn-xs btn-outline shrink-0">
+                Set up
+              </a>
+              <span :if={@setup_status[step.key]} class="text-xs text-success font-medium shrink-0">Done</span>
             </div>
           </div>
         </div>

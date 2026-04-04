@@ -126,19 +126,6 @@ defmodule PkiRaPortalWeb.CertificatesLive do
     assign(socket, certificates: certs)
   end
 
-  defp format_datetime(nil), do: "-"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-  defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-
-  defp format_datetime(str) when is_binary(str) do
-    case DateTime.from_iso8601(str) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> str
-    end
-  end
-
-  defp format_datetime(_), do: "-"
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -209,7 +196,7 @@ defmodule PkiRaPortalWeb.CertificatesLive do
                     <span class="badge badge-sm badge-success">issued</span>
                   <% end %>
                 </td>
-                <td class="text-xs">{format_datetime(cert[:reviewed_at])}</td>
+                <td class="text-xs"><.local_time dt={cert[:reviewed_at]} /></td>
               </tr>
               <tr :if={paginated == []}>
                 <td colspan="5" class="text-center text-base-content/50 py-8">
@@ -277,11 +264,11 @@ defmodule PkiRaPortalWeb.CertificatesLive do
               </div>
               <div>
                 <label class="text-xs text-base-content/50">Submitted At</label>
-                <p>{format_datetime(@selected_cert[:submitted_at])}</p>
+                <p><.local_time dt={@selected_cert[:submitted_at]} /></p>
               </div>
               <div>
                 <label class="text-xs text-base-content/50">Issued At</label>
-                <p>{format_datetime(@selected_cert[:reviewed_at])}</p>
+                <p><.local_time dt={@selected_cert[:reviewed_at]} /></p>
               </div>
             </div>
 

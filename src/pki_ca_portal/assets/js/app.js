@@ -26,11 +26,16 @@ import {hooks as colocatedHooks} from "phoenix-colocated/pki_ca_portal"
 import topbar from "../vendor/topbar"
 import SessionTimeout from "./session_timeout"
 import DownloadHook from "./download_hook"
+import "./local_time"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
-  params: {_csrf_token: csrfToken},
+  params: {
+    _csrf_token: csrfToken,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone_offset: -(new Date().getTimezoneOffset())
+  },
   hooks: {...colocatedHooks, SessionTimeout, DownloadHook},
 })
 

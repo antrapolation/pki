@@ -9,8 +9,6 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :load_data)
-
     {:ok,
      assign(socket,
        page_title: "Issuer Keys",
@@ -36,8 +34,14 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
   end
 
   @impl true
-  def handle_info(:load_data, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id]
+  def handle_params(params, _uri, socket) do
+    if connected?(socket), do: send(self(), {:load_data, params["ca"]})
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:load_data, url_ca_id}, socket) do
+    user_ca_id = socket.assigns.current_user[:ca_instance_id]
     opts = tenant_opts(socket)
 
     ca_instances =
@@ -46,10 +50,16 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
         {:error, _} -> []
       end
 
-    effective_ca_id = ca_id || case ca_instances do
-      [first | _] -> first[:id]
-      [] -> nil
-    end
+    effective_ca_id =
+      cond do
+        url_ca_id && url_ca_id != "" -> url_ca_id
+        user_ca_id -> user_ca_id
+        true ->
+          case ca_instances do
+            [first | _] -> first[:id]
+            [] -> nil
+          end
+      end
 
     issuer_keys = load_keys(effective_ca_id, opts)
 
@@ -69,12 +79,27 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
 
   @impl true
   def handle_event("select_ca_instance", %{"ca_instance_id" => id}, socket) do
-    ca_id = if id == "", do: nil, else: id
-    keys = load_keys(ca_id, tenant_opts(socket))
-    {:noreply, assign(socket, issuer_keys: keys, effective_ca_id: ca_id, selected_ca_id: id)}
+    path = if id == "", do: "/issuer-keys", else: "/issuer-keys?ca=#{id}"
+    {:noreply, push_patch(socket, to: path)}
   end
 
   # --- Open modals ---
+
+  def handle_event("view_csr", %{"id" => key_id}, socket) do
+    opts = tenant_opts(socket)
+
+    # Find CSR from the ceremony associated with this issuer key
+    csr_pem = case CaEngineClient.get_ceremony_by_issuer_key(key_id, opts) do
+      {:ok, ceremony} -> get_in(ceremony, [:domain_info, "csr_pem"]) || ceremony[:domain_info]["csr_pem"]
+      _ -> nil
+    end
+
+    if csr_pem do
+      {:noreply, assign(socket, modal: :view_csr, modal_csr_pem: csr_pem, modal_error: nil)}
+    else
+      {:noreply, put_flash(socket, :error, "No CSR found for this key.")}
+    end
+  end
 
   def handle_event("open_sign_csr", %{"id" => key_id}, socket) do
     opts = tenant_opts(socket)
@@ -489,6 +514,16 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
                     >
                       <.icon name="hero-pencil-square" class="size-4" />
                     </button>
+                    <%!-- View CSR: for pending sub-CA keys --%>
+                    <button
+                      :if={k[:status] == "pending" and not k[:is_root]}
+                      phx-click="view_csr"
+                      phx-value-id={k[:id]}
+                      title="View CSR"
+                      class="btn btn-ghost btn-xs text-violet-400"
+                    >
+                      <.icon name="hero-document-text" class="size-4" />
+                    </button>
                     <%!-- Activate: only for pending keys --%>
                     <button
                       :if={k[:status] == "pending"}
@@ -539,6 +574,38 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
           </div>
         </div>
       </div>
+
+      <%!-- View CSR Modal --%>
+      <%= if @modal == :view_csr do %>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div class="bg-base-100 rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+            <div class="p-6">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-semibold text-base-content">Certificate Signing Request (CSR)</h3>
+                <button phx-click="close_modal" class="btn btn-ghost btn-sm btn-circle">
+                  <.icon name="hero-x-mark" class="size-4" />
+                </button>
+              </div>
+              <p class="text-xs text-base-content/60 mb-3">
+                Copy this CSR and paste it into the Root CA's "Sign CSR" dialog to issue a certificate for this Sub-CA.
+              </p>
+              <div class="relative">
+                <pre id="csr-pem-content" class="bg-base-200 rounded-lg p-4 text-xs font-mono whitespace-pre-wrap break-all select-all overflow-x-auto">{@modal_csr_pem}</pre>
+                <button
+                  type="button"
+                  onclick="navigator.clipboard.writeText(document.getElementById('csr-pem-content').textContent).then(() => this.textContent = 'Copied!')"
+                  class="btn btn-sm btn-primary absolute top-2 right-2"
+                >
+                  <.icon name="hero-clipboard-document" class="size-4" /> Copy
+                </button>
+              </div>
+              <div class="mt-4 flex justify-end">
+                <button phx-click="close_modal" class="btn btn-ghost btn-sm">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      <% end %>
 
       <%!-- Sign CSR Modal --%>
       <%= if @modal == :sign_csr do %>

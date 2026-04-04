@@ -37,8 +37,6 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :load_data)
-
     {:ok,
      assign(socket,
        page_title: "Key Ceremony",
@@ -74,8 +72,17 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   end
 
   @impl true
-  def handle_info(:load_data, socket) do
-    ca_id = socket.assigns.current_user[:ca_instance_id]
+  def handle_params(params, _uri, socket) do
+    if connected?(socket) do
+      send(self(), {:load_data, params["ca"]})
+    end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:load_data, url_ca_id}, socket) do
+    user_ca_id = socket.assigns.current_user[:ca_instance_id]
     opts = tenant_opts(socket)
 
     ca_instances =
@@ -84,10 +91,17 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         {:error, _} -> []
       end
 
-    effective_ca_id = ca_id || case ca_instances do
-      [first | _] -> first[:id]
-      [] -> nil
-    end
+    # Priority: URL param > user's assigned CA > first available
+    effective_ca_id =
+      cond do
+        url_ca_id && url_ca_id != "" -> url_ca_id
+        user_ca_id -> user_ca_id
+        true ->
+          case ca_instances do
+            [first | _] -> first[:id]
+            [] -> nil
+          end
+      end
 
     {ceremonies, keystores} = load_for_ca(effective_ca_id, opts)
 
@@ -175,17 +189,8 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   @impl true
   def handle_event("select_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
-    ca_id = if ca_instance_id == "", do: nil, else: ca_instance_id
-    {ceremonies, keystores} = load_for_ca(ca_id, tenant_opts(socket))
-
-    {:noreply,
-     assign(socket,
-       ceremonies: ceremonies,
-       keystores: keystores,
-       effective_ca_id: ca_id,
-       selected_ca_id: ca_instance_id,
-       page: 1
-     )}
+    path = if ca_instance_id == "", do: "/ceremony", else: "/ceremony?ca=#{ca_instance_id}"
+    {:noreply, push_patch(socket, to: path)}
   end
 
   def handle_event("change_page", %{"page" => page}, socket) do
@@ -262,18 +267,18 @@ defmodule PkiCaPortalWeb.CeremonyLive do
      )}
   end
 
-  # Resume ceremony — show progress dashboard for in-progress ceremonies
-  def handle_event("resume_ceremony", %{"id" => ceremony_id}, socket) do
+  # View ceremony — show progress dashboard for any ceremony (active or completed)
+  def handle_event("view_ceremony", %{"id" => ceremony_id}, socket) do
     opts = tenant_opts(socket)
 
     case CaEngineClient.get_ceremony(ceremony_id, opts) do
       {:ok, ceremony} ->
-        if ceremony[:status] in ["initiated", "in_progress"] do
-          # Subscribe to PubSub for live updates
+        if ceremony[:status] not in ["failed"] do
           Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{ceremony_id}")
 
           domain_info = ceremony[:domain_info] || %{}
-          participants = build_participants_from_ceremony(ceremony)
+          participants = build_participants_from_ceremony(ceremony, opts)
+          timeline = build_ceremony_timeline(ceremony, opts)
 
           {:noreply,
            assign(socket,
@@ -281,7 +286,39 @@ defmodule PkiCaPortalWeb.CeremonyLive do
              active_ceremony: ceremony,
              is_root: Map.get(domain_info, "is_root", true),
              participants: participants,
-             activity_log: [%{timestamp: DateTime.utc_now(), message: "Resumed monitoring ceremony"}],
+             activity_log: timeline,
+             wizard_error: nil,
+             wizard_busy: false
+           )}
+        else
+          {:noreply, put_flash(socket, :error, "Cannot view a failed ceremony.")}
+        end
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Ceremony not found.")}
+    end
+  end
+
+  # Resume ceremony — show progress dashboard for in-progress ceremonies
+  def handle_event("resume_ceremony", %{"id" => ceremony_id}, socket) do
+    opts = tenant_opts(socket)
+
+    case CaEngineClient.get_ceremony(ceremony_id, opts) do
+      {:ok, ceremony} ->
+        if ceremony[:status] in ["initiated", "in_progress"] do
+          Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{ceremony_id}")
+
+          domain_info = ceremony[:domain_info] || %{}
+          participants = build_participants_from_ceremony(ceremony, opts)
+          timeline = build_ceremony_timeline(ceremony, opts)
+
+          {:noreply,
+           assign(socket,
+             wizard_step: :progress,
+             active_ceremony: ceremony,
+             is_root: Map.get(domain_info, "is_root", true),
+             participants: participants,
+             activity_log: timeline,
              wizard_error: nil,
              wizard_busy: false
            )}
@@ -339,8 +376,8 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             ceremony_params = %{
               algorithm: params["algorithm"],
               keystore_id: params["keystore_id"],
-              threshold_k: params["threshold_k"],
-              threshold_n: params["threshold_n"],
+              threshold_k: parse_int(params["threshold_k"]) || 2,
+              threshold_n: parse_int(params["threshold_n"]) || 3,
               domain_info: %{"is_root" => is_root},
               initiated_by: socket.assigns.current_user[:id],
               is_root: is_root,
@@ -488,28 +525,41 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     custodian_participants ++ [auditor_participant]
   end
 
-  defp build_participants_from_ceremony(ceremony) do
-    # Build participant list from ceremony data (shares + attestations)
+  defp build_participants_from_ceremony(ceremony, opts \\ []) do
+    # Build participant list from threshold shares (loaded by get_ceremony)
     custodians =
       (ceremony[:shares] || [])
       |> Enum.map(fn share ->
         %{
-          user_id: share[:user_id],
-          name: share[:username] || share[:user_id] || "Unknown",
+          user_id: share[:custodian_user_id],
+          name: share[:username] || share[:custodian_user_id] || "Unknown",
           role: "key_manager",
-          status: if(share[:status] == "accepted", do: "accepted", else: "pending"),
-          timestamp: share[:updated_at]
+          status: share[:status] || "pending",
+          timestamp: share[:accepted_at] || share[:updated_at]
         }
       end)
 
     auditor =
       if ceremony[:auditor_user_id] do
+        # Check attestations to determine auditor status
+        attestations = case CaEngineClient.list_ceremony_attestations(ceremony[:id], opts) do
+          {:ok, list} -> list
+          _ -> []
+        end
+
+        {auditor_status, auditor_ts} = if Enum.any?(attestations) do
+          latest = Enum.max_by(attestations, fn a -> a[:attested_at] || a[:inserted_at] end, fn -> nil end)
+          {"witnessed", latest[:attested_at] || latest[:inserted_at]}
+        else
+          {"waiting", nil}
+        end
+
         %{
           user_id: ceremony[:auditor_user_id],
           name: ceremony[:auditor_username] || ceremony[:auditor_user_id],
           role: "auditor",
-          status: "waiting",
-          timestamp: nil
+          status: auditor_status,
+          timestamp: auditor_ts
         }
       end
 
@@ -525,6 +575,50 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       end
     end)
   end
+
+  defp build_ceremony_timeline(ceremony, opts) do
+    shares = ceremony[:shares] || []
+
+    attestations = case CaEngineClient.list_ceremony_attestations(ceremony[:id], opts) do
+      {:ok, list} -> list
+      _ -> []
+    end
+
+    initiated = [%{timestamp: ceremony[:inserted_at], message: "Ceremony initiated — #{ceremony[:algorithm]}, #{ceremony[:threshold_k]}-of-#{ceremony[:threshold_n]} threshold"}]
+
+    assigned = Enum.map(shares, fn s ->
+      name = s[:username] || "Custodian #{s[:share_index]}"
+      %{timestamp: s[:inserted_at], message: "Share ##{s[:share_index]} assigned to #{name}"}
+    end)
+
+    accepted = shares
+    |> Enum.filter(fn s -> s[:status] == "accepted" and s[:accepted_at] end)
+    |> Enum.map(fn s ->
+      name = s[:username] || "Custodian #{s[:share_index]}"
+      %{timestamp: s[:accepted_at], message: "#{name} accepted share ##{s[:share_index]} (label: #{s[:key_label] || "—"})"}
+    end)
+
+    attested = Enum.map(attestations, fn a ->
+      phase = a[:phase] || "unknown"
+      %{timestamp: a[:attested_at] || a[:inserted_at], message: "Auditor witnessed #{phase} phase"}
+    end)
+
+    completed = if ceremony[:status] == "completed" do
+      [%{timestamp: ceremony[:updated_at], message: "Ceremony completed successfully"}]
+    else
+      []
+    end
+
+    (initiated ++ assigned ++ accepted ++ attested ++ completed)
+    |> Enum.filter(fn e -> e.timestamp != nil end)
+    |> Enum.sort_by(fn e -> to_sortable_time(e.timestamp) end)
+  end
+
+  defp to_sortable_time(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+  defp to_sortable_time(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
+  defp to_sortable_time(%{year: y, month: mo, day: d, hour: h, minute: mi, second: s}),
+    do: :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B", [y, mo, d, h, mi, s]) |> IO.iodata_to_binary()
+  defp to_sortable_time(_), do: ""
 
   defp parse_multi_select(nil), do: []
   defp parse_multi_select(val) when is_binary(val), do: [val]
@@ -712,8 +806,17 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                 <td>
                   <span class={"badge badge-sm #{status_badge_class(c[:status])}"}>{c[:status]}</span>
                 </td>
-                <td class="text-xs text-base-content/60">{format_datetime(c[:inserted_at])}</td>
+                <td class="text-xs text-base-content/60"><.local_time dt={c[:inserted_at]} /></td>
                 <td class="flex items-center gap-1">
+                  <button
+                    :if={c[:status] not in ["failed"]}
+                    phx-click="view_ceremony"
+                    phx-value-id={c[:id]}
+                    title="View details"
+                    class="btn btn-ghost btn-xs text-primary"
+                  >
+                    <.icon name="hero-eye" class="size-4" />
+                  </button>
                   <button
                     :if={ceremony_resumable?(c)}
                     phx-click="resume_ceremony"
@@ -724,7 +827,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                     <.icon name="hero-play" class="size-4" />
                   </button>
                   <button
-                    :if={c[:status] in ["initiated", "in_progress"]}
+                    :if={c[:status] in ["initiated", "in_progress", "preparing"]}
                     phx-click="cancel_ceremony_record"
                     phx-value-id={c[:id]}
                     data-confirm="Cancel this ceremony? The pending issuer key will be removed."
@@ -865,16 +968,18 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">
                 Key Manager Custodians
-                <span class="text-base-content/40">(hold Ctrl/Cmd to multi-select)</span>
               </label>
-              <select name="custodian_ids[]" multiple class="select select-bordered select-sm w-full h-32" required>
-                <option
-                  :for={km <- @key_managers}
-                  value={km.id}
-                >
-                  {km.display_name || km.username}
-                </option>
-              </select>
+              <div :if={not Enum.empty?(@key_managers)} class="space-y-2 mt-1">
+                <label :for={km <- @key_managers} class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="custodian_ids[]"
+                    value={km.id}
+                    class="checkbox checkbox-sm checkbox-primary"
+                  />
+                  <span class="text-sm">{km.display_name || km.username}</span>
+                </label>
+              </div>
               <p :if={Enum.empty?(@key_managers)} class="text-xs text-warning mt-1">
                 No active key managers found. <a href="/users" class="link link-primary">Add key manager users first.</a>
               </p>
@@ -984,11 +1089,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
                     <span class={"badge badge-sm #{participant_status_class(p.status)}"}>{p.status}</span>
                   </td>
                   <td class="text-xs text-base-content/60">
-                    <%= if p.timestamp do %>
-                      {Calendar.strftime(p.timestamp, "%H:%M:%S")}
-                    <% else %>
-                      —
-                    <% end %>
+                    <.local_time dt={p.timestamp} />
                   </td>
                 </tr>
               </tbody>
@@ -1005,17 +1106,17 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       <div class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <h3 class="text-sm font-semibold text-base-content mb-3">
-            <.icon name="hero-clock" class="size-4 inline" /> Activity Log
+            <.icon name="hero-clock" class="size-4 inline" /> Ceremony Timeline
           </h3>
 
           <div :if={Enum.empty?(@activity_log)} class="text-sm text-base-content/50 text-center py-4">
-            No activity yet.
+            No events recorded yet.
           </div>
 
           <div :if={not Enum.empty?(@activity_log)} class="space-y-2 max-h-64 overflow-y-auto">
             <div :for={entry <- @activity_log} class="flex items-start gap-3 text-sm">
-              <span class="text-xs text-base-content/40 font-mono shrink-0 mt-0.5">
-                {Calendar.strftime(entry.timestamp, "%H:%M:%S")}
+              <span class="text-xs text-base-content/40 font-mono shrink-0 mt-0.5 w-36">
+                <.local_time dt={entry.timestamp} />
               </span>
               <span class="text-base-content/70">{entry.message}</span>
             </div>
@@ -1023,12 +1124,13 @@ defmodule PkiCaPortalWeb.CeremonyLive do
         </div>
       </div>
 
-      <%!-- Cancel button --%>
+      <%!-- Action buttons --%>
       <div class="flex justify-between items-center">
         <button phx-click="finish_wizard" class="btn btn-ghost btn-sm">
           <.icon name="hero-arrow-left" class="size-4" /> Back to List
         </button>
         <button
+          :if={@active_ceremony[:status] not in ["completed", "failed"]}
           phx-click="cancel_active_ceremony"
           data-confirm="Cancel this ceremony? All pending work will be lost."
           class="btn btn-error btn-sm btn-outline"

@@ -119,12 +119,6 @@ defmodule PkiRaPortalWeb.CaConnectionLive do
     user[:role] || user["role"]
   end
 
-  defp format_datetime(nil), do: "-"
-
-  defp format_datetime(dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
   defp algorithm_badge_class(algorithm) do
     cond do
       algorithm in ["ML-DSA-44", "ML-DSA-65", "ML-DSA-87"] -> "badge-primary"
@@ -205,7 +199,7 @@ defmodule PkiRaPortalWeb.CaConnectionLive do
                       </span>
                     </td>
                     <td class="text-sm text-base-content/70">{conn.ca_instance_name || "-"}</td>
-                    <td class="text-xs text-base-content/50">{format_datetime(conn.connected_at)}</td>
+                    <td class="text-xs text-base-content/50"><.local_time dt={conn.connected_at} /></td>
                     <td class="text-right">
                       <button
                         class="btn btn-ghost btn-xs text-error"

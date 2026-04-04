@@ -5,8 +5,6 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :load_data)
-
     {:ok,
      assign(socket,
        page_title: "Audit Log",
@@ -25,9 +23,14 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   end
 
   @impl true
-  def handle_info(:load_data, socket) do
+  def handle_params(params, _uri, socket) do
+    if connected?(socket), do: send(self(), {:load_data, params})
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:load_data, params}, socket) do
     opts = tenant_opts(socket)
-    all_events = load_all_events(opts)
 
     ca_instances =
       case CaEngineClient.list_ca_instances(opts) do
@@ -35,45 +38,20 @@ defmodule PkiCaPortalWeb.AuditLogLive do
         {:error, _} -> []
       end
 
-    {:noreply,
-     assign(socket,
-       events: all_events,
-       ca_instances: ca_instances,
-       loading: false
-     )}
-  end
-
-  @impl true
-  def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
-    ca_filters = maybe_add_filter([], :ca_instance_id, ca_instance_id)
-    all_events = load_all_events(tenant_opts(socket), ca_filters)
-
-    events = case socket.assigns.category do
-      "all" -> all_events
-      cat -> Enum.filter(all_events, &(&1.category == cat))
-    end
-
-    {:noreply,
-     assign(socket,
-       events: events,
-       selected_ca_instance_id: ca_instance_id,
-       page: 1
-     )}
-  end
-
-  @impl true
-  def handle_event("filter", params, socket) do
+    ca_id = params["ca"] || ""
     category = params["category"] || "all"
-    ca_filters = maybe_add_filter([], :ca_instance_id, socket.assigns.selected_ca_instance_id)
-    all_events = load_all_events(tenant_opts(socket), ca_filters)
+    action_filter = params["action"] || ""
+    actor_filter = params["actor"] || ""
+    date_from = params["date_from"] || ""
+    date_to = params["date_to"] || ""
+
+    ca_filters = if ca_id != "", do: maybe_add_filter([], :ca_instance_id, ca_id), else: []
+    all_events = load_all_events(opts, ca_filters)
 
     events = case category do
       "all" -> all_events
       cat -> Enum.filter(all_events, &(&1.category == cat))
     end
-
-    actor_filter = params["actor"] || ""
-    action_filter = params["action"] || ""
 
     events = events
       |> filter_by_actor(actor_filter)
@@ -82,13 +60,33 @@ defmodule PkiCaPortalWeb.AuditLogLive do
     {:noreply,
      assign(socket,
        events: events,
+       ca_instances: ca_instances,
+       selected_ca_instance_id: ca_id,
+       category: category,
        filter_action: action_filter,
        filter_actor: actor_filter,
-       filter_date_from: params["date_from"] || "",
-       filter_date_to: params["date_to"] || "",
-       category: category,
+       filter_date_from: date_from,
+       filter_date_to: date_to,
+       loading: false,
        page: 1
      )}
+  end
+
+  @impl true
+  def handle_event("apply_filter", params, socket) do
+    query = URI.encode_query(
+      Enum.reject([
+        ca: params["ca_instance_id"] || "",
+        category: params["category"] || "all",
+        action: params["action"] || "",
+        actor: params["actor"] || "",
+        date_from: params["date_from"] || "",
+        date_to: params["date_to"] || ""
+      ], fn {_k, v} -> v == "" or v == "all" end)
+    )
+
+    path = if query == "", do: "/audit-log", else: "/audit-log?#{query}"
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @export_limit 1000
@@ -98,7 +96,9 @@ defmodule PkiCaPortalWeb.AuditLogLive do
     events = socket.assigns.events
     total = length(events)
     exported = Enum.take(events, @export_limit)
-    csv = generate_csv(exported)
+    tz_offset = socket.assigns[:timezone_offset_min] || 0
+    tz_name = socket.assigns[:timezone] || "UTC"
+    csv = generate_csv(exported, tz_offset, tz_name)
     filename = "audit-log-#{Date.to_iso8601(Date.utc_today())}.csv"
 
     socket = if total > @export_limit do
@@ -132,16 +132,23 @@ defmodule PkiCaPortalWeb.AuditLogLive do
     {:noreply, assign(socket, page: String.to_integer(page))}
   end
 
-  defp generate_csv(events) do
-    header = "Timestamp,Category,Action,Actor,Event ID\r\n"
+  defp generate_csv(events, tz_offset, tz_name) do
+    header = "Timestamp (#{tz_name}),Category,Action,Actor,Event ID\r\n"
 
     rows = Enum.map(events, fn e ->
-      timestamp = if e[:timestamp], do: Calendar.strftime(e.timestamp, "%Y-%m-%d %H:%M:%S"), else: ""
+      timestamp = if e[:timestamp], do: format_with_offset(e.timestamp, tz_offset), else: ""
       "#{csv_escape(timestamp)},#{csv_escape(to_string(e.category))},#{csv_escape(to_string(e.action))},#{csv_escape(to_string(e.actor))},#{csv_escape(to_string(e.event_id))}\r\n"
     end)
 
     header <> Enum.join(rows)
   end
+
+  defp format_with_offset(dt, offset_min) when is_integer(offset_min) do
+    dt
+    |> NaiveDateTime.add(offset_min * 60, :second)
+    |> Calendar.strftime("%Y-%m-%d %H:%M:%S")
+  end
+  defp format_with_offset(dt, _), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
 
   defp csv_escape(value) do
     if String.contains?(value, [",", "\"", "\n"]) do
@@ -218,46 +225,38 @@ defmodule PkiCaPortalWeb.AuditLogLive do
         </div>
       </div>
 
-      <%!-- CA Instance filter --%>
-      <div class="flex items-center gap-3">
-        <label for="ca-instance-filter" class="text-xs font-medium text-base-content/60">Filter by CA Instance</label>
-        <form phx-change="filter_ca_instance">
-          <select name="ca_instance_id" id="ca-instance-filter" class="select select-bordered select-sm">
-            <option value="">All</option>
-            <option
-              :for={inst <- @ca_instances}
-              value={inst.id}
-              selected={@selected_ca_instance_id == inst.id}
-            >
-              {inst.name}
-            </option>
-          </select>
-        </form>
-      </div>
-
       <%!-- Filter form --%>
       <div id="audit-filter" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body p-4">
-          <form phx-submit="filter" class="flex flex-wrap items-end gap-3">
+          <form phx-submit="apply_filter" class="flex flex-wrap items-end gap-3">
             <div>
-              <label for="category" class="block text-xs font-medium text-base-content/60 mb-1">Category</label>
-              <select name="category" id="filter-category" class="select select-bordered select-sm">
+              <label class="block text-xs font-medium text-base-content/60 mb-1">CA Instance</label>
+              <select name="ca_instance_id" class="select select-bordered select-sm">
+                <option value="">All</option>
+                <option
+                  :for={inst <- @ca_instances}
+                  value={inst.id}
+                  selected={@selected_ca_instance_id == inst.id}
+                >
+                  {inst.name}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-base-content/60 mb-1">Category</label>
+              <select name="category" class="select select-bordered select-sm">
                 <option value="all" selected={@category == "all"}>All</option>
                 <option value="ca_operations" selected={@category == "ca_operations"}>CA Operations</option>
                 <option value="user_management" selected={@category == "user_management"}>User Management</option>
               </select>
             </div>
             <div>
-              <label for="action" class="block text-xs font-medium text-base-content/60 mb-1">Action</label>
-              <select name="action" id="filter-action" class="select select-bordered select-sm">
+              <label class="block text-xs font-medium text-base-content/60 mb-1">Action</label>
+              <select name="action" class="select select-bordered select-sm">
                 <option value="">All</option>
                 <option value="login" selected={@filter_action == "login"}>Login</option>
-                <option value="key_generated" selected={@filter_action == "key_generated"}>
-                  Key Generated
-                </option>
-                <option value="ceremony_initiated" selected={@filter_action == "ceremony_initiated"}>
-                  Ceremony Initiated
-                </option>
+                <option value="key_generated" selected={@filter_action == "key_generated"}>Key Generated</option>
+                <option value="ceremony_initiated" selected={@filter_action == "ceremony_initiated"}>Ceremony Initiated</option>
                 <option value="login_failed" selected={@filter_action == "login_failed"}>Login Failed</option>
                 <option value="user_created" selected={@filter_action == "user_created"}>User Created</option>
                 <option value="user_suspended" selected={@filter_action == "user_suspended"}>User Suspended</option>
@@ -269,16 +268,16 @@ defmodule PkiCaPortalWeb.AuditLogLive do
               </select>
             </div>
             <div>
-              <label for="actor" class="block text-xs font-medium text-base-content/60 mb-1">Actor</label>
-              <input type="text" name="actor" id="filter-actor" value={@filter_actor} class="input input-bordered input-sm w-40" placeholder="Search actor..." />
+              <label class="block text-xs font-medium text-base-content/60 mb-1">Actor</label>
+              <input type="text" name="actor" value={@filter_actor} class="input input-bordered input-sm w-40" placeholder="Search actor..." />
             </div>
             <div>
-              <label for="date_from" class="block text-xs font-medium text-base-content/60 mb-1">From</label>
-              <input type="date" name="date_from" id="filter-date-from" value={@filter_date_from} class="input input-bordered input-sm" />
+              <label class="block text-xs font-medium text-base-content/60 mb-1">From</label>
+              <input type="date" name="date_from" value={@filter_date_from} class="input input-bordered input-sm" />
             </div>
             <div>
-              <label for="date_to" class="block text-xs font-medium text-base-content/60 mb-1">To</label>
-              <input type="date" name="date_to" id="filter-date-to" value={@filter_date_to} class="input input-bordered input-sm" />
+              <label class="block text-xs font-medium text-base-content/60 mb-1">To</label>
+              <input type="date" name="date_to" value={@filter_date_to} class="input input-bordered input-sm" />
             </div>
             <div>
               <button type="submit" class="btn btn-primary btn-sm">
@@ -319,7 +318,7 @@ defmodule PkiCaPortalWeb.AuditLogLive do
               </thead>
               <tbody id="event-list">
                 <tr :for={event <- paginated_events} id={"event-#{event.event_id}"} class="hover">
-                  <td class="font-mono-data">{if event[:timestamp], do: Calendar.strftime(event.timestamp, "%Y-%m-%d %H:%M:%S"), else: "—"}</td>
+                  <td class="font-mono-data"><.local_time dt={event[:timestamp]} /></td>
                   <td>
                     <span class={["badge badge-sm", if(event.category == "ca_operations", do: "badge-info", else: "badge-secondary")]}>
                       {if event.category == "ca_operations", do: "CA Ops", else: "User Mgmt"}

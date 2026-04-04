@@ -48,11 +48,18 @@ defmodule PkiRaPortalWeb.DashboardLive do
     opts = tenant_opts(socket)
 
     socket =
-      case socket.assigns.role do
-        "ra_admin" -> load_admin_data(socket, opts)
-        "ra_officer" -> load_officer_data(socket, opts)
-        "auditor" -> load_auditor_data(socket, opts)
-        _ -> socket
+      try do
+        case socket.assigns.role do
+          "ra_admin" -> load_admin_data(socket, opts)
+          "ra_officer" -> load_officer_data(socket, opts)
+          "auditor" -> load_auditor_data(socket, opts)
+          _ -> socket
+        end
+      rescue
+        e ->
+          require Logger
+          Logger.error("dashboard_load_failed role=#{socket.assigns.role} error=#{Exception.message(e)}")
+          socket
       end
 
     {:noreply, assign(socket, loading: false)}
@@ -238,6 +245,11 @@ defmodule PkiRaPortalWeb.DashboardLive do
     steps |> Map.values() |> Enum.count(& &1)
   end
 
+  defp format_details(nil), do: "-"
+  defp format_details(str) when is_binary(str), do: str
+  defp format_details(map) when is_map(map), do: map |> Jason.encode!() |> String.slice(0, 80)
+  defp format_details(other), do: inspect(other)
+
   defp required_setup_done?(steps) do
     steps.ca_connections && steps.cert_profiles
   end
@@ -346,17 +358,20 @@ defmodule PkiRaPortalWeb.DashboardLive do
     >
       <div class="card-body">
         <div class="flex items-center justify-between">
-          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">
-            Setup: {setup_complete_count(@setup_steps)} of 5 complete
-          </h2>
+          <div>
+            <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">
+              Setup: {setup_complete_count(@setup_steps)} of 5 complete
+            </h2>
+            <p class="text-xs text-base-content/50 mt-1">Complete these steps to configure your Registration Authority for certificate issuance.</p>
+          </div>
           <button phx-click="dismiss_setup" class="btn btn-ghost btn-xs">Dismiss</button>
         </div>
-        <div class="mt-3 space-y-2">
-          <.setup_item done={@setup_steps.ca_connections} label="CA Connections" href="/ca-connection" />
-          <.setup_item done={@setup_steps.cert_profiles} label="Certificate Profiles" href="/cert-profiles" />
-          <.setup_item done={@setup_steps.portal_users} label="Team Members (non-admin)" href="/users" />
-          <.setup_item done={@setup_steps.service_configs} label="Service Configurations" href="/service-configs" />
-          <.setup_item done={@setup_steps.api_keys} label="API Keys" href="/api-keys" />
+        <div class="mt-4 space-y-3">
+          <.setup_item done={@setup_steps.ca_connections} label="1. CA Connections" description="Connect to CA issuer keys — determines which CA signs your certificates" required={true} href="/ca-connection" />
+          <.setup_item done={@setup_steps.cert_profiles} label="2. Certificate Profiles" description="Define certificate types your RA can issue (TLS, code signing, etc.)" required={true} href="/cert-profiles" />
+          <.setup_item done={@setup_steps.portal_users} label="3. Team Members" description="Invite RA officers to review CSRs and auditors for compliance oversight" required={false} href="/users" />
+          <.setup_item done={@setup_steps.service_configs} label="4. Service Configurations" description="Configure OCSP responder, CRL distribution, and TSA endpoints" required={false} href="/service-configs" />
+          <.setup_item done={@setup_steps.api_keys} label="5. API Keys" description="Create API keys for automated CSR submission from external systems" required={false} href="/api-keys" />
         </div>
       </div>
     </section>
@@ -553,15 +568,33 @@ defmodule PkiRaPortalWeb.DashboardLive do
   # ---------------------------------------------------------------------------
 
   defp setup_item(assigns) do
+    assigns = assign_new(assigns, :description, fn -> nil end)
+    assigns = assign_new(assigns, :required, fn -> false end)
+
     ~H"""
-    <div class="flex items-center gap-2">
-      <%= if @done do %>
-        <.icon name="hero-check-circle-solid" class="size-5 text-success" />
-        <span class="text-sm">{@label}</span>
-      <% else %>
-        <.icon name="hero-x-circle" class="size-5 text-base-content/30" />
-        <a href={@href} class="text-sm link link-primary">{@label}</a>
-      <% end %>
+    <div class="flex items-start gap-3">
+      <div class="pt-0.5">
+        <%= if @done do %>
+          <.icon name="hero-check-circle-solid" class="size-5 text-success" />
+        <% else %>
+          <.icon name="hero-x-circle" class="size-5 text-base-content/30" />
+        <% end %>
+      </div>
+      <div class="flex-1">
+        <div class="flex items-center gap-2">
+          <%= if @done do %>
+            <span class="text-sm font-medium">{@label}</span>
+          <% else %>
+            <a href={@href} class="text-sm font-medium link link-primary">{@label}</a>
+          <% end %>
+          <%= if @required do %>
+            <span class="badge badge-xs badge-error">Required</span>
+          <% else %>
+            <span class="badge badge-xs badge-ghost">Optional</span>
+          <% end %>
+        </div>
+        <p :if={@description} class="text-xs text-base-content/50 mt-0.5">{@description}</p>
+      </div>
     </div>
     """
   end
@@ -583,13 +616,13 @@ defmodule PkiRaPortalWeb.DashboardLive do
             <td colspan="4" class="text-center text-base-content/50 py-6">No recent activity</td>
           </tr>
           <tr :for={event <- @events} class="hover:bg-base-200/50 border-base-300">
-            <td class="text-xs text-base-content/70">{event[:timestamp] || event["timestamp"]}</td>
+            <td class="text-xs text-base-content/70"><.local_time dt={event[:timestamp] || event["timestamp"]} /></td>
             <td class="text-sm">{event[:actor] || event["actor"] || event[:actor_username] || event["actor_username"]}</td>
             <td>
               <span class="badge badge-sm badge-ghost">{event[:action] || event["action"]}</span>
             </td>
             <td class="text-sm text-base-content/70 overflow-hidden text-ellipsis whitespace-nowrap">
-              {event[:details] || event["details"] || event[:resource_type] || event["resource_type"]}
+              {format_details(event[:details] || event["details"] || event[:resource_type] || event["resource_type"])}
             </td>
           </tr>
         </tbody>

@@ -9,8 +9,6 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :load_data)
-
     {:ok,
      assign(socket,
        page_title: "Keystore Management",
@@ -27,19 +25,27 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   end
 
   @impl true
-  def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
+  def handle_params(params, _uri, socket) do
+    if connected?(socket), do: send(self(), {:load_data, params["ca"]})
+    {:noreply, socket}
+  end
 
-    keystores = case CaEngineClient.list_keystores(nil, opts) do
-      {:ok, ks} -> ks
-      {:error, _} -> []
-    end
+  @impl true
+  def handle_info({:load_data, url_ca_id}, socket) do
+    opts = tenant_opts(socket)
 
     ca_instances =
       case CaEngineClient.list_ca_instances(opts) do
         {:ok, instances} -> instances
         {:error, _} -> []
       end
+
+    ca_id = if url_ca_id && url_ca_id != "", do: url_ca_id, else: nil
+
+    keystores = case CaEngineClient.list_keystores(ca_id, opts) do
+      {:ok, ks} -> ks
+      {:error, _} -> []
+    end
 
     hsm_devices =
       case CaEngineClient.list_hsm_devices(opts) do
@@ -52,6 +58,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
        keystores: keystores,
        ca_instances: ca_instances,
        hsm_devices: hsm_devices,
+       selected_ca_instance_id: url_ca_id || "",
        loading: false
      )}
   end
@@ -86,7 +93,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
               ks_details = %{ca_instance_id: ca_instance_id, type: type}
               ks_details = if type == "hsm", do: Map.put(ks_details, :hsm_device_id, hsm_device_id), else: ks_details
               audit_log(socket, "keystore_configured", "keystore", keystore[:id] || keystore["id"], ks_details)
-              send(self(), :load_data)
+              send(self(), {:load_data, socket.assigns.selected_ca_instance_id})
               {:noreply, put_flash(socket, :info, "Keystore configured successfully.")}
 
             {:error, reason} ->
@@ -107,14 +114,8 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def handle_event("filter_ca_instance", %{"ca_instance_id" => ca_instance_id}, socket) do
-    ca_id = if ca_instance_id == "", do: nil, else: ca_instance_id
-
-    keystores = case CaEngineClient.list_keystores(ca_id, tenant_opts(socket)) do
-      {:ok, ks} -> ks
-      {:error, _} -> []
-    end
-
-    {:noreply, assign(socket, keystores: keystores, selected_ca_instance_id: ca_instance_id, page: 1)}
+    path = if ca_instance_id == "", do: "/keystores", else: "/keystores?ca=#{ca_instance_id}"
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @impl true
@@ -248,7 +249,7 @@ defmodule PkiCaPortalWeb.KeystoresLive do
                   </td>
                   <td class="font-mono text-xs text-base-content/50 overflow-hidden text-ellipsis whitespace-nowrap">{String.slice(ks.id || "", 0..7)}</td>
                   <td class="text-xs text-base-content/50">
-                    {if ks[:inserted_at], do: Calendar.strftime(ks.inserted_at, "%Y-%m-%d %H:%M:%S"), else: "-"}
+                    <.local_time dt={ks[:inserted_at]} />
                   </td>
                 </tr>
               </tbody>

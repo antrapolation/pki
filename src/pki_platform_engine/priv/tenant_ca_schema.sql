@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS ca.key_ceremonies (
     threshold_n integer,
     domain_info jsonb DEFAULT '{}'::jsonb,
     window_expires_at timestamp(0) without time zone,
+    auditor_user_id uuid,
+    time_window_hours integer DEFAULT 24,
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );
@@ -155,9 +157,13 @@ CREATE TABLE IF NOT EXISTS ca.threshold_shares (
     issuer_key_id uuid NOT NULL,
     custodian_user_id uuid NOT NULL,
     share_index integer NOT NULL,
-    encrypted_share bytea NOT NULL,
+    encrypted_share bytea,
     min_shares integer NOT NULL,
     total_shares integer NOT NULL,
+    key_label varchar(255),
+    status varchar(255) DEFAULT 'pending',
+    accepted_at timestamp(0) without time zone,
+    encrypted_password bytea,
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL
 );

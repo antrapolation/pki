@@ -134,6 +134,7 @@ defmodule PkiCaPortal.CaEngineClient do
   def check_ceremony_readiness(ceremony_id, opts \\ []), do: impl().check_ceremony_readiness(ceremony_id, opts)
   def execute_ceremony_keygen(ceremony_id, custodian_passwords, opts \\ []), do: impl().execute_ceremony_keygen(ceremony_id, custodian_passwords, opts)
   def list_ceremony_attestations(ceremony_id, opts \\ []), do: impl().list_ceremony_attestations(ceremony_id, opts)
+  def get_ceremony_by_issuer_key(issuer_key_id, opts \\ []), do: impl().get_ceremony_by_issuer_key(issuer_key_id, opts)
   def list_my_ceremony_shares(user_id, opts \\ []), do: impl().list_my_ceremony_shares(user_id, opts)
   def list_my_witness_ceremonies(auditor_user_id, opts \\ []), do: impl().list_my_witness_ceremonies(auditor_user_id, opts)
 end

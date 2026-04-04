@@ -67,7 +67,9 @@ defmodule PkiRaPortalWeb.AuditLogLive do
     events = socket.assigns.events
     total = length(events)
     exported = Enum.take(events, @export_limit)
-    csv = generate_csv(exported)
+    tz_offset = socket.assigns[:timezone_offset_min] || 0
+    tz_name = socket.assigns[:timezone] || "UTC"
+    csv = generate_csv(exported, tz_offset, tz_name)
     filename = "audit-log-#{Date.to_iso8601(Date.utc_today())}.csv"
 
     socket = if total > @export_limit do
@@ -104,11 +106,11 @@ defmodule PkiRaPortalWeb.AuditLogLive do
     end
   end
 
-  defp generate_csv(events) do
-    header = "Timestamp,Action,Actor,Event ID\r\n"
+  defp generate_csv(events, tz_offset, tz_name) do
+    header = "Timestamp (#{tz_name}),Action,Actor,Event ID\r\n"
 
     rows = Enum.map(events, fn e ->
-      timestamp = if ts = e[:timestamp] || Map.get(e, :timestamp), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M:%S"), else: ""
+      timestamp = if ts = e[:timestamp] || Map.get(e, :timestamp), do: format_with_offset(ts, tz_offset), else: ""
       action = to_string(e[:action] || Map.get(e, :action, ""))
       actor = to_string(e[:actor_username] || Map.get(e, :actor_username, "system"))
       event_id = to_string(e[:id] || Map.get(e, :id, ""))
@@ -117,6 +119,13 @@ defmodule PkiRaPortalWeb.AuditLogLive do
 
     header <> Enum.join(rows)
   end
+
+  defp format_with_offset(dt, offset_min) when is_integer(offset_min) do
+    dt
+    |> NaiveDateTime.add(offset_min * 60, :second)
+    |> Calendar.strftime("%Y-%m-%d %H:%M:%S")
+  end
+  defp format_with_offset(dt, _), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
 
   defp csv_escape(value) do
     if String.contains?(value, [",", "\"", "\n"]) do
@@ -229,7 +238,7 @@ defmodule PkiRaPortalWeb.AuditLogLive do
               </thead>
               <tbody id="event-list">
                 <tr :for={event <- paginated} id={"event-#{event[:id] || event.id}"} class="hover">
-                  <td class="font-mono text-xs">{if ts = event[:timestamp] || Map.get(event, :timestamp), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M:%S"), else: "—"}</td>
+                  <td class="font-mono text-xs"><.local_time dt={event[:timestamp] || Map.get(event, :timestamp)} /></td>
                   <td><span class="badge badge-sm badge-ghost">{event[:action] || event.action}</span></td>
                   <td class="overflow-hidden text-ellipsis whitespace-nowrap">{event[:actor_username] || Map.get(event, :actor_username, "system")}</td>
                   <td class="text-xs text-base-content/60 overflow-hidden text-ellipsis whitespace-nowrap">{format_details(event[:details] || Map.get(event, :details, %{}))}</td>

@@ -43,23 +43,37 @@ defmodule PkiCaPortalWeb.Layouts do
 
         <%!-- Navigation --%>
         <% role = (@current_user && @current_user[:role]) || "auditor" %>
-        <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-          <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
-          <.sidebar_link href="/ca-instances" icon="hero-server-stack" label="CA Instances" current={@page_title} />
-          <.sidebar_link :if={role == "ca_admin"} href="/users" icon="hero-users" label="Users" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/hsm-devices" icon="hero-cpu-chip" label="HSM Devices" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/keystores" icon="hero-key" label="Keystores" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/ceremony/custodian" icon="hero-key" label="My Shares" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "key_manager"]} href="/certificates" icon="hero-document-text" label="Certificates" current={@page_title} />
-          <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
-          <%= if role == "ca_admin" and Application.get_env(:pki_ca_portal, :enable_quick_setup, false) do %>
-            <div class="divider my-1 px-3"></div>
-            <.sidebar_link href="/quick-setup" icon="hero-beaker" label="Quick Setup" current={@page_title} />
-          <% end %>
-          <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
+        <nav class="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
+          <.sidebar_section label="OVERVIEW">
+            <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
+            <.sidebar_link href="/ca-instances" icon="hero-server-stack" label="CA Instances" current={@page_title} />
+          </.sidebar_section>
+
+          <.sidebar_section :if={role in ["ca_admin", "key_manager"]} label="KEY MANAGEMENT">
+            <.sidebar_link :if={role == "ca_admin"} href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
+            <.sidebar_link href="/ceremony/custodian" icon="hero-key" label="My Shares" current={@page_title} />
+            <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
+            <.sidebar_link href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
+            <.sidebar_link href="/certificates" icon="hero-document-text" label="Certificates" current={@page_title} />
+          </.sidebar_section>
+
+          <%!-- Auditor-only: show ceremony witness when they have no KEY MANAGEMENT section --%>
+          <.sidebar_section :if={role == "auditor"} label="CEREMONY">
+            <.sidebar_link href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
+          </.sidebar_section>
+
+          <.sidebar_section :if={role in ["ca_admin", "key_manager"]} label="INFRASTRUCTURE">
+            <.sidebar_link href="/hsm-devices" icon="hero-cpu-chip" label="HSM Devices" current={@page_title} />
+            <.sidebar_link href="/keystores" icon="hero-key" label="Keystores" current={@page_title} />
+          </.sidebar_section>
+
+          <.sidebar_section :if={role in ["ca_admin", "auditor"]} label="ADMINISTRATION">
+            <.sidebar_link :if={role == "ca_admin"} href="/users" icon="hero-users" label="Users" current={@page_title} />
+            <.sidebar_link href="/audit-log" icon="hero-document-text" label="Audit Log" current={@page_title} />
+          </.sidebar_section>
+
+          <div class="divider my-1 px-3"></div>
+          <.sidebar_link href="/profile" icon="hero-user-circle" label="My Profile" current={@page_title} />
         </nav>
 
         <%!-- Sidebar footer --%>
@@ -120,6 +134,20 @@ defmodule PkiCaPortalWeb.Layouts do
     """
   end
 
+  attr :label, :string, required: true
+  slot :inner_block, required: true
+
+  defp sidebar_section(assigns) do
+    ~H"""
+    <div class="pt-3 first:pt-0">
+      <p class="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-base-content/30">{@label}</p>
+      <div class="space-y-0.5">
+        {render_slot(@inner_block)}
+      </div>
+    </div>
+    """
+  end
+
   attr :href, :string, required: true
   attr :icon, :string, required: true
   attr :label, :string, required: true
@@ -159,6 +187,7 @@ defmodule PkiCaPortalWeb.Layouts do
   defp is_active?("Audit Log", "Audit Log"), do: true
   defp is_active?("Quick Setup", "Quick Setup"), do: true
   defp is_active?("Profile", "Profile"), do: true
+  defp is_active?("My Profile", "Profile"), do: true
   defp is_active?(_, _), do: false
 
   @doc """
