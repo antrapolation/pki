@@ -29,31 +29,64 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
       timeout_ms = Application.get_env(@app, :session_idle_timeout_ms, 30 * 60 * 1000)
       warning_ms = timeout_ms - 5 * 60 * 1000
 
-      {:cont,
-       socket
-       |> assign(:current_user, user)
-       |> assign(:tenant_id, sess.tenant_id)
-       |> assign(:session_id, session_id)
-       |> assign(:session_timeout_ms, timeout_ms)
-       |> assign(:session_warning_ms, warning_ms)
-       |> attach_hook(:session_keep_alive, :handle_event, fn
-         "keep_alive", _params, socket ->
-           if sid = socket.assigns[:session_id] do
-             PkiRaPortal.SessionStore.touch(sid)
-           end
-           {:halt, socket}
+      base_socket =
+        socket
+        |> assign(:current_user, user)
+        |> assign(:tenant_id, sess.tenant_id)
+        |> assign(:session_id, session_id)
+        |> assign(:session_timeout_ms, timeout_ms)
+        |> assign(:session_warning_ms, warning_ms)
+        |> attach_hook(:session_keep_alive, :handle_event, fn
+          "keep_alive", _params, socket ->
+            if sid = socket.assigns[:session_id] do
+              PkiRaPortal.SessionStore.touch(sid)
+            end
+            {:halt, socket}
 
-         _event, _params, socket ->
-           # Touch session on any LiveView interaction
-           if sid = socket.assigns[:session_id] do
-             PkiRaPortal.SessionStore.touch(sid)
-           end
-           {:cont, socket}
-       end)}
+          _event, _params, socket ->
+            # Touch session on any LiveView interaction
+            if sid = socket.assigns[:session_id] do
+              PkiRaPortal.SessionStore.touch(sid)
+            end
+            {:cont, socket}
+        end)
+
+      # First-login redirect: if ra_admin and setup not done, redirect to /welcome
+      skip_modules = [
+        PkiRaPortalWeb.WelcomeLive,
+        PkiRaPortalWeb.SetupWizardLive,
+        PkiRaPortalWeb.CaConnectionLive,
+        PkiRaPortalWeb.CertProfilesLive,
+        PkiRaPortalWeb.ProfileLive
+      ]
+
+      if user[:role] == "ra_admin" and socket.view not in skip_modules and needs_setup?(base_socket) do
+        {:halt, redirect(base_socket, to: "/welcome")}
+      else
+        {:cont, base_socket}
+      end
     else
       _ ->
         {:halt, redirect(socket, to: "/login")}
     end
+  end
+
+  defp needs_setup?(socket) do
+    opts = [tenant_id: socket.assigns[:current_user][:tenant_id] || socket.assigns[:current_user]["tenant_id"]]
+
+    has_connections =
+      case PkiRaPortal.RaEngineClient.list_ca_connections([], opts) do
+        {:ok, conns} -> length(conns) > 0
+        _ -> false
+      end
+
+    has_profiles =
+      case PkiRaPortal.RaEngineClient.list_cert_profiles(opts) do
+        {:ok, profiles} -> length(profiles) > 0
+        _ -> false
+      end
+
+    not (has_connections and has_profiles)
   end
 
   defp check_timeout(session_id, session) do
