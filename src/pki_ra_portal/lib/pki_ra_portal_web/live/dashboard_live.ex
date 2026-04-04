@@ -352,7 +352,7 @@ defmodule PkiRaPortalWeb.DashboardLive do
           <button phx-click="dismiss_setup" class="btn btn-ghost btn-xs">Dismiss</button>
         </div>
         <div class="mt-3 space-y-2">
-          <.setup_item done={@setup_steps.ca_connections} label="CA Connections" href="/ca-connections" />
+          <.setup_item done={@setup_steps.ca_connections} label="CA Connections" href="/ca-connection" />
           <.setup_item done={@setup_steps.cert_profiles} label="Certificate Profiles" href="/cert-profiles" />
           <.setup_item done={@setup_steps.portal_users} label="Team Members (non-admin)" href="/users" />
           <.setup_item done={@setup_steps.service_configs} label="Service Configurations" href="/service-configs" />

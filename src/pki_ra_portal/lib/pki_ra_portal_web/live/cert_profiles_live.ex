@@ -11,7 +11,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       description: "HTTPS server certificates",
       key_usage: "digitalSignature, keyEncipherment",
       ext_key_usage: "serverAuth",
-      digest_algo: "sha256",
+      digest_algo: "SHA-256",
       validity_days: 365,
       subject_dn_policy: %{"required" => ["CN"], "optional" => ["O", "OU", "L", "ST", "C"], "require_dcv" => true}
     },
@@ -20,7 +20,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       description: "Client authentication certificates",
       key_usage: "digitalSignature",
       ext_key_usage: "clientAuth",
-      digest_algo: "sha256",
+      digest_algo: "SHA-256",
       validity_days: 365,
       subject_dn_policy: %{"required" => ["CN"], "optional" => ["O", "OU", "E"], "require_dcv" => false}
     },
@@ -29,7 +29,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       description: "Software code signing certificates",
       key_usage: "digitalSignature",
       ext_key_usage: "codeSigning",
-      digest_algo: "sha256",
+      digest_algo: "SHA-256",
       validity_days: 365,
       subject_dn_policy: %{"required" => ["CN", "O"], "optional" => ["OU", "L", "ST", "C"], "require_dcv" => false}
     },
@@ -38,7 +38,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       description: "Email encryption and signing",
       key_usage: "digitalSignature, keyEncipherment",
       ext_key_usage: "emailProtection",
-      digest_algo: "sha256",
+      digest_algo: "SHA-256",
       validity_days: 365,
       subject_dn_policy: %{"required" => ["CN", "E"], "optional" => ["O", "OU"], "require_dcv" => false}
     },
@@ -47,7 +47,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
       description: "Configure all fields manually",
       key_usage: "",
       ext_key_usage: "",
-      digest_algo: "sha256",
+      digest_algo: "SHA-256",
       validity_days: 365,
       subject_dn_policy: %{"required" => ["CN"], "optional" => [], "require_dcv" => false}
     }
@@ -525,7 +525,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
             <div>
               <label for="profile-digest-algo" class="label text-xs font-medium">Digest Algorithm</label>
               <select name="digest_algo" id="profile-digest-algo" class="select select-sm select-bordered w-full">
-                <option value="SHA-256" selected={Map.get(@template_defaults, :digest_algo, "sha256") == "sha256"}>SHA-256</option>
+                <option value="SHA-256" selected={Map.get(@template_defaults, :digest_algo, "SHA-256") == "SHA-256"}>SHA-256</option>
                 <option value="SHA-384" selected={Map.get(@template_defaults, :digest_algo) == "sha384"}>SHA-384</option>
                 <option value="SHA-512" selected={Map.get(@template_defaults, :digest_algo) == "sha512"}>SHA-512</option>
               </select>

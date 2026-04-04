@@ -186,8 +186,15 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
 
   @impl true
   def handle_event("go_step", %{"step" => step_str}, socket) do
-    step = String.to_integer(step_str)
+    case Integer.parse(step_str) do
+      {step, ""} when step >= 1 and step <= 6 ->
+        handle_go_step(step, socket)
+      _ ->
+        {:noreply, socket}
+    end
+  end
 
+  defp handle_go_step(step, socket) do
     cond do
       step < 1 or step > 6 ->
         {:noreply, socket}

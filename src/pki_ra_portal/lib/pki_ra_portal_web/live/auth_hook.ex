@@ -52,11 +52,14 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
         end)
 
       # First-login redirect: if ra_admin and setup not done, redirect to /welcome
+      # Pages that should not trigger the first-login redirect
+      # DashboardLive included so "Skip" from welcome screen works
       skip_modules = [
         PkiRaPortalWeb.WelcomeLive,
         PkiRaPortalWeb.SetupWizardLive,
         PkiRaPortalWeb.CaConnectionLive,
         PkiRaPortalWeb.CertProfilesLive,
+        PkiRaPortalWeb.DashboardLive,
         PkiRaPortalWeb.ProfileLive
       ]
 
