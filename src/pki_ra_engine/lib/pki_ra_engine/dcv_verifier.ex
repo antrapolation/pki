@@ -9,7 +9,7 @@ defmodule PkiRaEngine.DcvVerifier do
   def check_http_01(domain, token, token_value) do
     url = "http://#{domain}/.well-known/pki-validation/#{token}"
 
-    case Req.get(url, receive_timeout: @http_timeout, redirect: false, max_redirects: @max_redirects) do
+    case Req.get(url, receive_timeout: @http_timeout, max_redirects: @max_redirects) do
       {:ok, %{status: 200, body: body}} when is_binary(body) ->
         if String.contains?(body, token_value) do
           :ok
