@@ -5,18 +5,25 @@ defmodule PkiPlatformPortalWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: send(self(), :load_data)
 
-    {:ok,
-     assign(socket,
-       page_title: "Dashboard",
-       total_tenants: 0,
-       active_tenants: 0,
-       suspended_tenants: 0,
-       initialized_tenants: 0,
-       healthy_services: 0,
-       total_services: 6,
-       recent_tenants: [],
-       loading: true
-     )}
+    socket =
+      assign(socket,
+        page_title: "Dashboard",
+        total_tenants: 0,
+        active_tenants: 0,
+        suspended_tenants: 0,
+        initialized_tenants: 0,
+        healthy_services: 0,
+        total_services: 6,
+        recent_tenants: [],
+        loading: true
+      )
+
+    # Tenant admins go straight to their tenant detail
+    if socket.assigns[:current_user] && socket.assigns.current_user["role"] == "tenant_admin" do
+      {:ok, push_navigate(socket, to: "/tenants/#{socket.assigns.tenant_id}")}
+    else
+      {:ok, socket}
+    end
   end
 
   @impl true
