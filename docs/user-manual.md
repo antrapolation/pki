@@ -8,7 +8,19 @@
 
 1. [Overview](#overview)
 2. [Getting Started](#getting-started)
-3. [CA Portal — Certificate Authority Administration](#ca-portal)
+3. [Platform Portal — Tenant & Infrastructure Management](#platform-portal)
+   - [First-Time Setup](#platform-first-time-setup)
+   - [Login](#platform-login)
+   - [Dashboard](#platform-dashboard)
+   - [Tenant Management](#platform-tenants)
+   - [Creating a Tenant](#platform-tenant-create)
+   - [Tenant Detail & Configuration](#platform-tenant-detail)
+   - [HSM Device Management](#platform-hsm)
+   - [Admin Management](#platform-admins)
+   - [System Health Monitoring](#platform-system)
+   - [Active Sessions](#platform-sessions)
+   - [Profile & Password](#platform-profile)
+4. [CA Portal — Certificate Authority Administration](#ca-portal)
    - [First-Time Setup](#ca-first-time-setup)
    - [Login](#ca-login)
    - [Dashboard](#ca-dashboard)
@@ -16,7 +28,7 @@
    - [Keystore Management](#ca-keystore-management)
    - [Key Ceremony](#ca-key-ceremony)
    - [Audit Log](#ca-audit-log)
-4. [RA Portal — Registration Authority Administration](#ra-portal)
+5. [RA Portal — Registration Authority Administration](#ra-portal)
    - [First-Time Setup](#ra-first-time-setup)
    - [Login](#ra-login)
    - [Dashboard](#ra-dashboard)
@@ -25,10 +37,10 @@
    - [Certificate Profiles](#ra-certificate-profiles)
    - [Service Configuration](#ra-service-configuration)
    - [API Key Management](#ra-api-key-management)
-5. [REST API — Submitting CSRs](#rest-api)
-6. [OCSP & CRL — Certificate Validation](#validation)
-7. [User Roles & Permissions](#roles)
-8. [Glossary](#glossary)
+6. [REST API — Submitting CSRs](#rest-api)
+7. [OCSP & CRL — Certificate Validation](#validation)
+8. [User Roles & Permissions](#roles)
+9. [Glossary](#glossary)
 
 ---
 
@@ -40,10 +52,11 @@ The PQC Certificate Authority System is a Post-Quantum Cryptography ready CA inf
 - **ML-DSA** (NIST PQC standard)
 - **RSA & ECC** (classical algorithms for backward compatibility)
 
-The system consists of two web portals and supporting services:
+The system consists of three web portals and supporting services:
 
 | Component | URL | Purpose |
 |-----------|-----|---------|
+| Platform Portal | `https://your-domain:4006` | Tenant provisioning & infrastructure management |
 | CA Portal | `https://your-domain:4002` | Certificate Authority administration |
 | RA Portal | `https://your-domain:4004` | Registration Authority administration |
 | RA API | `https://your-domain:4003` | REST API for CSR submission |
@@ -64,11 +77,349 @@ When the system is deployed for the first time, you will need to create the init
 
 ---
 
-## 3. CA Portal — Certificate Authority Administration <a name="ca-portal"></a>
+## 3. Platform Portal — Tenant & Infrastructure Management <a name="platform-portal"></a>
+
+The Platform Portal is the top-level administration interface used to provision and manage tenants (organizations), register HSM devices, monitor system health, and manage platform administrator accounts. Each tenant receives its own isolated CA and RA environments.
+
+| Default URL | `https://your-domain:4006` |
+|---|---|
+| **Audience** | Platform superadmins responsible for infrastructure |
+
+### 3.1 First-Time Setup <a name="platform-first-time-setup"></a>
+
+On first deployment, navigate to `/setup` to create the initial platform superadmin account.
+
+**Steps:**
+1. Navigate to `https://your-domain:4006/setup`
+2. Enter a **Username** (e.g., `admin`)
+3. Enter a **Display Name** (e.g., `Platform Admin`)
+4. Enter a **Password** (minimum 8 characters)
+5. **Confirm Password**
+6. Click **Create Admin Account**
+
+No email is required during initial setup. You can add your email later from the **Profile** page.
+
+You will be redirected to the login page. The setup page is only available once — after the first admin is created, all future visits redirect to login automatically.
+
+> **Tip:** You can also bootstrap the initial admin via environment variables (`PLATFORM_ADMIN_USERNAME` and `PLATFORM_ADMIN_PASSWORD`) for automated deployments.
+
+### 3.2 Login <a name="platform-login"></a>
+
+**Steps:**
+1. Navigate to `https://your-domain:4006/login`
+2. Enter your **Username**
+3. Enter your **Password**
+4. Click **Sign In**
+
+**Security protections:**
+- **Rate limiting** — 5 failed login attempts per 5 minutes per IP address
+- **Session timeout** — Sessions expire after 30 minutes of inactivity (with a 5-minute warning)
+- **IP pinning** — Sessions are bound to your IP address; a change triggers a security alert
+- **User-agent matching** — If your browser fingerprint changes mid-session, the session is terminated (hijack detection)
+
+If your account requires a password change (e.g., first login with temporary credentials), you will be redirected to a **Change Password** page before proceeding.
+
+### 3.3 Dashboard <a name="platform-dashboard"></a>
+
+The dashboard provides an executive overview of your PKI deployment.
+
+**Summary Cards:**
+
+| Card | Description |
+|------|-------------|
+| **Total Tenants** | Number of provisioned tenant organizations |
+| **Active Tenants** | Tenants currently operational |
+| **Suspended Tenants** | Tenants that have been temporarily disabled |
+| **Pending Setup** | Tenants provisioned but not yet activated |
+| **Service Health** | Number of healthy services out of total monitored |
+
+**Recent Tenants Table:**
+- Shows the 5 most recently created tenants
+- Columns: Name, Slug, Status, Email, Created Date
+
+**Quick Actions:**
+- **New Tenant** — Start the tenant creation workflow
+
+### 3.4 Tenant Management <a name="platform-tenants"></a>
+
+Navigate to **Tenants** in the sidebar to view and manage all tenant organizations.
+
+**Tenant List:**
+- Paginated list (10 per page) with sortable columns
+- Columns: Name, Slug, Status, Email, Created Date
+- Status badges:
+  - **Active** (green) — Tenant is operational
+  - **Suspended** (yellow) — Tenant is temporarily disabled
+  - **Initialized** (blue) — Tenant is provisioned but not yet activated
+
+**Inline Actions per Tenant:**
+
+| Action | Icon | Available When |
+|--------|------|---------------|
+| **View Details** | Eye | Always |
+| **Activate** | Play | Status is initialized or suspended |
+| **Suspend** | Pause | Status is active or initialized |
+| **Delete** | Trash | Status is suspended only |
+
+**Tenant Lifecycle:**
+
+```
+Initialized → Active → Suspended → Deleted
+      ↓                    ↑
+      └────────────────────┘
+```
+
+- A tenant must be **suspended** before it can be deleted
+- Activating a tenant creates CA and RA admin accounts and sends credentials to the tenant's email
+
+### 3.5 Creating a Tenant <a name="platform-tenant-create"></a>
+
+Click **New Tenant** from the Tenants page or Dashboard to start the multi-step provisioning workflow.
+
+#### Step 1 — Tenant Information
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| **Name** | Yes | Display name for the organization (e.g., "Acme Corp") |
+| **Slug** | Yes | URL-safe identifier used in subdomains and routing. Must be lowercase alphanumeric with hyphens, starting and ending with a letter or number (e.g., `acme-corp`) |
+| **Email** | Yes | Admin contact email — credentials will be sent here |
+
+Click **Next** to proceed to email verification.
+
+#### Step 2 — Email Verification
+
+A 6-digit verification code is sent to the email address provided in Step 1.
+
+1. Check the inbox for the verification email
+2. Enter the **6-digit code**
+3. Click **Verify**
+
+Options:
+- **Resend Code** — Sends a new code (previous code expires). Codes are valid for 10 minutes.
+- **Back** — Return to Step 1 to correct the email
+
+> **Note:** Verification is limited to 5 attempts. If exceeded, you must resend a new code.
+
+#### Step 3 — Provisioning
+
+The system automatically provisions the tenant:
+- Creates an isolated PostgreSQL database
+- Applies CA and RA schemas
+- Sets up audit infrastructure
+
+A spinner is displayed during provisioning. If an error occurs, a **Retry** button is shown.
+
+#### Step 4 — Success
+
+On completion, you will see:
+- Confirmation message with the tenant name
+- **Next steps** checklist:
+  1. Deploy CA and RA engines for the tenant
+  2. Verify engines are online from the tenant detail page
+  3. Activate the tenant to create admin accounts and send credentials
+
+Buttons: **View Tenant** (go to detail page) | **Back to List**
+
+### 3.6 Tenant Detail & Configuration <a name="platform-tenant-detail"></a>
+
+Click a tenant's **View** action to open its detail page. This page provides comprehensive management for a single tenant.
+
+#### Tenant Information
+
+Displays the tenant's name, slug, email, and current status. Available actions:
+
+| Action | Description |
+|--------|-------------|
+| **Resend Credentials** | Re-sends CA and RA admin login credentials to the tenant's email |
+| **Reset CA Admin** | Generates new temporary credentials for the CA admin |
+| **Reset RA Admin** | Generates new temporary credentials for the RA admin |
+| **Delete** | Remove tenant (only available when suspended) |
+
+#### Engine Status
+
+Shows real-time connectivity status for the tenant's CA and RA engines:
+
+| Status | Indicator | Meaning |
+|--------|-----------|---------|
+| **Online** | Green | Engine is running and reachable |
+| **Offline** | Red | Engine is unreachable |
+| **Checking** | Spinner | Connectivity check in progress |
+
+Each engine shows its expected setup URL (based on tenant slug). Click **Refresh** to manually re-check status.
+
+#### Metrics
+
+Loaded asynchronously, this section displays operational metrics for the tenant:
+
+| Metric | Description |
+|--------|-------------|
+| **Database Size** | Storage used by the tenant's database |
+| **CA Users** | Number of CA portal users |
+| **RA Users** | Number of RA portal users |
+| **Certificates Issued** | Total certificates issued |
+| **Active Certificates** | Currently valid certificates |
+| **Pending CSRs** | CSRs awaiting review |
+| **CA Instances** | Number of CA engine instances |
+| **RA Instances** | Number of RA engine instances |
+
+#### HSM Device Access
+
+Manage which HSM devices this tenant can use for key storage:
+
+- Table lists all registered HSM devices with their label, manufacturer, slot ID, and current tenant count
+- **Grant** — Allow tenant to use a device
+- **Revoke** — Remove tenant's access to a device
+
+### 3.7 HSM Device Management <a name="platform-hsm"></a>
+
+Navigate to **HSM Devices** in the sidebar to register and manage Hardware Security Modules.
+
+#### Registering a Device
+
+| Field | Description |
+|-------|-------------|
+| **Label** | Human-readable name for the device (must be unique) |
+| **PKCS#11 Library Path** | Absolute path to the PKCS#11 shared library (e.g., `/opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so`) |
+| **Slot ID** | Numeric PKCS#11 slot identifier (default: 0) |
+
+When you click **Register**, the system automatically probes the PKCS#11 library to verify connectivity and reads the device manufacturer.
+
+#### Devices Table
+
+| Column | Description |
+|--------|-------------|
+| **Label** | Device name |
+| **Manufacturer** | Auto-detected from PKCS#11 probe |
+| **Slot ID** | PKCS#11 slot number |
+| **Status** | Active or inactive |
+| **Tenants** | Number of tenants with access |
+| **Actions** | Probe, Deactivate |
+
+**Actions:**
+- **Probe** — Re-test PKCS#11 connectivity and update manufacturer info
+- **Deactivate** — Remove device from rotation (only available if no tenants are currently assigned)
+
+### 3.8 Admin Management <a name="platform-admins"></a>
+
+Navigate to **Admins** in the sidebar to manage platform administrator accounts.
+
+#### Admin List
+
+- Shows all platform admins with: Username, Display Name, Email, Role, Status
+- Status badges: **Active** (green), **Suspended** (yellow)
+
+#### Creating a New Admin
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| **Username** | Yes | Unique login identifier (3–50 characters) |
+| **Display Name** | Yes | Full name for display |
+| **Email** | Yes | Email address for invitation delivery |
+
+Click **Create Admin**. The system generates temporary credentials and sends an invitation email. The new admin must change their password on first login.
+
+#### Admin Actions
+
+| Action | Available When | Description |
+|--------|---------------|-------------|
+| **Activate** | Status is suspended | Re-enable admin access |
+| **Suspend** | Status is active | Temporarily disable access |
+| **Delete** | Any | Permanently remove admin |
+
+> **Safety:** The system prevents suspending or deleting the last active platform admin to avoid lockout.
+
+### 3.9 System Health Monitoring <a name="platform-system"></a>
+
+Navigate to **System** in the sidebar to monitor infrastructure health. The page auto-refreshes every 30 seconds.
+
+#### Service Status
+
+Each monitored service shows:
+- Service name
+- Health indicator (green = healthy, red = unhealthy)
+- Response time in milliseconds
+- Last checked timestamp
+
+**Monitored Services:**
+
+| Service | Port | Check Type |
+|---------|------|-----------|
+| CA Engine | 4001 | BEAM process or HTTP |
+| CA Portal | 4002 | HTTP |
+| RA Engine | 4003 | BEAM process or HTTP |
+| RA Portal | 4004 | HTTP |
+| Validation | 4005 | HTTP |
+| Platform Portal | 4006 | Self |
+
+#### Database Status
+
+- PostgreSQL connection status (Connected / Down)
+- Number of tenant databases detected
+
+Click **Refresh** for an immediate manual health check.
+
+### 3.10 Active Sessions <a name="platform-sessions"></a>
+
+Navigate to **Sessions** in the sidebar to monitor and manage active user sessions across all portals.
+
+**Session Table:**
+
+| Column | Description |
+|--------|-------------|
+| **User** | Username of the logged-in user |
+| **Portal** | Which portal (CA, RA, or Platform) — color-coded badges |
+| **Role** | User's role in that portal |
+| **Tenant** | Tenant the session belongs to |
+| **IP** | Client IP address |
+| **Login Time** | When the session was created |
+| **Last Active** | Most recent activity timestamp |
+| **Actions** | Force Logout button |
+
+**Force Logout:**
+- Click the **Force Logout** button on any session row
+- Confirm the action in the dialog
+- The targeted user's session is immediately terminated
+- Event is recorded in the platform audit log
+
+The session list updates in real-time via PubSub — no manual refresh needed.
+
+### 3.11 Profile & Password <a name="platform-profile"></a>
+
+Navigate to **Profile** in the sidebar to view and update your own account settings.
+
+#### Profile Information (Read-Only)
+- Username
+- Role
+- Status
+
+#### Editable Fields
+- **Display Name** — Update and click **Save Changes**
+- **Email** — Update and click **Save Changes**
+
+#### Change Password
+1. Enter your **Current Password**
+2. Enter a **New Password** (minimum 8 characters)
+3. Enter **Confirm Password** (must match)
+4. Click **Change Password**
+
+### 3.12 Forgot Password
+
+If you forget your password:
+1. Click the **Forgot Password** link on the login page
+2. Enter your **Username**
+3. A 6-digit reset code is sent to your registered email
+4. Enter the code and set a new password
+5. You are redirected to the login page
+
+> **Rate limit:** Password reset requests are limited to 3 per 15 minutes per IP address.
+
+---
+
+## 4. CA Portal — Certificate Authority Administration <a name="ca-portal"></a>
 
 The CA Portal is used by system administrators to manage the Certificate Authority, including users, keystores, key ceremonies, and audit logs.
 
-### 3.1 First-Time Setup <a name="ca-first-time-setup"></a>
+### 4.1 First-Time Setup <a name="ca-first-time-setup"></a>
 
 On first deployment, navigate to `/setup` to create the initial CA administrator account.
 
@@ -84,7 +435,7 @@ On first deployment, navigate to `/setup` to create the initial CA administrator
 
 You will be redirected to the login page. This setup page is only available once — after the first admin is created, it redirects to login automatically.
 
-### 3.2 Login <a name="ca-login"></a>
+### 4.2 Login <a name="ca-login"></a>
 
 ![CA Portal Login](screenshots/ca-login.png)
 
@@ -95,7 +446,7 @@ You will be redirected to the login page. This setup page is only available once
 4. For multi-instance deployments, verify the **CA Instance ID** (defaults to 1)
 5. Click **Sign In**
 
-### 3.3 Dashboard <a name="ca-dashboard"></a>
+### 4.3 Dashboard <a name="ca-dashboard"></a>
 
 The dashboard provides an overview of the CA engine status.
 
@@ -114,7 +465,7 @@ The dashboard provides an overview of the CA engine status.
 - **Manage Keystores** — Configure key storage
 - **View Audit Log** — Review system events
 
-### 3.4 User Management <a name="ca-user-management"></a>
+### 4.4 User Management <a name="ca-user-management"></a>
 
 Manage users who have access to the CA system.
 
@@ -136,7 +487,7 @@ Manage users who have access to the CA system.
 **Deleting a User:**
 - Click the **Delete** button on the user's row (soft delete — sets status to "suspended")
 
-### 3.5 Keystore Management <a name="ca-keystore-management"></a>
+### 4.5 Keystore Management <a name="ca-keystore-management"></a>
 
 Configure where private keys are stored.
 
@@ -151,7 +502,7 @@ Configure where private keys are stored.
 2. Click **Configure**
 3. The new keystore appears in the table with its status
 
-### 3.6 Key Ceremony <a name="ca-key-ceremony"></a>
+### 4.6 Key Ceremony <a name="ca-key-ceremony"></a>
 
 Key ceremonies are the formal process of generating root CA keys with threshold-based secret sharing (Shamir's Secret Sharing).
 
@@ -177,7 +528,7 @@ After initiation, the ceremony status will show "initiated". The key manager the
 - Distribute encrypted shares to N custodians
 - Complete the ceremony (as root CA or sub-CA)
 
-### 3.7 Audit Log <a name="ca-audit-log"></a>
+### 4.7 Audit Log <a name="ca-audit-log"></a>
 
 Review all security-relevant events in the system.
 
@@ -193,21 +544,21 @@ Review all security-relevant events in the system.
 
 ---
 
-## 4. RA Portal — Registration Authority Administration <a name="ra-portal"></a>
+## 5. RA Portal — Registration Authority Administration <a name="ra-portal"></a>
 
 The RA Portal is used to manage certificate signing requests (CSRs), certificate profiles, API keys, and service configurations.
 
-### 4.1 First-Time Setup <a name="ra-first-time-setup"></a>
+### 5.1 First-Time Setup <a name="ra-first-time-setup"></a>
 
 Same as CA Portal — navigate to `/setup` on first deployment to create the initial RA admin.
 
-### 4.2 Login <a name="ra-login"></a>
+### 5.2 Login <a name="ra-login"></a>
 
 ![RA Portal Login](screenshots/ra-login.png)
 
 Enter your **Username** and **Password**, then click **Sign In**.
 
-### 4.3 Dashboard <a name="ra-dashboard"></a>
+### 5.3 Dashboard <a name="ra-dashboard"></a>
 
 ![RA Dashboard](screenshots/ra-dashboard.png)
 
@@ -224,7 +575,7 @@ Enter your **Username** and **Password**, then click **Sign In**.
 - **Service Configs** — Configure OCSP/CRL services
 - **API Keys** — Manage API access keys
 
-### 4.4 User Management <a name="ra-user-management"></a>
+### 5.4 User Management <a name="ra-user-management"></a>
 
 ![RA User Management](screenshots/ra-users.png)
 
@@ -235,7 +586,7 @@ Enter your **Username** and **Password**, then click **Sign In**.
 
 **Creating and managing users** follows the same pattern as the CA Portal.
 
-### 4.5 CSR Management <a name="ra-csr-management"></a>
+### 5.5 CSR Management <a name="ra-csr-management"></a>
 
 Review, approve, or reject Certificate Signing Requests submitted via the REST API.
 
@@ -258,7 +609,7 @@ Review, approve, or reject Certificate Signing Requests submitted via the REST A
 2. Enter a **Rejection Reason** in the text area
 3. Click **Reject**
 
-### 4.6 Certificate Profiles <a name="ra-certificate-profiles"></a>
+### 5.6 Certificate Profiles <a name="ra-certificate-profiles"></a>
 
 Define templates for certificate issuance with specific key usage and validity policies.
 
@@ -278,7 +629,7 @@ Define templates for certificate issuance with specific key usage and validity p
 **Deleting a Profile:**
 - Click **Delete** on the profile row
 
-### 4.7 Service Configuration <a name="ra-service-configuration"></a>
+### 5.7 Service Configuration <a name="ra-service-configuration"></a>
 
 Configure the OCSP and CRL distribution services.
 
@@ -294,7 +645,7 @@ Configure the OCSP and CRL distribution services.
 
 Reconfiguring the same service type will update (upsert) the existing configuration.
 
-### 4.8 API Key Management <a name="ra-api-key-management"></a>
+### 5.8 API Key Management <a name="ra-api-key-management"></a>
 
 Manage API keys used by external clients to submit CSRs via the REST API.
 
@@ -312,7 +663,7 @@ Manage API keys used by external clients to submit CSRs via the REST API.
 
 ---
 
-## 5. REST API — Submitting CSRs <a name="rest-api"></a>
+## 6. REST API — Submitting CSRs <a name="rest-api"></a>
 
 External systems submit Certificate Signing Requests via the RA Engine REST API.
 
@@ -377,7 +728,7 @@ No authentication required. Returns `{"status": "ok"}`.
 
 ---
 
-## 6. OCSP & CRL — Certificate Validation <a name="validation"></a>
+## 7. OCSP & CRL — Certificate Validation <a name="validation"></a>
 
 ### OCSP (Online Certificate Status Protocol)
 
@@ -437,7 +788,13 @@ Returns `{"status": "ok"}`.
 
 ---
 
-## 7. User Roles & Permissions <a name="roles"></a>
+## 8. User Roles & Permissions <a name="roles"></a>
+
+### Platform Portal Roles
+
+| Role | Permissions |
+|------|-------------|
+| **Superadmin** | Full platform access — manage tenants, admins, HSM devices, view system health, manage sessions |
 
 ### CA Portal Roles
 
@@ -464,10 +821,11 @@ Returns `{"status": "ok"}`.
 
 ---
 
-## 8. Glossary <a name="glossary"></a>
+## 9. Glossary <a name="glossary"></a>
 
 | Term | Definition |
 |------|-----------|
+| **Tenant** | An isolated organization instance with its own CA, RA, database, and user accounts |
 | **CA** | Certificate Authority — issues and signs digital certificates |
 | **RA** | Registration Authority — validates certificate requests before forwarding to CA |
 | **CSR** | Certificate Signing Request — a request to have a certificate signed |
