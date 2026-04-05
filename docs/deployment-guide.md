@@ -186,13 +186,22 @@ sudo apt update && sudo apt install caddy
 
 ### 3.1 Configure Git
 
-The Gitea server uses a self-signed certificate. Configure Git to skip SSL verification and store credentials.
+The Gitea server uses a self-signed certificate. Configure Git to skip SSL verification and store credentials for both the main repo and all submodules.
+
+**Step 1: Generate a Gitea personal access token**
+
+1. Login to `https://vcs.antrapol.tech:3800`
+2. Go to **Settings** → **Applications** → **Generate New Token**
+3. Name: `pki-deploy`, Permissions: `repo` (read/write)
+4. Copy the token — you'll use it as your password
+
+**Step 2: Configure Git globally**
 
 ```bash
-# Global: disable SSL verification for the Gitea server
+# Disable SSL verification for the Gitea server (self-signed cert)
 git config --global http.https://vcs.antrapol.tech:3800/.sslVerify false
 
-# Store credentials so you don't have to enter them every time
+# Store credentials permanently (so you enter username/token only once)
 git config --global credential.helper store
 
 # Set your identity
@@ -200,36 +209,71 @@ git config --global user.name "your-gitea-username"
 git config --global user.email "your-email@example.com"
 ```
 
-Generate a personal access token in Gitea:
+**Step 3: Pre-store credentials** (so submodule clone doesn't prompt repeatedly)
 
-1. Login to `https://vcs.antrapol.tech:3800`
-2. Go to **Settings** → **Applications** → **Generate New Token**
-3. Name: `pki-deploy`, Permissions: `repo` (read/write)
-4. Copy the token
+```bash
+# Write credentials to the store file directly
+# Replace YOUR_USERNAME and YOUR_TOKEN with your actual values
+cat >> ~/.git-credentials << 'EOF'
+https://YOUR_USERNAME:YOUR_TOKEN@vcs.antrapol.tech:3800
+EOF
+chmod 600 ~/.git-credentials
+```
 
-### 3.2 Clone repository
+This single entry covers both the main repo (`Incubator/pki.git`) and all submodules (`MDP/*.git`) since they share the same host.
+
+### 3.2 Clone repository and submodules
 
 ```bash
 cd /home/pki
 
-# Clone using token authentication (when prompted: username = your-gitea-username, password = your-token)
+# Clone main repo (credentials auto-read from ~/.git-credentials)
 git clone https://vcs.antrapol.tech:3800/Incubator/pki.git
 cd pki
 
-# Or clone with token embedded in URL (no prompt)
-# git clone https://your-username:your-token@vcs.antrapol.tech:3800/Incubator/pki.git
-
-# Verify SSL is disabled for this repo
-git config http.sslVerify
-# Should output: false (inherited from global)
-
-# Initialize submodules
+# Clone all submodules (14 repos under MDP/ — same server, same credentials)
 git submodule update --init --recursive
+
+# Verify everything cloned
+git submodule status
+# Should show commit hashes for all 14 submodules (no - prefix = initialized)
 ```
 
-For future pulls and pushes, Git will use the stored credentials automatically.
+### 3.3 Pulling updates
 
-### 3.2 Environment file
+```bash
+cd /home/pki/pki
+
+# Pull main repo
+git pull
+
+# Update all submodules to match main repo's recorded commits
+git submodule update --recursive
+
+# Or if submodules need to pull latest from their own branches:
+git submodule foreach 'git pull origin main || git pull origin master || true'
+```
+
+### 3.4 Troubleshooting Git
+
+```bash
+# If submodule clone fails with SSL error:
+git config --global http.sslVerify false  # nuclear option: disable for ALL hosts
+
+# If prompted for credentials during submodule update:
+# Verify ~/.git-credentials contains the correct entry:
+cat ~/.git-credentials
+# Should show: https://username:token@vcs.antrapol.tech:3800
+
+# If a submodule is stuck or corrupted:
+git submodule deinit -f src/problem_submodule
+git submodule update --init src/problem_submodule
+
+# List all submodule URLs (should all be vcs.antrapol.tech:3800):
+git config --file .gitmodules --get-regexp url
+```
+
+### 3.5 Environment file
 
 ```bash
 cat > /home/pki/pki/.env << 'EOF'
@@ -276,7 +320,7 @@ openssl rand -hex 4       # SoftHSM SO PIN
 openssl rand -hex 4       # SoftHSM User PIN
 ```
 
-### 3.3 Create databases
+### 3.6 Create databases
 
 ```bash
 source /home/pki/pki/.env
@@ -289,7 +333,7 @@ CREATE DATABASE pki_validation_dev;
 SQL
 ```
 
-### 3.4 Fetch dependencies and compile
+### 3.7 Fetch dependencies and compile
 
 ```bash
 cd /home/pki/pki
@@ -305,7 +349,7 @@ done
 
 The PKCS#11 Rust NIF compiles automatically during `mix compile` of `strap_softhsm_priv_key_store_provider`.
 
-### 3.5 Run migrations
+### 3.8 Run migrations
 
 ```bash
 source /home/pki/pki/.env
