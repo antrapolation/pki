@@ -187,32 +187,50 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
   end
 
   def handle_event("suspend_user_role", %{"role-id" => role_id}, socket) do
-    case PkiPlatformEngine.PlatformAuth.suspend_user_role(role_id) do
-      {:ok, _} ->
-        send(self(), :load_users)
-        {:noreply, put_flash(socket, :info, "User suspended.")}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to suspend user: #{inspect(reason)}")}
+    tenant_id = socket.assigns.tenant.id
+    case verify_role_belongs_to_tenant(role_id, tenant_id) do
+      :ok ->
+        case PkiPlatformEngine.PlatformAuth.suspend_user_role(role_id) do
+          {:ok, _} ->
+            send(self(), :load_users)
+            {:noreply, put_flash(socket, :info, "User suspended.")}
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to suspend user: #{inspect(reason)}")}
+        end
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "User role not found for this tenant.")}
     end
   end
 
   def handle_event("activate_user_role", %{"role-id" => role_id}, socket) do
-    case PkiPlatformEngine.PlatformAuth.activate_user_role(role_id) do
-      {:ok, _} ->
-        send(self(), :load_users)
-        {:noreply, put_flash(socket, :info, "User activated.")}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to activate user: #{inspect(reason)}")}
+    tenant_id = socket.assigns.tenant.id
+    case verify_role_belongs_to_tenant(role_id, tenant_id) do
+      :ok ->
+        case PkiPlatformEngine.PlatformAuth.activate_user_role(role_id) do
+          {:ok, _} ->
+            send(self(), :load_users)
+            {:noreply, put_flash(socket, :info, "User activated.")}
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to activate user: #{inspect(reason)}")}
+        end
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "User role not found for this tenant.")}
     end
   end
 
   def handle_event("delete_user_role", %{"role-id" => role_id}, socket) do
-    case PkiPlatformEngine.PlatformAuth.delete_user_role(role_id) do
-      {:ok, _} ->
-        send(self(), :load_users)
-        {:noreply, put_flash(socket, :info, "User removed.")}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to remove user: #{inspect(reason)}")}
+    tenant_id = socket.assigns.tenant.id
+    case verify_role_belongs_to_tenant(role_id, tenant_id) do
+      :ok ->
+        case PkiPlatformEngine.PlatformAuth.delete_user_role(role_id) do
+          {:ok, _} ->
+            send(self(), :load_users)
+            {:noreply, put_flash(socket, :info, "User removed.")}
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to remove user: #{inspect(reason)}")}
+        end
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "User role not found for this tenant.")}
     end
   end
 
@@ -252,6 +270,16 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       end
 
     {:noreply, assign(socket, metrics: metrics)}
+  end
+
+  defp verify_role_belongs_to_tenant(role_id, tenant_id) do
+    import Ecto.Query
+    alias PkiPlatformEngine.{PlatformRepo, UserTenantRole}
+
+    case PlatformRepo.one(from r in UserTenantRole, where: r.id == ^role_id and r.tenant_id == ^tenant_id) do
+      nil -> {:error, :not_found}
+      _role -> :ok
+    end
   end
 
   @impl true

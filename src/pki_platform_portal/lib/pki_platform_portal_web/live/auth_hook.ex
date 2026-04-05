@@ -96,6 +96,11 @@ defmodule PkiPlatformPortalWeb.Live.AuthHook do
   # super_admin has full access
   defp enforce_role_access("super_admin", _tenant_id, _params, _socket), do: :ok
 
+  # tenant_admin with nil tenant_id cannot be scoped — redirect to login
+  defp enforce_role_access("tenant_admin", nil, _params, _socket) do
+    {:redirect, "/login"}
+  end
+
   # tenant_admin is restricted to their tenant detail, dashboard, and profile
   defp enforce_role_access("tenant_admin", tenant_id, params, socket) do
     view = socket.view
@@ -110,7 +115,9 @@ defmodule PkiPlatformPortalWeb.Live.AuthHook do
       view not in allowed_views ->
         {:redirect, "/tenants/#{tenant_id}"}
 
-      view == PkiPlatformPortalWeb.TenantDetailLive and Map.get(params, "id") != tenant_id ->
+      view == PkiPlatformPortalWeb.TenantDetailLive and
+          not is_nil(tenant_id) and
+          to_string(Map.get(params, "id")) != to_string(tenant_id) ->
         {:redirect, "/tenants/#{tenant_id}"}
 
       true ->
@@ -118,5 +125,5 @@ defmodule PkiPlatformPortalWeb.Live.AuthHook do
     end
   end
 
-  defp enforce_role_access(_role, _tenant_id, _params, _socket), do: :ok
+  defp enforce_role_access(_role, _tenant_id, _params, _socket), do: {:redirect, "/login"}
 end
