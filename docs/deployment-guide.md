@@ -308,9 +308,10 @@ RA_PORTAL_SIGNING_SALT=CHANGE_ME
 RA_PORTAL_ENCRYPTION_SALT=CHANGE_ME
 PLATFORM_SIGNING_SALT=CHANGE_ME
 
-# ── Platform Admin (first boot only) ────────────────────────────────────
-PLATFORM_ADMIN_USERNAME=CHANGE_ME
-PLATFORM_ADMIN_PASSWORD=CHANGE_ME
+# ── Platform Admin (optional — only if you want env-based seeding) ─────
+# If omitted, the /setup page will prompt for admin creation on first boot.
+# PLATFORM_ADMIN_USERNAME=admin
+# PLATFORM_ADMIN_PASSWORD=CHANGE_ME
 
 # ── Portal Hostnames (must match Caddy/DNS) ─────────────────────────────
 PHX_HOST=straptrust.com
@@ -716,7 +717,7 @@ If `RESEND_API_KEY` is not set, emails are silently skipped (`{:ok, :skipped}`).
 |----------|----------|-------------|
 | `PORT` | No | Default: 4006 |
 | `PLATFORM_HOST` | Yes | Hostname for platform portal |
-| `PLATFORM_ADMIN_USERNAME` | Yes | Initial superadmin (first boot only) |
+| `PLATFORM_ADMIN_USERNAME` | No | Optional env-based admin seeding (setup page is preferred) |
 | `PLATFORM_ADMIN_PASSWORD` | Yes | Initial superadmin password |
 | `PLATFORM_PORTAL_URL` | Yes | Full URL for invitation email links |
 | `RESEND_API_KEY` | No | Resend.com API key for emails |
@@ -818,8 +819,9 @@ After deployment:
 ### 10.1 Platform Admin
 
 1. Navigate to `https://admin.straptrust.com`
-2. Login with `PLATFORM_ADMIN_USERNAME` / `PLATFORM_ADMIN_PASSWORD`
-3. This creates the initial admin (seeded from env vars, no email required)
+2. On first boot, the system redirects to the **Setup Page** (`/setup`)
+3. Create the initial admin: enter username, display name, and password
+4. Login with the credentials you just created
 
 ### 10.2 Register HSM Device
 
@@ -1331,7 +1333,7 @@ For dev, see [Section 19: Single-Node Deployment](#19-single-node-portal-deploym
 
 After a full reset, you must repeat the initial setup:
 
-1. **Platform admin login** — `PLATFORM_ADMIN_USERNAME`/`PASSWORD` from `.env` (auto-seeded on first boot)
+1. **Platform admin** — navigate to the platform portal, complete the `/setup` page to create the first admin
 2. **Register HSM device** — Platform Portal → HSM Devices → Register SoftHSM2
 3. **Create tenant** — Platform Portal → Tenants → New Tenant → Activate
 4. **Assign HSM to tenant** — Tenants → tenant → HSM Device Access
