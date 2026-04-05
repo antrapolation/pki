@@ -26,22 +26,24 @@ All services run as native BEAM processes on a single server. No containers.
    ┌─────▼──────┐    ┌─────▼──────┐    ┌─────▼──────┐  ┌────▼───────┐
    │  Platform   │    │ CA Portal  │    │ RA Portal  │  │ Validation │
    │   Portal    │    │   :4002    │    │   :4004    │  │   :4005    │
-   │   :4006     │    └─────┬──────┘    └─────┬──────┘  └────────────┘
-   └─────┬───────┘          │                 │
-         │            ┌─────▼──────┐    ┌─────▼──────┐
-         │            │ CA Engine  │    │ RA Engine  │
-         │            │   :4001    │◄───│   :4003    │
-         │            └─────┬──────┘    └────────────┘
-         │                  │
-         │            ┌─────▼──────┐
-         │            │  SoftHSM2  │  PKCS#11 (native)
-         │            └────────────┘
+   │   :4006     │    │ ┌────────┐ │    │ ┌────────┐ │  │ OCSP / CRL │
+   └─────┬───────┘    │ │CA Eng. │ │    │ │RA Eng. │ │  └────────────┘
+         │            │ └────────┘ │    │ │CA Eng. │ │
+         │            └─────┬──────┘    │ └────────┘ │
+         │                  │           └─────┬──────┘
+         │                  │                 │
+         │            ┌─────▼─────────────────▼────┐
+         │            │         SoftHSM2           │  PKCS#11 (native)
+         │            └────────────────────────────┘
          │
    ┌─────▼──────────────────────────────────────────┐
    │                PostgreSQL 17                     │
-   │  pki_platform_dev    pki_tenant_{uuid} ...      │
+   │  pki_platform    pki_tenant_{uuid} ...          │
    └─────────────────────────────────────────────────┘
 ```
+
+> **Direct mode** (`ENGINE_CLIENT_MODE=direct`): Portals boot engines as OTP
+> dependencies in the same BEAM node. No HTTP between portal and engine.
 
 ---
 
@@ -277,37 +279,71 @@ git config --file .gitmodules --get-regexp url
 
 ```bash
 cat > /home/pki/pki/.env << 'EOF'
-# Database
-POSTGRES_PORT=5432
-POSTGRES_PASSWORD=<generated-strong-password>
+# ── PKI CA System — Production Environment ────────────────────────────────
+# All CHANGE_ME values must be replaced before first boot.
 
-# Secrets (generate with: openssl rand -base64 64)
-SECRET_KEY_BASE=<generated-64-byte-secret>
-INTERNAL_API_SECRET=<generated-32-byte-secret>
+# ── Architecture Mode ────────────────────────────────────────────────────
+# "direct" = single BEAM node, portals call engines in-process (no HTTP between services)
+# Remove or set empty for multi-node HTTP mode
+ENGINE_CLIENT_MODE=direct
 
-# Platform Portal
-PLATFORM_ADMIN_USERNAME=<chosen-username>
-PLATFORM_ADMIN_PASSWORD=<strong-password>
-PLATFORM_PORTAL_URL=https://admin.straptrust.com
+# ── Database (PostgreSQL 17 on localhost) ────────────────────────────────
+# Generate password: openssl rand -base64 24
+CA_ENGINE_DATABASE_URL=ecto://postgres:CHANGE_ME@localhost:5432/pki_ca_engine
+RA_ENGINE_DATABASE_URL=ecto://postgres:CHANGE_ME@localhost:5432/pki_ra_engine
+VALIDATION_DATABASE_URL=ecto://postgres:CHANGE_ME@localhost:5432/pki_validation
+PLATFORM_DATABASE_URL=ecto://postgres:CHANGE_ME@localhost:5432/pki_platform
 
-# Email (Resend API)
-RESEND_API_KEY=<your-resend-api-key>
-MAILER_FROM=PQC PKI Platform <noreply@straptrust.com>
+# ── Shared Secrets ───────────────────────────────────────────────────────
+# Generate: openssl rand -base64 64
+SECRET_KEY_BASE=CHANGE_ME
 
-# HSM
-SOFTHSM2_CONF=/home/pki/softhsm2.conf
+# Generate: openssl rand -base64 32
+INTERNAL_API_SECRET=CHANGE_ME
 
-# Portal hostnames
+# ── Portal Session Salts (one per portal) ────────────────────────────────
+# Generate each: openssl rand -base64 32
+CA_PORTAL_SIGNING_SALT=CHANGE_ME
+RA_PORTAL_SIGNING_SALT=CHANGE_ME
+RA_PORTAL_ENCRYPTION_SALT=CHANGE_ME
+PLATFORM_SIGNING_SALT=CHANGE_ME
+
+# ── Platform Admin (first boot only) ────────────────────────────────────
+PLATFORM_ADMIN_USERNAME=CHANGE_ME
+PLATFORM_ADMIN_PASSWORD=CHANGE_ME
+
+# ── Portal Hostnames (must match Caddy/DNS) ─────────────────────────────
+PHX_HOST=straptrust.com
 CA_PORTAL_HOST=ca.straptrust.com
 RA_PORTAL_HOST=ra.straptrust.com
-PHX_HOST=straptrust.com
+PLATFORM_HOST=admin.straptrust.com
 
-# Connection pool (pre-production)
-POOL_SIZE=3
+# ── Portal URL (for invitation emails) ──────────────────────────────────
+PLATFORM_PORTAL_URL=https://admin.straptrust.com
+
+# ── Email (Resend) ──────────────────────────────────────────────────────
+RESEND_API_KEY=CHANGE_ME
+MAILER_FROM=PQC PKI Platform <noreply@straptrust.com>
+
+# ── Service Ports ────────────────────────────────────────────────────────
+CA_PORTAL_PORT=4002
+RA_PORTAL_PORT=4004
+PORT=4006
+
+# ── Internal Service URLs (only needed if ENGINE_CLIENT_MODE is NOT direct)
+CA_ENGINE_URL=http://127.0.0.1:4001
+RA_ENGINE_URL=http://127.0.0.1:4003
+VALIDATION_URL=http://127.0.0.1:4005
+
+# ── Connection Pool ─────────────────────────────────────────────────────
+POOL_SIZE=10
 TENANT_POOL_SIZE=2
 
-# Portals need this for localhost HTTP → set false only in dev
+# ── Security ────────────────────────────────────────────────────────────
 COOKIE_SECURE=true
+
+# ── HSM ─────────────────────────────────────────────────────────────────
+SOFTHSM2_CONF=/home/pki/softhsm2.conf
 EOF
 ```
 
@@ -315,7 +351,8 @@ Generate secrets:
 
 ```bash
 openssl rand -base64 64   # SECRET_KEY_BASE
-openssl rand -base64 32   # INTERNAL_API_SECRET
+openssl rand -base64 32   # INTERNAL_API_SECRET, salts
+openssl rand -base64 24   # PostgreSQL password
 openssl rand -hex 4       # SoftHSM SO PIN
 openssl rand -hex 4       # SoftHSM User PIN
 ```
@@ -323,13 +360,11 @@ openssl rand -hex 4       # SoftHSM User PIN
 ### 3.6 Create databases
 
 ```bash
-source /home/pki/pki/.env
-
 sudo -u postgres psql << SQL
-CREATE DATABASE pki_platform_dev;
-CREATE DATABASE pki_ca_engine_dev;
-CREATE DATABASE pki_ra_engine_dev;
-CREATE DATABASE pki_validation_dev;
+CREATE DATABASE pki_platform;
+CREATE DATABASE pki_ca_engine;
+CREATE DATABASE pki_ra_engine;
+CREATE DATABASE pki_validation;
 SQL
 ```
 
@@ -340,10 +375,10 @@ cd /home/pki/pki
 
 # Fetch deps for all services
 for dir in src/pki_platform_engine src/pki_ca_engine src/pki_ra_engine \
-           src/pki_validation src/pki_audit_trail \
+           src/pki_validation \
            src/pki_platform_portal src/pki_ca_portal src/pki_ra_portal; do
   echo "=== $dir ==="
-  (cd $dir && mix deps.get && mix compile)
+  (cd $dir && MIX_ENV=prod mix deps.get && MIX_ENV=prod mix compile)
 done
 ```
 
@@ -354,39 +389,30 @@ The PKCS#11 Rust NIF compiles automatically during `mix compile` of `strap_softh
 ```bash
 source /home/pki/pki/.env
 
-# Migration order matters
-cd /home/pki/pki/src/pki_audit_trail && \
-  CA_ENGINE_DB=pki_ca_engine_dev mix ecto.migrate
-
-cd /home/pki/pki/src/pki_ca_engine && mix ecto.migrate
-
-cd /home/pki/pki/src/pki_ra_engine && mix ecto.migrate
-
 cd /home/pki/pki/src/pki_platform_engine && \
-  mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo
+  MIX_ENV=prod mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo
 
-cd /home/pki/pki/src/pki_validation && mix ecto.migrate
+cd /home/pki/pki/src/pki_ca_engine && MIX_ENV=prod mix ecto.migrate
+
+cd /home/pki/pki/src/pki_ra_engine && MIX_ENV=prod mix ecto.migrate
+
+cd /home/pki/pki/src/pki_validation && MIX_ENV=prod mix ecto.migrate
 ```
 
 ---
 
 ## 4. Service Management (systemd)
 
-Create systemd service files for each service so they start on boot and restart on failure.
+In Direct mode (`ENGINE_CLIENT_MODE=direct`), portals boot their engines as OTP dependencies. There are no separate CA Engine or RA Engine services. Only **4 systemd units** are needed:
 
-### 4.1 Environment source file
+| Service | Port | What it runs |
+|---------|------|--------------|
+| Platform Portal | 4006 | Phoenix + platform engine + all tenant engines |
+| CA Portal | 4002 | Phoenix + CA engine in-process |
+| RA Portal | 4004 | Phoenix + RA engine + CA engine in-process |
+| Validation | 4005 | Plug.Cowboy (OCSP/CRL, not Phoenix) |
 
-```bash
-cat > /home/pki/pki/env.sh << 'ENVEOF'
-#!/bin/bash
-set -a
-source /home/pki/pki/.env
-set +a
-ENVEOF
-chmod +x /home/pki/pki/env.sh
-```
-
-### 4.2 Platform Portal (port 4006 — starts tenant engines)
+### 4.1 Platform Portal (port 4006 — starts tenant engines)
 
 This is the most critical service — it boots all tenant engines on startup.
 
@@ -403,9 +429,8 @@ User=pki
 Group=pki
 WorkingDirectory=/home/pki/pki/src/pki_platform_portal
 EnvironmentFile=/home/pki/pki/.env
-Environment=MIX_ENV=dev
-Environment=PORT=4006
-ExecStart=/bin/bash -lc 'source /home/pki/pki/env.sh && mix phx.server'
+Environment=MIX_ENV=prod
+ExecStart=/home/pki/.asdf/shims/elixir --sname platform_portal -S mix phx.server
 Restart=on-failure
 RestartSec=5
 
@@ -414,65 +439,14 @@ WantedBy=multi-user.target
 EOF
 ```
 
-### 4.3 CA Engine (port 4001)
-
-```bash
-sudo cat > /etc/systemd/system/pki-ca-engine.service << 'EOF'
-[Unit]
-Description=PQC PKI CA Engine
-After=postgresql.service network.target
-Requires=postgresql.service
-
-[Service]
-Type=simple
-User=pki
-Group=pki
-WorkingDirectory=/home/pki/pki/src/pki_ca_engine
-EnvironmentFile=/home/pki/pki/.env
-Environment=MIX_ENV=dev
-ExecStart=/bin/bash -lc 'source /home/pki/pki/env.sh && mix run --no-halt'
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-### 4.4 RA Engine (port 4003)
-
-```bash
-sudo cat > /etc/systemd/system/pki-ra-engine.service << 'EOF'
-[Unit]
-Description=PQC PKI RA Engine
-After=postgresql.service network.target
-Requires=postgresql.service
-
-[Service]
-Type=simple
-User=pki
-Group=pki
-WorkingDirectory=/home/pki/pki/src/pki_ra_engine
-EnvironmentFile=/home/pki/pki/.env
-Environment=MIX_ENV=dev
-Environment=CA_ENGINE_URL=http://localhost:4001
-ExecStart=/bin/bash -lc 'source /home/pki/pki/env.sh && mix run --no-halt'
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-### 4.5 CA Portal (port 4002)
+### 4.2 CA Portal (port 4002 — includes CA Engine)
 
 ```bash
 sudo cat > /etc/systemd/system/pki-ca-portal.service << 'EOF'
 [Unit]
-Description=PQC PKI CA Portal
-After=pki-ca-engine.service
-Requires=pki-ca-engine.service
+Description=PQC PKI CA Portal (includes CA Engine)
+After=postgresql.service pki-platform-portal.service
+Requires=postgresql.service
 
 [Service]
 Type=simple
@@ -480,11 +454,8 @@ User=pki
 Group=pki
 WorkingDirectory=/home/pki/pki/src/pki_ca_portal
 EnvironmentFile=/home/pki/pki/.env
-Environment=MIX_ENV=dev
-Environment=PORT=4002
-Environment=CA_ENGINE_URL=http://localhost:4001
-Environment=PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5432/pki_platform_dev
-ExecStart=/bin/bash -lc 'source /home/pki/pki/env.sh && mix phx.server'
+Environment=MIX_ENV=prod
+ExecStart=/home/pki/.asdf/shims/elixir --sname ca_portal -S mix phx.server
 Restart=on-failure
 RestartSec=5
 
@@ -493,14 +464,14 @@ WantedBy=multi-user.target
 EOF
 ```
 
-### 4.6 RA Portal (port 4004)
+### 4.3 RA Portal (port 4004 — includes RA Engine + CA Engine)
 
 ```bash
 sudo cat > /etc/systemd/system/pki-ra-portal.service << 'EOF'
 [Unit]
-Description=PQC PKI RA Portal
-After=pki-ra-engine.service
-Requires=pki-ra-engine.service
+Description=PQC PKI RA Portal (includes RA Engine + CA Engine)
+After=postgresql.service pki-platform-portal.service
+Requires=postgresql.service
 
 [Service]
 Type=simple
@@ -508,11 +479,8 @@ User=pki
 Group=pki
 WorkingDirectory=/home/pki/pki/src/pki_ra_portal
 EnvironmentFile=/home/pki/pki/.env
-Environment=MIX_ENV=dev
-Environment=PORT=4004
-Environment=RA_ENGINE_URL=http://localhost:4003
-Environment=PLATFORM_DATABASE_URL=ecto://postgres:postgres@127.0.0.1:5432/pki_platform_dev
-ExecStart=/bin/bash -lc 'source /home/pki/pki/env.sh && mix phx.server'
+Environment=MIX_ENV=prod
+ExecStart=/home/pki/.asdf/shims/elixir --sname ra_portal -S mix phx.server
 Restart=on-failure
 RestartSec=5
 
@@ -521,40 +489,65 @@ WantedBy=multi-user.target
 EOF
 ```
 
-### 4.7 Enable and start all services
+### 4.4 Validation Service (port 4005 — OCSP/CRL)
+
+The validation service is a standalone Plug.Cowboy app (not Phoenix). It serves OCSP responder and CRL endpoints.
+
+```bash
+sudo cat > /etc/systemd/system/pki-validation.service << 'EOF'
+[Unit]
+Description=PQC PKI Validation Service (OCSP/CRL)
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=pki
+Group=pki
+WorkingDirectory=/home/pki/pki/src/pki_validation
+EnvironmentFile=/home/pki/pki/.env
+Environment=MIX_ENV=prod
+ExecStart=/home/pki/.asdf/shims/elixir --sname validation -S mix run --no-halt
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+### 4.5 Enable and start all services
 
 ```bash
 sudo systemctl daemon-reload
-
-# Start order matters
 sudo systemctl enable --now pki-platform-portal
 sleep 5
-sudo systemctl enable --now pki-ca-engine
-sudo systemctl enable --now pki-ra-engine
-sleep 3
 sudo systemctl enable --now pki-ca-portal
 sudo systemctl enable --now pki-ra-portal
+sudo systemctl enable --now pki-validation
 ```
 
-### 4.8 Service management commands
+### 4.6 Service management commands
 
 ```bash
 # Check status
 sudo systemctl status pki-platform-portal
-sudo systemctl status pki-ca-engine
+sudo systemctl status pki-ca-portal
+sudo systemctl status pki-ra-portal
+sudo systemctl status pki-validation
 
 # View logs
 sudo journalctl -u pki-platform-portal -f
-sudo journalctl -u pki-ca-engine --since "5 minutes ago"
+sudo journalctl -u pki-ca-portal --since "5 minutes ago"
 
 # Restart a service
 sudo systemctl restart pki-ca-portal
 
 # Restart all
-sudo systemctl restart pki-platform-portal pki-ca-engine pki-ra-engine pki-ca-portal pki-ra-portal
+sudo systemctl restart pki-platform-portal pki-ca-portal pki-ra-portal pki-validation
 
-# Stop all
-sudo systemctl stop pki-ra-portal pki-ca-portal pki-ra-engine pki-ca-engine pki-platform-portal
+# Stop all (reverse order)
+sudo systemctl stop pki-validation pki-ra-portal pki-ca-portal pki-platform-portal
 ```
 
 ---
@@ -570,7 +563,6 @@ Point these domains to your server IP:
 | `admin.straptrust.com` | Platform Portal (:4006) |
 | `ca.straptrust.com` | CA Portal (:4002) |
 | `ra.straptrust.com` | RA Portal (:4004) |
-| `api.straptrust.com` | RA Engine API (:4003) |
 | `ocsp.straptrust.com` | Validation (:4005) |
 
 ### 5.2 Caddyfile
@@ -592,10 +584,6 @@ ra.straptrust.com {
     reverse_proxy localhost:4004
 }
 
-api.straptrust.com {
-    reverse_proxy localhost:4003
-}
-
 ocsp.straptrust.com {
     reverse_proxy localhost:4005
 }
@@ -611,10 +599,9 @@ Caddy auto-provisions Let's Encrypt certificates.
 ### 5.3 Security Notes
 
 - **All services listen on plain HTTP (localhost only).** TLS termination is handled by Caddy.
-- **Do not expose internal ports (4001-4006) to the internet.** Only ports 80/443 should be open in the firewall.
-- The RA Engine API port (4003) is exposed via `api.straptrust.com` through Caddy for external API key clients. Caddy handles TLS for this traffic.
-- Internal service-to-service communication (RA Engine -> CA Engine) uses HTTP over localhost. This is secure because both processes run on the same host and localhost traffic does not traverse the network.
-- For multi-server deployments, use a private network or VPN between hosts and configure TLS on inter-service connections.
+- **Do not expose internal ports (4002-4006) to the internet.** Only ports 80/443 should be open in the firewall.
+- In Direct mode, there is no inter-service HTTP traffic. Portals call engines via in-process Elixir function calls (OTP). This eliminates an entire class of network-level vulnerabilities.
+- The RA Portal exposes API endpoints for external API key clients at `ra.straptrust.com` through Caddy. Caddy handles TLS for this traffic.
 
 ---
 
@@ -690,32 +677,56 @@ If `RESEND_API_KEY` is not set, emails are silently skipped (`{:ok, :skipped}`).
 
 ## 8. Environment Variables Reference
 
-### All Services
+### Architecture
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ENGINE_CLIENT_MODE` | Yes | `direct` for single-node BEAM (portals boot engines in-process) |
+
+### Database
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CA_ENGINE_DATABASE_URL` | Yes | Ecto URL for CA engine database |
+| `RA_ENGINE_DATABASE_URL` | Yes | Ecto URL for RA engine database |
+| `VALIDATION_DATABASE_URL` | Yes | Ecto URL for validation database |
+| `PLATFORM_DATABASE_URL` | Yes | Ecto URL for platform database |
+| `POOL_SIZE` | No | Default: 10 (DB connection pool per repo) |
+| `TENANT_POOL_SIZE` | No | Default: 2 (DB pool per dynamic tenant repo) |
+
+### Shared Secrets
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SECRET_KEY_BASE` | Yes | 64+ byte secret for session signing |
 | `INTERNAL_API_SECRET` | Yes | Shared secret for service-to-service auth |
-| `POSTGRES_PORT` | No | Default: 5432 |
-| `SOFTHSM2_CONF` | Yes | Path to SoftHSM2 config file |
-| `POOL_SIZE` | No | Default: 3 (DB connection pool per repo) |
-| `TENANT_POOL_SIZE` | No | Default: 2 (DB pool per dynamic tenant repo) |
+
+### Portal Session Salts
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CA_PORTAL_SIGNING_SALT` | Yes | Signing salt for CA portal sessions |
+| `RA_PORTAL_SIGNING_SALT` | Yes | Signing salt for RA portal sessions |
+| `RA_PORTAL_ENCRYPTION_SALT` | Yes | Encryption salt for RA portal sessions |
+| `PLATFORM_SIGNING_SALT` | Yes | Signing salt for platform portal sessions |
 
 ### Platform Portal (:4006)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
+| `PORT` | No | Default: 4006 |
+| `PLATFORM_HOST` | Yes | Hostname for platform portal |
 | `PLATFORM_ADMIN_USERNAME` | Yes | Initial superadmin (first boot only) |
 | `PLATFORM_ADMIN_PASSWORD` | Yes | Initial superadmin password |
+| `PLATFORM_PORTAL_URL` | Yes | Full URL for invitation email links |
 | `RESEND_API_KEY` | No | Resend.com API key for emails |
 
 ### CA Portal (:4002)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PORT` | No | Default: 4002 |
-| `CA_ENGINE_URL` | Yes | `http://localhost:4001` |
-| `PLATFORM_DATABASE_URL` | Yes | `ecto://postgres:pass@127.0.0.1:5432/pki_platform_dev` |
+| `CA_PORTAL_PORT` | No | Default: 4002 |
+| `CA_PORTAL_HOST` | Yes | Hostname for CA portal |
 | `COOKIE_SECURE` | No | `true` for HTTPS, `false` for localhost HTTP |
 | `RESEND_API_KEY` | No | For user invitation emails |
 
@@ -723,23 +734,34 @@ If `RESEND_API_KEY` is not set, emails are silently skipped (`{:ok, :skipped}`).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PORT` | No | Default: 4004 |
-| `RA_ENGINE_URL` | Yes | `http://localhost:4003` |
-| `PLATFORM_DATABASE_URL` | Yes | Same as CA Portal |
+| `RA_PORTAL_PORT` | No | Default: 4004 |
+| `RA_PORTAL_HOST` | Yes | Hostname for RA portal |
 | `COOKIE_SECURE` | No | Same as CA Portal |
 | `RESEND_API_KEY` | No | For user invitation emails |
 
-### CA Engine (:4001)
+### Internal Service URLs (multi-node HTTP mode only)
+
+These are only needed when `ENGINE_CLIENT_MODE` is **not** `direct`:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| No extra vars | — | Uses POSTGRES_PORT, INTERNAL_API_SECRET, SOFTHSM2_CONF |
+| `CA_ENGINE_URL` | Conditional | `http://127.0.0.1:4001` |
+| `RA_ENGINE_URL` | Conditional | `http://127.0.0.1:4003` |
+| `VALIDATION_URL` | Conditional | `http://127.0.0.1:4005` |
 
-### RA Engine (:4003)
+### HSM & Security
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `CA_ENGINE_URL` | Yes | `http://localhost:4001` |
+| `SOFTHSM2_CONF` | Yes | Path to SoftHSM2 config file |
+| `COOKIE_SECURE` | No | `true` for HTTPS (default), `false` for dev |
+
+### Email
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `RESEND_API_KEY` | No | Resend.com API key (emails skipped if unset) |
+| `MAILER_FROM` | No | From address for outbound emails |
 
 ---
 
@@ -769,7 +791,7 @@ BACKUP_DIR=/home/pki/backups/$DATE
 mkdir -p $BACKUP_DIR
 
 # Platform database
-sudo -u postgres pg_dump pki_platform_dev | gzip > $BACKUP_DIR/pki_platform.sql.gz
+sudo -u postgres pg_dump pki_platform | gzip > $BACKUP_DIR/pki_platform.sql.gz
 
 # All tenant databases
 for db in $(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datname LIKE 'pki_tenant_%'"); do
@@ -827,15 +849,13 @@ After deployment:
 ## 11. Health Checks
 
 ```bash
-# All engines
-for port in 4001 4003 4005; do
-  echo "Port $port: $(curl -s http://localhost:$port/health)"
-done
-
 # All portals
 for port in 4002 4004 4006; do
   echo "Port $port: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:$port/login)"
 done
+
+# Validation service
+echo "Port 4005: $(curl -s http://localhost:4005/health)"
 
 # PostgreSQL
 sudo -u postgres pg_isready
@@ -853,22 +873,27 @@ cd /home/pki/pki
 git pull
 git submodule update --recursive
 
+# Stop services (reverse order)
+sudo systemctl stop pki-validation pki-ra-portal pki-ca-portal pki-platform-portal
+
 # Recompile all services
 for dir in src/pki_platform_engine src/pki_ca_engine src/pki_ra_engine \
            src/pki_validation src/pki_ca_portal src/pki_ra_portal \
            src/pki_platform_portal; do
-  (cd $dir && mix deps.get && mix compile)
+  (cd $dir && MIX_ENV=prod mix deps.get && MIX_ENV=prod mix compile)
 done
 
 # Run migrations
-cd src/pki_platform_engine && mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo
-cd ../pki_ca_engine && mix ecto.migrate
-cd ../pki_ra_engine && mix ecto.migrate
-cd ../pki_validation && mix ecto.migrate
+cd src/pki_platform_engine && MIX_ENV=prod mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo
+cd ../pki_ca_engine && MIX_ENV=prod mix ecto.migrate
+cd ../pki_ra_engine && MIX_ENV=prod mix ecto.migrate
+cd ../pki_validation && MIX_ENV=prod mix ecto.migrate
 cd ../..
 
 # Restart services
-sudo systemctl restart pki-platform-portal pki-ca-engine pki-ra-engine pki-ca-portal pki-ra-portal
+sudo systemctl start pki-platform-portal
+sleep 5
+sudo systemctl start pki-ca-portal pki-ra-portal pki-validation
 ```
 
 ---
@@ -913,8 +938,8 @@ sudo systemctl restart pki-platform-portal pki-ca-engine pki-ra-engine pki-ca-po
 ### Service won't start
 
 ```bash
-sudo journalctl -u pki-ca-engine -n 50
-# Common: missing deps → cd into service dir, run mix deps.get
+sudo journalctl -u pki-ca-portal -n 50
+# Common: missing deps → cd into service dir, run MIX_ENV=prod mix deps.get
 ```
 
 ### Too many DB connections
@@ -967,13 +992,11 @@ ps aux | grep beam | awk '{print $6/1024 " MB", $11}'
 |-----------|-----|-----|------|
 | PostgreSQL | 2 cores | 8 GB | Scales with tenants |
 | Platform Portal + Tenant Engines | 2 cores | 2 GB | Minimal |
-| CA Engine | 1 core | 1 GB | Minimal |
-| RA Engine | 1 core | 512 MB | Minimal |
-| CA Portal | 1 core | 512 MB | Minimal |
-| RA Portal | 1 core | 512 MB | Minimal |
-| Validation | 0.5 core | 256 MB | Minimal |
+| CA Portal (includes CA Engine) | 1.5 cores | 1.5 GB | Minimal |
+| RA Portal (includes RA + CA Engine) | 1.5 cores | 1.5 GB | Minimal |
+| Validation (OCSP/CRL) | 0.5 core | 256 MB | Minimal |
 | SoftHSM2 | — | — | Token files only |
-| **Total** | ~8 cores | ~13 GB | ~20 GB initial |
+| **Total** | ~7.5 cores | ~13 GB | ~20 GB initial |
 
 Fits comfortably on the 8 vCPU / 24 GB / 400 GB server with headroom for 20-45 tenants.
 
@@ -1058,8 +1081,8 @@ API keys with `webhook_url` + `webhook_secret` receive HTTPS callbacks for CSR/c
 ### Metrics Endpoint
 
 ```bash
-# Authenticated with INTERNAL_API_SECRET
-curl -H "Authorization: $INTERNAL_API_SECRET" http://localhost:4003/metrics
+# Authenticated with INTERNAL_API_SECRET (via RA Portal in Direct mode)
+curl -H "Authorization: $INTERNAL_API_SECRET" http://localhost:4004/metrics
 ```
 
 Returns JSON counters for:
@@ -1075,8 +1098,9 @@ Returns JSON counters for:
 
 | Service | Endpoint | Expected |
 |---------|----------|----------|
-| CA Engine | `http://localhost:4001/health` | `{"status":"ok"}` |
-| RA Engine | `http://localhost:4003/health` | `{"status":"ok","checks":{...}}` |
+| Platform Portal | `http://localhost:4006/login` | HTTP 200 |
+| CA Portal | `http://localhost:4002/login` | HTTP 200 |
+| RA Portal | `http://localhost:4004/login` | HTTP 200 |
 | Validation | `http://localhost:4005/health` | `{"status":"ok"}` |
 
 ### CSR Reconciler
@@ -1089,13 +1113,19 @@ config :pki_ra_engine, start_csr_reconciler: false
 
 ---
 
-## 19. Single-Node (Portal) Deployment Mode
+## 19. Architecture Modes
 
-For development and small deployments, portals can run engines in-process using the Direct client. This eliminates HTTP overhead between RA/CA portal and engine.
+### Direct Mode (default, recommended)
 
-### Configuration
+Set `ENGINE_CLIENT_MODE=direct` in `.env`. Portals boot engines as OTP dependencies in the same BEAM node. No HTTP between portal and engine. This is the mode documented throughout this guide.
 
-In the portal's `config/dev.exs`:
+### Multi-Node HTTP Mode
+
+Remove or leave `ENGINE_CLIENT_MODE` empty. Each engine runs as a separate process with its own HTTP server. Portals communicate with engines via HTTP using `CA_ENGINE_URL`, `RA_ENGINE_URL`, and `VALIDATION_URL`. This mode requires additional systemd services for the engines and is intended for distributed multi-server deployments.
+
+### Dev Configuration
+
+In `config/dev.exs`, Direct mode is enabled by default:
 
 ```elixir
 # Engines run in-process, no HTTP servers needed
@@ -1109,16 +1139,14 @@ config :pki_ra_engine, :ca_engine_module, PkiRaEngine.CsrValidation.DirectCaClie
 config :pki_ca_engine, :dev_auto_activate_keys, true
 ```
 
-### Start command
+### Start commands (dev)
 
 ```bash
 # Must use --sname for PQC NIF (KAZ-SIGN) and Erlang distribution
 elixir --sname ra_portal -S mix phx.server
 ```
 
-### Validation service
-
-The validation service is a Plug.Cowboy app, not Phoenix. Start with:
+The validation service is a Plug.Cowboy app, not Phoenix:
 
 ```bash
 elixir --sname validation -S mix run --no-halt
@@ -1191,7 +1219,7 @@ Tests the full CSR lifecycle: generate CSR → submit → validate → approve �
 
 ```bash
 # Systemd (production)
-sudo systemctl stop pki-ra-portal pki-ca-portal pki-ra-engine pki-ca-engine pki-platform-portal
+sudo systemctl stop pki-validation pki-ra-portal pki-ca-portal pki-platform-portal
 
 # Or kill dev processes
 pkill -9 -f "beam.smp"
@@ -1210,15 +1238,10 @@ sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datname LIKE 
 done
 
 # Drop core databases
-sudo -u postgres dropdb pki_platform_dev
-sudo -u postgres dropdb pki_ca_engine_dev
-sudo -u postgres dropdb pki_ra_engine_dev
-sudo -u postgres dropdb pki_validation_dev
-
-# Also drop test databases if needed
-sudo -u postgres dropdb pki_ra_engine_test 2>/dev/null
-sudo -u postgres dropdb pki_ca_engine_test 2>/dev/null
-sudo -u postgres dropdb pki_validation_test 2>/dev/null
+sudo -u postgres dropdb pki_platform
+sudo -u postgres dropdb pki_ca_engine
+sudo -u postgres dropdb pki_ra_engine
+sudo -u postgres dropdb pki_validation
 
 echo "All PKI databases dropped."
 ```
@@ -1252,13 +1275,11 @@ softhsm2-util --show-slots
 ### 22.4 Recreate databases
 
 ```bash
-source /home/pki/pki/.env  # or set POSTGRES_PORT for dev
-
 sudo -u postgres psql << SQL
-CREATE DATABASE pki_platform_dev;
-CREATE DATABASE pki_ca_engine_dev;
-CREATE DATABASE pki_ra_engine_dev;
-CREATE DATABASE pki_validation_dev;
+CREATE DATABASE pki_platform;
+CREATE DATABASE pki_ca_engine;
+CREATE DATABASE pki_ra_engine;
+CREATE DATABASE pki_validation;
 SQL
 ```
 
@@ -1266,10 +1287,10 @@ For dev (Podman):
 
 ```bash
 podman exec -it pki-postgres psql -U postgres -c "
-  CREATE DATABASE pki_platform_dev;
-  CREATE DATABASE pki_ca_engine_dev;
-  CREATE DATABASE pki_ra_engine_dev;
-  CREATE DATABASE pki_validation_dev;
+  CREATE DATABASE pki_platform;
+  CREATE DATABASE pki_ca_engine;
+  CREATE DATABASE pki_ra_engine;
+  CREATE DATABASE pki_validation;
 "
 ```
 
@@ -1279,19 +1300,18 @@ podman exec -it pki-postgres psql -U postgres -c "
 cd /home/pki/pki   # or your repo root
 
 source .env 2>/dev/null  # production
-export POSTGRES_PORT=5434  # dev (if using Podman)
 
 # Platform engine (creates tenant_schema_versions table)
-cd src/pki_platform_engine && mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo && cd ..
+cd src/pki_platform_engine && MIX_ENV=prod mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo && cd ..
 
 # CA engine (creates issuer_keys, ca_instances, ceremonies, etc.)
-cd pki_ca_engine && mix ecto.migrate && cd ..
+cd pki_ca_engine && MIX_ENV=prod mix ecto.migrate && cd ..
 
 # RA engine (creates cert_profiles, csr_requests, api_keys, webhooks, etc.)
-cd pki_ra_engine && mix ecto.migrate && cd ..
+cd pki_ra_engine && MIX_ENV=prod mix ecto.migrate && cd ..
 
 # Validation (creates certificate_statuses, etc.)
-cd pki_validation && mix ecto.migrate && cd ../..
+cd pki_validation && MIX_ENV=prod mix ecto.migrate && cd ../..
 
 echo "All migrations complete."
 ```
@@ -1302,9 +1322,7 @@ echo "All migrations complete."
 # Production (systemd)
 sudo systemctl start pki-platform-portal
 sleep 5
-sudo systemctl start pki-ca-engine pki-ra-engine
-sleep 3
-sudo systemctl start pki-ca-portal pki-ra-portal
+sudo systemctl start pki-ca-portal pki-ra-portal pki-validation
 ```
 
 For dev, see [Section 19: Single-Node Deployment](#19-single-node-portal-deployment-mode).

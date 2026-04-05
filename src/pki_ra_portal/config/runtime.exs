@@ -35,13 +35,8 @@ if cookie_secure = System.get_env("COOKIE_SECURE") do
 end
 
 if config_env() == :prod do
-  # RA Engine HTTP client configuration
-  ra_engine_url =
-    System.get_env("RA_ENGINE_URL") ||
-      raise """
-      environment variable RA_ENGINE_URL is missing.
-      Set it to the base URL of the RA Engine API, e.g. http://pki-ra-engine:4003
-      """
+  # RA Engine configuration (URL not required in direct mode)
+  ra_engine_url = System.get_env("RA_ENGINE_URL") || "http://localhost:4003"
 
   internal_api_secret =
     System.get_env("INTERNAL_API_SECRET") ||
@@ -51,12 +46,18 @@ if config_env() == :prod do
       """
 
   client_module =
-    if System.get_env("ENGINE_CLIENT_MODE") == "mock" do
-      require Logger
-      Logger.warning("ENGINE_CLIENT_MODE=mock is active. Using mock engine client. NOT FOR PRODUCTION.")
-      PkiRaPortal.RaEngineClient.Mock
-    else
-      PkiRaPortal.RaEngineClient.Http
+    case System.get_env("ENGINE_CLIENT_MODE") do
+      "mock" ->
+        require Logger
+        Logger.warning("ENGINE_CLIENT_MODE=mock is active. Using mock engine client. NOT FOR PRODUCTION.")
+        PkiRaPortal.RaEngineClient.Mock
+
+      "direct" ->
+        # Single-node BEAM: portal calls engine modules in-process (no HTTP)
+        PkiRaPortal.RaEngineClient.Direct
+
+      _ ->
+        PkiRaPortal.RaEngineClient.Http
     end
 
   config :pki_ra_portal,

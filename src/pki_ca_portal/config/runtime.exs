@@ -35,13 +35,8 @@ if cookie_secure = System.get_env("COOKIE_SECURE") do
 end
 
 if config_env() == :prod do
-  # CA Engine HTTP client configuration
-  ca_engine_url =
-    System.get_env("CA_ENGINE_URL") ||
-      raise """
-      environment variable CA_ENGINE_URL is missing.
-      Set it to the base URL of the CA Engine API, e.g. http://pki-ca-engine:4001
-      """
+  # CA Engine configuration (URL not required in direct mode)
+  ca_engine_url = System.get_env("CA_ENGINE_URL") || "http://localhost:4001"
 
   internal_api_secret =
     System.get_env("INTERNAL_API_SECRET") ||
@@ -51,12 +46,18 @@ if config_env() == :prod do
       """
 
   client_module =
-    if System.get_env("ENGINE_CLIENT_MODE") == "mock" do
-      require Logger
-      Logger.warning("ENGINE_CLIENT_MODE=mock is active. Using mock engine client. NOT FOR PRODUCTION.")
-      PkiCaPortal.CaEngineClient.Mock
-    else
-      PkiCaPortal.CaEngineClient.Http
+    case System.get_env("ENGINE_CLIENT_MODE") do
+      "mock" ->
+        require Logger
+        Logger.warning("ENGINE_CLIENT_MODE=mock is active. Using mock engine client. NOT FOR PRODUCTION.")
+        PkiCaPortal.CaEngineClient.Mock
+
+      "direct" ->
+        # Single-node BEAM: portal calls engine modules in-process (no HTTP)
+        PkiCaPortal.CaEngineClient.Direct
+
+      _ ->
+        PkiCaPortal.CaEngineClient.Http
     end
 
   config :pki_ca_portal,
