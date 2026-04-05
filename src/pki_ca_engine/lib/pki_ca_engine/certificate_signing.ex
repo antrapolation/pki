@@ -352,14 +352,18 @@ defmodule PkiCaEngine.CertificateSigning do
   end
 
   defp normalize_algo(algo) when is_binary(algo) do
-    case String.downcase(algo) do
-      a when a in ["rsa", "rsa-2048", "rsa-4096"] -> :rsa
-      a when a in ["ecc", "ec-p256", "ec-p384", "ecdsa"] -> :ec
+    normalized = algo |> String.downcase() |> String.replace("-", "_")
+
+    case normalized do
+      a when a in ["rsa", "rsa_2048", "rsa_4096"] -> :rsa
+      a when a in ["ecc", "ec_p256", "ec_p384", "ecdsa"] -> :ec
       "kaz_sign_128" -> :kaz_sign_128
       "kaz_sign_192" -> :kaz_sign_192
       "kaz_sign_256" -> :kaz_sign_256
-      a when a in ["kaz_sign", "kaz-sign"] -> :kaz_sign_128
+      "kaz_sign" -> :kaz_sign_128
       "ml_dsa_44" -> :kaz_sign_128
+      "ml_dsa_65" -> :kaz_sign_192
+      "ml_dsa_87" -> :kaz_sign_256
       _ -> :unknown
     end
   end

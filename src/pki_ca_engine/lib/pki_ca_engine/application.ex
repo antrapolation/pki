@@ -41,6 +41,34 @@ defmodule PkiCaEngine.Application do
     _ -> :ok
   end
 
+  defp maybe_dev_auto_activate_keys do
+    if Application.get_env(:pki_ca_engine, :dev_auto_activate_keys, false) do
+      Task.start(fn ->
+        Process.sleep(5_000)
+        require Logger
+        Logger.info("[CA Engine] Dev auto-activating issuer keys...")
+
+        try do
+          import Ecto.Query
+          alias PkiCaEngine.Schema.IssuerKey
+
+          keys = PkiCaEngine.Repo.all(from k in IssuerKey, where: k.status == "active")
+
+          for key <- keys do
+            unless PkiCaEngine.KeyActivation.is_active?(key.id) do
+              rsa_key = X509.PrivateKey.new_rsa(2048)
+              rsa_der = X509.PrivateKey.to_der(rsa_key)
+              PkiCaEngine.KeyActivation.dev_activate(key.id, rsa_der)
+              Logger.info("[CA Engine] Dev-activated key #{key.key_alias} (#{key.id})")
+            end
+          end
+        rescue
+          e -> Logger.warning("[CA Engine] Dev auto-activate failed: #{Exception.message(e)}")
+        end
+      end)
+    end
+  end
+
   defp http_children do
     if Application.get_env(:pki_ca_engine, :start_http, false) do
       port = Application.get_env(:pki_ca_engine, :http_port, 4001)

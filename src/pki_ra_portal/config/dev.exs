@@ -113,6 +113,12 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
 config :pki_ra_engine, start_http: false
 config :pki_ca_engine, :start_http, false
 
+# Use Direct CA client (in-process) instead of HTTP for single-node deployment
+config :pki_ra_engine, :ca_engine_module, PkiRaEngine.CsrValidation.DirectCaClient
+
+# Dev-only: auto-activate issuer keys on boot (bypasses threshold ceremony)
+config :pki_ca_engine, :dev_auto_activate_keys, true
+
 # Hammer rate limiter config (pulled in via engine dependencies)
 config :hammer,
   backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}

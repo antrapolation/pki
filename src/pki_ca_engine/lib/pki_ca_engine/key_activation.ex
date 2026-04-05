@@ -44,6 +44,18 @@ defmodule PkiCaEngine.KeyActivation do
     GenServer.call(server, {:get_active_key, issuer_key_id})
   end
 
+  @doc """
+  DEV ONLY: Directly inject a private key into the activation store.
+  Bypasses the threshold ceremony. Only works in :dev environment.
+  """
+  def dev_activate(server \\ __MODULE__, issuer_key_id, private_key_der) do
+    if Mix.env() == :dev do
+      GenServer.call(server, {:dev_activate, issuer_key_id, private_key_der})
+    else
+      {:error, :not_available_in_production}
+    end
+  end
+
   # ── Server Callbacks ──────────────────────────────────────────
 
   @impl true
@@ -146,6 +158,22 @@ defmodule PkiCaEngine.KeyActivation do
         Process.cancel_timer(ref)
         {:reply, :ok, %{state | active_keys: new_active}}
     end
+  end
+
+  @impl true
+  def handle_call({:dev_activate, issuer_key_id, private_key_der}, _from, state) do
+    timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
+
+    new_state = %{
+      state
+      | active_keys:
+          Map.put(state.active_keys, issuer_key_id, %{
+            secret: private_key_der,
+            timer_ref: timer_ref
+          })
+    }
+
+    {:reply, {:ok, :dev_activated}, new_state}
   end
 
   @impl true
