@@ -75,13 +75,13 @@ defmodule PkiRaEngine.Api.DcvController do
       token_value: challenge.token_value,
       status: challenge.status,
       initiated_by: challenge.initiated_by,
-      verified_at: challenge.verified_at && DateTime.to_iso8601(challenge.verified_at),
-      expires_at: challenge.expires_at && DateTime.to_iso8601(challenge.expires_at),
+      verified_at: PkiRaEngine.Api.ConnHelpers.format_datetime(challenge.verified_at),
+      expires_at: PkiRaEngine.Api.ConnHelpers.format_datetime(challenge.expires_at),
       attempts: challenge.attempts,
-      last_checked_at: challenge.last_checked_at && DateTime.to_iso8601(challenge.last_checked_at),
+      last_checked_at: PkiRaEngine.Api.ConnHelpers.format_datetime(challenge.last_checked_at),
       error_details: challenge.error_details,
-      inserted_at: challenge.inserted_at && NaiveDateTime.to_iso8601(challenge.inserted_at),
-      updated_at: challenge.updated_at && NaiveDateTime.to_iso8601(challenge.updated_at)
+      inserted_at: PkiRaEngine.Api.ConnHelpers.format_datetime(challenge.inserted_at),
+      updated_at: PkiRaEngine.Api.ConnHelpers.format_datetime(challenge.updated_at)
     }
   end
 

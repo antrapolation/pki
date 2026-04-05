@@ -58,11 +58,14 @@ defmodule PkiRaEngine.Api.AuthPlug do
 
             case Hammer.check_rate(rate_key, 60_000, rate_limit) do
               {:allow, _count} ->
+                PkiRaEngine.Telemetry.rate_limit_allow(%{api_key_id: api_key.id})
+
                 conn
                 |> PkiRaEngine.Api.IpWhitelistPlug.check(api_key)
                 |> maybe_assign_api_key(api_key, tenant_id)
 
               {:deny, _limit} ->
+                PkiRaEngine.Telemetry.rate_limit_deny(%{api_key_id: api_key.id})
                 audit_rate_limited(api_key, tenant_id)
 
                 conn
@@ -112,6 +115,7 @@ defmodule PkiRaEngine.Api.AuthPlug do
   defp maybe_assign_api_key(conn, api_key, tenant_id), do: assign_api_key(conn, api_key, tenant_id)
 
   defp assign_api_key(conn, api_key, tenant_id) do
+    PkiRaEngine.Telemetry.auth_success(%{auth_type: :api_key, tenant_id: tenant_id, api_key_id: api_key.id})
     Logger.metadata(
       engine: "ra",
       auth_type: :api_key,
@@ -139,6 +143,8 @@ defmodule PkiRaEngine.Api.AuthPlug do
   end
 
   defp unauthorized(conn) do
+    PkiRaEngine.Telemetry.auth_failure(%{reason: :invalid_token})
+
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(401, Jason.encode!(%{error: "unauthorized"}))

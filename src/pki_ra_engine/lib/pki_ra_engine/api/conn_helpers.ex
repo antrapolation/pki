@@ -1,8 +1,13 @@
 defmodule PkiRaEngine.Api.ConnHelpers do
   @moduledoc """
-  Shared connection helpers for plug modules.
-  Provides proxy-aware client IP resolution.
+  Shared helpers for plug modules and API serialization.
   """
+
+  @doc "Format datetime as `YYYY-MM-DD HH:MM:SS` (no T, no Z)."
+  def format_datetime(nil), do: nil
+  def format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  def format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  def format_datetime(other), do: to_string(other)
 
   @doc """
   Returns the real client IP as a string, respecting X-Forwarded-For

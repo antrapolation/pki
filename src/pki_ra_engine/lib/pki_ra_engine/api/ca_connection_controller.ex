@@ -75,7 +75,7 @@ defmodule PkiRaEngine.Api.CaConnectionController do
       algorithm: conn_record.algorithm,
       ca_instance_name: conn_record.ca_instance_name,
       status: conn_record.status,
-      connected_at: conn_record.connected_at && DateTime.to_iso8601(conn_record.connected_at),
+      connected_at: PkiRaEngine.Api.ConnHelpers.format_datetime(conn_record.connected_at),
       connected_by: conn_record.connected_by,
       inserted_at: conn_record.inserted_at,
       updated_at: conn_record.updated_at

@@ -39,6 +39,22 @@ defmodule PkiRaEngine.Api.ApiKeyController do
     end
   end
 
+  def update(conn, id) do
+    tenant_id = conn.assigns[:tenant_id]
+    attrs = build_attrs(conn.body_params)
+
+    case ApiKeyManagement.update_key(tenant_id, id, attrs) do
+      {:ok, api_key} ->
+        json(conn, 200, serialize_key(api_key))
+
+      {:error, :not_found} ->
+        json(conn, 404, %{error: "not_found"})
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+    end
+  end
+
   def revoke(conn, id) do
     tenant_id = conn.assigns[:tenant_id]
     case ApiKeyManagement.revoke_key(tenant_id, id) do
@@ -57,6 +73,11 @@ defmodule PkiRaEngine.Api.ApiKeyController do
     |> maybe_put(:label, label)
     |> maybe_put(:expiry, params["expiry"])
     |> maybe_put(:rate_limit, params["rate_limit"])
+    |> maybe_put(:key_type, params["key_type"])
+    |> maybe_put(:allowed_profile_ids, params["allowed_profile_ids"])
+    |> maybe_put(:ip_whitelist, params["ip_whitelist"])
+    |> maybe_put(:webhook_url, params["webhook_url"])
+    |> maybe_put(:ra_instance_id, params["ra_instance_id"])
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -73,6 +94,11 @@ defmodule PkiRaEngine.Api.ApiKeyController do
       created_at: api_key.inserted_at,
       expiry: api_key.expiry,
       rate_limit: api_key.rate_limit,
+      ra_instance_id: api_key.ra_instance_id,
+      key_type: api_key.key_type,
+      allowed_profile_ids: api_key.allowed_profile_ids,
+      ip_whitelist: api_key.ip_whitelist,
+      webhook_url: api_key.webhook_url,
       status: api_key.status,
       revoked_at: api_key.revoked_at,
       inserted_at: api_key.inserted_at,

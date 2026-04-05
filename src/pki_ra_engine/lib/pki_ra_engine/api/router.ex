@@ -55,6 +55,14 @@ defmodule PkiRaEngine.Api.Router do
     |> send_resp(http_status, Jason.encode!(body))
   end
 
+  get "/metrics" do
+    metrics = PkiRaEngine.Telemetry.get_metrics()
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(metrics))
+  end
+
   # Auth endpoints (rate-limited, no token required)
   forward "/api/v1/auth", to: PkiRaEngine.Api.AuthRouter
 

@@ -54,6 +54,7 @@ defmodule PkiRaEngine.CsrValidation do
 
     case %CsrRequest{} |> CsrRequest.changeset(attrs) |> repo.insert() do
       {:ok, csr} ->
+        PkiRaEngine.Telemetry.csr_submitted(%{csr_id: csr.id, tenant_id: tenant_id})
         WebhookDelivery.deliver_for_csr(tenant_id, csr, "csr_submitted")
         {:ok, csr}
 
@@ -110,6 +111,7 @@ defmodule PkiRaEngine.CsrValidation do
         subject_dn: approved_csr.subject_dn,
         cert_profile_id: approved_csr.cert_profile_id
       })
+      PkiRaEngine.Telemetry.csr_approved(%{csr_id: csr_id, auto: false})
       WebhookDelivery.deliver_for_csr(tenant_id, approved_csr, "csr_approved")
 
       # Auto-forward to CA for signing (async, supervised)
@@ -142,6 +144,7 @@ defmodule PkiRaEngine.CsrValidation do
         subject_dn: rejected_csr.subject_dn,
         reason: reason
       })
+      PkiRaEngine.Telemetry.csr_rejected(%{csr_id: csr_id, reason: reason})
       WebhookDelivery.deliver_for_csr(tenant_id, rejected_csr, "csr_rejected", %{reason: reason})
 
       {:ok, rejected_csr}
@@ -221,6 +224,7 @@ defmodule PkiRaEngine.CsrValidation do
         serial_number: cert_serial,
         subject_dn: issued_csr.subject_dn
       })
+      PkiRaEngine.Telemetry.csr_issued(%{csr_id: csr_id, serial: cert_serial})
       WebhookDelivery.deliver_for_csr(tenant_id, issued_csr, "cert_issued", %{serial_number: cert_serial})
 
       {:ok, issued_csr}

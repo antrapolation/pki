@@ -13,7 +13,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLiveTest do
   test "mounts and renders service config list", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/service-configs")
 
-    assert html =~ "Service Configuration"
+    assert html =~ "Validation Endpoints"
     assert html =~ "OCSP Responder"
     assert html =~ "CRL Distribution"
     assert html =~ "8080"

@@ -87,6 +87,38 @@ defmodule PkiRaEngine.ApiKeyManagement do
     |> repo.all()
   end
 
+  @doc "Update an API key's mutable fields (label, key_type, rate_limit, allowed_profile_ids, ip_whitelist, webhook_url)."
+  @spec update_key(String.t(), String.t(), map()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def update_key(tenant_id, id, attrs) do
+    repo = TenantRepo.ra_repo(tenant_id)
+
+    case repo.get(RaApiKey, id) do
+      nil ->
+        {:error, :not_found}
+
+      api_key ->
+        # Auto-generate webhook secret if webhook_url is being set for the first time
+        webhook_url = attrs[:webhook_url] || attrs["webhook_url"]
+        attrs = if is_binary(webhook_url) and webhook_url != "" and (api_key.webhook_secret == nil or api_key.webhook_secret == "") do
+          Map.put(attrs, :webhook_secret, :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false))
+        else
+          attrs
+        end
+
+        case api_key |> RaApiKey.update_changeset(attrs) |> repo.update() do
+          {:ok, updated} ->
+            audit("api_key_updated", tenant_id, "api_key", id, %{
+              ra_user_id: updated.ra_user_id,
+              label: updated.label
+            })
+            {:ok, updated}
+
+          error ->
+            error
+        end
+    end
+  end
+
   @doc "Revoke an API key by ID."
   @spec revoke_key(String.t(), String.t()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def revoke_key(tenant_id, id) do

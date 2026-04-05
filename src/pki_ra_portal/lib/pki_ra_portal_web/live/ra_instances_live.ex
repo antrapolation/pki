@@ -13,17 +13,31 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
      assign(socket,
        page_title: "RA Instances",
        instances: [],
+       profiles: [],
+       api_keys: [],
        loading: true,
        show_create_modal: false,
        create_name: "",
-       creating: false
+       selected: nil
      )}
   end
 
   @impl true
   def handle_info(:load_data, socket) do
-    instances = fetch_instances(tenant_opts(socket))
-    {:noreply, assign(socket, instances: instances, loading: false)}
+    opts = tenant_opts(socket)
+    instances = fetch_instances(opts)
+
+    profiles = case RaEngineClient.list_cert_profiles(opts) do
+      {:ok, p} -> p
+      {:error, _} -> []
+    end
+
+    api_keys = case RaEngineClient.list_api_keys([], opts) do
+      {:ok, k} -> k
+      {:error, _} -> []
+    end
+
+    {:noreply, assign(socket, instances: instances, profiles: profiles, api_keys: api_keys, loading: false)}
   end
 
   @impl true
@@ -37,21 +51,28 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
   end
 
   @impl true
+  def handle_event("select_instance", %{"id" => id}, socket) do
+    instance = Enum.find(socket.assigns.instances, &(&1.id == id))
+    {:noreply, assign(socket, selected: instance)}
+  end
+
+  @impl true
+  def handle_event("close_detail", _params, socket) do
+    {:noreply, assign(socket, selected: nil)}
+  end
+
+  @impl true
   def handle_event("create_instance", %{"name" => name}, socket) do
     if get_role(socket) != "ra_admin" do
       {:noreply, put_flash(socket, :error, "Unauthorized")}
     else
       case RaEngineClient.create_ra_instance(%{name: name}, tenant_opts(socket)) do
         {:ok, _instance} ->
-          instances = fetch_instances(tenant_opts(socket))
-
-          {:noreply,
-           socket
-           |> assign(instances: instances, show_create_modal: false)
-           |> put_flash(:info, "RA instance created successfully")}
+          send(self(), :load_data)
+          {:noreply, socket |> assign(show_create_modal: false) |> put_flash(:info, "RA instance created")}
 
         {:error, reason} ->
-          Logger.error("[ra_instances] Failed to create RA instance: #{inspect(reason)}")
+          Logger.error("[ra_instances] Failed to create: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create RA instance", reason))}
       end
     end
@@ -69,6 +90,30 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
     end
   end
 
+  defp profile_count(instance_id, profiles) do
+    Enum.count(profiles, fn p ->
+      (p[:ra_instance_id] || p["ra_instance_id"]) == instance_id
+    end)
+  end
+
+  defp key_count(instance_id, api_keys) do
+    Enum.count(api_keys, fn k ->
+      (k[:ra_instance_id] || k["ra_instance_id"]) == instance_id
+    end)
+  end
+
+  defp instance_profiles(instance_id, profiles) do
+    Enum.filter(profiles, fn p ->
+      (p[:ra_instance_id] || p["ra_instance_id"]) == instance_id
+    end)
+  end
+
+  defp instance_keys(instance_id, api_keys) do
+    Enum.filter(api_keys, fn k ->
+      (k[:ra_instance_id] || k["ra_instance_id"]) == instance_id
+    end)
+  end
+
   defp status_badge_class(status) do
     case status do
       "active" -> "badge-success"
@@ -82,19 +127,13 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
   def render(assigns) do
     ~H"""
     <div id="ra-instances-page" class="space-y-6">
-      <%!-- Header --%>
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-lg font-semibold text-base-content">RA Instances</h1>
           <p class="text-xs text-base-content/50 mt-0.5">Manage Registration Authority instances</p>
         </div>
-        <button
-          id="btn-new-ra-instance"
-          class="btn btn-primary btn-sm"
-          phx-click="open_create_modal"
-        >
-          <.icon name="hero-plus" class="size-4" />
-          New RA Instance
+        <button id="btn-new-ra-instance" class="btn btn-primary btn-sm" phx-click="open_create_modal">
+          <.icon name="hero-plus" class="size-4" /> New RA Instance
         </button>
       </div>
 
@@ -111,7 +150,10 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
             <div
               :for={instance <- @instances}
               id={"ra-instance-#{instance.id}"}
-              class="flex items-center justify-between px-5 py-4 hover:bg-base-200/50"
+              class={["flex items-center justify-between px-5 py-4 hover:bg-base-200/50 cursor-pointer",
+                       @selected && @selected.id == instance.id && "bg-primary/5 border-l-2 border-primary"]}
+              phx-click="select_instance"
+              phx-value-id={instance.id}
             >
               <div class="flex items-center gap-3">
                 <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
@@ -124,10 +166,71 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
                       {instance[:status] || "active"}
                     </span>
                     <span class="text-xs text-base-content/40">
-                      {Map.get(instance, :cert_profile_count, 0)} cert profile(s)
+                      {profile_count(instance.id, @profiles)} profile(s)
                     </span>
                     <span class="text-xs text-base-content/40">
-                      {Map.get(instance, :api_key_count, 0)} API key(s)
+                      {key_count(instance.id, @api_keys)} API key(s)
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <.icon name="hero-chevron-right" class="size-4 text-base-content/30" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Detail Panel --%>
+      <section :if={@selected} id="ra-instance-detail" class="card bg-base-100 shadow-sm border border-primary/30">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">
+              {@selected.name}
+              <span class={"badge badge-sm ml-2 #{status_badge_class(@selected[:status] || "active")}"}>
+                {@selected[:status] || "active"}
+              </span>
+            </h2>
+            <button phx-click="close_detail" class="btn btn-ghost btn-xs">Close</button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            <%!-- Assigned Cert Profiles --%>
+            <div>
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">
+                Certificate Profiles ({profile_count(@selected.id, @profiles)})
+              </h3>
+              <div :if={instance_profiles(@selected.id, @profiles) == []} class="text-xs text-base-content/40 italic">
+                No profiles assigned. Go to Certificate Profiles to assign.
+              </div>
+              <div class="space-y-1">
+                <div :for={p <- instance_profiles(@selected.id, @profiles)}
+                  class="flex items-center justify-between px-3 py-2 rounded bg-base-200/50 text-xs">
+                  <span class="font-medium">{p.name}</span>
+                  <span class={"badge badge-xs #{if (p[:approval_mode] || "manual") == "auto", do: "badge-info", else: "badge-ghost"}"}>
+                    {p[:approval_mode] || "manual"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <%!-- Assigned API Keys --%>
+            <div>
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">
+                API Keys ({key_count(@selected.id, @api_keys)})
+              </h3>
+              <div :if={instance_keys(@selected.id, @api_keys) == []} class="text-xs text-base-content/40 italic">
+                No API keys assigned. Go to API Keys to assign.
+              </div>
+              <div class="space-y-1">
+                <div :for={k <- instance_keys(@selected.id, @api_keys)}
+                  class="flex items-center justify-between px-3 py-2 rounded bg-base-200/50 text-xs">
+                  <span class="font-medium">{k[:label] || k[:name] || k["label"] || "-"}</span>
+                  <div class="flex items-center gap-2">
+                    <span class={"badge badge-xs #{if (k[:key_type] || "client") == "service", do: "badge-info", else: "badge-ghost"}"}>
+                      {k[:key_type] || "client"}
+                    </span>
+                    <span class={"badge badge-xs #{if (k[:status] || "active") == "active", do: "badge-success", else: "badge-error"}"}>
+                      {k[:status] || "active"}
                     </span>
                   </div>
                 </div>
@@ -135,16 +238,11 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <%!-- Create RA Instance Modal --%>
-      <div
-        :if={@show_create_modal}
-        id="create-ra-modal"
-        class="modal modal-open"
-        phx-window-keydown="close_create_modal"
-        phx-key="Escape"
-      >
+      <%!-- Create Modal --%>
+      <div :if={@show_create_modal} id="create-ra-modal" class="modal modal-open"
+        phx-window-keydown="close_create_modal" phx-key="Escape">
         <div class="modal-box">
           <h3 class="font-bold text-lg">Create RA Instance</h3>
           <form phx-submit="create_instance" class="space-y-4 mt-4">
@@ -152,24 +250,14 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
               <label for="ra-name" class="block text-xs font-medium text-base-content/60 mb-1">
                 Name <span class="text-error">*</span>
               </label>
-              <input
-                type="text"
-                name="name"
-                id="ra-name"
-                required
-                maxlength="100"
-                value={@create_name}
-                placeholder="e.g. Production RA, Staging RA"
-                class="input input-bordered input-sm w-full"
-              />
+              <input type="text" name="name" id="ra-name" required maxlength="100"
+                value={@create_name} placeholder="e.g. Production RA, Staging RA"
+                class="input input-bordered input-sm w-full" />
             </div>
             <div class="modal-action">
-              <button type="button" class="btn btn-ghost btn-sm" phx-click="close_create_modal">
-                Cancel
-              </button>
+              <button type="button" class="btn btn-ghost btn-sm" phx-click="close_create_modal">Cancel</button>
               <button type="submit" class="btn btn-primary btn-sm">
-                <.icon name="hero-plus" class="size-4" />
-                Create
+                <.icon name="hero-plus" class="size-4" /> Create
               </button>
             </div>
           </form>

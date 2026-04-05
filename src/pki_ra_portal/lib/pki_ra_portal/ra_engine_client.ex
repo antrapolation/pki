@@ -27,7 +27,9 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback configure_service(map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback list_api_keys(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback create_api_key(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback update_api_key(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback revoke_api_key(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback list_webhook_deliveries(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback list_ra_instances(keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback create_ra_instance(map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback available_issuer_keys(keyword()) :: {:ok, [map()]} | {:error, term()}
@@ -77,7 +79,9 @@ defmodule PkiRaPortal.RaEngineClient do
   def configure_service(attrs, opts \\ []), do: impl().configure_service(attrs, opts)
   def list_api_keys(filters \\ [], opts \\ []), do: impl().list_api_keys(filters, opts)
   def create_api_key(attrs, opts \\ []), do: impl().create_api_key(attrs, opts)
+  def update_api_key(id, attrs, opts \\ []), do: impl().update_api_key(id, attrs, opts)
   def revoke_api_key(id, opts \\ []), do: impl().revoke_api_key(id, opts)
+  def list_webhook_deliveries(api_key_id, opts \\ []), do: impl().list_webhook_deliveries(api_key_id, opts)
   def list_ra_instances(opts \\ []), do: impl().list_ra_instances(opts)
   def create_ra_instance(attrs, opts \\ []), do: impl().create_ra_instance(attrs, opts)
   def available_issuer_keys(opts \\ []), do: impl().available_issuer_keys(opts)

@@ -25,8 +25,10 @@ defmodule PkiRaEngine.Api.ApiKeyScopePlug do
     end
 
     if permission in allowed do
+      PkiRaEngine.Telemetry.scope_allow(%{api_key_id: api_key.id, permission: permission})
       conn
     else
+      PkiRaEngine.Telemetry.scope_deny(%{api_key_id: api_key.id, permission: permission, key_type: api_key.key_type})
       audit_scope_denied(api_key, permission, conn.assigns[:tenant_id])
 
       conn

@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS ra.cert_profiles (
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL,
     ra_instance_id uuid,
-    issuer_key_id character varying(255)
+    issuer_key_id character varying(255),
+    approval_mode character varying(255) DEFAULT 'manual' NOT NULL,
+    validity_days integer,
+    status character varying(255) DEFAULT 'active'
 );
 CREATE TABLE IF NOT EXISTS ra.credentials (
     id uuid NOT NULL,
@@ -49,7 +52,8 @@ CREATE TABLE IF NOT EXISTS ra.csr_requests (
     rejection_reason text,
     issued_cert_serial character varying(255),
     inserted_at timestamp(0) without time zone NOT NULL,
-    updated_at timestamp(0) without time zone NOT NULL
+    updated_at timestamp(0) without time zone NOT NULL,
+    submitted_by_key_id uuid
 );
 CREATE TABLE IF NOT EXISTS ra.ra_api_keys (
     id uuid NOT NULL,
@@ -62,7 +66,12 @@ CREATE TABLE IF NOT EXISTS ra.ra_api_keys (
     revoked_at timestamp without time zone,
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL,
-    ra_instance_id uuid
+    ra_instance_id uuid,
+    key_type character varying(255) DEFAULT 'client' NOT NULL,
+    allowed_profile_ids jsonb DEFAULT '[]'::jsonb,
+    ip_whitelist jsonb DEFAULT '[]'::jsonb,
+    webhook_url character varying(255),
+    webhook_secret character varying(255)
 );
 CREATE TABLE IF NOT EXISTS ra.ra_instances (
     id uuid NOT NULL,
@@ -99,7 +108,8 @@ CREATE TABLE IF NOT EXISTS ra.service_configs (
     credentials bytea,
     ca_engine_ref character varying(255),
     inserted_at timestamp(0) without time zone NOT NULL,
-    updated_at timestamp(0) without time zone NOT NULL
+    updated_at timestamp(0) without time zone NOT NULL,
+    status character varying(255) DEFAULT 'active' NOT NULL
 );
 ALTER TABLE ONLY ra.cert_profiles
     ADD CONSTRAINT cert_profiles_pkey PRIMARY KEY (id);
@@ -125,6 +135,8 @@ CREATE INDEX IF NOT EXISTS csr_requests_reviewed_at_index ON ra.csr_requests USI
 CREATE INDEX IF NOT EXISTS csr_requests_status_index ON ra.csr_requests USING btree (status);
 CREATE INDEX IF NOT EXISTS csr_requests_submitted_at_index ON ra.csr_requests USING btree (submitted_at);
 CREATE INDEX IF NOT EXISTS ra_api_keys_ra_instance_id_index ON ra.ra_api_keys USING btree (ra_instance_id);
+CREATE INDEX IF NOT EXISTS ra_api_keys_key_type_index ON ra.ra_api_keys USING btree (key_type);
+CREATE INDEX IF NOT EXISTS csr_requests_submitted_by_key_id_index ON ra.csr_requests USING btree (submitted_by_key_id);
 CREATE UNIQUE INDEX ra_instances_name_index ON ra.ra_instances USING btree (name);
 CREATE INDEX IF NOT EXISTS ra_users_ra_instance_id_index ON ra.ra_users USING btree (ra_instance_id);
 CREATE INDEX IF NOT EXISTS ra_users_role_index ON ra.ra_users USING btree (role);

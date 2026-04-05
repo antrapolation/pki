@@ -91,9 +91,9 @@ defmodule PkiRaEngine.Api.CertController do
       status: csr.status,
       cert_profile_id: csr.cert_profile_id,
       cert_profile_name: profile_name(csr.cert_profile),
-      submitted_at: csr.submitted_at && DateTime.to_iso8601(csr.submitted_at),
+      submitted_at: PkiRaEngine.Api.ConnHelpers.format_datetime(csr.submitted_at),
       reviewed_by: csr.reviewed_by,
-      reviewed_at: csr.reviewed_at && DateTime.to_iso8601(csr.reviewed_at)
+      reviewed_at: PkiRaEngine.Api.ConnHelpers.format_datetime(csr.reviewed_at)
     }
   end
 

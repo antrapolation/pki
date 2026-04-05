@@ -20,6 +20,10 @@ defmodule PkiPlatformEngine.Application do
       Process.sleep(1_000)
       Logger.info("[Application] Booting active tenant engines...")
       PkiPlatformEngine.TenantSupervisor.boot_active_tenants()
+
+      # Run tenant schema migrations after boot
+      Logger.info("[Application] Running tenant schema migrations...")
+      PkiPlatformEngine.TenantMigrator.migrate_all()
     end)
 
     result

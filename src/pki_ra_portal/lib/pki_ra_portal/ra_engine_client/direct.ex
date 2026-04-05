@@ -126,7 +126,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     filters = Keyword.drop(opts, [:tenant_id])
 
     users = PkiRaEngine.UserManagement.list_users(tenant_id, filters)
-    {:ok, Enum.map(users, &to_map/1)}
+    {:ok, to_map_list(users)}
   end
 
   @impl true
@@ -171,7 +171,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
 
     csrs = PkiRaEngine.CsrValidation.list_csrs(tenant_id, filters)
-    {:ok, Enum.map(csrs, &to_map/1)}
+    {:ok, to_map_list(csrs)}
   end
 
   @impl true
@@ -213,7 +213,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
 
     profiles = PkiRaEngine.CertProfileConfig.list_profiles(tenant_id)
-    {:ok, Enum.map(profiles, &to_map/1)}
+    {:ok, to_map_list(profiles)}
   end
 
   @impl true
@@ -257,7 +257,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
 
     configs = PkiRaEngine.ServiceConfig.list_service_configs(tenant_id)
-    {:ok, Enum.map(configs, &to_map/1)}
+    {:ok, to_map_list(configs)}
   end
 
   @impl true
@@ -277,7 +277,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
 
     instances = PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id)
-    {:ok, Enum.map(instances, &to_map/1)}
+    {:ok, to_map_list(instances)}
   end
 
   @impl true
@@ -420,12 +420,12 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
 
     if ra_user_id do
       keys = PkiRaEngine.ApiKeyManagement.list_keys(tenant_id, ra_user_id)
-      {:ok, Enum.map(keys, &to_map/1)}
+      {:ok, to_map_list(keys)}
     else
       # No user filter — list all keys for this tenant
       repo = PkiRaEngine.TenantRepo.ra_repo(tenant_id)
       keys = repo.all(PkiRaEngine.Schema.RaApiKey)
-      {:ok, Enum.map(keys, &to_map/1)}
+      {:ok, to_map_list(keys)}
     end
   end
 
@@ -447,6 +447,16 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   end
 
   @impl true
+  def update_api_key(id, attrs, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.ApiKeyManagement.update_key(tenant_id, id, attrs) do
+      {:ok, key} -> {:ok, to_map(key)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @impl true
   def revoke_api_key(id, opts \\ []) do
     tenant_id = opts[:tenant_id]
 
@@ -454,6 +464,13 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
       {:ok, key} -> {:ok, to_map(key)}
       {:error, _} = err -> err
     end
+  end
+
+  @impl true
+  def list_webhook_deliveries(api_key_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+    deliveries = PkiRaEngine.WebhookDelivery.list_deliveries(tenant_id, api_key_id)
+    {:ok, to_map_list(deliveries)}
   end
 
   # ---------------------------------------------------------------------------
@@ -674,7 +691,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
     full_filters = [{:tenant_id, tenant_id} | filters]
     events = PkiPlatformEngine.PlatformAudit.list_events(full_filters)
-    {:ok, Enum.map(events, &to_map/1)}
+    {:ok, to_map_list(events)}
   end
 
   defp get_tenant_name(nil), do: ""
@@ -746,17 +763,6 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
 
   # --- Struct to map conversion helpers ---
 
-  defp to_map(%{__struct__: _} = struct) do
-    struct
-    |> Map.from_struct()
-    |> Map.drop([:__meta__])
-    |> Map.new(fn {k, v} -> {k, to_map_value(v)} end)
-  end
-
-  defp to_map(other), do: other
-
-  defp to_map_value(%{__struct__: Ecto.Association.NotLoaded}), do: nil
-  defp to_map_value(%{__struct__: _} = s), do: to_map(s)
-  defp to_map_value(list) when is_list(list), do: Enum.map(list, &to_map_value/1)
-  defp to_map_value(other), do: other
+  defp to_map(value), do: PkiRaPortal.ResponseNormalizer.normalize(value)
+  defp to_map_list(list), do: PkiRaPortal.ResponseNormalizer.normalize_list(list)
 end

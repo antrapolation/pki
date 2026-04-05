@@ -32,7 +32,7 @@ defmodule PkiPlatformEngine.PlatformAuditEvent do
     issuer_key_activated csr_signed
     quick_setup_completed quick_setup_failed
     csr_approved csr_rejected cert_issued cert_revoked
-    api_key_created api_key_revoked
+    api_key_created api_key_updated api_key_revoked
     dcv_started dcv_passed
     session_expired
     webhook_delivered webhook_failed

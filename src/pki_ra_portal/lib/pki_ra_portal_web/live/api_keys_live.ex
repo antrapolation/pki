@@ -22,6 +22,8 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
        new_raw_key: nil,
        new_webhook_secret: nil,
        show_create_form: false,
+       editing: nil,
+       webhook_log: [],
        page: 1,
        per_page: 50
      )
@@ -44,7 +46,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
       end
 
     ra_users =
-      case RaEngineClient.list_portal_users(opts) do
+      case RaEngineClient.list_users(opts) do
         {:ok, users} -> Enum.filter(users, fn u -> (u[:status] || u["status"]) == "active" end)
         {:error, _} -> []
       end
@@ -115,6 +117,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
         label: params["label"],
         key_type: params["key_type"] || "client",
         ra_user_id: params["ra_user_id"],
+        ra_instance_id: blank_to_nil(params["ra_instance_id"]),
         expiry: parse_expiry(params["expiry"]),
         rate_limit: parse_int(params["rate_limit"], 60),
         allowed_profile_ids: allowed_profile_ids,
@@ -148,6 +151,78 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
   @impl true
   def handle_event("dismiss_raw_key", _params, socket) do
     {:noreply, assign(socket, new_raw_key: nil, new_webhook_secret: nil)}
+  end
+
+  @impl true
+  def handle_event("view_api_key", %{"id" => id}, socket) do
+    key = Enum.find(socket.assigns.api_keys, &(&1.id == id))
+
+    webhook_log =
+      if key[:webhook_url] do
+        case RaEngineClient.list_webhook_deliveries(id, tenant_opts(socket)) do
+          {:ok, deliveries} -> deliveries
+          {:error, _} -> []
+        end
+      else
+        []
+      end
+
+    {:noreply, assign(socket, editing: key, webhook_log: webhook_log, show_create_form: false)}
+  end
+
+  @impl true
+  def handle_event("cancel_edit", _params, socket) do
+    {:noreply, assign(socket, editing: nil)}
+  end
+
+  @impl true
+  def handle_event("update_api_key", params, socket) do
+    if get_role(socket) != "ra_admin" do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      key_id = params["key_id"]
+
+      ip_whitelist =
+        (params["ip_whitelist"] || "")
+        |> String.split("\n")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      allowed_profile_ids =
+        case params["allowed_profile_ids"] do
+          nil -> []
+          list when is_list(list) -> list
+          str when is_binary(str) -> [str]
+        end
+
+      attrs = %{
+        label: params["label"],
+        key_type: params["key_type"],
+        ra_instance_id: blank_to_nil(params["ra_instance_id"]),
+        rate_limit: parse_int(params["rate_limit"], 60),
+        allowed_profile_ids: allowed_profile_ids,
+        ip_whitelist: ip_whitelist,
+        webhook_url: blank_to_nil(params["webhook_url"])
+      }
+
+      case RaEngineClient.update_api_key(key_id, attrs, tenant_opts(socket)) do
+        {:ok, updated} ->
+          keys =
+            Enum.map(socket.assigns.api_keys, fn k ->
+              if k.id == key_id, do: normalize_key(updated), else: k
+            end)
+
+          {:noreply,
+           socket
+           |> assign(api_keys: keys, editing: nil)
+           |> apply_pagination()
+           |> put_flash(:info, "API key updated")}
+
+        {:error, reason} ->
+          Logger.error("[api_keys] Failed to update API key: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to update API key", reason))}
+      end
+    end
   end
 
   @impl true
@@ -205,7 +280,8 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
     Map.merge(key, %{
       id: id, status: status, name: name, created_at: created_at, prefix: prefix,
       key_type: key_type, ra_user_id: ra_user_id, rate_limit: rate_limit,
-      expiry: expiry, allowed_profile_ids: allowed_profile_ids
+      expiry: expiry, allowed_profile_ids: allowed_profile_ids,
+      ra_instance_id: key[:ra_instance_id] || key["ra_instance_id"]
     })
   end
 
@@ -233,25 +309,45 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
   defp blank_to_nil(val), do: val
 
   defp expiry_warning?(key) do
-    expiry = key[:expiry] || key["expiry"]
-    if expiry do
-      case DateTime.from_iso8601(to_string(expiry)) do
-        {:ok, dt, _} -> DateTime.diff(dt, DateTime.utc_now(), :day) < 30
-        _ -> false
-      end
-    else
-      false
+    case to_datetime(key[:expiry] || key["expiry"]) do
+      %DateTime{} = dt -> DateTime.diff(dt, DateTime.utc_now(), :day) < 30
+      _ -> false
     end
   end
 
   defp format_expiry(key) do
-    expiry = key[:expiry] || key["expiry"]
-    if expiry, do: String.slice(to_string(expiry), 0, 10), else: "Never"
+    case to_datetime(key[:expiry] || key["expiry"]) do
+      %DateTime{} = dt -> Calendar.strftime(dt, "%Y-%m-%d")
+      _ -> "Never"
+    end
   end
+
+  defp to_datetime(nil), do: nil
+  defp to_datetime(%DateTime{} = dt), do: dt
+  defp to_datetime(%NaiveDateTime{} = ndt), do: DateTime.from_naive!(ndt, "Etc/UTC")
+  defp to_datetime(str) when is_binary(str) do
+    case DateTime.from_iso8601(str) do
+      {:ok, dt, _} -> dt
+      _ ->
+        case NaiveDateTime.from_iso8601(str) do
+          {:ok, ndt} -> DateTime.from_naive!(ndt, "Etc/UTC")
+          _ -> nil
+        end
+    end
+  end
+  defp to_datetime(_), do: nil
 
   defp profile_count(key) do
     ids = key[:allowed_profile_ids] || key["allowed_profile_ids"] || []
     if ids == [], do: "All", else: "#{length(ids)}"
+  end
+
+  defp ra_instance_name(nil, _instances), do: "All"
+  defp ra_instance_name(id, instances) do
+    case Enum.find(instances, fn i -> i.id == id || i[:id] == id end) do
+      nil -> "-"
+      inst -> inst[:name] || inst["name"] || "-"
+    end
   end
 
   defp user_display_name(user_id, users) do
@@ -367,7 +463,15 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
                       {key.status}
                     </span>
                   </td>
-                  <td>
+                  <td class="flex gap-1">
+                    <button
+                      phx-click="view_api_key"
+                      phx-value-id={key.id}
+                      title="View / Edit"
+                      class="btn btn-ghost btn-xs text-sky-400"
+                    >
+                      <.icon name="hero-pencil" class="size-4" />
+                    </button>
                     <button
                       :if={key.status == "active"}
                       phx-click="revoke_api_key"
@@ -393,6 +497,156 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
               >
                 {p}
               </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <%!-- Detail / Edit Panel --%>
+      <section :if={@editing} id="edit-api-key" class="card bg-base-100 shadow-sm border border-primary/30">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">
+              API Key Details
+              <span class={["badge badge-sm ml-2", @editing.status == "active" && "badge-success", @editing.status == "revoked" && "badge-error"]}>
+                {@editing.status}
+              </span>
+            </h2>
+            <button phx-click="cancel_edit" class="btn btn-ghost btn-xs">Close</button>
+          </div>
+
+          <%!-- Read-only info --%>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-xs">
+            <div>
+              <span class="text-base-content/50">ID</span>
+              <p class="font-mono break-all">{@editing.id}</p>
+            </div>
+            <div>
+              <span class="text-base-content/50">Owner</span>
+              <p>{user_display_name(@editing[:ra_user_id], @ra_users)}</p>
+            </div>
+            <div>
+              <span class="text-base-content/50">Expiry</span>
+              <p>{format_expiry(@editing)}</p>
+            </div>
+            <div>
+              <span class="text-base-content/50">RA Instance</span>
+              <p>{ra_instance_name(@editing[:ra_instance_id], @ra_instances)}</p>
+            </div>
+            <div>
+              <span class="text-base-content/50">Created</span>
+              <p><.local_time dt={@editing.created_at} format="datetime" /></p>
+            </div>
+          </div>
+
+          <%!-- Editable form (only for active keys) --%>
+          <form :if={@editing.status == "active"} phx-submit="update_api_key" class="space-y-4 mt-4 border-t border-base-300 pt-4">
+            <input type="hidden" name="key_id" value={@editing.id} />
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label for="edit-label" class="label text-xs font-medium">Label</label>
+                <input type="text" name="label" id="edit-label" value={@editing.name} maxlength="100" class="input input-sm input-bordered w-full" />
+              </div>
+              <div>
+                <label class="label text-xs font-medium">Key Type</label>
+                <div class="flex gap-4 mt-1">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="key_type" value="client" checked={@editing.key_type == "client"} class="radio radio-sm radio-primary" />
+                    <span class="text-sm">Client</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="key_type" value="service" checked={@editing.key_type == "service"} class="radio radio-sm radio-primary" />
+                    <span class="text-sm">Service</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label for="edit-ra-instance" class="label text-xs font-medium">RA Instance</label>
+                <select name="ra_instance_id" id="edit-ra-instance" class="select select-sm select-bordered w-full">
+                  <option value="">All Instances</option>
+                  <option :for={inst <- @ra_instances} value={inst.id} selected={@editing.ra_instance_id == inst.id}>
+                    {inst.name}
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label class="label text-xs font-medium">Allowed Profiles</label>
+                <div class="max-h-32 overflow-y-auto space-y-1 border border-base-300 rounded p-2">
+                  <label :for={p <- @cert_profiles} class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" name="allowed_profile_ids[]" value={p.id}
+                      checked={p.id in (@editing.allowed_profile_ids || [])}
+                      class="checkbox checkbox-xs checkbox-primary" />
+                    <span class="text-xs">{p.name}</span>
+                  </label>
+                </div>
+                <p class="text-xs text-base-content/50 mt-0.5">Unchecked = all profiles</p>
+              </div>
+              <div class="space-y-3">
+                <div>
+                  <label for="edit-ip-whitelist" class="label text-xs font-medium">IP Whitelist</label>
+                  <textarea name="ip_whitelist" id="edit-ip-whitelist" rows="3" maxlength="1000"
+                    class="textarea textarea-bordered textarea-sm w-full font-mono text-xs"><%= Enum.join(@editing[:ip_whitelist] || [], "\n") %></textarea>
+                </div>
+                <div>
+                  <label for="edit-rate-limit" class="label text-xs font-medium">Rate Limit (req/min)</label>
+                  <input type="number" name="rate_limit" id="edit-rate-limit" value={@editing.rate_limit || 60} min="1" max="10000" class="input input-sm input-bordered w-full" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label for="edit-webhook-url" class="label text-xs font-medium">Webhook URL</label>
+              <input type="url" name="webhook_url" id="edit-webhook-url" value={@editing[:webhook_url] || ""} maxlength="500"
+                placeholder="https://your-service.com/webhook" pattern="https://.*"
+                class="input input-sm input-bordered w-full" />
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button type="button" phx-click="cancel_edit" class="btn btn-sm btn-ghost">Cancel</button>
+              <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
+            </div>
+          </form>
+
+          <%!-- Webhook Delivery Log --%>
+          <div :if={@editing[:webhook_url] && @editing[:webhook_url] != ""} class="border-t border-base-300 pt-4 mt-4">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">
+              Webhook Delivery Log ({length(@webhook_log)})
+            </h3>
+            <div :if={@webhook_log == []} class="text-xs text-base-content/40 italic">No deliveries yet</div>
+            <div :if={@webhook_log != []} class="overflow-x-auto">
+              <table class="table table-xs w-full">
+                <thead>
+                  <tr class="border-base-300">
+                    <th class="text-xs">Event</th>
+                    <th class="text-xs">Status</th>
+                    <th class="text-xs">Attempts</th>
+                    <th class="text-xs">HTTP</th>
+                    <th class="text-xs">Time</th>
+                    <th class="text-xs">Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={d <- @webhook_log} class="border-base-300">
+                    <td class="font-mono text-xs">{d[:event]}</td>
+                    <td>
+                      <span class={[
+                        "badge badge-xs",
+                        d[:status] == "delivered" && "badge-success",
+                        d[:status] == "exhausted" && "badge-error",
+                        d[:status] == "failed" && "badge-warning",
+                        d[:status] == "pending" && "badge-ghost"
+                      ]}>
+                        {d[:status]}
+                      </span>
+                    </td>
+                    <td class="text-xs">{d[:attempts] || 0}</td>
+                    <td class="font-mono text-xs">{d[:last_http_status] || "-"}</td>
+                    <td class="text-xs"><.local_time dt={d[:inserted_at]} format="datetime" /></td>
+                    <td class="text-xs text-error max-w-[200px] truncate" title={d[:last_error]}>{d[:last_error] || "-"}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -443,7 +697,16 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
               </div>
               <div>
                 <label for="api-key-expiry" class="label text-xs font-medium">Expiry Date <span class="text-error">*</span></label>
-                <input type="date" name="expiry" id="api-key-expiry" required min={Date.to_iso8601(Date.add(Date.utc_today(), 1))} class="input input-sm input-bordered w-full" />
+                <input type="text" name="expiry" id="api-key-expiry" required
+                  placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}" maxlength="10"
+                  class="input input-sm input-bordered w-full font-mono" />
+              </div>
+              <div>
+                <label for="api-key-ra-instance" class="label text-xs font-medium">RA Instance</label>
+                <select name="ra_instance_id" id="api-key-ra-instance" class="select select-sm select-bordered w-full">
+                  <option value="">All Instances</option>
+                  <option :for={inst <- @ra_instances} value={inst.id}>{inst.name}</option>
+                </select>
               </div>
             </div>
 

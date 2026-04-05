@@ -58,4 +58,11 @@ defmodule PkiRaPortalWeb.CertProfilesLiveTest do
 
     refute html =~ "profile-#{@profile1_id}"
   end
+
+  test "profile displays approval_mode badge", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/cert-profiles")
+
+    # Default profiles should show manual approval mode
+    assert html =~ "manual"
+  end
 end

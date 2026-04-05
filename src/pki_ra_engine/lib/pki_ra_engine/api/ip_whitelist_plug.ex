@@ -14,8 +14,10 @@ defmodule PkiRaEngine.Api.IpWhitelistPlug do
     client_ip = client_ip_string(conn)
 
     if ip_in_whitelist?(client_ip, api_key.ip_whitelist) do
+      PkiRaEngine.Telemetry.ip_allow(%{api_key_id: api_key.id, client_ip: client_ip})
       conn
     else
+      PkiRaEngine.Telemetry.ip_deny(%{api_key_id: api_key.id, client_ip: client_ip})
       audit_ip_rejected(api_key, client_ip, conn.assigns[:tenant_id])
 
       conn

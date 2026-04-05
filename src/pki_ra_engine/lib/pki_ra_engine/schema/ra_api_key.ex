@@ -45,6 +45,20 @@ defmodule PkiRaEngine.Schema.RaApiKey do
     |> maybe_generate_id()
   end
 
+  @update_fields [
+    :label, :key_type, :expiry, :rate_limit, :ra_instance_id,
+    :allowed_profile_ids, :ip_whitelist, :webhook_url, :webhook_secret
+  ]
+
+  def update_changeset(api_key, attrs) do
+    api_key
+    |> cast(attrs, @update_fields)
+    |> validate_inclusion(:key_type, @key_types)
+    |> validate_length(:label, max: 100)
+    |> validate_rate_limit()
+    |> foreign_key_constraint(:ra_user_id)
+  end
+
   def key_types, do: @key_types
   def statuses, do: @statuses
 

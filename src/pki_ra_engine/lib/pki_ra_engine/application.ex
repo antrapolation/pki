@@ -16,6 +16,8 @@ defmodule PkiRaEngine.Application do
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
+    PkiRaEngine.Telemetry.setup()
+
     opts = [strategy: :one_for_one, name: PkiRaEngine.Supervisor]
     Supervisor.start_link(children, opts)
   end

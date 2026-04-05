@@ -474,6 +474,23 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
+  def update_api_key(id, attrs, _opts \\ []) do
+    update_state(:api_keys, fn keys ->
+      Enum.map(keys, fn
+        %{id: ^id} = key -> Map.merge(key, attrs)
+        key -> key
+      end)
+    end)
+
+    {:ok, Map.merge(%{id: id}, attrs)}
+  end
+
+  @impl true
+  def list_webhook_deliveries(_api_key_id, _opts \\ []) do
+    {:ok, []}
+  end
+
+  @impl true
   def revoke_api_key(id, _opts \\ []) do
     update_state(:api_keys, fn keys ->
       Enum.map(keys, fn

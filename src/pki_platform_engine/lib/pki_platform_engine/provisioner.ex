@@ -20,6 +20,8 @@ defmodule PkiPlatformEngine.Provisioner do
         with :ok <- create_database(db_name),
              :ok <- create_tenant_tables(db_name),
              {:ok, tenant} <- PlatformRepo.insert(changeset) do
+          # Apply any tenant migrations beyond the base schema
+          PkiPlatformEngine.TenantMigrator.migrate_tenant(tenant.id, db_name)
           {:ok, tenant}
         else
           {:error, reason} ->

@@ -5,6 +5,7 @@ defmodule PkiRaPortalWeb.ApiKeysLiveTest do
 
   @user %{id: 1, username: "raadmin1", role: "ra_admin"}
   @apikey1_id "019577b0-0040-7000-8000-000000000040"
+  @user1_id "019577b0-0001-7000-8000-000000000001"
 
   setup %{conn: conn} do
     conn = init_test_session(conn, %{current_user: @user})
@@ -14,37 +15,66 @@ defmodule PkiRaPortalWeb.ApiKeysLiveTest do
   test "mounts and renders API key list", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/api-keys")
 
-    assert html =~ "API Key Management"
+    assert html =~ "API Key"
     assert html =~ "Production API Key"
     assert html =~ "Staging API Key"
     assert html =~ "active"
     assert html =~ "revoked"
   end
 
+  test "show_create_form event reveals the create form", %{conn: conn} do
+    {:ok, view, html} = live(conn, "/api-keys")
+
+    # Form is hidden by default
+    refute html =~ "create-api-key-form"
+
+    # Click "Create Key" button to show it
+    html = view |> element("button", "Create Key") |> render_click()
+
+    assert html =~ "create-api-key-form"
+    assert html =~ "Label"
+    assert html =~ "Key Type"
+  end
+
   test "create_api_key event creates a key and shows raw key", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/api-keys")
 
+    # Show the create form first
+    view |> element("button", "Create Key") |> render_click()
+
     html =
       view
-      |> form("#create-api-key-form form", %{name: "Test Key"})
+      |> form("#create-api-key-form form", %{
+        label: "Test Key",
+        ra_user_id: @user1_id,
+        expiry: "2027-01-01",
+        key_type: "client"
+      })
       |> render_submit()
 
-    assert html =~ "New API Key Created"
+    assert html =~ "API Key Created"
     assert has_element?(view, "#raw-key-value")
   end
 
   test "dismiss_raw_key event hides the raw key", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/api-keys")
 
-    # Create key first
+    # Show form and create key
+    view |> element("button", "Create Key") |> render_click()
+
     view
-    |> form("#create-api-key-form form", %{name: "Test Key"})
+    |> form("#create-api-key-form form", %{
+      label: "Test Key",
+      ra_user_id: @user1_id,
+      expiry: "2027-01-01",
+      key_type: "client"
+    })
     |> render_submit()
 
     # Dismiss
     html = view |> element("button", "Dismiss") |> render_click()
 
-    refute html =~ "New API Key Created"
+    refute html =~ "API Key Created"
   end
 
   test "revoke_api_key event revokes a key", %{conn: conn} do

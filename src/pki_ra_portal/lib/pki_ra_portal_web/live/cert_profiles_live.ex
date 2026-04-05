@@ -230,7 +230,14 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
   @impl true
   def handle_event("edit_profile", %{"id" => id}, socket) do
     profile = Enum.find(socket.assigns.profiles, &(&1.id == id))
-    {:noreply, assign(socket, editing: profile)}
+
+    # Detect issuer key algorithm for PQC digest logic
+    algo = case Enum.find(socket.assigns.connected_keys, &(&1.id == Map.get(profile, :issuer_key_id))) do
+      nil -> nil
+      key -> key.algorithm
+    end
+
+    {:noreply, assign(socket, editing: profile, selected_issuer_key_algo: algo)}
   end
 
   @impl true
@@ -487,25 +494,25 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
         </div>
       </section>
 
-      <%!-- Edit Profile Form --%>
+      <%!-- Edit Profile Form (mirrors create form) --%>
       <section :if={@editing} id="edit-profile-form" class="card bg-base-100 shadow-sm border border-primary/30">
         <div class="card-body">
-          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Edit Profile</h2>
-          <form phx-submit="update_profile" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Edit Profile</h2>
+            <button phx-click="cancel_edit" class="btn btn-ghost btn-xs">Cancel</button>
+          </div>
+          <form phx-submit="update_profile" phx-change="form_change" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
             <input type="hidden" name="profile_id" value={@editing.id} />
             <div>
-              <label for="edit-name" class="label text-xs font-medium">Name</label>
-              <input type="text" name="name" id="edit-name" value={@editing.name} required class="input input-sm input-bordered w-full" />
+              <label for="edit-name" class="label text-xs font-medium">Name <span class="text-error">*</span></label>
+              <input type="text" name="name" id="edit-name" value={@editing.name} required maxlength="100" class="input input-sm input-bordered w-full" />
+              <p class="text-xs text-base-content/40 mt-0.5">Max 100 characters</p>
             </div>
             <div>
               <label for="edit-ra-instance" class="label text-xs font-medium">RA Instance <span class="text-error">*</span></label>
               <select name="ra_instance_id" id="edit-ra-instance" required class="select select-sm select-bordered w-full">
                 <option value="">Select RA Instance</option>
-                <option
-                  :for={inst <- @ra_instances}
-                  value={inst.id}
-                  selected={Map.get(@editing, :ra_instance_id) == inst.id}
-                >
+                <option :for={inst <- @ra_instances} value={inst.id} selected={Map.get(@editing, :ra_instance_id) == inst.id}>
                   {inst.name}
                 </option>
               </select>
@@ -514,34 +521,55 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
               <label for="edit-issuer-key" class="label text-xs font-medium">Issuer Key <span class="text-error">*</span></label>
               <select name="issuer_key_id" id="edit-issuer-key" required class="select select-sm select-bordered w-full">
                 <option value="">Select Issuer Key</option>
-                <option
-                  :for={key <- @issuer_keys}
-                  value={key.id}
-                  selected={Map.get(@editing, :issuer_key_id) == key.id}
-                >
-                  {key[:name] || key[:key_alias] || key[:alias] || key.id} ({key[:ca_instance_name] || "-"} — {key.algorithm})
+                <option :for={key <- @connected_keys} value={key.id} selected={Map.get(@editing, :issuer_key_id) == key.id}>
+                  {key[:name] || key[:key_alias] || key[:alias] || key.id} ({key.algorithm})
+                </option>
+              </select>
+              <p :if={@connected_keys == []} class="text-xs text-warning mt-1">No connected CA keys found. Connect a CA key first.</p>
+            </div>
+            <div>
+              <label class="label text-xs font-medium">Key Usage</label>
+              <div class="flex flex-wrap gap-3 mt-1">
+                <label :for={ku <- key_usage_options()} class="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="key_usage[]"
+                    value={ku}
+                    checked={ku in parse_key_usage(Map.get(@editing, :key_usage, ""))}
+                    class="checkbox checkbox-xs checkbox-primary"
+                  />
+                  <span class="text-xs">{ku}</span>
+                </label>
+              </div>
+            </div>
+            <div>
+              <label for="edit-ext-key-usage" class="label text-xs font-medium">Extended Key Usage</label>
+              <select name="ext_key_usage" id="edit-ext-key-usage" class="select select-sm select-bordered w-full">
+                <option value="" selected={(@editing.ext_key_usage || "") == ""}>-- Select --</option>
+                <option :for={{label, value} <- ext_key_usage_options()} value={value} selected={@editing.ext_key_usage == value}>
+                  {label}
                 </option>
               </select>
             </div>
             <div>
-              <label for="edit-key-usage" class="label text-xs font-medium">Key Usage</label>
-              <input type="text" name="key_usage" id="edit-key-usage" value={@editing.key_usage} class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="edit-ext-key-usage" class="label text-xs font-medium">Extended Key Usage</label>
-              <input type="text" name="ext_key_usage" id="edit-ext-key-usage" value={@editing.ext_key_usage} class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
               <label for="edit-digest-algo" class="label text-xs font-medium">Digest Algorithm</label>
-              <select name="digest_algo" id="edit-digest-algo" class="select select-sm select-bordered w-full">
-                <option value="SHA-256" selected={@editing.digest_algo == "SHA-256"}>SHA-256</option>
-                <option value="SHA-384" selected={@editing.digest_algo == "SHA-384"}>SHA-384</option>
-                <option value="SHA-512" selected={@editing.digest_algo == "SHA-512"}>SHA-512</option>
-              </select>
+              <%= if is_pqc_algorithm?(@selected_issuer_key_algo) do %>
+                <select name="digest_algo" id="edit-digest-algo" class="select select-sm select-bordered w-full select-disabled" disabled>
+                  <option value="algorithm-default" selected>Algorithm Default</option>
+                </select>
+                <p class="text-xs text-info mt-1">PQC algorithms use a built-in digest.</p>
+              <% else %>
+                <select name="digest_algo" id="edit-digest-algo" class="select select-sm select-bordered w-full">
+                  <option value="SHA-256" selected={@editing.digest_algo == "SHA-256"}>SHA-256</option>
+                  <option value="SHA-384" selected={@editing.digest_algo == "SHA-384"}>SHA-384</option>
+                  <option value="SHA-512" selected={@editing.digest_algo == "SHA-512"}>SHA-512</option>
+                  <option value="algorithm-default" selected={@editing.digest_algo == "algorithm-default"}>Algorithm Default</option>
+                </select>
+              <% end %>
             </div>
             <div>
               <label for="edit-validity" class="label text-xs font-medium">Validity (days)</label>
-              <input type="number" name="validity_days" id="edit-validity" value={@editing.validity_days} min="1" class="input input-sm input-bordered w-full" />
+              <input type="number" name="validity_days" id="edit-validity" value={get_validity_days(@editing) || 365} min="1" max="3650" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label class="label text-xs font-medium">Approval Mode</label>
@@ -550,18 +578,24 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                   <input type="radio" name="approval_mode" value="manual"
                          checked={Map.get(@editing, :approval_mode, "manual") == "manual"}
                          class="radio radio-sm radio-primary" />
-                  <span class="text-sm">Manual Review</span>
+                  <div>
+                    <span class="text-sm font-medium">Manual Review</span>
+                    <p class="text-xs text-base-content/50">Officer must approve each CSR</p>
+                  </div>
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input type="radio" name="approval_mode" value="auto"
                          checked={Map.get(@editing, :approval_mode, "manual") == "auto"}
                          class="radio radio-sm radio-primary" />
-                  <span class="text-sm">Auto-Approve</span>
+                  <div>
+                    <span class="text-sm font-medium">Auto-Approve</span>
+                    <p class="text-xs text-base-content/50">Automatically issue if all validations pass</p>
+                  </div>
                 </label>
               </div>
             </div>
             <div class="flex items-end gap-2">
-              <button type="submit" class="btn btn-sm btn-primary">Update</button>
+              <button type="submit" class="btn btn-sm btn-primary">Update Profile</button>
               <button type="button" phx-click="cancel_edit" class="btn btn-sm btn-ghost">Cancel</button>
             </div>
           </form>

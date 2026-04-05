@@ -167,6 +167,10 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     conn |> RbacPlug.call(:manage_api_keys) |> dispatch_unless_halted(&ApiKeyController.create/1)
   end
 
+  put "/api-keys/:id" do
+    conn |> RbacPlug.call(:manage_api_keys) |> dispatch_unless_halted(&ApiKeyController.update(&1, id))
+  end
+
   post "/api-keys/:id/revoke" do
     conn |> RbacPlug.call(:manage_api_keys) |> dispatch_unless_halted(&ApiKeyController.revoke(&1, id))
   end
