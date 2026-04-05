@@ -1180,3 +1180,197 @@ Tests the full CSR lifecycle: generate CSR → submit → validate → approve �
 - [ ] CSR reconciler sweeps all tenants (active + suspended)
 - [ ] Audit failures emit telemetry events
 - [ ] Service config URLs validated for http/https scheme
+
+---
+
+## 22. Reset — Clear All Databases and Start Fresh
+
+> **WARNING: This permanently destroys ALL data** — tenants, certificates, keys, users, audit logs. Only use for development reset or pre-production wipe.
+
+### 22.1 Stop all services
+
+```bash
+# Systemd (production)
+sudo systemctl stop pki-ra-portal pki-ca-portal pki-ra-engine pki-ca-engine pki-platform-portal
+
+# Or kill dev processes
+pkill -9 -f "beam.smp"
+```
+
+### 22.2 Drop all databases
+
+```bash
+# Find and drop all tenant databases
+sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datname LIKE 'pki_tenant_%'" | while read db; do
+  db=$(echo $db | xargs)
+  if [ -n "$db" ]; then
+    echo "Dropping $db..."
+    sudo -u postgres dropdb "$db"
+  fi
+done
+
+# Drop core databases
+sudo -u postgres dropdb pki_platform_dev
+sudo -u postgres dropdb pki_ca_engine_dev
+sudo -u postgres dropdb pki_ra_engine_dev
+sudo -u postgres dropdb pki_validation_dev
+
+# Also drop test databases if needed
+sudo -u postgres dropdb pki_ra_engine_test 2>/dev/null
+sudo -u postgres dropdb pki_ca_engine_test 2>/dev/null
+sudo -u postgres dropdb pki_validation_test 2>/dev/null
+
+echo "All PKI databases dropped."
+```
+
+For Podman/Docker (dev):
+
+```bash
+# If PostgreSQL runs in a container
+podman exec -it pki-postgres psql -U postgres -c "
+  SELECT 'DROP DATABASE ' || datname || ';'
+  FROM pg_database
+  WHERE datname LIKE 'pki_%'
+" -t | podman exec -i pki-postgres psql -U postgres
+```
+
+### 22.3 Clear SoftHSM2 tokens
+
+```bash
+# Remove all HSM token data
+rm -rf /var/lib/softhsm/tokens/*    # production
+rm -rf softhsm2/tokens/*            # dev (repo-local)
+
+# Re-initialize token
+softhsm2-util --init-token --free --label "PkiCA" \
+  --so-pin <your-so-pin> --pin <your-user-pin>
+
+# Verify
+softhsm2-util --show-slots
+```
+
+### 22.4 Recreate databases
+
+```bash
+source /home/pki/pki/.env  # or set POSTGRES_PORT for dev
+
+sudo -u postgres psql << SQL
+CREATE DATABASE pki_platform_dev;
+CREATE DATABASE pki_ca_engine_dev;
+CREATE DATABASE pki_ra_engine_dev;
+CREATE DATABASE pki_validation_dev;
+SQL
+```
+
+For dev (Podman):
+
+```bash
+podman exec -it pki-postgres psql -U postgres -c "
+  CREATE DATABASE pki_platform_dev;
+  CREATE DATABASE pki_ca_engine_dev;
+  CREATE DATABASE pki_ra_engine_dev;
+  CREATE DATABASE pki_validation_dev;
+"
+```
+
+### 22.5 Run all migrations
+
+```bash
+cd /home/pki/pki   # or your repo root
+
+source .env 2>/dev/null  # production
+export POSTGRES_PORT=5434  # dev (if using Podman)
+
+# Platform engine (creates tenant_schema_versions table)
+cd src/pki_platform_engine && mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo && cd ..
+
+# CA engine (creates issuer_keys, ca_instances, ceremonies, etc.)
+cd pki_ca_engine && mix ecto.migrate && cd ..
+
+# RA engine (creates cert_profiles, csr_requests, api_keys, webhooks, etc.)
+cd pki_ra_engine && mix ecto.migrate && cd ..
+
+# Validation (creates certificate_statuses, etc.)
+cd pki_validation && mix ecto.migrate && cd ../..
+
+echo "All migrations complete."
+```
+
+### 22.6 Start services
+
+```bash
+# Production (systemd)
+sudo systemctl start pki-platform-portal
+sleep 5
+sudo systemctl start pki-ca-engine pki-ra-engine
+sleep 3
+sudo systemctl start pki-ca-portal pki-ra-portal
+```
+
+For dev, see [Section 19: Single-Node Deployment](#19-single-node-portal-deployment-mode).
+
+### 22.7 Re-do initial setup
+
+After a full reset, you must repeat the initial setup:
+
+1. **Platform admin login** — `PLATFORM_ADMIN_USERNAME`/`PASSWORD` from `.env` (auto-seeded on first boot)
+2. **Register HSM device** — Platform Portal → HSM Devices → Register SoftHSM2
+3. **Create tenant** — Platform Portal → Tenants → New Tenant → Activate
+4. **Assign HSM to tenant** — Tenants → tenant → HSM Device Access
+5. **Tenant admin login** — CA Portal or RA Portal with emailed/manual credentials
+6. **Key ceremony** — CA Portal → create CA instance → generate issuer key → distribute shares
+7. **RA setup** — RA Portal → setup wizard → connect CA key → create cert profile
+
+See [Section 10: Initial Setup Flow](#10-initial-setup-flow) for details.
+
+### 22.8 Quick dev reset script
+
+Save as `scripts/reset_dev.sh`:
+
+```bash
+#!/bin/bash
+# Quick reset for local development
+# Usage: ./scripts/reset_dev.sh
+set -e
+
+echo "=== PKI Dev Reset ==="
+echo "WARNING: This destroys all local PKI data!"
+read -p "Continue? (y/N) " confirm
+[ "$confirm" = "y" ] || exit 1
+
+PGPORT=${POSTGRES_PORT:-5434}
+
+echo "1. Killing BEAM processes..."
+pkill -9 -f "beam.smp" 2>/dev/null || true
+sleep 2
+
+echo "2. Dropping databases..."
+for db in $(psql -h 127.0.0.1 -p $PGPORT -U postgres -t -c "SELECT datname FROM pg_database WHERE datname LIKE 'pki_%'" 2>/dev/null); do
+  db=$(echo $db | xargs)
+  [ -n "$db" ] && psql -h 127.0.0.1 -p $PGPORT -U postgres -c "DROP DATABASE \"$db\";" 2>/dev/null && echo "  Dropped $db"
+done
+
+echo "3. Creating databases..."
+for db in pki_platform_dev pki_ca_engine_dev pki_ra_engine_dev pki_validation_dev; do
+  psql -h 127.0.0.1 -p $PGPORT -U postgres -c "CREATE DATABASE $db;" 2>/dev/null && echo "  Created $db"
+done
+
+echo "4. Clearing SoftHSM2 tokens..."
+rm -rf softhsm2/tokens/*/
+softhsm2-util --init-token --free --label "PkiCA" --so-pin 12345678 --pin 1234 2>/dev/null && echo "  Token initialized"
+
+echo "5. Running migrations..."
+POSTGRES_PORT=$PGPORT
+(cd src/pki_platform_engine && mix ecto.migrate --repo PkiPlatformEngine.PlatformRepo 2>&1 | tail -1)
+(cd src/pki_ca_engine && mix ecto.migrate 2>&1 | tail -1)
+(cd src/pki_ra_engine && mix ecto.migrate 2>&1 | tail -1)
+(cd src/pki_validation && mix ecto.migrate 2>&1 | tail -1)
+
+echo ""
+echo "=== Reset complete ==="
+echo "Start services and re-do initial setup (see deployment guide section 10)."
+```
+
+```bash
+chmod +x scripts/reset_dev.sh
+```
