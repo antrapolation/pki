@@ -192,15 +192,15 @@ defmodule PkiCaPortalWeb.UsersLive do
           <form phx-submit="create_user" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <div>
               <label for="username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
-              <input type="text" name="username" id="user-username" required class="input input-bordered input-sm w-full" />
+              <input type="text" name="username" id="user-username" required maxlength="50" class="input input-bordered input-sm w-full" />
             </div>
             <div>
               <label for="display_name" class="block text-xs font-medium text-base-content/60 mb-1">Display Name</label>
-              <input type="text" name="display_name" id="user-display-name" required class="input input-bordered input-sm w-full" />
+              <input type="text" name="display_name" id="user-display-name" required maxlength="100" class="input input-bordered input-sm w-full" />
             </div>
             <div>
               <label for="email" class="block text-xs font-medium text-base-content/60 mb-1">Email</label>
-              <input type="email" name="email" id="user-email" required class="input input-bordered input-sm w-full" />
+              <input type="email" name="email" id="user-email" required maxlength="254" class="input input-bordered input-sm w-full" />
             </div>
             <div>
               <label for="role" class="block text-xs font-medium text-base-content/60 mb-1">Role</label>

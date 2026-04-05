@@ -707,6 +707,7 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
                     type="password"
                     name={"password_#{idx}"}
                     placeholder="Custodian's secret password"
+                    maxlength="100"
                     class="input input-bordered input-sm flex-1"
                     autocomplete="off"
                   />

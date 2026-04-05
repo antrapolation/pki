@@ -255,7 +255,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
           <form phx-submit="create_api_key" class="flex items-end gap-4 mt-2">
             <div class="flex-1">
               <label for="api-key-name" class="label text-xs font-medium">Name</label>
-              <input type="text" name="name" id="api-key-name" required class="input input-sm input-bordered w-full" />
+              <input type="text" name="name" id="api-key-name" required maxlength="100" class="input input-sm input-bordered w-full" />
             </div>
             <button type="submit" class="btn btn-sm btn-primary">Create Key</button>
           </form>

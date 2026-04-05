@@ -25,6 +25,8 @@ defmodule PkiPlatformEngine.UserProfile do
     |> cast(attrs, [:username, :display_name, :email, :status, :must_change_password, :credential_expires_at])
     |> validate_required([:username])
     |> validate_length(:username, min: 3, max: 50)
+    |> validate_length(:display_name, max: 100)
+    |> validate_length(:email, max: 254)
     |> unique_constraint(:username)
     |> maybe_generate_id()
   end
@@ -34,6 +36,8 @@ defmodule PkiPlatformEngine.UserProfile do
     |> cast(attrs, [:username, :display_name, :email, :status, :must_change_password, :credential_expires_at, :password])
     |> validate_required([:username, :password])
     |> validate_length(:username, min: 3, max: 50)
+    |> validate_length(:display_name, max: 100)
+    |> validate_length(:email, max: 254)
     |> validate_length(:password, min: 8, max: 100)
     |> unique_constraint(:username)
     |> maybe_generate_id()

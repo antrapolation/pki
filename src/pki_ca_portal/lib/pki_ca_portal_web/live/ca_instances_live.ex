@@ -267,6 +267,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
                 name="name"
                 id="ca-name"
                 required
+                maxlength="100"
                 value={@create_name}
                 placeholder="e.g. Root CA, Intermediate CA 1"
                 class="input input-bordered input-sm w-full"
@@ -325,6 +326,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
                   type="text"
                   name="name"
                   value={@rename_value}
+                  maxlength="100"
                   class="input input-bordered input-xs w-48"
                   autofocus
                   phx-keydown="cancel_rename"

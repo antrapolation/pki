@@ -942,7 +942,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
             </div>
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">Key Alias</label>
-              <input type="text" name="key_alias" placeholder="e.g. root-key-2026" class="input input-bordered input-sm w-full" />
+              <input type="text" name="key_alias" placeholder="e.g. root-key-2026" maxlength="100" class="input input-bordered input-sm w-full" />
             </div>
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">Certificate Type</label>

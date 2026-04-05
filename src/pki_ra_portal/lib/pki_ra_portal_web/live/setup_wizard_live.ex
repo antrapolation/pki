@@ -651,6 +651,7 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
                 type="text"
                 name="name"
                 required
+                maxlength="255"
                 placeholder="e.g. Production TLS"
                 class="input input-sm input-bordered w-full"
               />
@@ -670,6 +671,7 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
                 type="text"
                 name="key_usage"
                 value={@profile_form["key_usage"]}
+                maxlength="255"
                 class="input input-sm input-bordered w-full"
               />
             </div>
@@ -680,6 +682,7 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
                 type="text"
                 name="ext_key_usage"
                 value={@profile_form["ext_key_usage"]}
+                maxlength="255"
                 class="input input-sm input-bordered w-full"
               />
             </div>
@@ -710,6 +713,7 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
                 type="text"
                 name="dn_required"
                 value={@profile_form["dn_required"]}
+                maxlength="255"
                 placeholder="CN,O,OU"
                 class="input input-sm input-bordered w-full"
               />
@@ -721,6 +725,7 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
                 type="text"
                 name="dn_optional"
                 value={@profile_form["dn_optional"]}
+                maxlength="255"
                 placeholder="L,ST,C"
                 class="input input-sm input-bordered w-full"
               />
@@ -802,15 +807,15 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
           <form phx-submit="invite_user" class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="label text-xs font-medium">Username <span class="text-error">*</span></label>
-              <input type="text" name="username" required class="input input-sm input-bordered w-full" />
+              <input type="text" name="username" required maxlength="50" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label class="label text-xs font-medium">Display Name</label>
-              <input type="text" name="display_name" class="input input-sm input-bordered w-full" />
+              <input type="text" name="display_name" maxlength="100" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label class="label text-xs font-medium">Email <span class="text-error">*</span></label>
-              <input type="email" name="email" required class="input input-sm input-bordered w-full" />
+              <input type="email" name="email" required maxlength="254" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label class="label text-xs font-medium">Role <span class="text-error">*</span></label>
@@ -899,7 +904,7 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
             </div>
             <div class="md:col-span-2">
               <label class="label text-xs font-medium">URL</label>
-              <input type="url" name="url" placeholder="https://ocsp.example.com" class="input input-sm input-bordered w-full" />
+              <input type="url" name="url" placeholder="https://ocsp.example.com" maxlength="255" class="input input-sm input-bordered w-full" />
             </div>
             <div class="flex items-end">
               <button type="submit" class="btn btn-primary btn-sm">
@@ -980,7 +985,7 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
           <form phx-submit="create_api_key" class="flex items-end gap-4">
             <div class="flex-1">
               <label class="label text-xs font-medium">Label <span class="text-error">*</span></label>
-              <input type="text" name="label" required placeholder="e.g. CI/CD Pipeline" class="input input-sm input-bordered w-full" />
+              <input type="text" name="label" required maxlength="100" placeholder="e.g. CI/CD Pipeline" class="input input-sm input-bordered w-full" />
             </div>
             <button type="submit" class="btn btn-primary btn-sm">
               <.icon name="hero-key" class="size-4" /> Create Key

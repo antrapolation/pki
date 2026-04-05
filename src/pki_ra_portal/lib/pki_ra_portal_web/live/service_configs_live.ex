@@ -180,7 +180,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
             </div>
             <div>
               <label for="service-url" class="label text-xs font-medium">URL</label>
-              <input type="text" name="url" id="service-url" required class="input input-sm input-bordered w-full" />
+              <input type="text" name="url" id="service-url" required maxlength="255" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label for="service-rate-limit" class="label text-xs font-medium">Rate Limit</label>
@@ -188,11 +188,11 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
             </div>
             <div>
               <label for="service-ip-whitelist" class="label text-xs font-medium">IP Whitelist (CIDR)</label>
-              <input type="text" name="ip_whitelist" id="service-ip-whitelist" class="input input-sm input-bordered w-full" />
+              <input type="text" name="ip_whitelist" id="service-ip-whitelist" maxlength="255" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label for="service-ip-blacklist" class="label text-xs font-medium">IP Blacklist (CIDR)</label>
-              <input type="text" name="ip_blacklist" id="service-ip-blacklist" class="input input-sm input-bordered w-full" />
+              <input type="text" name="ip_blacklist" id="service-ip-blacklist" maxlength="255" class="input input-sm input-bordered w-full" />
             </div>
             <div class="md:col-span-2">
               <button type="submit" class="btn btn-sm btn-primary">Configure</button>

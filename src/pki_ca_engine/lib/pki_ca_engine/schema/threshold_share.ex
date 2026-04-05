@@ -26,6 +26,7 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     share
     |> cast(attrs, [:issuer_key_id, :custodian_user_id, :share_index, :encrypted_share, :min_shares, :total_shares, :key_label, :status, :accepted_at])
     |> validate_required([:issuer_key_id, :custodian_user_id, :share_index, :encrypted_share, :min_shares, :total_shares])
+    |> validate_length(:key_label, max: 64)
     |> foreign_key_constraint(:issuer_key_id)
     |> unique_constraint([:issuer_key_id, :custodian_user_id, :share_index])
     |> maybe_generate_id()
@@ -35,6 +36,7 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     share
     |> cast(attrs, [:issuer_key_id, :custodian_user_id, :share_index, :min_shares, :total_shares, :key_label, :status, :accepted_at])
     |> validate_required([:issuer_key_id, :custodian_user_id, :share_index, :min_shares, :total_shares])
+    |> validate_length(:key_label, max: 64)
     |> foreign_key_constraint(:issuer_key_id)
     |> unique_constraint([:issuer_key_id, :custodian_user_id, :share_index])
     |> maybe_generate_id()

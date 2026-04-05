@@ -157,6 +157,7 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
                 name="name"
                 id="ra-name"
                 required
+                maxlength="100"
                 value={@create_name}
                 placeholder="e.g. Production RA, Staging RA"
                 class="input input-bordered input-sm w-full"

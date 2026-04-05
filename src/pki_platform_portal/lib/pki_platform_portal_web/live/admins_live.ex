@@ -180,17 +180,17 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label for="admin-username" class="block text-xs font-medium text-base-content/60 mb-1">Username</label>
-                <input type="text" name="username" id="admin-username" required autocomplete="off"
+                <input type="text" name="username" id="admin-username" required autocomplete="off" maxlength="50"
                   class="input input-bordered input-sm w-full" placeholder="e.g. jdoe" />
               </div>
               <div>
                 <label for="admin-display-name" class="block text-xs font-medium text-base-content/60 mb-1">Display Name</label>
-                <input type="text" name="display_name" id="admin-display-name" required
+                <input type="text" name="display_name" id="admin-display-name" required maxlength="100"
                   class="input input-bordered input-sm w-full" placeholder="e.g. Jane Doe" />
               </div>
               <div>
                 <label for="admin-email" class="block text-xs font-medium text-base-content/60 mb-1">Email</label>
-                <input type="email" name="email" id="admin-email" required
+                <input type="email" name="email" id="admin-email" required maxlength="254"
                   class="input input-bordered input-sm w-full" placeholder="e.g. jane@example.com" />
               </div>
             </div>

@@ -33,6 +33,7 @@ defmodule PkiCaEngine.Schema.CaInstance do
     instance
     |> cast(attrs, [:name, :status, :domain_info, :created_by, :parent_id, :is_offline])
     |> validate_required([:name])
+    |> validate_length(:name, max: 100)
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:name)
     |> foreign_key_constraint(:parent_id)

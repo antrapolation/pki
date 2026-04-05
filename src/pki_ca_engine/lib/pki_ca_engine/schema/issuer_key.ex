@@ -34,6 +34,7 @@ defmodule PkiCaEngine.Schema.IssuerKey do
       :is_root, :threshold_config, :certificate_der, :certificate_pem
     ])
     |> validate_required([:ca_instance_id, :key_alias, :algorithm])
+    |> validate_length(:key_alias, max: 100)
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:ca_instance_id)
     |> unique_constraint([:ca_instance_id, :key_alias])
