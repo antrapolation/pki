@@ -16,7 +16,8 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
     ApiKeyController,
     RaInstanceController,
     DcvController,
-    RbacPlug
+    RbacPlug,
+    ApiKeyScopePlug
   }
 
   plug PkiRaEngine.Api.AuthPlug
@@ -26,51 +27,84 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
   # --- CSR routes ---
 
   post "/csr" do
-    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CsrController.submit/1)
+    conn
+    |> RbacPlug.call(:process_csrs)
+    |> ApiKeyScopePlug.call(:submit_csr)
+    |> dispatch_unless_halted(&CsrController.submit/1)
   end
 
   get "/csr" do
-    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CsrController.list/1)
+    conn
+    |> RbacPlug.call(:view_csrs)
+    |> ApiKeyScopePlug.call(:view_csr)
+    |> dispatch_unless_halted(&CsrController.list/1)
   end
 
   get "/csr/:id" do
-    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CsrController.show(&1, id))
+    conn
+    |> RbacPlug.call(:view_csrs)
+    |> ApiKeyScopePlug.call(:view_csr)
+    |> dispatch_unless_halted(&CsrController.show(&1, id))
   end
 
   post "/csr/:id/approve" do
-    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CsrController.approve(&1, id))
+    conn
+    |> RbacPlug.call(:process_csrs)
+    |> ApiKeyScopePlug.call(:officer_review)
+    |> dispatch_unless_halted(&CsrController.approve(&1, id))
   end
 
   post "/csr/:id/reject" do
-    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CsrController.reject(&1, id))
+    conn
+    |> RbacPlug.call(:process_csrs)
+    |> ApiKeyScopePlug.call(:officer_review)
+    |> dispatch_unless_halted(&CsrController.reject(&1, id))
   end
 
   # --- DCV routes ---
 
   post "/csr/:id/dcv" do
-    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&DcvController.create(&1, id))
+    conn
+    |> RbacPlug.call(:process_csrs)
+    |> ApiKeyScopePlug.call(:manage_dcv)
+    |> dispatch_unless_halted(&DcvController.create(&1, id))
   end
 
   post "/csr/:id/dcv/verify" do
-    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&DcvController.verify(&1, id))
+    conn
+    |> RbacPlug.call(:process_csrs)
+    |> ApiKeyScopePlug.call(:manage_dcv)
+    |> dispatch_unless_halted(&DcvController.verify(&1, id))
   end
 
   get "/csr/:id/dcv" do
-    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&DcvController.show(&1, id))
+    conn
+    |> RbacPlug.call(:view_csrs)
+    |> ApiKeyScopePlug.call(:view_csr)
+    |> dispatch_unless_halted(&DcvController.show(&1, id))
   end
 
   # --- Certificate routes ---
 
   get "/certificates" do
-    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CertController.index/1)
+    conn
+    |> RbacPlug.call(:view_csrs)
+    |> ApiKeyScopePlug.call(:view_certificates)
+    |> dispatch_unless_halted(&CertController.index/1)
   end
 
   get "/certificates/:serial" do
-    conn |> RbacPlug.call(:view_csrs) |> dispatch_unless_halted(&CertController.show(&1, serial))
+    conn
+    |> RbacPlug.call(:view_csrs)
+    |> ApiKeyScopePlug.call(:view_certificates)
+    |> dispatch_unless_halted(&CertController.show(&1, serial))
   end
 
   post "/certificates/:serial/revoke" do
-    conn |> RbacPlug.call(:process_csrs) |> dispatch_unless_halted(&CertController.revoke(&1, serial))
+    conn
+    |> RbacPlug.call(:process_csrs)
+    |> ApiKeyScopePlug.call(:revoke_certificate)
+    |> dispatch_unless_halted(&CertController.revoke(&1, serial))
   end
 
   # --- User management routes ---
@@ -179,7 +213,9 @@ defmodule PkiRaEngine.Api.AuthenticatedRouter do
   end
 
   match _ do
-    send_resp(conn, 404, Jason.encode!(%{error: "not_found"}))
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(404, Jason.encode!(%{error: "not_found"}))
   end
 
   # Helper: only call the controller if RBAC didn't halt the conn

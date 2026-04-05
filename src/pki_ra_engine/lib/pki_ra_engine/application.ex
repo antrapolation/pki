@@ -12,7 +12,7 @@ defmodule PkiRaEngine.Application do
         PkiRaEngine.Repo,
         PkiRaEngine.CaEngineConfig,
         {Task.Supervisor, name: PkiRaEngine.TaskSupervisor}
-      ] ++ dcv_poller_children() ++ http_children()
+      ] ++ dcv_poller_children() ++ reconciler_children() ++ http_children()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -23,6 +23,14 @@ defmodule PkiRaEngine.Application do
   defp dcv_poller_children do
     if Application.get_env(:pki_ra_engine, :start_dcv_poller, true) do
       [PkiRaEngine.DcvPoller]
+    else
+      []
+    end
+  end
+
+  defp reconciler_children do
+    if Application.get_env(:pki_ra_engine, :start_csr_reconciler, true) do
+      [PkiRaEngine.CsrReconciler]
     else
       []
     end

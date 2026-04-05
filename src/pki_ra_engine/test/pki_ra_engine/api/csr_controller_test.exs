@@ -55,6 +55,19 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
     |> Plug.Conn.put_req_header("content-type", "application/json")
   end
 
+  defp internal_auth_conn(method, path, body) do
+    conn =
+      if body do
+        Plug.Test.conn(method, path, Jason.encode!(body))
+      else
+        Plug.Test.conn(method, path)
+      end
+
+    conn
+    |> Plug.Conn.put_req_header("authorization", "Bearer test-secret")
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+  end
+
   defp json(conn), do: Jason.decode!(conn.resp_body)
 
   defp setup_auth(_context) do
@@ -211,14 +224,14 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
   describe "POST /api/v1/csr/:id/approve" do
     setup :setup_auth
 
-    test "approves a verified CSR", %{user: user, raw_key: raw_key, profile: profile} do
+    test "approves a verified CSR", %{user: user, profile: profile} do
       {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
       {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{verified.id}/approve", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{verified.id}/approve", body)
         |> Router.call(@opts)
 
       assert conn.status == 200
@@ -227,31 +240,31 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
       assert resp["reviewed_by"] == user.id
     end
 
-    test "422 when CSR is still pending (invalid transition)", %{user: user, raw_key: raw_key, profile: profile} do
+    test "422 when CSR is still pending (invalid transition)", %{user: user, profile: profile} do
       {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
 
       body = %{"reviewer_user_id" => user.id}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{csr.id}/approve", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{csr.id}/approve", body)
         |> Router.call(@opts)
 
       assert conn.status == 422
     end
 
-    test "404 for non-existent CSR", %{user: user, raw_key: raw_key} do
+    test "404 for non-existent CSR", %{user: user} do
       body = %{"reviewer_user_id" => user.id}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{Uniq.UUID.uuid7()}/approve", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{Uniq.UUID.uuid7()}/approve", body)
         |> Router.call(@opts)
 
       assert conn.status in [404, 422]
     end
 
-    test "422 when reviewer_user_id is missing", %{raw_key: raw_key} do
+    test "422 when reviewer_user_id is missing", _context do
       conn =
-        auth_conn(:post, "/api/v1/csr/1/approve", %{}, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/1/approve", %{})
         |> Router.call(@opts)
 
       assert conn.status == 422
@@ -264,7 +277,7 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
   describe "POST /api/v1/csr/:id/reject" do
     setup :setup_auth
 
-    test "rejects a verified CSR with reason", %{user: user, raw_key: raw_key, profile: profile} do
+    test "rejects a verified CSR with reason", %{user: user, profile: profile} do
       {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
       {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
@@ -274,7 +287,7 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
       }
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{verified.id}/reject", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{verified.id}/reject", body)
         |> Router.call(@opts)
 
       assert conn.status == 200
@@ -284,36 +297,36 @@ defmodule PkiRaEngine.Api.CsrControllerTest do
       assert resp["reviewed_by"] == user.id
     end
 
-    test "422 when reason is missing", %{user: user, raw_key: raw_key, profile: profile} do
+    test "422 when reason is missing", %{user: user, profile: profile} do
       {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
       {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       body = %{"reviewer_user_id" => user.id}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{verified.id}/reject", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{verified.id}/reject", body)
         |> Router.call(@opts)
 
       assert conn.status == 422
       assert json(conn)["error"] =~ "reason"
     end
 
-    test "422 when body is empty", %{raw_key: raw_key} do
+    test "422 when body is empty", _context do
       conn =
-        auth_conn(:post, "/api/v1/csr/1/reject", %{}, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/1/reject", %{})
         |> Router.call(@opts)
 
       assert conn.status == 422
       assert json(conn)["error"] =~ "missing required field"
     end
 
-    test "422 when CSR is still pending (invalid transition)", %{user: user, raw_key: raw_key, profile: profile} do
+    test "422 when CSR is still pending (invalid transition)", %{user: user, profile: profile} do
       {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
 
       body = %{"reviewer_user_id" => user.id, "reason" => "bad"}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{csr.id}/reject", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{csr.id}/reject", body)
         |> Router.call(@opts)
 
       assert conn.status == 422

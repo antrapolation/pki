@@ -13,6 +13,7 @@ config :logger, level: :warning
 
 config :pki_ra_engine, start_http: false
 config :pki_ra_engine, start_dcv_poller: false
+config :pki_ra_engine, start_csr_reconciler: false
 
 config :pki_ra_engine,
   internal_api_secret: "test-secret",

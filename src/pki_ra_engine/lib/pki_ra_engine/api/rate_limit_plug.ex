@@ -62,25 +62,5 @@ defmodule PkiRaEngine.Api.RateLimitPlug do
     Application.get_env(:pki_ra_engine, :rate_limit_enabled, true)
   end
 
-  defp client_ip(conn) do
-    remote = conn.remote_ip |> :inet.ntoa() |> to_string()
-    trusted = Application.get_env(:pki_ra_engine, :trusted_proxies, [])
-
-    if remote in trusted do
-      case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
-        [forwarded | _] ->
-          forwarded
-          |> String.split(",")
-          |> Enum.map(&String.trim/1)
-          |> Enum.reverse()
-          |> Enum.drop_while(&(&1 in trusted))
-          |> List.first(remote)
-
-        [] ->
-          remote
-      end
-    else
-      remote
-    end
-  end
+  defp client_ip(conn), do: PkiRaEngine.Api.ConnHelpers.client_ip(conn)
 end

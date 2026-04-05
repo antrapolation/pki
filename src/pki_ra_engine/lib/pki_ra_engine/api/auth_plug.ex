@@ -52,18 +52,41 @@ defmodule PkiRaEngine.Api.AuthPlug do
       true ->
         case PkiRaEngine.ApiKeyManagement.verify_key(tenant_id, token) do
           {:ok, api_key} ->
-            Logger.metadata(
-              engine: "ra",
-              auth_type: :api_key,
-              tenant_id: tenant_id,
-              api_key_id: api_key.id,
-              ra_user_id: api_key.ra_user_id
-            )
+            # Per-key rate limiting
+            rate_limit = api_key.rate_limit || 60
+            rate_key = "api_key:#{api_key.id}"
 
-            conn
-            |> assign(:auth_type, :api_key)
-            |> assign(:current_api_key, api_key)
-            |> assign(:tenant_id, tenant_id)
+            case Hammer.check_rate(rate_key, 60_000, rate_limit) do
+              {:allow, _count} ->
+                conn
+                |> PkiRaEngine.Api.IpWhitelistPlug.check(api_key)
+                |> maybe_assign_api_key(api_key, tenant_id)
+
+              {:deny, _limit} ->
+                audit_rate_limited(api_key, tenant_id)
+
+                conn
+                |> put_resp_content_type("application/json")
+                |> put_resp_header("retry-after", "60")
+                |> send_resp(429, Jason.encode!(%{
+                  error: "rate_limited",
+                  retry_after: 60,
+                  message: "Rate limit exceeded. Try again in 60 seconds."
+                }))
+                |> halt()
+
+              {:error, reason} ->
+                # Hammer error — fail closed (CA system must not bypass rate limiting)
+                Logger.error("rate_limit_backend_error api_key=#{api_key.id} reason=#{inspect(reason)}")
+
+                conn
+                |> put_resp_content_type("application/json")
+                |> send_resp(503, Jason.encode!(%{
+                  error: "service_unavailable",
+                  message: "Service temporarily unavailable. Please try again later."
+                }))
+                |> halt()
+            end
 
           _ ->
             unauthorized(conn)
@@ -83,6 +106,36 @@ defmodule PkiRaEngine.Api.AuthPlug do
   defp valid_internal_secret?(token) do
     expected = Application.get_env(:pki_ra_engine, :internal_api_secret)
     is_binary(expected) and expected != "" and Plug.Crypto.secure_compare(token, expected)
+  end
+
+  defp maybe_assign_api_key(%Plug.Conn{halted: true} = conn, _api_key, _tenant_id), do: conn
+  defp maybe_assign_api_key(conn, api_key, tenant_id), do: assign_api_key(conn, api_key, tenant_id)
+
+  defp assign_api_key(conn, api_key, tenant_id) do
+    Logger.metadata(
+      engine: "ra",
+      auth_type: :api_key,
+      tenant_id: tenant_id,
+      api_key_id: api_key.id,
+      ra_user_id: api_key.ra_user_id
+    )
+
+    conn
+    |> assign(:auth_type, :api_key)
+    |> assign(:current_api_key, api_key)
+    |> assign(:tenant_id, tenant_id)
+  end
+
+  defp audit_rate_limited(api_key, tenant_id) do
+    PkiPlatformEngine.PlatformAudit.log("api_key_rate_limited", %{
+      target_type: "api_key",
+      target_id: api_key.id,
+      tenant_id: tenant_id,
+      portal: "ra",
+      details: %{rate_limit: api_key.rate_limit, label: api_key.label}
+    })
+  rescue
+    _ -> :ok
   end
 
   defp unauthorized(conn) do

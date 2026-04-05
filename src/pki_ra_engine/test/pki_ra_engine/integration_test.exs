@@ -76,6 +76,19 @@ defmodule PkiRaEngine.IntegrationTest do
     |> Plug.Conn.put_req_header("content-type", "application/json")
   end
 
+  defp internal_auth_conn(method, path, body) do
+    conn =
+      if body do
+        Plug.Test.conn(method, path, Jason.encode!(body))
+      else
+        Plug.Test.conn(method, path)
+      end
+
+    conn
+    |> Plug.Conn.put_req_header("authorization", "Bearer test-secret")
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+  end
+
   defp json_response(conn) do
     Jason.decode!(conn.resp_body)
   end
@@ -136,30 +149,42 @@ defmodule PkiRaEngine.IntegrationTest do
       officer = create_officer!()
       profile = create_profile!()
 
-      {:ok, csr} = CsrValidation.submit_csr(nil,@valid_csr_pem, profile.id)
-      {:ok, validated} = CsrValidation.validate_csr(nil,csr.id)
-      {:ok, approved} = CsrValidation.approve_csr(nil,validated.id, officer.id)
-      {:ok, _issued} = CsrValidation.forward_to_ca(nil,approved.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @valid_csr_pem, profile.id)
+      {:ok, _validated} = CsrValidation.validate_csr(nil, csr.id)
+      {:ok, _approved} = CsrValidation.approve_csr(nil, csr.id, officer.id)
 
+      # Wait for async forward from approve_csr, then forward manually if needed
+      Process.sleep(500)
+      {:ok, current} = CsrValidation.get_csr(nil, csr.id)
+
+      case current.status do
+        "issued" -> :ok
+        _ -> {:ok, _} = CsrValidation.forward_to_ca(nil, csr.id)
+      end
+
+      # Second call should fail — already issued
       assert {:error, {:invalid_transition, "issued", "issued"}} =
-               CsrValidation.forward_to_ca(nil,csr.id)
+               CsrValidation.forward_to_ca(nil, csr.id)
     end
 
     test "forward_to_ca with failing CA module returns error" do
-      # Temporarily configure a module that returns errors
+      # Configure failing CA stub BEFORE approve so the async forward also fails
       Application.put_env(:pki_ra_engine, :ca_engine_module, __MODULE__.FailingCaStub)
 
       officer = create_officer!()
       profile = create_profile!()
 
-      {:ok, csr} = CsrValidation.submit_csr(nil,@valid_csr_pem, profile.id)
-      {:ok, validated} = CsrValidation.validate_csr(nil,csr.id)
-      {:ok, approved} = CsrValidation.approve_csr(nil,validated.id, officer.id)
+      {:ok, csr} = CsrValidation.submit_csr(nil, @valid_csr_pem, profile.id)
+      {:ok, _validated} = CsrValidation.validate_csr(nil, csr.id)
+      {:ok, _approved} = CsrValidation.approve_csr(nil, csr.id, officer.id)
 
-      assert {:error, :ca_signing_failed} = CsrValidation.forward_to_ca(nil,approved.id)
+      # Wait for async forward to fail too
+      Process.sleep(300)
+
+      assert {:error, :ca_signing_failed} = CsrValidation.forward_to_ca(nil, csr.id)
 
       # CSR should remain approved (not issued)
-      {:ok, still_approved} = CsrValidation.get_csr(nil,csr.id)
+      {:ok, still_approved} = CsrValidation.get_csr(nil, csr.id)
       assert still_approved.status == "approved"
 
       # Restore stub
@@ -171,18 +196,35 @@ defmodule PkiRaEngine.IntegrationTest do
       profile = create_profile!()
 
       # Submit two CSRs
-      {:ok, csr1} = CsrValidation.submit_csr(nil,@valid_csr_pem, profile.id)
-      {:ok, csr2} = CsrValidation.submit_csr(nil,@valid_csr_pem, profile.id)
+      {:ok, csr1} = CsrValidation.submit_csr(nil, @valid_csr_pem, profile.id)
+      {:ok, csr2} = CsrValidation.submit_csr(nil, @valid_csr_pem, profile.id)
 
       # Process CSR1 through full lifecycle
-      {:ok, v1} = CsrValidation.validate_csr(nil,csr1.id)
-      {:ok, a1} = CsrValidation.approve_csr(nil,v1.id, officer.id)
-      {:ok, issued1} = CsrValidation.forward_to_ca(nil,a1.id)
+      {:ok, _v1} = CsrValidation.validate_csr(nil, csr1.id)
+      {:ok, _a1} = CsrValidation.approve_csr(nil, csr1.id, officer.id)
+
+      # Wait for async forward from approve_csr, then verify or forward manually
+      Process.sleep(500)
+      {:ok, final1} = CsrValidation.get_csr(nil, csr1.id)
+      issued1 = case final1.status do
+        "issued" -> final1
+        _ ->
+          {:ok, issued} = CsrValidation.forward_to_ca(nil, csr1.id)
+          issued
+      end
 
       # Process CSR2 through full lifecycle
-      {:ok, v2} = CsrValidation.validate_csr(nil,csr2.id)
-      {:ok, a2} = CsrValidation.approve_csr(nil,v2.id, officer.id)
-      {:ok, issued2} = CsrValidation.forward_to_ca(nil,a2.id)
+      {:ok, _v2} = CsrValidation.validate_csr(nil, csr2.id)
+      {:ok, _a2} = CsrValidation.approve_csr(nil, csr2.id, officer.id)
+
+      Process.sleep(500)
+      {:ok, final2} = CsrValidation.get_csr(nil, csr2.id)
+      issued2 = case final2.status do
+        "issued" -> final2
+        _ ->
+          {:ok, issued} = CsrValidation.forward_to_ca(nil, csr2.id)
+          issued
+      end
 
       # Both should be issued with different serials
       assert issued1.status == "issued"
@@ -216,19 +258,34 @@ defmodule PkiRaEngine.IntegrationTest do
       # Auto-validated after submit
       assert submit_resp["status"] in ["pending", "verified"]
 
-      # Step 2: Approve via REST
+      # Step 2: Approve via REST (uses internal auth — approve is portal-only)
       approve_body = %{"reviewer_user_id" => officer.id}
 
       approve_conn =
-        auth_conn(:post, "/api/v1/csr/#{csr_id}/approve", approve_body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{csr_id}/approve", approve_body)
         |> Router.call(@opts)
 
       assert approve_conn.status == 200
       approve_resp = json_response(approve_conn)
       assert approve_resp["status"] == "approved"
 
-      # Step 3: Forward to CA (via module — no REST endpoint for this yet)
-      {:ok, issued} = CsrValidation.forward_to_ca(nil,csr_id)
+      # Step 3: Wait for async forward_to_ca triggered by approve_csr
+      # approve_csr auto-forwards to CA via TaskSupervisor
+      Process.sleep(500)
+
+      # Check if already issued by async forward; if not, forward manually
+      {:ok, current_csr} = CsrValidation.get_csr(nil, csr_id)
+
+      issued =
+        case current_csr.status do
+          "issued" ->
+            current_csr
+
+          _ ->
+            {:ok, issued} = CsrValidation.forward_to_ca(nil, csr_id)
+            issued
+        end
+
       assert issued.status == "issued"
       assert issued.issued_cert_serial != nil
 
@@ -261,7 +318,6 @@ defmodule PkiRaEngine.IntegrationTest do
 
     test "approve a pending (non-verified) CSR returns error" do
       officer = create_officer!()
-      raw_key = create_api_key!(officer)
       profile = create_profile!()
 
       # Submit without auto-validate (use module directly to control state)
@@ -270,7 +326,7 @@ defmodule PkiRaEngine.IntegrationTest do
       approve_body = %{"reviewer_user_id" => officer.id}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{csr.id}/approve", approve_body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{csr.id}/approve", approve_body)
         |> Router.call(@opts)
 
       assert conn.status == 422

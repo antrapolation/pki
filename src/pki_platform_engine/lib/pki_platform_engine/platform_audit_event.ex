@@ -37,11 +37,13 @@ defmodule PkiPlatformEngine.PlatformAuditEvent do
     session_expired
     webhook_delivered webhook_failed
     api_key_rate_limited api_key_ip_rejected api_key_scope_denied
+    rbac_denied csr_forward_retry_failed
   )
 
   # Actions that may not have an actor (automated/system-triggered)
   @system_actions ~w(login login_failed session_expired cert_issued cert_revoked api_key_created api_key_revoked
-    webhook_delivered webhook_failed api_key_rate_limited api_key_ip_rejected api_key_scope_denied)
+    webhook_delivered webhook_failed api_key_rate_limited api_key_ip_rejected api_key_scope_denied
+    rbac_denied csr_forward_retry_failed)
 
   def changeset(event, attrs) do
     event

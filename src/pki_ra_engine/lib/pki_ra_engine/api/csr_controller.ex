@@ -17,21 +17,32 @@ defmodule PkiRaEngine.Api.CsrController do
     end
 
     with {:ok, csr_pem} <- fetch_param(conn.body_params, "csr_pem"),
-         {:ok, cert_profile_id} <- fetch_param(conn.body_params, "cert_profile_id") do
+         {:ok, cert_profile_id} <- fetch_param(conn.body_params, "cert_profile_id"),
+         :ok <- check_profile_allowed(conn, cert_profile_id) do
       case CsrValidation.submit_csr(tenant_id, csr_pem, cert_profile_id, submitted_by_key_id: submitted_by_key_id) do
         {:ok, csr} ->
-          # Auto-validate after submit (fire-and-forget style, but inline for now)
-          CsrValidation.validate_csr(tenant_id, csr.id)
+          # Auto-validate after submit (may trigger auto-approve asynchronously)
+          validate_result = CsrValidation.validate_csr(tenant_id, csr.id)
 
-          case CsrValidation.get_csr(tenant_id, csr.id) do
-            {:ok, fresh_csr} -> json_resp(conn, 201, serialize_csr(fresh_csr))
-            {:error, _} -> json_resp(conn, 201, serialize_csr(csr))
+          # Return the validation result state (verified or rejected),
+          # not a re-read that races with async auto-approve
+          response_csr = case validate_result do
+            {:ok, validated_csr} -> validated_csr
+            _ -> csr
           end
+
+          json_resp(conn, 201, serialize_csr(response_csr))
 
         {:error, changeset} ->
           unprocessable(conn, format_errors(changeset))
       end
     else
+      {:error, :profile_not_allowed} ->
+        json_resp(conn, 403, %{
+          error: "profile_not_allowed",
+          message: "This API key is not authorized for this certificate profile."
+        })
+
       {:error, missing_field} ->
         unprocessable(conn, "missing required field: #{missing_field}")
     end
@@ -107,6 +118,23 @@ defmodule PkiRaEngine.Api.CsrController do
 
   # -- Private ---------------------------------------------------------------
 
+  defp check_profile_allowed(conn, cert_profile_id) do
+    case conn.assigns do
+      %{auth_type: :api_key, current_api_key: api_key} ->
+        allowed = api_key.allowed_profile_ids || []
+
+        if allowed == [] or cert_profile_id in allowed do
+          :ok
+        else
+          {:error, :profile_not_allowed}
+        end
+
+      _ ->
+        # Internal/portal caller — no profile restriction
+        :ok
+    end
+  end
+
   defp fetch_param(params, key) do
     case Map.fetch(params, key) do
       {:ok, value} -> {:ok, value}
@@ -145,7 +173,15 @@ defmodule PkiRaEngine.Api.CsrController do
   defp format_errors(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+        atom_key =
+          try do
+            String.to_existing_atom(key)
+          rescue
+            ArgumentError -> nil
+          end
+
+        value = if atom_key, do: Keyword.get(opts, atom_key, key), else: key
+        to_string(value)
       end)
     end)
   end

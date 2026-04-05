@@ -62,6 +62,8 @@ defmodule PkiRaEngine.Api.Router do
   forward "/api/v1", to: PkiRaEngine.Api.AuthenticatedRouter
 
   match _ do
-    send_resp(conn, 404, Jason.encode!(%{error: "not_found"}))
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(404, Jason.encode!(%{error: "not_found"}))
   end
 end

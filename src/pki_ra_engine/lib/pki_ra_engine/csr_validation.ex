@@ -56,7 +56,7 @@ defmodule PkiRaEngine.CsrValidation do
     |> repo.insert()
   end
 
-  @doc "Auto-validate a pending CSR. Basic structural checks."
+  @doc "Auto-validate a pending CSR. Basic structural checks. Triggers auto-approve if profile allows."
   @spec validate_csr(String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def validate_csr(tenant_id, csr_id) do
     repo = TenantRepo.ra_repo(tenant_id)
@@ -65,7 +65,14 @@ defmodule PkiRaEngine.CsrValidation do
          :ok <- check_auto_transition(csr.status, "verified") do
       case run_validations(tenant_id, csr) do
         :ok ->
-          transition(repo, csr, "verified", %{})
+          case transition(repo, csr, "verified", %{}) do
+            {:ok, verified} ->
+              maybe_auto_approve(tenant_id, verified)
+              {:ok, verified}
+
+            {:error, _} = err ->
+              err
+          end
 
         {:error, _reason} ->
           transition(repo, csr, "rejected", %{})
@@ -205,6 +212,59 @@ defmodule PkiRaEngine.CsrValidation do
 
   # ── Private ─────────────────────────────────────────────────────────
 
+  defp maybe_auto_approve(tenant_id, csr) do
+    case CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
+      {:ok, %{approval_mode: "auto"}} ->
+        dcv_ok = case check_dcv_requirement(tenant_id, csr) do
+          :ok -> true
+          _ -> false
+        end
+
+        if dcv_ok do
+          csr_id = csr.id
+
+          Task.Supervisor.start_child(PkiRaEngine.TaskSupervisor, fn ->
+            repo = TenantRepo.ra_repo(tenant_id)
+
+            # Re-fetch CSR to guard against concurrent state changes (e.g. manual rejection)
+            with {:ok, fresh_csr} <- get_csr(tenant_id, csr_id),
+                 :ok <- check_transition(fresh_csr.status, "approved"),
+                 {:ok, _approved} <- transition(repo, fresh_csr, "approved", %{
+                   reviewed_by: nil,
+                   reviewed_at: DateTime.utc_now()
+                 }) do
+              audit("csr_approved", tenant_id, nil, "csr", csr_id, %{
+                subject_dn: fresh_csr.subject_dn,
+                auto_approved: true
+              })
+
+              case forward_to_ca(tenant_id, csr_id) do
+                {:ok, _} ->
+                  Logger.info("csr_auto_approved_and_issued csr_id=#{csr_id}")
+
+                {:error, reason} ->
+                  Logger.error("csr_auto_approve_ca_failed csr_id=#{csr_id} reason=#{inspect(reason)}")
+              end
+            else
+              {:error, {:invalid_transition, from, _to}} ->
+                Logger.info("csr_auto_approve_skipped csr_id=#{csr_id} current_status=#{from}")
+
+              {:error, reason} ->
+                Logger.error("csr_auto_approve_failed csr_id=#{csr_id} reason=#{inspect(reason)}")
+            end
+          end)
+        end
+
+      _ ->
+        # Manual approval or profile not found — do nothing
+        :ok
+    end
+  rescue
+    e ->
+      Logger.error("maybe_auto_approve_crashed csr_id=#{csr.id} error=#{Exception.message(e)}")
+      :ok
+  end
+
   defp check_dcv_requirement(tenant_id, csr) do
     case CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
       {:ok, profile} ->
@@ -243,11 +303,45 @@ defmodule PkiRaEngine.CsrValidation do
   end
 
   defp transition(repo, csr, new_status, extra_attrs) do
+    import Ecto.Query
+
     attrs = Map.merge(extra_attrs, %{status: new_status})
 
-    csr
-    |> CsrRequest.changeset(attrs)
-    |> repo.update()
+    # Atomic: claim the row only if status hasn't changed (prevents double-approve etc.)
+    # Uses update_all with a no-op SET to lock the row with a WHERE status guard,
+    # then applies the real change via changeset for proper Ecto type casting.
+    claim_query =
+      from(c in CsrRequest,
+        where: c.id == ^csr.id and c.status == ^csr.status
+      )
+
+    repo.transaction(fn ->
+      case repo.update_all(claim_query, set: [status: new_status]) do
+        {1, _} ->
+          # Re-fetch the row (now with new status) and apply full changeset
+          case repo.get(CsrRequest, csr.id) do
+            nil ->
+              repo.rollback(:not_found)
+
+            fresh ->
+              changeset = CsrRequest.changeset(fresh, attrs)
+
+              case repo.update(changeset) do
+                {:ok, updated} -> updated
+                {:error, changeset} -> repo.rollback({:changeset_error, changeset})
+              end
+          end
+
+        {0, _} ->
+          repo.rollback({:invalid_transition, csr.status, new_status})
+      end
+    end)
+    |> case do
+      {:ok, updated} -> {:ok, updated}
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, {:invalid_transition, from, to}} -> {:error, {:invalid_transition, from, to}}
+      {:error, {:changeset_error, cs}} -> {:error, cs}
+    end
   end
 
   defp run_validations(tenant_id, csr) do

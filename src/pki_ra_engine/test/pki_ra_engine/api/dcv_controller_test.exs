@@ -26,7 +26,7 @@ defmodule PkiRaEngine.Api.DcvControllerTest do
 
   defp create_api_key!(user) do
     {:ok, %{raw_key: raw_key}} =
-      ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "dcv_test"})
+      ApiKeyManagement.create_api_key(nil, %{ra_user_id: user.id, label: "dcv_test", key_type: "service"})
     raw_key
   end
 

@@ -66,6 +66,19 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
     Plug.Conn.put_req_header(conn, "content-type", "application/json")
   end
 
+  defp internal_auth_conn(method, path, body) do
+    conn =
+      if body do
+        Plug.Test.conn(method, path, Jason.encode!(body))
+      else
+        Plug.Test.conn(method, path)
+      end
+
+    conn
+    |> Plug.Conn.put_req_header("authorization", "Bearer test-secret")
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+  end
+
   defp json(conn), do: Jason.decode!(conn.resp_body)
 
   @sample_csr_pem "-----BEGIN CERTIFICATE REQUEST-----\nMIIBtest\n-----END CERTIFICATE REQUEST-----"
@@ -184,9 +197,8 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
       assert conn.status == 200
     end
 
-    test "POST /api/v1/csr/:id/approve returns 200 for valid approve" do
+    test "POST /api/v1/csr/:id/approve returns 200 for valid approve (internal auth)" do
       user = create_user!()
-      raw_key = create_api_key!(user)
       profile = create_profile!()
       {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
       {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
@@ -194,16 +206,15 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
       body = %{"reviewer_user_id" => user.id}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{verified.id}/approve", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{verified.id}/approve", body)
         |> Router.call(@opts)
 
       assert conn.status == 200
       assert json(conn)["status"] == "approved"
     end
 
-    test "POST /api/v1/csr/:id/reject returns 200 for valid reject" do
+    test "POST /api/v1/csr/:id/reject returns 200 for valid reject (internal auth)" do
       user = create_user!()
-      raw_key = create_api_key!(user)
       profile = create_profile!()
       {:ok, csr} = CsrValidation.submit_csr(nil, @sample_csr_pem, profile.id)
       {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
@@ -211,7 +222,7 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
       body = %{"reviewer_user_id" => user.id, "reason" => "Not compliant"}
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{verified.id}/reject", body, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{verified.id}/reject", body)
         |> Router.call(@opts)
 
       assert conn.status == 200
@@ -359,15 +370,14 @@ defmodule PkiRaEngine.Api.AuthenticatedRouterTest do
       assert conn.status == 200
     end
 
-    test "ra_officer CAN access POST /api/v1/csr/:id/approve (has process_csrs)" do
+    test "approve is portal-only (internal auth required, not API key)" do
       user = create_user!()
-      raw_key = create_api_key!(user)
       profile = create_profile!()
       {:ok, csr} = CsrValidation.submit_csr(nil, "-----BEGIN CERTIFICATE REQUEST-----\ntest\n-----END CERTIFICATE REQUEST-----", profile.id)
       {:ok, verified} = CsrValidation.validate_csr(nil, csr.id)
 
       conn =
-        auth_conn(:post, "/api/v1/csr/#{verified.id}/approve", %{"reviewer_user_id" => user.id}, raw_key)
+        internal_auth_conn(:post, "/api/v1/csr/#{verified.id}/approve", %{"reviewer_user_id" => user.id})
         |> Router.call(@opts)
 
       assert conn.status == 200

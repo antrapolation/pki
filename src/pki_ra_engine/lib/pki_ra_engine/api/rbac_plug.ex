@@ -8,10 +8,13 @@ defmodule PkiRaEngine.Api.RbacPlug do
   """
 
   import Plug.Conn
+  require Logger
 
   alias PkiRaEngine.UserManagement
 
   def init(permission), do: permission
+
+  def call(%Plug.Conn{halted: true} = conn, _permission), do: conn
 
   def call(%Plug.Conn{assigns: %{auth_type: :internal}} = conn, _permission) do
     # Portal-to-engine calls are trusted; the portal enforces its own RBAC.
@@ -24,17 +27,32 @@ defmodule PkiRaEngine.Api.RbacPlug do
       conn
     else
       _ ->
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(403, Jason.encode!(%{error: "forbidden"}))
-        |> halt()
+        audit_rbac_denied(api_key, permission, tenant_id)
+        forbidden(conn)
     end
   end
 
-  def call(conn, _permission) do
+  def call(conn, permission) do
+    Logger.warning("rbac_plug: unexpected auth state for permission=#{permission}")
+    forbidden(conn)
+  end
+
+  defp forbidden(conn) do
     conn
     |> put_resp_content_type("application/json")
-    |> send_resp(403, Jason.encode!(%{error: "forbidden"}))
+    |> send_resp(403, Jason.encode!(%{error: "forbidden", message: "You do not have permission to perform this action."}))
     |> halt()
+  end
+
+  defp audit_rbac_denied(api_key, permission, tenant_id) do
+    PkiPlatformEngine.PlatformAudit.log("rbac_denied", %{
+      target_type: "api_key",
+      target_id: api_key.id,
+      tenant_id: tenant_id,
+      portal: "ra",
+      details: %{permission: to_string(permission), ra_user_id: api_key.ra_user_id}
+    })
+  rescue
+    _ -> :ok
   end
 end
