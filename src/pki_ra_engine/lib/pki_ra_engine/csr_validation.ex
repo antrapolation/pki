@@ -33,10 +33,11 @@ defmodule PkiRaEngine.CsrValidation do
 
   # ── Public API ──────────────────────────────────────────────────────
 
-  @doc "Submit a CSR. Accepts CSR PEM string and cert_profile_id."
-  @spec submit_csr(String.t(), String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
-  def submit_csr(tenant_id, csr_pem, cert_profile_id) do
+  @doc "Submit a CSR. Accepts CSR PEM string, cert_profile_id, and optional keyword opts."
+  @spec submit_csr(String.t(), String.t(), String.t(), keyword()) :: {:ok, CsrRequest.t()} | {:error, term()}
+  def submit_csr(tenant_id, csr_pem, cert_profile_id, opts \\ []) do
     repo = TenantRepo.ra_repo(tenant_id)
+    submitted_by_key_id = Keyword.get(opts, :submitted_by_key_id)
 
     # Extract a basic subject_dn placeholder (real crypto extraction comes later)
     subject_dn = extract_subject_dn(csr_pem)
@@ -46,7 +47,8 @@ defmodule PkiRaEngine.CsrValidation do
       cert_profile_id: cert_profile_id,
       subject_dn: subject_dn,
       status: "pending",
-      submitted_at: DateTime.utc_now()
+      submitted_at: DateTime.utc_now(),
+      submitted_by_key_id: submitted_by_key_id
     }
 
     %CsrRequest{}

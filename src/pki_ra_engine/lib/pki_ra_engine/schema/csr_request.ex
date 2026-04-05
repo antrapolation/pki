@@ -17,6 +17,8 @@ defmodule PkiRaEngine.Schema.CsrRequest do
     field :rejection_reason, :string
     field :issued_cert_serial, :string
 
+    field :submitted_by_key_id, :binary_id
+
     belongs_to :cert_profile, PkiRaEngine.Schema.CertProfile
     belongs_to :reviewer, PkiRaEngine.Schema.RaUser, foreign_key: :reviewed_by
 
@@ -31,7 +33,8 @@ defmodule PkiRaEngine.Schema.CsrRequest do
     :reviewed_by,
     :reviewed_at,
     :rejection_reason,
-    :issued_cert_serial
+    :issued_cert_serial,
+    :submitted_by_key_id
   ]
 
   def changeset(csr_request, attrs) do

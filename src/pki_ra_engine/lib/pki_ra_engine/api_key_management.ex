@@ -23,17 +23,27 @@ defmodule PkiRaEngine.ApiKeyManagement do
     raw_key = :crypto.strong_rand_bytes(32)
     hashed = hash_key(raw_key)
 
+    # Auto-generate webhook secret if webhook_url is provided
+    webhook_url = attrs[:webhook_url] || attrs["webhook_url"]
+    webhook_secret = if is_binary(webhook_url) and webhook_url != "" do
+      :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
+    else
+      nil
+    end
+
     api_key_attrs =
       attrs
       |> Map.put(:hashed_key, hashed)
+      |> Map.put(:webhook_secret, webhook_secret)
 
     case %RaApiKey{} |> RaApiKey.changeset(api_key_attrs) |> repo.insert() do
       {:ok, api_key} ->
         audit("api_key_created", tenant_id, "api_key", api_key.id, %{
           ra_user_id: api_key.ra_user_id,
-          label: api_key.label
+          label: api_key.label,
+          key_type: api_key.key_type
         })
-        {:ok, %{raw_key: Base.encode64(raw_key), api_key: api_key}}
+        {:ok, %{raw_key: Base.encode64(raw_key), api_key: api_key, webhook_secret: webhook_secret}}
 
       {:error, changeset} ->
         {:error, changeset}

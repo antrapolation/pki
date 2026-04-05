@@ -9,9 +9,16 @@ defmodule PkiRaEngine.Api.CsrController do
 
   def submit(conn) do
     tenant_id = conn.assigns[:tenant_id]
+
+    # Track which API key submitted this CSR (nil for portal/internal callers)
+    submitted_by_key_id = case conn.assigns do
+      %{auth_type: :api_key, current_api_key: api_key} -> api_key.id
+      _ -> nil
+    end
+
     with {:ok, csr_pem} <- fetch_param(conn.body_params, "csr_pem"),
          {:ok, cert_profile_id} <- fetch_param(conn.body_params, "cert_profile_id") do
-      case CsrValidation.submit_csr(tenant_id, csr_pem, cert_profile_id) do
+      case CsrValidation.submit_csr(tenant_id, csr_pem, cert_profile_id, submitted_by_key_id: submitted_by_key_id) do
         {:ok, csr} ->
           # Auto-validate after submit (fire-and-forget style, but inline for now)
           CsrValidation.validate_csr(tenant_id, csr.id)
