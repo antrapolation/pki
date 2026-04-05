@@ -85,9 +85,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
   def handle_info(:load_data, socket) do
     opts = tenant_opts(socket)
 
-    profiles = case RaEngineClient.list_cert_profiles(opts) do
-      {:ok, p} -> p
-      {:error, _} -> []
+    {profiles, socket} = case RaEngineClient.list_cert_profiles(opts) do
+      {:ok, p} -> {p, socket}
+      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
     end
 
     ra_instances =
@@ -182,9 +182,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("create_profile", params, socket) do
-    if get_role(socket) != "ra_admin" do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
+    if get_role(socket) == "ra_admin" do
       # Join checkbox array into comma-separated string
       key_usage = case params["key_usage"] do
         list when is_list(list) -> Enum.join(list, ", ")
@@ -224,6 +222,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
           Logger.error("[cert_profiles] Failed to create profile: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create profile", reason))}
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
@@ -247,9 +247,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("update_profile", params, socket) do
-    if get_role(socket) != "ra_admin" do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
+    if get_role(socket) == "ra_admin" do
       profile_id = params["profile_id"]
 
       attrs = %{
@@ -280,14 +278,14 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
           Logger.error("[cert_profiles] Failed to update profile: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to update profile", reason))}
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
   @impl true
   def handle_event("delete_profile", %{"id" => id}, socket) do
-    if get_role(socket) != "ra_admin" do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
+    if get_role(socket) == "ra_admin" do
       case RaEngineClient.delete_cert_profile(id, tenant_opts(socket)) do
         {:ok, _} ->
           profiles = Enum.reject(socket.assigns.profiles, &(&1.id == id))
@@ -302,6 +300,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
           Logger.error("[cert_profiles] Failed to delete profile: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to delete profile", reason))}
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
@@ -595,7 +595,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
               </div>
             </div>
             <div class="flex items-end gap-2">
-              <button type="submit" class="btn btn-sm btn-primary">Update Profile</button>
+              <button type="submit" phx-disable-with="Saving..." class="btn btn-sm btn-primary">Update Profile</button>
               <button type="button" phx-click="cancel_edit" class="btn btn-sm btn-ghost">Cancel</button>
             </div>
           </form>
@@ -674,7 +674,12 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                     type="checkbox"
                     name="key_usage[]"
                     value={ku}
-                    checked={ku in parse_key_usage(Map.get(@template_defaults, :key_usage, ""))}
+                    checked={
+                      case @form_values[:key_usage] do
+                        list when is_list(list) -> ku in list
+                        _ -> ku in parse_key_usage(Map.get(@template_defaults, :key_usage, ""))
+                      end
+                    }
                     class="checkbox checkbox-xs checkbox-primary"
                   />
                   <span class="text-xs">{ku}</span>
@@ -734,7 +739,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
               </div>
             </div>
             <div class="flex items-end gap-2">
-              <button type="submit" class="btn btn-sm btn-primary">Create Profile</button>
+              <button type="submit" phx-disable-with="Saving..." class="btn btn-sm btn-primary">Create Profile</button>
               <button type="button" phx-click="cancel_create" class="btn btn-sm btn-ghost">Cancel</button>
             </div>
           </form>

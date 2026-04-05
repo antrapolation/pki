@@ -29,6 +29,7 @@ defmodule PkiRaEngine.Telemetry do
   @webhook_delivered [:pki, :ra, :webhook, :delivered]
   @webhook_failed [:pki, :ra, :webhook, :failed]
   @webhook_exhausted [:pki, :ra, :webhook, :exhausted]
+  @audit_failed [:pki, :ra, :audit, :failed]
 
   # ── Public API ─────────────────────────────────────────────────────
 
@@ -44,7 +45,8 @@ defmodule PkiRaEngine.Telemetry do
       @ip_whitelist_allow, @ip_whitelist_deny,
       @scope_allow, @scope_deny,
       @csr_submitted, @csr_approved, @csr_rejected, @csr_issued,
-      @webhook_delivered, @webhook_failed, @webhook_exhausted
+      @webhook_delivered, @webhook_failed, @webhook_exhausted,
+      @audit_failed
     ]
 
     :telemetry.attach_many("pki-ra-engine-metrics", events, &handle_event/4, nil)

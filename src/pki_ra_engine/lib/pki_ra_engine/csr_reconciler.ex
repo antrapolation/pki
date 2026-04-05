@@ -45,11 +45,19 @@ defmodule PkiRaEngine.CsrReconciler do
   end
 
   defp sweep_all_tenants do
-    # Sweep default tenant; multi-tenant sweeps added when TenantRepo gains tenant enumeration
-    sweep_tenant(nil)
+    tenant_ids = list_active_tenant_ids()
+    Enum.each([nil | tenant_ids], &sweep_tenant/1)
   rescue
-    e ->
-      Logger.error("csr_reconciler_sweep_failed error=#{Exception.message(e)}")
+    e -> Logger.error("csr_reconciler_sweep_failed error=#{Exception.message(e)}")
+  end
+
+  defp list_active_tenant_ids do
+    case PkiPlatformEngine.PlatformRepo.query("SELECT id FROM tenants WHERE status = 'active'", []) do
+      {:ok, %{rows: rows}} -> Enum.map(rows, fn [id] -> Ecto.UUID.cast!(id) end)
+      _ -> []
+    end
+  rescue
+    _ -> []
   end
 
   defp sweep_tenant(tenant_id) do

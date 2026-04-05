@@ -5,6 +5,10 @@ defmodule PkiRaEngine.Api.ApiKeyScopePlug do
 
   Client keys: submit_csr, view_csr, view_certificates
   Service keys: all client permissions + revoke_certificate, manage_dcv
+
+  Note: `:officer_review` is intentionally absent from both permission sets.
+  Approve/reject operations are portal-only (RA officer via LiveView)
+  and are never exposed through API key-authenticated routes.
   """
 
   import Plug.Conn

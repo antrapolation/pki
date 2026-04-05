@@ -34,9 +34,9 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
   def handle_info(:load_data, socket) do
     opts = tenant_opts(socket)
 
-    keys = case RaEngineClient.list_api_keys([], opts) do
-      {:ok, k} -> k
-      {:error, _} -> []
+    {keys, socket} = case RaEngineClient.list_api_keys([], opts) do
+      {:ok, k} -> {k, socket}
+      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
     end
 
     ra_instances =
@@ -95,9 +95,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("create_api_key", params, socket) do
-    if get_role(socket) != "ra_admin" do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
+    if get_role(socket) == "ra_admin" do
       # Parse IP whitelist from textarea (one CIDR per line)
       ip_whitelist =
         (params["ip_whitelist"] || "")
@@ -145,6 +143,8 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
           Logger.error("[api_keys] Failed to create API key: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create API key", reason))}
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
@@ -177,9 +177,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_event("update_api_key", params, socket) do
-    if get_role(socket) != "ra_admin" do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
+    if get_role(socket) == "ra_admin" do
       key_id = params["key_id"]
 
       ip_whitelist =
@@ -222,14 +220,14 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
           Logger.error("[api_keys] Failed to update API key: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to update API key", reason))}
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
   @impl true
   def handle_event("revoke_api_key", %{"id" => id}, socket) do
-    if get_role(socket) != "ra_admin" do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
+    if get_role(socket) == "ra_admin" do
       case RaEngineClient.revoke_api_key(id, tenant_opts(socket)) do
         {:ok, _} ->
           keys =
@@ -247,6 +245,8 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
           Logger.error("[api_keys] Failed to revoke API key: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to revoke API key", reason))}
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
@@ -604,7 +604,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
             <div class="flex justify-end gap-2">
               <button type="button" phx-click="cancel_edit" class="btn btn-sm btn-ghost">Cancel</button>
-              <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
+              <button type="submit" phx-disable-with="Saving..." class="btn btn-sm btn-primary">Save Changes</button>
             </div>
           </form>
 
@@ -760,7 +760,7 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
             </div>
 
             <div class="flex justify-end">
-              <button type="submit" class="btn btn-sm btn-primary">Create API Key</button>
+              <button type="submit" phx-disable-with="Saving..." class="btn btn-sm btn-primary">Create API Key</button>
             </div>
           </form>
         </div>
