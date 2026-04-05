@@ -897,3 +897,207 @@ ps aux | grep beam | awk '{print $6/1024 " MB", $11}'
 | **Total** | ~8 cores | ~13 GB | ~20 GB initial |
 
 Fits comfortably on the 8 vCPU / 24 GB / 400 GB server with headroom for 20-45 tenants.
+
+---
+
+## 16. Tenant Schema Migrations
+
+The system includes an automated tenant migration system. Numbered SQL files in `src/pki_platform_engine/priv/tenant_migrations/` are applied to all tenant databases on application boot.
+
+### How it works
+
+1. Platform boots → `TenantMigrator.migrate_all()` runs
+2. Queries all tenants (active + suspended) from `tenants` table
+3. For each tenant, reads applied versions from `tenant_schema_versions`
+4. Applies pending SQL migrations in order, wrapped in a transaction
+5. Records the version on success
+
+### Adding a new tenant migration
+
+```bash
+# Create a numbered SQL file
+cat > src/pki_platform_engine/priv/tenant_migrations/004_your_migration.sql << 'SQL'
+-- Description of what this migration does
+ALTER TABLE ra.your_table ADD COLUMN IF NOT EXISTS new_column varchar;
+SQL
+```
+
+Rules:
+- Filename format: `NNN_description.sql` (NNN is zero-padded number)
+- Statements are split on `;\n` and executed individually
+- All statements run in a single transaction (rollback on failure)
+- Use `IF NOT EXISTS` / `IF EXISTS` for idempotency
+- Test on dev first: `cd src/pki_platform_engine && mix run -e 'PkiPlatformEngine.TenantMigrator.migrate_all()'`
+
+### Also update the base schema dump
+
+New tenant databases are created from `src/pki_platform_engine/priv/tenant_ra_schema.sql`. When adding columns to existing tables, update both the migration file AND the schema dump.
+
+### Current migrations
+
+| Version | Description |
+|---------|-------------|
+| 001 | Phase A: API key fields, approval_mode, submitted_by_key_id |
+| 002 | Webhook delivery tracking table |
+| 003 | Unique index on ra_api_keys.hashed_key |
+
+---
+
+## 17. API Key Management
+
+### Key Types
+
+| Type | Permissions |
+|------|-------------|
+| **Client** | submit_csr, view_csr, view_certificates |
+| **Service** | All client + revoke_certificate, manage_dcv |
+
+Approve/reject CSR operations are portal-only (not available via API keys).
+
+### Enforcement Chain
+
+All API requests pass through: `AuthPlug → IpWhitelistPlug → RbacPlug → ApiKeyScopePlug → Controller`
+
+- **Rate limiting**: Per-key, Hammer-backed, fail-closed on backend error (503)
+- **IP whitelist**: CIDR-based (IPv4/IPv6), empty = allow all, proxy-aware via X-Forwarded-For
+- **Scope**: Key type determines allowed operations
+- **Profile restriction**: `allowed_profile_ids` limits which cert profiles a key can submit CSRs for
+
+### Webhook Delivery
+
+API keys with `webhook_url` + `webhook_secret` receive HTTPS callbacks for CSR/cert lifecycle events. See `docs/webhook-reference.md` for full documentation.
+
+- HMAC-SHA256 signed (timestamp-bound, `sha256=` prefix)
+- 3 retries with exponential backoff (1s, 5s, 30s)
+- Delivery attempts persisted in `webhook_deliveries` table
+- Dead letters visible in portal API key detail panel
+
+---
+
+## 18. Telemetry & Monitoring
+
+### Metrics Endpoint
+
+```bash
+# Authenticated with INTERNAL_API_SECRET
+curl -H "Authorization: $INTERNAL_API_SECRET" http://localhost:4003/metrics
+```
+
+Returns JSON counters for:
+- `pki.ra.auth.success`, `pki.ra.auth.failure`
+- `pki.ra.rate_limit.allow`, `pki.ra.rate_limit.deny`
+- `pki.ra.ip_whitelist.allow`, `pki.ra.ip_whitelist.deny`
+- `pki.ra.scope.allow`, `pki.ra.scope.deny`
+- `pki.ra.csr.submitted`, `pki.ra.csr.approved`, `pki.ra.csr.rejected`, `pki.ra.csr.issued`
+- `pki.ra.webhook.delivered`, `pki.ra.webhook.failed`, `pki.ra.webhook.exhausted`
+- `pki.ra.audit.failed`
+
+### Health Endpoints
+
+| Service | Endpoint | Expected |
+|---------|----------|----------|
+| CA Engine | `http://localhost:4001/health` | `{"status":"ok"}` |
+| RA Engine | `http://localhost:4003/health` | `{"status":"ok","checks":{...}}` |
+| Validation | `http://localhost:4005/health` | `{"status":"ok"}` |
+
+### CSR Reconciler
+
+The `CsrReconciler` GenServer sweeps every 5 minutes for CSRs stuck in "approved" status for >10 minutes. It retries `forward_to_ca` for each stuck CSR. Disable in config:
+
+```elixir
+config :pki_ra_engine, start_csr_reconciler: false
+```
+
+---
+
+## 19. Single-Node (Portal) Deployment Mode
+
+For development and small deployments, portals can run engines in-process using the Direct client. This eliminates HTTP overhead between RA/CA portal and engine.
+
+### Configuration
+
+In the portal's `config/dev.exs`:
+
+```elixir
+# Engines run in-process, no HTTP servers needed
+config :pki_ra_engine, start_http: false
+config :pki_ca_engine, :start_http, false
+
+# Use Direct CA client (in-process signing)
+config :pki_ra_engine, :ca_engine_module, PkiRaEngine.CsrValidation.DirectCaClient
+
+# Dev-only: auto-activate issuer keys on boot (bypass threshold ceremony)
+config :pki_ca_engine, :dev_auto_activate_keys, true
+```
+
+### Start command
+
+```bash
+# Must use --sname for PQC NIF (KAZ-SIGN) and Erlang distribution
+elixir --sname ra_portal -S mix phx.server
+```
+
+### Validation service
+
+The validation service is a Plug.Cowboy app, not Phoenix. Start with:
+
+```bash
+elixir --sname validation -S mix run --no-halt
+```
+
+---
+
+## 20. KAZ-SIGN (Post-Quantum) Configuration
+
+KAZ-SIGN uses a native C NIF wrapper (not JRuby). The NIF binary is at `src/pki_oqs_nif/priv/oqs_nif.so` and the KAZ-SIGN library is linked from `PQC-KAZ/SIGN/bindings/elixir`.
+
+### Security Levels
+
+| Algorithm | Security | Key Size |
+|-----------|----------|----------|
+| KAZ-SIGN-128 | 128-bit | SHA-256 based |
+| KAZ-SIGN-192 | 192-bit | SHA-384 based |
+| KAZ-SIGN-256 | 256-bit | SHA-512 based |
+
+### Key Activation
+
+Issuer keys require activation before signing. In production, this uses threshold secret sharing (Shamir):
+
+1. CA admin initiates key ceremony (generate keypair, split into N shares)
+2. K custodians each submit their share + password to reconstruct the key
+3. Key is held in memory with a configurable timeout (default: 1 hour)
+4. After timeout, key is wiped from memory and must be re-activated
+
+In dev mode with `dev_auto_activate_keys: true`, keys are auto-generated and injected on boot.
+
+### Integration Test
+
+```bash
+cd src/pki_ra_portal
+elixir --sname int_test -S mix run ../../scripts/integration_test.exs
+```
+
+Tests the full CSR lifecycle: generate CSR → submit → validate → approve → KAZ-SIGN NIF sign → issue certificate.
+
+---
+
+## 21. Security Checklist (Updated)
+
+### API Security
+
+- [ ] `/metrics` endpoint requires `INTERNAL_API_SECRET` auth
+- [ ] Request body size limited to 1MB (`Plug.Parsers length: 1_000_000`)
+- [ ] API key `hashed_key` and `status` cannot be modified via update endpoint
+- [ ] Rate limiter fails closed (503 on backend error)
+- [ ] RBAC uses allowlist pattern (`== "ra_admin"`, not `!= "ra_admin"`)
+- [ ] Approve/reject routes blocked for all API key types (portal-only)
+- [ ] `webhook_secret` stored in DB (encrypt at rest for production)
+- [ ] Submit buttons have `phx-disable-with` to prevent double-submit
+
+### Operational Security
+
+- [ ] Unique index on `ra_api_keys.hashed_key`
+- [ ] Tenant migrations run in transactions with rollback
+- [ ] CSR reconciler sweeps all tenants (active + suspended)
+- [ ] Audit failures emit telemetry events
+- [ ] Service config URLs validated for http/https scheme
