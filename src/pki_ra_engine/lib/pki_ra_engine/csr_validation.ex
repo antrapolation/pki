@@ -617,6 +617,7 @@ defmodule PkiRaEngine.CsrValidation do
   rescue
     e ->
       Logger.error("audit_log_failed action=#{action} error=#{Exception.message(e)}")
+      PkiRaEngine.Telemetry.emit([:pki, :ra, :audit, :failed], %{count: 1}, %{action: action})
   end
 
 end

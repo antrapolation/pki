@@ -22,8 +22,6 @@ defmodule PkiRaPortalWeb.Router do
   scope "/", PkiRaPortalWeb do
     pipe_through :browser
 
-    get "/setup", SetupController, :new
-    post "/setup", SetupController, :create
     get "/login", SessionController, :new
     post "/login", SessionController, :create
     delete "/logout", SessionController, :delete

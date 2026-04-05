@@ -25,7 +25,10 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
   @impl true
   def handle_info(:load_data, socket) do
     opts = tenant_opts(socket)
-    instances = fetch_instances(opts)
+    {instances, socket} = case RaEngineClient.list_ra_instances(opts) do
+      {:ok, i} -> {i, socket}
+      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
+    end
 
     profiles = case RaEngineClient.list_cert_profiles(opts) do
       {:ok, p} -> p
@@ -63,9 +66,7 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
 
   @impl true
   def handle_event("create_instance", %{"name" => name}, socket) do
-    if get_role(socket) != "ra_admin" do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
+    if get_role(socket) == "ra_admin" do
       case RaEngineClient.create_ra_instance(%{name: name}, tenant_opts(socket)) do
         {:ok, _instance} ->
           send(self(), :load_data)
@@ -75,6 +76,8 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
           Logger.error("[ra_instances] Failed to create: #{inspect(reason)}")
           {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to create RA instance", reason))}
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
@@ -83,12 +86,6 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
     user[:role] || user["role"]
   end
 
-  defp fetch_instances(opts) do
-    case RaEngineClient.list_ra_instances(opts) do
-      {:ok, instances} -> instances
-      {:error, _} -> []
-    end
-  end
 
   defp profile_count(instance_id, profiles) do
     Enum.count(profiles, fn p ->
@@ -256,7 +253,7 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
             </div>
             <div class="modal-action">
               <button type="button" class="btn btn-ghost btn-sm" phx-click="close_create_modal">Cancel</button>
-              <button type="submit" class="btn btn-primary btn-sm">
+              <button type="submit" phx-disable-with="Saving..." class="btn btn-primary btn-sm">
                 <.icon name="hero-plus" class="size-4" /> Create
               </button>
             </div>

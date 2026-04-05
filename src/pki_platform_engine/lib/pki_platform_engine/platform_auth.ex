@@ -42,6 +42,19 @@ defmodule PkiPlatformEngine.PlatformAuth do
     PlatformRepo.all(query)
   end
 
+  @doc """
+  Authenticate a tenant_admin user for the platform portal.
+  Returns {:ok, user_profile, tenant_role} or {:error, reason}.
+  """
+  def authenticate_tenant_admin(username, password) do
+    with {:ok, user} <- authenticate(username, password) do
+      case get_tenant_roles(user.id, portal: "platform") do
+        [%{role: "tenant_admin"} = role | _] -> {:ok, user, role}
+        _ -> {:error, :not_tenant_admin}
+      end
+    end
+  end
+
   def authenticate_for_portal(username, password, portal) do
     with {:ok, user} <- authenticate(username, password) do
       case get_tenant_roles(user.id, portal: portal) do
@@ -289,6 +302,7 @@ defmodule PkiPlatformEngine.PlatformAuth do
       {"ra", "ra_admin"} -> "RA Administrator"
       {"ra", "ra_officer"} -> "RA Officer"
       {"ra", "auditor"} -> "Auditor"
+      {"platform", "tenant_admin"} -> "Tenant Administrator"
       {_, role} -> role
     end
   end

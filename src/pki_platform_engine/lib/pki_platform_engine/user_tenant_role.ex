@@ -21,8 +21,8 @@ defmodule PkiPlatformEngine.UserTenantRole do
     role
     |> cast(attrs, [:user_profile_id, :tenant_id, :role, :portal, :ca_instance_id, :status])
     |> validate_required([:user_profile_id, :tenant_id, :role, :portal])
-    |> validate_inclusion(:role, ["ca_admin", "key_manager", "ra_admin", "ra_officer", "auditor"])
-    |> validate_inclusion(:portal, ["ca", "ra"])
+    |> validate_inclusion(:role, ["ca_admin", "key_manager", "ra_admin", "ra_officer", "auditor", "tenant_admin"])
+    |> validate_inclusion(:portal, ["ca", "ra", "platform"])
     |> validate_inclusion(:status, ["active", "suspended"])
     |> foreign_key_constraint(:user_profile_id)
     |> foreign_key_constraint(:tenant_id)

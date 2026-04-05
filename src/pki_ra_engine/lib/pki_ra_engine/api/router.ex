@@ -8,7 +8,7 @@ defmodule PkiRaEngine.Api.Router do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:pki, :ra, :endpoint]
   plug :match
-  plug Plug.Parsers, parsers: [:json], json_decoder: Jason
+  plug Plug.Parsers, parsers: [:json], json_decoder: Jason, length: 1_000_000
   plug :dispatch
 
   get "/health" do
@@ -56,11 +56,20 @@ defmodule PkiRaEngine.Api.Router do
   end
 
   get "/metrics" do
-    metrics = PkiRaEngine.Telemetry.get_metrics()
+    expected = Application.get_env(:pki_ra_engine, :internal_api_secret)
+    provided = get_req_header(conn, "authorization") |> List.first()
 
-    conn
-    |> put_resp_content_type("application/json")
-    |> send_resp(200, Jason.encode!(metrics))
+    if expected && provided && Plug.Crypto.secure_compare(provided, expected) do
+      metrics = PkiRaEngine.Telemetry.get_metrics()
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(200, Jason.encode!(metrics))
+    else
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(401, Jason.encode!(%{error: "unauthorized"}))
+    end
   end
 
   # Auth endpoints (rate-limited, no token required)

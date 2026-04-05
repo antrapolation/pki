@@ -40,10 +40,12 @@ defmodule PkiPlatformPortalWeb.Layouts do
         <%!-- Navigation --%>
         <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
-          <.sidebar_link href="/tenants" icon="hero-building-office-2" label="Tenants" current={@page_title} />
-          <.sidebar_link href="/hsm-devices" icon="hero-cpu-chip" label="HSM Devices" current={@page_title} />
-          <.sidebar_link href="/system" icon="hero-server-stack" label="System" current={@page_title} />
-          <.sidebar_link href="/admins" icon="hero-users" label="Admins" current={@page_title} />
+          <%= if @current_user && @current_user["role"] == "super_admin" do %>
+            <.sidebar_link href="/tenants" icon="hero-building-office-2" label="Tenants" current={@page_title} />
+            <.sidebar_link href="/hsm-devices" icon="hero-cpu-chip" label="HSM Devices" current={@page_title} />
+            <.sidebar_link href="/system" icon="hero-server-stack" label="System" current={@page_title} />
+            <.sidebar_link href="/admins" icon="hero-users" label="Admins" current={@page_title} />
+          <% end %>
           <div class="divider my-1 px-3"></div>
           <.sidebar_link href="/profile" icon="hero-user-circle" label="Profile" current={@page_title} />
         </nav>

@@ -14,59 +14,109 @@ defmodule PkiPlatformPortalWeb.SessionController do
   def create(conn, %{"session" => %{"username" => username, "password" => password}}) do
     case PkiPlatformEngine.AdminManagement.authenticate(username, password) do
       {:ok, admin} ->
-        cond do
-          admin.must_change_password && credential_expired?(admin) ->
-            render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact another platform admin.")
-
-          admin.must_change_password ->
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            PkiPlatformEngine.PlatformAudit.log("login", %{
-              actor_id: admin.id,
-              actor_username: admin.username,
-              portal: "platform",
-              details: %{must_change_password: true, ip: ip, user_agent: ua}
-            })
-
-            {:ok, session_id} = create_session_with_detection(conn, admin)
-
-            conn
-            |> configure_session(renew: true)
-            |> put_session(:session_id, session_id)
-            |> put_session(:must_change_password, true)
-            |> redirect(to: "/change-password")
-
-          true ->
-            ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-            ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
-
-            PkiPlatformEngine.PlatformAudit.log("login", %{
-              actor_id: admin.id,
-              actor_username: admin.username,
-              portal: "platform",
-              details: %{ip: ip, user_agent: ua}
-            })
-
-            {:ok, session_id} = create_session_with_detection(conn, admin)
-
-            conn
-            |> configure_session(renew: true)
-            |> put_session(:session_id, session_id)
-            |> redirect(to: "/")
-        end
+        handle_superadmin_login(conn, admin)
 
       {:error, _} ->
-        ip = conn.remote_ip |> :inet.ntoa() |> to_string()
-        ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+        # Try tenant_admin authentication
+        case PkiPlatformEngine.PlatformAuth.authenticate_tenant_admin(username, password) do
+          {:ok, user, role} ->
+            handle_tenant_admin_login(conn, user, role)
 
-        PkiPlatformEngine.PlatformAudit.log("login_failed", %{
-          portal: "platform",
-          details: %{username: username, ip: ip, user_agent: ua}
-        })
-
-        render(conn, :login, layout: false, error: "Invalid credentials")
+          {:error, _} ->
+            log_failed_login(conn, username)
+            render(conn, :login, layout: false, error: "Invalid credentials")
+        end
     end
+  end
+
+  defp handle_superadmin_login(conn, admin) do
+    cond do
+      admin.must_change_password && credential_expired?(admin) ->
+        render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact another platform admin.")
+
+      admin.must_change_password ->
+        log_login(conn, admin)
+        {:ok, session_id} = create_session_with_detection(conn, admin)
+
+        conn
+        |> configure_session(renew: true)
+        |> put_session(:session_id, session_id)
+        |> put_session(:must_change_password, true)
+        |> redirect(to: "/change-password")
+
+      true ->
+        log_login(conn, admin)
+        {:ok, session_id} = create_session_with_detection(conn, admin)
+
+        conn
+        |> configure_session(renew: true)
+        |> put_session(:session_id, session_id)
+        |> redirect(to: "/")
+    end
+  end
+
+  defp handle_tenant_admin_login(conn, user, role) do
+    cond do
+      user.must_change_password && credential_expired?(user) ->
+        render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact your platform admin.")
+
+      user.must_change_password ->
+        log_login(conn, user)
+        {:ok, session_id} = create_tenant_admin_session(conn, user, role)
+
+        conn
+        |> configure_session(renew: true)
+        |> put_session(:session_id, session_id)
+        |> put_session(:must_change_password, true)
+        |> redirect(to: "/change-password")
+
+      true ->
+        log_login(conn, user)
+        {:ok, session_id} = create_tenant_admin_session(conn, user, role)
+
+        conn
+        |> configure_session(renew: true)
+        |> put_session(:session_id, session_id)
+        |> redirect(to: "/tenants/#{role.tenant_id}")
+    end
+  end
+
+  defp create_tenant_admin_session(conn, user, role) do
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+    ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+    PkiPlatformPortal.SessionStore.create(%{
+      user_id: user.id,
+      username: user.username,
+      role: "tenant_admin",
+      tenant_id: role.tenant_id,
+      ip: ip,
+      user_agent: ua,
+      display_name: user.display_name,
+      email: user.email
+    })
+  end
+
+  defp log_login(conn, user) do
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+    ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+    PkiPlatformEngine.PlatformAudit.log("login", %{
+      actor_id: user.id,
+      actor_username: user.username,
+      portal: "platform",
+      details: %{ip: ip, user_agent: ua}
+    })
+  end
+
+  defp log_failed_login(conn, username) do
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+    ua = Plug.Conn.get_req_header(conn, "user-agent") |> List.first("")
+
+    PkiPlatformEngine.PlatformAudit.log("login_failed", %{
+      portal: "platform",
+      details: %{username: username, ip: ip, user_agent: ua}
+    })
   end
 
   defp create_session_with_detection(conn, admin) do

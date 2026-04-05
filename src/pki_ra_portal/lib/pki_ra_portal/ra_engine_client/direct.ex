@@ -320,15 +320,14 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   @impl true
   def list_ca_connections(_filters, opts \\ []) do
     tenant_id = opts[:tenant_id]
+    instances = PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id)
 
-    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id) do
-      [ra | _] ->
-        connections = PkiRaEngine.CaConnectionManagement.list_connections(tenant_id, ra.id)
-        {:ok, Enum.map(connections, &connection_to_map/1)}
+    connections =
+      Enum.flat_map(instances, fn ra ->
+        PkiRaEngine.CaConnectionManagement.list_connections(tenant_id, ra.id)
+      end)
 
-      _ ->
-        {:ok, []}
-    end
+    {:ok, Enum.map(connections, &connection_to_map/1)}
   rescue
     _ -> {:ok, []}
   end

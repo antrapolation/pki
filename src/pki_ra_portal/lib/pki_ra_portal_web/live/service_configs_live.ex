@@ -28,9 +28,9 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    configs = case RaEngineClient.list_service_configs(tenant_opts(socket)) do
-      {:ok, c} -> c
-      {:error, _} -> []
+    {configs, socket} = case RaEngineClient.list_service_configs(tenant_opts(socket)) do
+      {:ok, c} -> {c, socket}
+      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
     end
 
     {:noreply, socket |> assign(configs: configs) |> apply_pagination()}
@@ -38,34 +38,39 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   @impl true
   def handle_event("configure_service", params, socket) do
-    role = get_role(socket)
-    if role not in ["ra_admin"] do
-      {:noreply, put_flash(socket, :error, "Unauthorized")}
-    else
-      attrs = %{
-        service_type: params["service_type"],
-        url: params["url"],
-        port: parse_int(params["port"], 8080)
-      }
+    if get_role(socket) == "ra_admin" do
+      url = params["url"] || ""
 
-      case RaEngineClient.configure_service(attrs, tenant_opts(socket)) do
-        {:ok, config} ->
-          configs =
-            case Enum.find_index(socket.assigns.configs, &(&1.service_type == config.service_type)) do
-              nil -> [config | socket.assigns.configs]
-              idx -> List.replace_at(socket.assigns.configs, idx, Map.merge(Enum.at(socket.assigns.configs, idx), config))
-            end
+      if not (String.starts_with?(url, "http://") or String.starts_with?(url, "https://")) do
+        {:noreply, put_flash(socket, :error, "URL must start with http:// or https://")}
+      else
+        attrs = %{
+          service_type: params["service_type"],
+          url: url,
+          port: parse_int(params["port"], 8080)
+        }
 
-          {:noreply,
-           socket
-           |> assign(configs: configs)
-           |> apply_pagination()
-           |> put_flash(:info, "Validation endpoint configured")}
+        case RaEngineClient.configure_service(attrs, tenant_opts(socket)) do
+          {:ok, config} ->
+            configs =
+              case Enum.find_index(socket.assigns.configs, &(&1.service_type == config.service_type)) do
+                nil -> [config | socket.assigns.configs]
+                idx -> List.replace_at(socket.assigns.configs, idx, Map.merge(Enum.at(socket.assigns.configs, idx), config))
+              end
 
-        {:error, reason} ->
-          Logger.error("[service_configs] Failed to configure service: #{inspect(reason)}")
-          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to configure endpoint", reason))}
+            {:noreply,
+             socket
+             |> assign(configs: configs)
+             |> apply_pagination()
+             |> put_flash(:info, "Validation endpoint configured")}
+
+          {:error, reason} ->
+            Logger.error("[service_configs] Failed to configure service: #{inspect(reason)}")
+            {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to configure endpoint", reason))}
+        end
       end
+    else
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     end
   end
 
@@ -190,7 +195,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
               <input type="number" name="port" id="service-port" value="8080" min="1" max="65535" class="input input-sm input-bordered w-full" />
             </div>
             <div class="md:col-span-3">
-              <button type="submit" class="btn btn-sm btn-primary">Configure</button>
+              <button type="submit" phx-disable-with="Saving..." class="btn btn-sm btn-primary">Configure</button>
             </div>
           </form>
         </div>

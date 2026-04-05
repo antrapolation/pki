@@ -1,29 +1,35 @@
 defmodule PkiPlatformPortalWeb.TenantNewLive do
   use PkiPlatformPortalWeb, :live_view
 
-  alias PkiPlatformEngine.{Provisioner, EmailVerification, Mailer, EmailTemplates}
-  import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
+  alias PkiPlatformEngine.TenantOnboarding
 
   require Logger
+
+  @steps [
+    {:database, "Database created"},
+    {:engines, "Engines started"},
+    {:instances, "CA and RA instances created"},
+    {:tenant_admin, "Tenant admin account created"},
+    {:credentials, "Credentials sent"}
+  ]
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
        page_title: "New Tenant",
-       step: 1,
+       phase: :form,
        name: "",
        slug: "",
        email: "",
        form_error: nil,
-       created_tenant: nil,
-       verification_sent: false,
-       provision_status: nil
+       progress: Enum.map(@steps, fn {key, label} -> {key, label, :pending} end),
+       tenant: nil
      )}
   end
 
   @impl true
-  def handle_event("next_step", params, socket) do
+  def handle_event("submit", params, socket) do
     name = String.trim(params["name"] || "")
     slug = String.trim(params["slug"] || "")
     email = String.trim(params["email"] || "")
@@ -32,18 +38,16 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
          :ok <- validate_slug(slug),
          :ok <- validate_email(email) do
       socket =
-        socket
-        |> assign(
-          step: 2,
+        assign(socket,
+          phase: :provisioning,
           name: name,
           slug: slug,
           email: email,
           form_error: nil,
-          verification_sent: false
+          progress: Enum.map(@steps, fn {key, label} -> {key, label, :pending} end)
         )
 
-      send(self(), :send_verification)
-
+      send(self(), :run_provision)
       {:noreply, socket}
     else
       {:error, msg} ->
@@ -51,104 +55,139 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     end
   end
 
-  def handle_event("back_to_step1", _params, socket) do
-    {:noreply, assign(socket, step: 1, form_error: nil)}
-  end
+  def handle_event("retry", _params, socket) do
+    failed_step = Enum.find(socket.assigns.progress, fn {_key, _label, status} ->
+      match?({:error, _}, status)
+    end)
 
-  def handle_event("resend_code", _params, socket) do
-    send(self(), :send_verification)
-    {:noreply, assign(socket, form_error: nil, verification_sent: false)}
-  end
+    case failed_step do
+      {key, _label, _} ->
+        progress = Enum.map(socket.assigns.progress, fn
+          {^key, label, _} -> {key, label, :pending}
+          other -> other
+        end)
 
-  def handle_event("verify_code", %{"code" => code}, socket) do
-    code = String.trim(code)
+        send(self(), step_message(key))
+        {:noreply, assign(socket, progress: progress, form_error: nil)}
 
-    if String.length(code) != 6 do
-      {:noreply, assign(socket, form_error: "Please enter the 6-digit verification code.")}
-    else
-      case EmailVerification.verify_code(socket.assigns.email, code) do
-        :ok ->
-          send(self(), :provision_tenant)
-          {:noreply, assign(socket, step: 3, form_error: nil)}
-
-        {:error, :expired} ->
-          {:noreply, assign(socket, form_error: "Verification code has expired. Please resend.")}
-
-        {:error, :invalid_code} ->
-          {:noreply, assign(socket, form_error: "Invalid verification code. Please try again.")}
-
-        {:error, :no_code} ->
-          {:noreply, assign(socket, form_error: "No verification code found. Please resend.")}
-      end
+      nil ->
+        {:noreply, socket}
     end
   end
+
+  # --- Provisioning chain ---
 
   @impl true
-  def handle_info(:send_verification, socket) do
-    email = socket.assigns.email
-    code = EmailVerification.generate_code(email)
-    html = EmailTemplates.verification_code(code)
+  def handle_info(:run_provision, socket) do
+    socket = update_step(socket, :database, :in_progress)
 
-    case Mailer.send_email(email, "Your verification code", html) do
-      {:ok, _} ->
-        {:noreply, assign(socket, verification_sent: true)}
+    case TenantOnboarding.create_database(socket.assigns.name, socket.assigns.slug, socket.assigns.email) do
+      {:ok, tenant} ->
+        socket = socket |> assign(tenant: tenant) |> update_step(:database, :done)
+        send(self(), :run_activate)
+        {:noreply, socket}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        err = format_changeset_error(changeset)
+        {:noreply, update_step(socket, :database, {:error, err})}
 
       {:error, reason} ->
-        Logger.error("[tenant_new] Failed to send verification email: #{inspect(reason)}")
-        {:noreply, assign(socket, form_error: sanitize_error("Failed to send verification email", reason))}
+        {:noreply, update_step(socket, :database, {:error, inspect(reason)})}
     end
   end
 
-  def handle_info(:provision_tenant, socket) do
-    %{name: name, slug: slug, email: email} = socket.assigns
+  def handle_info(:run_activate, socket) do
+    socket = update_step(socket, :engines, :in_progress)
 
-    if email == "" or slug == "" do
-      {:noreply, assign(socket, step: 1, form_error: "Session expired. Please start again.")}
-    else
-      case Provisioner.create_tenant(name, slug, email: email) do
-        {:ok, tenant} ->
-          {:noreply, assign(socket, step: 5, created_tenant: tenant, form_error: nil)}
+    case TenantOnboarding.activate(socket.assigns.tenant.id) do
+      {:ok, tenant} ->
+        socket = socket |> assign(tenant: tenant) |> update_step(:engines, :done)
+        send(self(), :run_instances)
+        {:noreply, socket}
 
-        {:error, %Ecto.Changeset{} = changeset} ->
-          err =
-            Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-              Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-                opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-              end)
-            end)
-            |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
-            |> Enum.join("; ")
-
-          {:noreply, assign(socket, step: 3, form_error: "Tenant creation failed: #{err}")}
-
-        {:error, reason} ->
-          Logger.error("[tenant_new] Tenant creation failed: #{inspect(reason)}")
-          {:noreply, assign(socket, step: 3, form_error: sanitize_error("Tenant creation failed", reason))}
-      end
+      {:error, reason} ->
+        {:noreply, update_step(socket, :engines, {:error, inspect(reason)})}
     end
+  end
+
+  def handle_info(:run_instances, socket) do
+    socket = update_step(socket, :instances, :in_progress)
+
+    case TenantOnboarding.create_instances(socket.assigns.tenant) do
+      :ok ->
+        socket = update_step(socket, :instances, :done)
+        send(self(), :run_tenant_admin)
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply, update_step(socket, :instances, {:error, reason})}
+    end
+  end
+
+  def handle_info(:run_tenant_admin, socket) do
+    socket = update_step(socket, :tenant_admin, :in_progress)
+
+    case TenantOnboarding.create_tenant_admin(socket.assigns.tenant) do
+      {:ok, _user} ->
+        socket = update_step(socket, :tenant_admin, :done)
+        # Credentials are sent automatically by create_user_for_portal
+        {:noreply, update_step(socket, :credentials, :done)}
+
+      {:error, reason} ->
+        {:noreply, update_step(socket, :tenant_admin, {:error, inspect(reason)})}
+    end
+  end
+
+  # --- Helpers ---
+
+  defp step_message(:database), do: :run_provision
+  defp step_message(:engines), do: :run_activate
+  defp step_message(:instances), do: :run_instances
+  defp step_message(:tenant_admin), do: :run_tenant_admin
+  defp step_message(:credentials), do: :run_tenant_admin
+
+  defp update_step(socket, key, status) do
+    progress = Enum.map(socket.assigns.progress, fn
+      {^key, label, _} -> {key, label, status}
+      other -> other
+    end)
+
+    assign(socket, progress: progress)
+  end
+
+  defp format_changeset_error(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
+    |> Enum.join("; ")
   end
 
   defp validate_name(""), do: {:error, "Name is required."}
   defp validate_name(_), do: :ok
 
   defp validate_slug(""), do: {:error, "Slug is required."}
-
   defp validate_slug(slug) do
-    if Regex.match?(~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, slug) do
-      :ok
-    else
-      {:error, "Slug must contain only lowercase letters, numbers, and hyphens, and must start and end with a letter or number."}
-    end
+    if Regex.match?(~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, slug),
+      do: :ok,
+      else: {:error, "Slug must contain only lowercase letters, numbers, and hyphens, and must start and end with a letter or number."}
   end
 
   defp validate_email(""), do: {:error, "Email is required."}
-
   defp validate_email(email) do
-    if Regex.match?(~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, email) do
-      :ok
-    else
-      {:error, "Please enter a valid email address."}
-    end
+    if Regex.match?(~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, email),
+      do: :ok,
+      else: {:error, "Please enter a valid email address."}
+  end
+
+  defp all_done?(progress) do
+    Enum.all?(progress, fn {_key, _label, status} -> status == :done end)
+  end
+
+  defp has_error?(progress) do
+    Enum.any?(progress, fn {_key, _label, status} -> match?({:error, _}, status) end)
   end
 
   @impl true
@@ -163,70 +202,12 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
         </.link>
       </div>
 
-      <%!-- Step indicator --%>
-      <div class="flex items-center justify-center gap-0">
-        <%!-- Step 1 --%>
-        <div class="flex items-center gap-2">
-          <div class={[
-            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
-            if(@step >= 1, do: "bg-primary text-primary-content border-primary", else: "bg-base-200 text-base-content/40 border-base-300")
-          ]}>
-            <%= if @step > 1 do %>
-              <.icon name="hero-check-mini" class="size-4" />
-            <% else %>
-              1
-            <% end %>
-          </div>
-          <span class={["text-xs font-medium", if(@step >= 1, do: "text-base-content", else: "text-base-content/40")]}>
-            Tenant Info
-          </span>
-        </div>
-
-        <div class={["w-12 h-0.5 mx-2", if(@step >= 2, do: "bg-primary", else: "bg-base-300")]}></div>
-
-        <%!-- Step 2 --%>
-        <div class="flex items-center gap-2">
-          <div class={[
-            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
-            if(@step >= 2, do: "bg-primary text-primary-content border-primary", else: "bg-base-200 text-base-content/40 border-base-300")
-          ]}>
-            <%= if @step > 2 do %>
-              <.icon name="hero-check-mini" class="size-4" />
-            <% else %>
-              2
-            <% end %>
-          </div>
-          <span class={["text-xs font-medium", if(@step >= 2, do: "text-base-content", else: "text-base-content/40")]}>
-            Verify Email
-          </span>
-        </div>
-
-        <div class={["w-12 h-0.5 mx-2", if(@step >= 3, do: "bg-primary", else: "bg-base-300")]}></div>
-
-        <%!-- Step 3 --%>
-        <div class="flex items-center gap-2">
-          <div class={[
-            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
-            if(@step >= 3, do: "bg-primary text-primary-content border-primary", else: "bg-base-200 text-base-content/40 border-base-300")
-          ]}>
-            <%= if @step >= 5 do %>
-              <.icon name="hero-check-mini" class="size-4" />
-            <% else %>
-              3
-            <% end %>
-          </div>
-          <span class={["text-xs font-medium", if(@step >= 3, do: "text-base-content", else: "text-base-content/40")]}>
-            Complete
-          </span>
-        </div>
-      </div>
-
-      <%!-- Step 1: Tenant Info --%>
-      <%= if @step == 1 do %>
+      <%!-- Form phase --%>
+      <%= if @phase == :form do %>
         <div class="card bg-base-100 shadow-sm border border-base-300">
           <div class="card-body p-6 space-y-5">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Tenant Information</h2>
+              <h2 class="text-base font-semibold text-base-content">Create Tenant</h2>
               <p class="text-sm text-base-content/60 mt-0.5">Enter the details for the new Certificate Authority tenant.</p>
             </div>
 
@@ -237,7 +218,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
               </div>
             <% end %>
 
-            <form id="step1-form" phx-submit="next_step" class="space-y-4">
+            <form id="tenant-form" phx-submit="submit" class="space-y-4">
               <div>
                 <label for="tenant-name" class="block text-xs font-medium text-base-content/60 mb-1">
                   Name <span class="text-error">*</span>
@@ -284,16 +265,15 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                   class="input input-bordered w-full"
                   placeholder="admin@acme-corp.com"
                 />
-                <p class="text-xs text-base-content/50 mt-1">Admin credentials will be sent to this email after verification.</p>
+                <p class="text-xs text-base-content/50 mt-1">Tenant admin credentials will be sent to this email.</p>
               </div>
 
               <div class="flex justify-end gap-3 pt-2">
                 <.link navigate="/tenants" class="btn btn-ghost btn-sm">
                   Cancel
                 </.link>
-                <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Validating...">
-                  Next
-                  <.icon name="hero-arrow-right" class="size-4" />
+                <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
+                  Create Tenant
                 </button>
               </div>
             </form>
@@ -301,145 +281,78 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
         </div>
       <% end %>
 
-      <%!-- Step 2: Email Verification --%>
-      <%= if @step == 2 do %>
+      <%!-- Provisioning phase --%>
+      <%= if @phase == :provisioning do %>
         <div class="card bg-base-100 shadow-sm border border-base-300">
           <div class="card-body p-6 space-y-5">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Verify Email</h2>
-              <p class="text-sm text-base-content/60 mt-0.5">
-                We sent a 6-digit verification code to <strong class="text-base-content">{@email}</strong>.
-              </p>
+              <h2 class="text-base font-semibold text-base-content">Creating {@name}</h2>
+              <p class="text-sm text-base-content/60 mt-0.5">Setting up the tenant environment...</p>
             </div>
 
-            <%= if @verification_sent do %>
-              <div class="alert alert-success text-sm">
-                <.icon name="hero-check-circle" class="size-4 shrink-0" />
-                <span>Verification code sent to {@email}.</span>
+            <%!-- Progress checklist --%>
+            <div class="space-y-3">
+              <div :for={{_key, label, status} <- @progress} class="flex items-center gap-3">
+                <%= case status do %>
+                  <% :done -> %>
+                    <div class="flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
+                      <.icon name="hero-check" class="size-4 text-success" />
+                    </div>
+                    <span class="text-sm text-base-content">{label}</span>
+                  <% :in_progress -> %>
+                    <span class="loading loading-spinner loading-sm text-primary"></span>
+                    <span class="text-sm text-base-content">{label}</span>
+                  <% {:error, _msg} -> %>
+                    <div class="flex items-center justify-center w-6 h-6 rounded-full bg-error/10">
+                      <.icon name="hero-x-mark" class="size-4 text-error" />
+                    </div>
+                    <span class="text-sm text-error">{label}</span>
+                  <% :pending -> %>
+                    <div class="flex items-center justify-center w-6 h-6 rounded-full bg-base-200">
+                      <div class="w-2 h-2 rounded-full bg-base-content/20"></div>
+                    </div>
+                    <span class="text-sm text-base-content/40">{label}</span>
+                <% end %>
               </div>
-            <% end %>
+            </div>
 
-            <%= if @form_error do %>
+            <%!-- Error details --%>
+            <%= if has_error?(@progress) do %>
+              <% {_key, _label, {:error, msg}} = Enum.find(@progress, fn {_, _, s} -> match?({:error, _}, s) end) %>
               <div class="alert alert-error text-sm">
                 <.icon name="hero-exclamation-circle" class="size-4 shrink-0" />
-                <span>{@form_error}</span>
+                <span>{msg}</span>
               </div>
+              <button phx-click="retry" class="btn btn-primary btn-sm">
+                <.icon name="hero-arrow-path" class="size-4" />
+                Retry
+              </button>
             <% end %>
 
-            <form id="step2-form" phx-submit="verify_code" class="space-y-4">
-              <div>
-                <label for="verification-code" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Verification Code <span class="text-error">*</span>
-                </label>
-                <input
-                  type="text"
-                  name="code"
-                  id="verification-code"
-                  required
-                  maxlength="6"
-                  class="input input-bordered w-full font-mono text-center text-lg tracking-[0.5em]"
-                  placeholder="000000"
-                  autocomplete="one-time-code"
-                  inputmode="numeric"
-                />
-              </div>
-
-              <div class="flex items-center justify-between pt-2">
-                <div class="flex items-center gap-3">
-                  <button type="button" phx-click="back_to_step1" class="btn btn-ghost btn-sm">
-                    <.icon name="hero-arrow-left" class="size-4" />
-                    Back
-                  </button>
-                  <button type="button" phx-click="resend_code" class="btn btn-ghost btn-sm text-primary">
-                    <.icon name="hero-arrow-path" class="size-4" />
-                    Resend Code
-                  </button>
-                </div>
-                <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Verifying...">
-                  Verify
-                  <.icon name="hero-arrow-right" class="size-4" />
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      <% end %>
-
-      <%!-- Step 3: Complete --%>
-      <%!-- Step 3: Provisioning database (spinner) --%>
-      <%= if @step == 3 do %>
-        <%= if @form_error do %>
-          <div class="card bg-base-100 shadow-sm border border-error/40">
-            <div class="card-body p-6 space-y-5">
+            <%!-- Success state --%>
+            <%= if all_done?(@progress) do %>
+              <div class="divider my-0"></div>
               <div class="flex items-center gap-3">
-                <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-error/10">
-                  <.icon name="hero-x-circle" class="size-6 text-error" />
+                <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-success/10">
+                  <.icon name="hero-check-circle" class="size-6 text-success" />
                 </div>
                 <div>
-                  <h2 class="text-base font-semibold text-base-content">Provisioning Failed</h2>
-                  <p class="text-sm text-base-content/60">The tenant database could not be created.</p>
+                  <p class="text-sm font-semibold text-base-content">Tenant "{@name}" is ready.</p>
+                  <p class="text-xs text-base-content/60 mt-0.5">Credentials sent to {@email}.</p>
                 </div>
               </div>
-              <div class="alert alert-error text-sm whitespace-pre-line">
-                <.icon name="hero-exclamation-circle" class="size-4 shrink-0" />
-                <span>{@form_error}</span>
-              </div>
+
               <div class="flex gap-3 pt-1">
-                <button phx-click="back_to_step1" class="btn btn-primary btn-sm">
-                  <.icon name="hero-arrow-left" class="size-4" />
-                  Try Again
-                </button>
+                <.link navigate={"/tenants/#{@tenant.id}"} class="btn btn-primary btn-sm">
+                  <.icon name="hero-building-office" class="size-4" />
+                  View Tenant
+                </.link>
+                <.link navigate="/tenants/new" class="btn btn-ghost btn-sm">
+                  <.icon name="hero-plus" class="size-4" />
+                  Create Another
+                </.link>
               </div>
-            </div>
-          </div>
-        <% else %>
-          <div class="card bg-base-100 shadow-sm border border-base-300">
-            <div class="card-body p-6 flex items-center justify-center gap-3">
-              <span class="loading loading-spinner loading-md text-primary"></span>
-              <span class="text-sm text-base-content/60">Creating tenant database...</span>
-            </div>
-          </div>
-        <% end %>
-      <% end %>
-
-      <%!-- Step 5: Complete --%>
-      <%= if @step == 5 do %>
-        <div class="card bg-base-100 shadow-sm border border-success/40">
-          <div class="card-body p-6 space-y-5">
-            <div class="flex items-center gap-3">
-              <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-success/10">
-                <.icon name="hero-check-circle" class="size-6 text-success" />
-              </div>
-              <div>
-                <h2 class="text-base font-semibold text-base-content">Tenant Created</h2>
-                <p class="text-sm text-base-content/60">
-                  <span class="font-medium text-base-content">{@created_tenant.name}</span>
-                  database has been provisioned successfully.
-                </p>
-              </div>
-            </div>
-
-            <div class="divider my-0"></div>
-
-            <div class="space-y-3">
-              <p class="text-xs font-semibold uppercase tracking-wider text-base-content/50">Next Steps</p>
-              <ol class="text-sm text-base-content/70 space-y-2 list-decimal list-inside">
-                <li>Deploy the CA and RA engines for this tenant</li>
-                <li>Verify engines are online from the tenant detail page</li>
-                <li><strong>Activate the tenant</strong> — this will create CA/RA admin accounts and send credentials to <strong class="text-base-content">{@email}</strong></li>
-              </ol>
-            </div>
-
-            <div class="flex gap-3 pt-1">
-              <.link navigate={"/tenants/#{@created_tenant.id}"} class="btn btn-primary btn-sm">
-                <.icon name="hero-building-office" class="size-4" />
-                View Tenant
-              </.link>
-              <.link navigate="/tenants" class="btn btn-ghost btn-sm">
-                <.icon name="hero-list-bullet" class="size-4" />
-                Back to List
-              </.link>
-            </div>
+            <% end %>
           </div>
         </div>
       <% end %>
