@@ -184,15 +184,50 @@ sudo apt update && sudo apt install caddy
 
 ## 3. Deploy Application
 
-### 3.1 Clone repository
+### 3.1 Configure Git
+
+The Gitea server uses a self-signed certificate. Configure Git to skip SSL verification and store credentials.
+
+```bash
+# Global: disable SSL verification for the Gitea server
+git config --global http.https://vcs.antrapol.tech:3800/.sslVerify false
+
+# Store credentials so you don't have to enter them every time
+git config --global credential.helper store
+
+# Set your identity
+git config --global user.name "your-gitea-username"
+git config --global user.email "your-email@example.com"
+```
+
+Generate a personal access token in Gitea:
+
+1. Login to `https://vcs.antrapol.tech:3800`
+2. Go to **Settings** → **Applications** → **Generate New Token**
+3. Name: `pki-deploy`, Permissions: `repo` (read/write)
+4. Copy the token
+
+### 3.2 Clone repository
 
 ```bash
 cd /home/pki
-git -c http.sslVerify=false clone https://vcs.antrapol.tech:3800/Incubator/pki.git
+
+# Clone using token authentication (when prompted: username = your-gitea-username, password = your-token)
+git clone https://vcs.antrapol.tech:3800/Incubator/pki.git
 cd pki
-git config http.sslVerify false
+
+# Or clone with token embedded in URL (no prompt)
+# git clone https://your-username:your-token@vcs.antrapol.tech:3800/Incubator/pki.git
+
+# Verify SSL is disabled for this repo
+git config http.sslVerify
+# Should output: false (inherited from global)
+
+# Initialize submodules
 git submodule update --init --recursive
 ```
+
+For future pulls and pushes, Git will use the stored credentials automatically.
 
 ### 3.2 Environment file
 
