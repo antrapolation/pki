@@ -200,7 +200,17 @@ defmodule PkiRaEngine.CsrValidation do
     with {:ok, csr} <- get_csr(tenant_id, csr_id),
          :ok <- check_transition(csr.status, "issued"),
          {:ok, profile} <- CertProfileConfig.get_profile(tenant_id, csr.cert_profile_id) do
-      cert_profile_map = %{id: csr.cert_profile_id, issuer_key_id: profile.issuer_key_id}
+      validity_days =
+        Map.get(profile, :validity_days) ||
+        get_in(profile.validity_policy || %{}, ["days"]) ||
+        365
+
+      cert_profile_map = %{
+        id: csr.cert_profile_id,
+        issuer_key_id: profile.issuer_key_id,
+        subject_dn: csr.subject_dn,
+        validity_days: validity_days
+      }
 
       case ca_module.sign_certificate(tenant_id, profile.issuer_key_id, csr.csr_pem, cert_profile_map) do
         {:ok, cert_data} ->

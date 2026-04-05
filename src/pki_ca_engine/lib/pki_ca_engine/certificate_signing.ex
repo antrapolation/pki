@@ -204,7 +204,9 @@ defmodule PkiCaEngine.CertificateSigning do
     tbs_json = Jason.encode!(tbs)
     digest = :crypto.hash(:sha3_256, tbs_json)
 
-    case ApJavaCrypto.sign(digest, {variant, :private_key, key_bytes}) do
+    level = kaz_level(variant)
+
+    case KazSign.sign(level, digest, key_bytes) do
       {:ok, signature} ->
         cert_map = Map.put(tbs, :signature, Base.encode64(signature))
         cert_json = Jason.encode!(cert_map)
@@ -350,6 +352,10 @@ defmodule PkiCaEngine.CertificateSigning do
   rescue
     e -> {:error, {:key_decode_failed, e}}
   end
+
+  defp kaz_level(:kaz_sign_128), do: 128
+  defp kaz_level(:kaz_sign_192), do: 192
+  defp kaz_level(:kaz_sign_256), do: 256
 
   defp normalize_algo(algo) when is_binary(algo) do
     normalized = algo |> String.downcase() |> String.replace("-", "_")
