@@ -18,7 +18,7 @@ defmodule PkiRaEngine.Schema.RaCaConnection do
 
     belongs_to :ra_instance, PkiRaEngine.Schema.RaInstance
 
-    timestamps()
+    timestamps(type: :utc_datetime)
   end
 
   @required_fields [:ra_instance_id, :issuer_key_id, :connected_at]

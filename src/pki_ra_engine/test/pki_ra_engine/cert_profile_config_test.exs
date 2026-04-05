@@ -94,14 +94,22 @@ defmodule PkiRaEngine.CertProfileConfigTest do
   end
 
   describe "delete_profile/1" do
-    test "hard-deletes the profile" do
+    test "soft-deletes (archives) the profile" do
       profile = create_profile!()
-      assert {:ok, _deleted} = CertProfileConfig.delete_profile(nil,profile.id)
-      assert {:error, :not_found} = CertProfileConfig.get_profile(nil,profile.id)
+      assert {:ok, archived} = CertProfileConfig.delete_profile(nil, profile.id)
+      assert archived.status == "archived"
+
+      # Profile still accessible via get_profile (for audit trail)
+      assert {:ok, found} = CertProfileConfig.get_profile(nil, profile.id)
+      assert found.status == "archived"
+
+      # But excluded from list_profiles
+      profiles = CertProfileConfig.list_profiles(nil)
+      refute Enum.any?(profiles, &(&1.id == profile.id))
     end
 
     test "returns error for non-existent profile" do
-      assert {:error, :not_found} = CertProfileConfig.delete_profile(nil,Uniq.UUID.uuid7())
+      assert {:error, :not_found} = CertProfileConfig.delete_profile(nil, Uniq.UUID.uuid7())
     end
   end
 end

@@ -50,7 +50,15 @@ defmodule PkiRaEngine.Api.CertProfileController do
     end
   end
 
+  @pqc_algorithms ~w(KAZ-SIGN KAZ-SIGN-128 KAZ-SIGN-192 KAZ-SIGN-256 ML-DSA-44 ML-DSA-65 ML-DSA-87 Ed25519 Ed448)
+
   defp normalize_profile_attrs(params) do
+    params
+    |> normalize_validity_days()
+    |> normalize_digest_algo()
+  end
+
+  defp normalize_validity_days(params) do
     case Map.get(params, "validity_days") do
       nil -> params
       days ->
@@ -60,6 +68,23 @@ defmodule PkiRaEngine.Api.CertProfileController do
           _ -> 365
         end
         Map.put(params, "validity_policy", Map.merge(Map.get(params, "validity_policy", %{}), %{"days" => days_int}))
+    end
+  end
+
+  # If digest_algo is nil/empty and issuer_key is PQC, default to "algorithm-default"
+  defp normalize_digest_algo(params) do
+    digest = Map.get(params, "digest_algo")
+
+    if is_nil(digest) or digest == "" do
+      # Look up the issuer key algorithm to determine if PQC
+      issuer_key_id = Map.get(params, "issuer_key_id")
+      if is_binary(issuer_key_id) and issuer_key_id != "" do
+        Map.put(params, "digest_algo", "algorithm-default")
+      else
+        Map.put(params, "digest_algo", "SHA-256")
+      end
+    else
+      params
     end
   end
 

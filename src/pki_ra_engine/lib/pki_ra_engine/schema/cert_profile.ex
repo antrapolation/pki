@@ -5,8 +5,11 @@ defmodule PkiRaEngine.Schema.CertProfile do
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
 
+  @statuses ["active", "archived"]
+
   schema "cert_profiles" do
     field :name, :string
+    field :status, :string, default: "active"
     field :subject_dn_policy, :map, default: %{}
     field :issuer_policy, :map, default: %{}
     field :key_usage, :string
@@ -33,6 +36,7 @@ defmodule PkiRaEngine.Schema.CertProfile do
 
   @required_fields [:name]
   @optional_fields [
+    :status,
     :subject_dn_policy,
     :issuer_policy,
     :key_usage,
@@ -56,6 +60,8 @@ defmodule PkiRaEngine.Schema.CertProfile do
     cert_profile
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
+    |> validate_length(:name, max: 100)
+    |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:name)
     |> maybe_generate_id()
   end

@@ -39,11 +39,18 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
         {:error, _} -> []
       end
 
+    ra_users =
+      case RaEngineClient.list_portal_users(opts) do
+        {:ok, users} -> Enum.filter(users, fn u -> (u[:status] || u["status"]) == "active" end)
+        {:error, _} -> []
+      end
+
     {:noreply,
      socket
      |> assign(
        api_keys: Enum.map(keys, &normalize_key/1),
        ra_instances: ra_instances,
+       ra_users: ra_users,
        loading: false
      )
      |> apply_pagination()}

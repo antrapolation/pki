@@ -220,6 +220,9 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   def create_cert_profile(attrs, opts \\ []) do
     tenant_id = opts[:tenant_id]
 
+    # Resolve digest_algo for PQC algorithms — disabled dropdown submits nil
+    attrs = normalize_digest_algo(attrs, tenant_id)
+
     case PkiRaEngine.CertProfileConfig.create_profile(tenant_id, attrs) do
       {:ok, profile} -> {:ok, to_map(profile)}
       {:error, _} = err -> err
@@ -229,6 +232,7 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   @impl true
   def update_cert_profile(id, attrs, opts \\ []) do
     tenant_id = opts[:tenant_id]
+    attrs = normalize_digest_algo(attrs, tenant_id)
 
     case PkiRaEngine.CertProfileConfig.update_profile(tenant_id, id, attrs) do
       {:ok, profile} -> {:ok, to_map(profile)}
@@ -291,7 +295,24 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
 
     keys = PkiCaEngine.CaInstanceManagement.active_leaf_issuer_keys(tenant_id)
-    {:ok, Enum.map(keys, &to_map/1)}
+    {:ok, Enum.map(keys, &issuer_key_to_map/1)}
+  end
+
+  defp issuer_key_to_map(key) do
+    ca_name = case key.ca_instance do
+      %{name: name} -> name
+      _ -> nil
+    end
+
+    %{
+      id: key.id,
+      name: key.key_alias,
+      algorithm: key.algorithm,
+      status: key.status,
+      ca_instance_name: ca_name,
+      ca_instance_id: key.ca_instance_id,
+      is_root: key.is_root
+    }
   end
 
   # --- CA connections ---
@@ -308,6 +329,8 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
       _ ->
         {:ok, []}
     end
+  rescue
+    _ -> {:ok, []}
   end
 
   @impl true
@@ -336,6 +359,41 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     end
   end
 
+  @pqc_algorithms ~w(KAZ-SIGN KAZ-SIGN-128 KAZ-SIGN-192 KAZ-SIGN-256 ML-DSA-44 ML-DSA-65 ML-DSA-87 Ed25519 Ed448)
+
+  defp normalize_digest_algo(attrs, tenant_id) do
+    issuer_key_id = attrs[:issuer_key_id] || attrs["issuer_key_id"]
+    digest_algo = attrs[:digest_algo] || attrs["digest_algo"]
+
+    if is_nil(digest_algo) or digest_algo == "" do
+      # Digest not submitted (PQC disabled dropdown) — check issuer key algorithm
+      algo = resolve_issuer_key_algorithm(issuer_key_id, tenant_id)
+
+      if algo in @pqc_algorithms do
+        Map.put(attrs, :digest_algo, "algorithm-default")
+      else
+        Map.put(attrs, :digest_algo, "SHA-256")
+      end
+    else
+      attrs
+    end
+  end
+
+  defp resolve_issuer_key_algorithm(nil, _tenant_id), do: nil
+  defp resolve_issuer_key_algorithm(issuer_key_id, tenant_id) do
+    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant_id) do
+      [ra | _] ->
+        connections = PkiRaEngine.CaConnectionManagement.list_connections(tenant_id, ra.id)
+        case Enum.find(connections, &(&1.issuer_key_id == issuer_key_id)) do
+          nil -> nil
+          conn -> conn.algorithm
+        end
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
   defp connection_to_map(conn) do
     %{
       id: conn.id,
@@ -354,10 +412,21 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   @impl true
   def list_api_keys(filters, opts \\ []) do
     tenant_id = opts[:tenant_id]
-    ra_user_id = filters[:ra_user_id] || filters["ra_user_id"]
+    ra_user_id = case filters do
+      kw when is_list(kw) -> Keyword.get(kw, :ra_user_id)
+      map when is_map(map) -> Map.get(map, :ra_user_id) || Map.get(map, "ra_user_id")
+      _ -> nil
+    end
 
-    keys = PkiRaEngine.ApiKeyManagement.list_keys(tenant_id, ra_user_id)
-    {:ok, Enum.map(keys, &to_map/1)}
+    if ra_user_id do
+      keys = PkiRaEngine.ApiKeyManagement.list_keys(tenant_id, ra_user_id)
+      {:ok, Enum.map(keys, &to_map/1)}
+    else
+      # No user filter — list all keys for this tenant
+      repo = PkiRaEngine.TenantRepo.ra_repo(tenant_id)
+      keys = repo.all(PkiRaEngine.Schema.RaApiKey)
+      {:ok, Enum.map(keys, &to_map/1)}
+    end
   end
 
   @impl true

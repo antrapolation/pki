@@ -27,9 +27,17 @@ defmodule PkiRaEngine.CertProfileConfig do
     end
   end
 
-  @doc "List all certificate profiles."
+  @doc "List active certificate profiles (excludes archived)."
   @spec list_profiles(String.t()) :: [CertProfile.t()]
   def list_profiles(tenant_id) do
+    import Ecto.Query
+    repo = TenantRepo.ra_repo(tenant_id)
+    repo.all(from p in CertProfile, where: p.status != "archived", order_by: [asc: p.name])
+  end
+
+  @doc "List all certificate profiles including archived."
+  @spec list_all_profiles(String.t()) :: [CertProfile.t()]
+  def list_all_profiles(tenant_id) do
     repo = TenantRepo.ra_repo(tenant_id)
     repo.all(CertProfile)
   end
@@ -46,13 +54,15 @@ defmodule PkiRaEngine.CertProfileConfig do
     end
   end
 
-  @doc "Hard-delete a certificate profile."
-  @spec delete_profile(String.t(), String.t()) :: {:ok, CertProfile.t()} | {:error, :not_found}
+  @doc "Soft-delete (archive) a certificate profile. Preserves audit trail for issued certificates."
+  @spec delete_profile(String.t(), String.t()) :: {:ok, CertProfile.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def delete_profile(tenant_id, id) do
     repo = TenantRepo.ra_repo(tenant_id)
 
     with {:ok, profile} <- get_profile(tenant_id, id) do
-      repo.delete(profile)
+      profile
+      |> CertProfile.changeset(%{status: "archived"})
+      |> repo.update()
     end
   end
 end

@@ -72,6 +72,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
        show_template_picker: false,
        show_create_form: false,
        selected_template: nil,
+       selected_issuer_key_algo: nil,
+       form_values: %{},
        template_defaults: %{},
        page: 1,
        per_page: 50
@@ -152,7 +154,30 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_event("cancel_create", _params, socket) do
-    {:noreply, assign(socket, show_create_form: false, selected_template: nil, template_defaults: %{})}
+    {:noreply, assign(socket, show_create_form: false, selected_template: nil, selected_issuer_key_algo: nil, form_values: %{}, template_defaults: %{})}
+  end
+
+  @impl true
+  def handle_event("form_change", params, socket) do
+    issuer_key_id = params["issuer_key_id"]
+
+    algo = case Enum.find(socket.assigns.connected_keys, &(to_string(&1.id) == issuer_key_id)) do
+      nil -> nil
+      key -> key.algorithm
+    end
+
+    # Preserve all form values so they survive re-renders
+    form_values = %{
+      name: params["name"],
+      ra_instance_id: params["ra_instance_id"],
+      issuer_key_id: issuer_key_id,
+      key_usage: params["key_usage"],
+      ext_key_usage: params["ext_key_usage"],
+      digest_algo: params["digest_algo"],
+      validity_days: params["validity_days"]
+    }
+
+    {:noreply, assign(socket, selected_issuer_key_algo: algo, form_values: form_values)}
   end
 
   @impl true
@@ -160,11 +185,25 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
     if get_role(socket) != "ra_admin" do
       {:noreply, put_flash(socket, :error, "Unauthorized")}
     else
+      # Join checkbox array into comma-separated string
+      key_usage = case params["key_usage"] do
+        list when is_list(list) -> Enum.join(list, ", ")
+        str when is_binary(str) -> str
+        _ -> ""
+      end
+
+      # For PQC algorithms, digest is built-in; disabled field won't submit, so default it
+      digest_algo = case params["digest_algo"] do
+        nil -> if is_pqc_algorithm?(socket.assigns.selected_issuer_key_algo), do: "algorithm-default", else: "SHA-256"
+        "" -> "SHA-256"
+        val -> val
+      end
+
       attrs = %{
         name: params["name"],
-        key_usage: params["key_usage"],
+        key_usage: key_usage,
         ext_key_usage: params["ext_key_usage"],
-        digest_algo: params["digest_algo"],
+        digest_algo: digest_algo,
         validity_days: parse_int(params["validity_days"], 365),
         ra_instance_id: params["ra_instance_id"],
         issuer_key_id: params["issuer_key_id"]
@@ -176,7 +215,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
           {:noreply,
            socket
-           |> assign(profiles: profiles, show_create_form: false, selected_template: nil, template_defaults: %{})
+           |> assign(profiles: profiles, show_create_form: false, selected_template: nil, selected_issuer_key_algo: nil, form_values: %{}, template_defaults: %{})
            |> apply_pagination()
            |> put_flash(:info, "Certificate profile created")}
 
@@ -270,6 +309,40 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
     user[:role] || user["role"]
   end
 
+  defp key_usage_options do
+    ~w(digitalSignature nonRepudiation keyEncipherment dataEncipherment keyAgreement keyCertSign cRLSign encipherOnly decipherOnly)
+  end
+
+  defp ext_key_usage_options do
+    [
+      {"Server Authentication (TLS)", "serverAuth"},
+      {"Client Authentication", "clientAuth"},
+      {"Code Signing", "codeSigning"},
+      {"Email Protection (S/MIME)", "emailProtection"},
+      {"Time Stamping", "timeStamping"},
+      {"OCSP Signing", "OCSPSigning"}
+    ]
+  end
+
+  @pqc_algorithms ~w(KAZ-SIGN KAZ-SIGN-128 KAZ-SIGN-192 KAZ-SIGN-256 ML-DSA-44 ML-DSA-65 ML-DSA-87 Ed25519 Ed448)
+
+  defp is_pqc_algorithm?(nil), do: false
+  defp is_pqc_algorithm?(algo) when is_binary(algo), do: algo in @pqc_algorithms
+  defp is_pqc_algorithm?(_), do: false
+
+  defp parse_key_usage(nil), do: []
+  defp parse_key_usage(str) when is_binary(str) do
+    str |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+  end
+  defp parse_key_usage(_), do: []
+
+  defp get_validity_days(profile) do
+    get_in(profile, [:validity_policy, "days"]) ||
+      get_in(profile, [:validity_policy, :days]) ||
+      Map.get(profile, :validity_days) ||
+      Map.get(profile, "validity_days")
+  end
+
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {int, _} -> int
@@ -291,7 +364,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
     key_id = Map.get(profile, :issuer_key_id)
     case Enum.find(issuer_keys, &(&1.id == key_id)) do
       nil -> "-"
-      key -> "#{key.alias} (#{key.algorithm})"
+      key -> "#{key[:name] || key[:key_alias] || key[:alias] || key.id} (#{key.algorithm})"
     end
   end
 
@@ -327,7 +400,12 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
   def render(assigns) do
     ~H"""
     <div id="cert-profiles-page" class="space-y-6">
-      <h1 class="text-2xl font-bold tracking-tight">Certificate Profiles</h1>
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold tracking-tight">Certificate Profiles</h1>
+        <button :if={!@show_template_picker and !@show_create_form} phx-click="show_create_form" class="btn btn-sm btn-primary">
+          <.icon name="hero-plus" class="size-4 mr-1" /> Create Profile
+        </button>
+      </div>
 
       <%!-- Profiles Table --%>
       <section id="profile-table" class="card bg-base-100 shadow-sm border border-base-300">
@@ -341,8 +419,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                   <th class="font-semibold text-xs uppercase tracking-wider w-[18%]">Issuer Key</th>
                   <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">Key Usage</th>
                   <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Digest</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Validity (days)</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[17%]">Actions</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[8%]">Validity</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[8%]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[11%]">Actions</th>
                 </tr>
               </thead>
               <tbody id="profile-list">
@@ -352,13 +431,29 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                   <td class="text-xs overflow-hidden text-ellipsis whitespace-nowrap">{issuer_key_label(profile, @issuer_keys)}</td>
                   <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{profile.key_usage}</td>
                   <td class="font-mono text-xs">{profile.digest_algo}</td>
-                  <td>{profile.validity_days}</td>
+                  <td><%= case get_validity_days(profile) do nil -> "-"; days -> "#{days}d" end %></td>
+                  <td>
+                    <span class={[
+                      "badge badge-xs",
+                      (profile[:status] || "active") == "active" && "badge-success",
+                      (profile[:status] || "active") == "archived" && "badge-ghost"
+                    ]}>
+                      {profile[:status] || "active"}
+                    </span>
+                  </td>
                   <td class="flex gap-1">
                     <button phx-click="edit_profile" phx-value-id={profile.id} title="Edit" class="btn btn-ghost btn-xs text-sky-400">
                       <.icon name="hero-pencil" class="size-4" />
                     </button>
-                    <button phx-click="delete_profile" phx-value-id={profile.id} title="Delete" class="btn btn-ghost btn-xs text-rose-400">
-                      <.icon name="hero-trash" class="size-4" />
+                    <button
+                      :if={(profile[:status] || "active") == "active"}
+                      phx-click="delete_profile"
+                      phx-value-id={profile.id}
+                      title="Archive this profile"
+                      class="btn btn-ghost btn-xs text-amber-500"
+                      data-confirm="Archive this profile? It will no longer be available for new CSRs, but existing certificates retain their audit trail."
+                    >
+                      <.icon name="hero-archive-box" class="size-4" />
                     </button>
                   </td>
                 </tr>
@@ -412,7 +507,7 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                   value={key.id}
                   selected={Map.get(@editing, :issuer_key_id) == key.id}
                 >
-                  {key.alias} ({key.ca_instance_name} — {key.algorithm})
+                  {key[:name] || key[:key_alias] || key[:alias] || key.id} ({key[:ca_instance_name] || "-"} — {key.algorithm})
                 </option>
               </select>
             </div>
@@ -443,13 +538,6 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
           </form>
         </div>
       </section>
-
-      <%!-- Create Profile Button --%>
-      <div :if={!@show_template_picker and !@show_create_form} class="flex justify-end">
-        <button phx-click="show_create_form" class="btn btn-sm btn-primary">
-          <.icon name="hero-plus" class="size-4 mr-1" /> Create Profile
-        </button>
-      </div>
 
       <%!-- Template Picker --%>
       <section :if={@show_template_picker} id="template-picker" class="card bg-base-100 shadow-sm border border-primary/30">
@@ -490,16 +578,17 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
             </h2>
             <button phx-click="cancel_create" class="btn btn-ghost btn-xs">Cancel</button>
           </div>
-          <form phx-submit="create_profile" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+          <form phx-submit="create_profile" phx-change="form_change" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
             <div>
               <label for="profile-name" class="label text-xs font-medium">Name <span class="text-error">*</span></label>
-              <input type="text" name="name" id="profile-name" required class="input input-sm input-bordered w-full" />
+              <input type="text" name="name" id="profile-name" required maxlength="100" value={@form_values[:name] || ""} class="input input-sm input-bordered w-full" />
+              <p class="text-xs text-base-content/40 mt-0.5">Max 100 characters</p>
             </div>
             <div>
               <label for="profile-ra-instance" class="label text-xs font-medium">RA Instance <span class="text-error">*</span></label>
               <select name="ra_instance_id" id="profile-ra-instance" required class="select select-sm select-bordered w-full">
                 <option value="">Select RA Instance</option>
-                <option :for={inst <- @ra_instances} value={inst.id}>
+                <option :for={inst <- @ra_instances} value={inst.id} selected={@form_values[:ra_instance_id] == to_string(inst.id)}>
                   {inst.name}
                 </option>
               </select>
@@ -508,31 +597,55 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
               <label for="profile-issuer-key" class="label text-xs font-medium">Issuer Key <span class="text-error">*</span></label>
               <select name="issuer_key_id" id="profile-issuer-key" required class="select select-sm select-bordered w-full">
                 <option value="">Select Issuer Key</option>
-                <option :for={key <- @connected_keys} value={key.id}>
-                  {key.alias} ({key.algorithm})
+                <option :for={key <- @connected_keys} value={key.id} selected={@form_values[:issuer_key_id] == to_string(key.id)}>
+                  {key[:name] || key[:key_alias] || key[:alias] || key.id} ({key.algorithm})
                 </option>
               </select>
               <p :if={@connected_keys == []} class="text-xs text-warning mt-1">No connected CA keys found. Connect a CA key first.</p>
             </div>
             <div>
-              <label for="profile-key-usage" class="label text-xs font-medium">Key Usage</label>
-              <input type="text" name="key_usage" id="profile-key-usage" value={Map.get(@template_defaults, :key_usage, "")} class="input input-sm input-bordered w-full" />
+              <label class="label text-xs font-medium">Key Usage</label>
+              <div class="flex flex-wrap gap-3 mt-1">
+                <label :for={ku <- key_usage_options()} class="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="key_usage[]"
+                    value={ku}
+                    checked={ku in parse_key_usage(Map.get(@template_defaults, :key_usage, ""))}
+                    class="checkbox checkbox-xs checkbox-primary"
+                  />
+                  <span class="text-xs">{ku}</span>
+                </label>
+              </div>
             </div>
             <div>
               <label for="profile-ext-key-usage" class="label text-xs font-medium">Extended Key Usage</label>
-              <input type="text" name="ext_key_usage" id="profile-ext-key-usage" value={Map.get(@template_defaults, :ext_key_usage, "")} class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="profile-digest-algo" class="label text-xs font-medium">Digest Algorithm</label>
-              <select name="digest_algo" id="profile-digest-algo" class="select select-sm select-bordered w-full">
-                <option value="SHA-256" selected={Map.get(@template_defaults, :digest_algo, "SHA-256") == "SHA-256"}>SHA-256</option>
-                <option value="SHA-384" selected={Map.get(@template_defaults, :digest_algo) == "sha384"}>SHA-384</option>
-                <option value="SHA-512" selected={Map.get(@template_defaults, :digest_algo) == "sha512"}>SHA-512</option>
+              <% current_eku = @form_values[:ext_key_usage] || Map.get(@template_defaults, :ext_key_usage, "") %>
+              <select name="ext_key_usage" id="profile-ext-key-usage" class="select select-sm select-bordered w-full">
+                <option value="" selected={current_eku == ""}>— Select —</option>
+                <option :for={{label, value} <- ext_key_usage_options()} value={value} selected={current_eku == value}>
+                  {label}
+                </option>
               </select>
             </div>
             <div>
+              <label for="profile-digest-algo" class="label text-xs font-medium">Digest Algorithm</label>
+              <%= if is_pqc_algorithm?(@selected_issuer_key_algo) do %>
+                <select name="digest_algo" id="profile-digest-algo" class="select select-sm select-bordered w-full select-disabled" disabled>
+                  <option value="algorithm-default" selected>Algorithm Default</option>
+                </select>
+                <p class="text-xs text-info mt-1">PQC algorithms use a built-in digest — no separate selection needed.</p>
+              <% else %>
+                <select name="digest_algo" id="profile-digest-algo" class="select select-sm select-bordered w-full">
+                  <option value="SHA-256" selected={Map.get(@template_defaults, :digest_algo, "SHA-256") == "SHA-256"}>SHA-256</option>
+                  <option value="SHA-384" selected={Map.get(@template_defaults, :digest_algo) == "SHA-384"}>SHA-384</option>
+                  <option value="SHA-512" selected={Map.get(@template_defaults, :digest_algo) == "SHA-512"}>SHA-512</option>
+                </select>
+              <% end %>
+            </div>
+            <div>
               <label for="profile-validity" class="label text-xs font-medium">Validity (days)</label>
-              <input type="number" name="validity_days" id="profile-validity" value={Map.get(@template_defaults, :validity_days, 365)} min="1" class="input input-sm input-bordered w-full" />
+              <input type="number" name="validity_days" id="profile-validity" value={@form_values[:validity_days] || Map.get(@template_defaults, :validity_days, 365)} min="1" max="3650" class="input input-sm input-bordered w-full" />
             </div>
             <div class="flex items-end gap-2">
               <button type="submit" class="btn btn-sm btn-primary">Create Profile</button>
