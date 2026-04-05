@@ -183,12 +183,20 @@ defmodule PkiPlatformEngine.TenantMigrator do
 
   defp list_active_tenants do
     try do
+      # Migrate ALL tenants (including suspended) so schemas are ready on reactivation
       rows = PlatformRepo.query!(
-        "SELECT id, database_name FROM tenants WHERE status = 'active'",
+        "SELECT id, database_name FROM tenants WHERE status IN ('active', 'suspended')",
         []
       ).rows
 
-      tenants = Enum.map(rows, fn [id, db_name] -> %{id: id, database_name: db_name} end)
+      tenants = Enum.map(rows, fn [id, db_name] ->
+        # Postgrex returns UUID as 16-byte binary; cast to string for downstream use
+        string_id = case Ecto.UUID.cast(id) do
+          {:ok, sid} -> sid
+          _ -> id
+        end
+        %{id: string_id, database_name: db_name}
+      end)
       {:ok, tenants}
     rescue
       e ->
