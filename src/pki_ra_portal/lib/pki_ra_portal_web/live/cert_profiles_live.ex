@@ -206,7 +206,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
         digest_algo: digest_algo,
         validity_days: parse_int(params["validity_days"], 365),
         ra_instance_id: params["ra_instance_id"],
-        issuer_key_id: params["issuer_key_id"]
+        issuer_key_id: params["issuer_key_id"],
+        approval_mode: params["approval_mode"] || "manual"
       }
 
       case RaEngineClient.create_cert_profile(attrs, tenant_opts(socket)) do
@@ -251,7 +252,8 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
         digest_algo: params["digest_algo"],
         validity_days: parse_int(params["validity_days"], 365),
         ra_instance_id: params["ra_instance_id"],
-        issuer_key_id: params["issuer_key_id"]
+        issuer_key_id: params["issuer_key_id"],
+        approval_mode: params["approval_mode"] || "manual"
       }
 
       case RaEngineClient.update_cert_profile(profile_id, attrs, tenant_opts(socket)) do
@@ -420,8 +422,9 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                   <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">Key Usage</th>
                   <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Digest</th>
                   <th class="font-semibold text-xs uppercase tracking-wider w-[8%]">Validity</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[8%]">Status</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[11%]">Actions</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[7%]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[7%]">Mode</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[9%]">Actions</th>
                 </tr>
               </thead>
               <tbody id="profile-list">
@@ -439,6 +442,15 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
                       (profile[:status] || "active") == "archived" && "badge-ghost"
                     ]}>
                       {profile[:status] || "active"}
+                    </span>
+                  </td>
+                  <td>
+                    <span class={[
+                      "badge badge-xs",
+                      (profile[:approval_mode] || "manual") == "auto" && "badge-info",
+                      (profile[:approval_mode] || "manual") == "manual" && "badge-ghost"
+                    ]}>
+                      {profile[:approval_mode] || "manual"}
                     </span>
                   </td>
                   <td class="flex gap-1">
@@ -530,6 +542,23 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
             <div>
               <label for="edit-validity" class="label text-xs font-medium">Validity (days)</label>
               <input type="number" name="validity_days" id="edit-validity" value={@editing.validity_days} min="1" class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label class="label text-xs font-medium">Approval Mode</label>
+              <div class="flex gap-4 mt-1">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="approval_mode" value="manual"
+                         checked={Map.get(@editing, :approval_mode, "manual") == "manual"}
+                         class="radio radio-sm radio-primary" />
+                  <span class="text-sm">Manual Review</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="approval_mode" value="auto"
+                         checked={Map.get(@editing, :approval_mode, "manual") == "auto"}
+                         class="radio radio-sm radio-primary" />
+                  <span class="text-sm">Auto-Approve</span>
+                </label>
+              </div>
             </div>
             <div class="flex items-end gap-2">
               <button type="submit" class="btn btn-sm btn-primary">Update</button>
@@ -646,6 +675,29 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
             <div>
               <label for="profile-validity" class="label text-xs font-medium">Validity (days)</label>
               <input type="number" name="validity_days" id="profile-validity" value={@form_values[:validity_days] || Map.get(@template_defaults, :validity_days, 365)} min="1" max="3650" class="input input-sm input-bordered w-full" />
+            </div>
+            <div>
+              <label class="label text-xs font-medium">Approval Mode</label>
+              <div class="flex gap-4 mt-1">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="approval_mode" value="manual"
+                         checked={Map.get(@template_defaults, :approval_mode, "manual") == "manual"}
+                         class="radio radio-sm radio-primary" />
+                  <div>
+                    <span class="text-sm font-medium">Manual Review</span>
+                    <p class="text-xs text-base-content/50">Officer must approve each CSR</p>
+                  </div>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="approval_mode" value="auto"
+                         checked={Map.get(@template_defaults, :approval_mode, "manual") == "auto"}
+                         class="radio radio-sm radio-primary" />
+                  <div>
+                    <span class="text-sm font-medium">Auto-Approve</span>
+                    <p class="text-xs text-base-content/50">Automatically issue if all validations pass</p>
+                  </div>
+                </label>
+              </div>
             </div>
             <div class="flex items-end gap-2">
               <button type="submit" class="btn btn-sm btn-primary">Create Profile</button>

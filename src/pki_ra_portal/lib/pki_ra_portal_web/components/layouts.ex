@@ -55,7 +55,7 @@ defmodule PkiRaPortalWeb.Layouts do
           <.sidebar_section :if={user_role(@current_user) == "ra_admin"} label="CONFIGURATION">
             <.sidebar_link href="/cert-profiles" icon="hero-clipboard-document-list" label="Certificate Profiles" current={@page_title} />
             <.sidebar_link href="/ca-connection" icon="hero-link" label="CA Connection" current={@page_title} />
-            <.sidebar_link href="/service-configs" icon="hero-cog-6-tooth" label="Service Configs" current={@page_title} />
+            <.sidebar_link href="/service-configs" icon="hero-globe-alt" label="Validation Endpoints" current={@page_title} />
           </.sidebar_section>
 
           <%!-- ADMINISTRATION — ra_admin gets all, auditor gets only Audit Log --%>
@@ -178,7 +178,8 @@ defmodule PkiRaPortalWeb.Layouts do
   defp is_active?("CSR Management", page) when page in ["CSRs", "CSR Management"], do: true
   defp is_active?("Cert Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true
   defp is_active?("Certificate Profiles", page) when page in ["Cert Profiles", "Certificate Profiles"], do: true
-  defp is_active?("Service Configs", page) when page in ["Service Configs", "Service Configuration"], do: true
+  defp is_active?("Service Configs", page) when page in ["Service Configs", "Service Configuration", "Validation Endpoints"], do: true
+  defp is_active?("Validation Endpoints", page) when page in ["Service Configs", "Service Configuration", "Validation Endpoints"], do: true
   defp is_active?("Validation", page) when page in ["Validation", "Validation Services"], do: true
   defp is_active?("Validation Services", page) when page in ["Validation", "Validation Services"], do: true
   defp is_active?("API Keys", page) when page in ["API Keys", "API Key Management"], do: true

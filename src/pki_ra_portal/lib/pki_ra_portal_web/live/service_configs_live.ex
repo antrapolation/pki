@@ -5,6 +5,12 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   alias PkiRaPortal.RaEngineClient
 
+  @service_types [
+    {"OCSP Responder", "ocsp_responder"},
+    {"CRL Distribution", "crl_distribution"},
+    {"TSA (Time Stamping)", "tsa"}
+  ]
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: send(self(), :load_data)
@@ -12,7 +18,7 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
     {:ok,
      socket
      |> assign(
-       page_title: "Service Configuration",
+       page_title: "Validation Endpoints",
        configs: [],
        page: 1,
        per_page: 50
@@ -38,9 +44,8 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
     else
       attrs = %{
         service_type: params["service_type"],
-        port: parse_int(params["port"], 8080),
         url: params["url"],
-        rate_limit: parse_int(params["rate_limit"], 1000)
+        port: parse_int(params["port"], 8080)
       }
 
       case RaEngineClient.configure_service(attrs, tenant_opts(socket)) do
@@ -55,11 +60,11 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
            socket
            |> assign(configs: configs)
            |> apply_pagination()
-           |> put_flash(:info, "Service configured successfully")}
+           |> put_flash(:info, "Validation endpoint configured")}
 
         {:error, reason} ->
           Logger.error("[service_configs] Failed to configure service: #{inspect(reason)}")
-          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to configure service", reason))}
+          {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to configure endpoint", reason))}
       end
     end
   end
@@ -72,11 +77,6 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
     end
   end
 
-  defp format_ip_field(v) when is_map(v) and map_size(v) == 0, do: ""
-  defp format_ip_field(v) when is_map(v), do: Jason.encode!(v)
-  defp format_ip_field(v) when is_binary(v), do: v
-  defp format_ip_field(_), do: ""
-
   defp get_role(socket) do
     user = socket.assigns[:current_user]
     user[:role] || user["role"]
@@ -88,8 +88,14 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
       :error -> default
     end
   end
-
   defp parse_int(_, default), do: default
+
+  defp service_type_label(type) do
+    case Enum.find(@service_types, fn {_, v} -> v == type end) do
+      {label, _} -> label
+      nil -> type
+    end
+  end
 
   defp apply_pagination(socket) do
     items = socket.assigns.configs
@@ -107,39 +113,41 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
   def render(assigns) do
     ~H"""
     <div id="service-configs-page" class="space-y-6">
-      <h1 class="text-2xl font-bold tracking-tight">Service Configuration</h1>
+      <h1 class="text-2xl font-bold tracking-tight">Validation Endpoints</h1>
 
-      <%!-- Config Table --%>
+      <div class="alert alert-info shadow-sm">
+        <.icon name="hero-information-circle" class="size-5" />
+        <p class="text-sm">
+          Configure certificate validation service endpoints. These URLs are embedded in issued certificates
+          as CRL Distribution Points, OCSP Responder, and TSA extensions.
+        </p>
+      </div>
+
+      <%!-- Endpoints Table --%>
       <section id="config-table" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
           <div>
             <table class="table table-sm table-fixed w-full">
               <thead>
                 <tr class="border-base-300">
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[15%]">Service Type</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[8%]">Port</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[22%]">URL</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Rate Limit</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[16%]">IP Whitelist</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[16%]">IP Blacklist</th>
-                  <th class="font-semibold text-xs uppercase tracking-wider w-[13%]">Status</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[20%]">Service Type</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[10%]">Port</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[45%]">URL</th>
+                  <th class="font-semibold text-xs uppercase tracking-wider w-[12%]">Status</th>
                 </tr>
               </thead>
               <tbody id="config-list">
                 <tr :for={config <- @paged_configs} id={"config-#{config.id}"} class="hover:bg-base-200/50 border-base-300">
-                  <td class="font-medium overflow-hidden text-ellipsis whitespace-nowrap">{config.service_type}</td>
+                  <td class="font-medium">{service_type_label(config.service_type)}</td>
                   <td class="font-mono text-xs">{config.port}</td>
                   <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{config.url}</td>
-                  <td>{config.rate_limit}</td>
-                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{format_ip_field(Map.get(config, :ip_whitelist, ""))}</td>
-                  <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{format_ip_field(Map.get(config, :ip_blacklist, ""))}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",
-                      config.status == "active" && "badge-success",
-                      config.status != "active" && "badge-warning"
+                      (config[:status] || "active") == "active" && "badge-success",
+                      (config[:status] || "active") != "active" && "badge-warning"
                     ]}>
-                      {config.status}
+                      {config[:status] || "active"}
                     </span>
                   </td>
                 </tr>
@@ -161,40 +169,27 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
         </div>
       </section>
 
-      <%!-- Configure Service Form --%>
+      <%!-- Configure Endpoint Form --%>
       <section id="configure-service-form" class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
-          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Configure Service</h2>
-          <form phx-submit="configure_service" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+          <h2 class="card-title text-sm font-semibold uppercase tracking-wide text-base-content/60">Configure Endpoint</h2>
+          <form phx-submit="configure_service" class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
             <div>
               <label for="service-type" class="label text-xs font-medium">Service Type</label>
               <select name="service_type" id="service-type" class="select select-sm select-bordered w-full">
-                <option value="OCSP Responder">OCSP Responder</option>
-                <option value="CRL Distribution">CRL Distribution</option>
-                <option value="TSA">TSA</option>
+                <option :for={{label, value} <- service_types()} value={value}>{label}</option>
               </select>
+            </div>
+            <div>
+              <label for="service-url" class="label text-xs font-medium">URL <span class="text-error">*</span></label>
+              <input type="text" name="url" id="service-url" required maxlength="255"
+                placeholder="http://ocsp.example.com" class="input input-sm input-bordered w-full" />
             </div>
             <div>
               <label for="service-port" class="label text-xs font-medium">Port</label>
               <input type="number" name="port" id="service-port" value="8080" min="1" max="65535" class="input input-sm input-bordered w-full" />
             </div>
-            <div>
-              <label for="service-url" class="label text-xs font-medium">URL</label>
-              <input type="text" name="url" id="service-url" required maxlength="255" class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="service-rate-limit" class="label text-xs font-medium">Rate Limit</label>
-              <input type="number" name="rate_limit" id="service-rate-limit" value="1000" min="1" class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="service-ip-whitelist" class="label text-xs font-medium">IP Whitelist (CIDR)</label>
-              <input type="text" name="ip_whitelist" id="service-ip-whitelist" maxlength="255" class="input input-sm input-bordered w-full" />
-            </div>
-            <div>
-              <label for="service-ip-blacklist" class="label text-xs font-medium">IP Blacklist (CIDR)</label>
-              <input type="text" name="ip_blacklist" id="service-ip-blacklist" maxlength="255" class="input input-sm input-bordered w-full" />
-            </div>
-            <div class="md:col-span-2">
+            <div class="md:col-span-3">
               <button type="submit" class="btn btn-sm btn-primary">Configure</button>
             </div>
           </form>
@@ -203,4 +198,6 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
     </div>
     """
   end
+
+  defp service_types, do: @service_types
 end

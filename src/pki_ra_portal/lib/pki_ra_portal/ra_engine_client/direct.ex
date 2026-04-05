@@ -434,8 +434,15 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
     tenant_id = opts[:tenant_id]
 
     case PkiRaEngine.ApiKeyManagement.create_api_key(tenant_id, attrs) do
-      {:ok, key} -> {:ok, to_map(key)}
-      {:error, _} = err -> err
+      {:ok, %{raw_key: raw_key, api_key: api_key, webhook_secret: ws}} ->
+        flat = api_key |> to_map() |> Map.merge(%{raw_key: raw_key, webhook_secret: ws})
+        {:ok, flat}
+
+      {:ok, key} ->
+        {:ok, to_map(key)}
+
+      {:error, _} = err ->
+        err
     end
   end
 
