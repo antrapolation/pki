@@ -107,7 +107,6 @@ defmodule PkiPlatformPortalWeb.Live.AuthHook do
 
     allowed_views = [
       PkiPlatformPortalWeb.TenantDetailLive,
-      PkiPlatformPortalWeb.ProfileLive,
       PkiPlatformPortalWeb.DashboardLive
     ]
 
