@@ -17,6 +17,7 @@ defmodule PkiRaEngine.CsrValidation do
   alias PkiRaEngine.Schema.CsrRequest
   alias PkiRaEngine.CertProfileConfig
   alias PkiRaEngine.UserManagement
+  alias PkiRaEngine.WebhookDelivery
 
   # Transitions allowed via explicit API calls (approve, reject, mark_issued)
   @api_transitions %{
@@ -51,9 +52,14 @@ defmodule PkiRaEngine.CsrValidation do
       submitted_by_key_id: submitted_by_key_id
     }
 
-    %CsrRequest{}
-    |> CsrRequest.changeset(attrs)
-    |> repo.insert()
+    case %CsrRequest{} |> CsrRequest.changeset(attrs) |> repo.insert() do
+      {:ok, csr} ->
+        WebhookDelivery.deliver_for_csr(tenant_id, csr, "csr_submitted")
+        {:ok, csr}
+
+      error ->
+        error
+    end
   end
 
   @doc "Auto-validate a pending CSR. Basic structural checks. Triggers auto-approve if profile allows."
@@ -67,6 +73,7 @@ defmodule PkiRaEngine.CsrValidation do
         :ok ->
           case transition(repo, csr, "verified", %{}) do
             {:ok, verified} ->
+              WebhookDelivery.deliver_for_csr(tenant_id, verified, "csr_validated", %{result: "verified"})
               maybe_auto_approve(tenant_id, verified)
               {:ok, verified}
 
@@ -75,7 +82,14 @@ defmodule PkiRaEngine.CsrValidation do
           end
 
         {:error, _reason} ->
-          transition(repo, csr, "rejected", %{})
+          case transition(repo, csr, "rejected", %{}) do
+            {:ok, rejected} ->
+              WebhookDelivery.deliver_for_csr(tenant_id, rejected, "csr_validated", %{result: "rejected"})
+              {:ok, rejected}
+
+            error ->
+              error
+          end
       end
     end
   end
@@ -92,11 +106,11 @@ defmodule PkiRaEngine.CsrValidation do
            reviewed_by: reviewer_user_id,
            reviewed_at: DateTime.utc_now()
          }) do
-      # Audit: CSR approved
       audit("csr_approved", tenant_id, reviewer_user_id, "csr", csr_id, %{
         subject_dn: approved_csr.subject_dn,
         cert_profile_id: approved_csr.cert_profile_id
       })
+      WebhookDelivery.deliver_for_csr(tenant_id, approved_csr, "csr_approved")
 
       # Auto-forward to CA for signing (async, supervised)
       Task.Supervisor.start_child(PkiRaEngine.TaskSupervisor, fn ->
@@ -128,6 +142,7 @@ defmodule PkiRaEngine.CsrValidation do
         subject_dn: rejected_csr.subject_dn,
         reason: reason
       })
+      WebhookDelivery.deliver_for_csr(tenant_id, rejected_csr, "csr_rejected", %{reason: reason})
 
       {:ok, rejected_csr}
     end
@@ -143,6 +158,7 @@ defmodule PkiRaEngine.CsrValidation do
     case ca_module.revoke_certificate(tenant_id, serial_number, reason) do
       {:ok, result} ->
         audit("cert_revoked", tenant_id, nil, "certificate", serial_number, %{reason: reason})
+        WebhookDelivery.deliver_for_cert(tenant_id, serial_number, "cert_revoked", %{reason: reason})
         {:ok, result}
 
       error ->
@@ -205,6 +221,7 @@ defmodule PkiRaEngine.CsrValidation do
         serial_number: cert_serial,
         subject_dn: issued_csr.subject_dn
       })
+      WebhookDelivery.deliver_for_csr(tenant_id, issued_csr, "cert_issued", %{serial_number: cert_serial})
 
       {:ok, issued_csr}
     end
@@ -229,7 +246,7 @@ defmodule PkiRaEngine.CsrValidation do
             # Re-fetch CSR to guard against concurrent state changes (e.g. manual rejection)
             with {:ok, fresh_csr} <- get_csr(tenant_id, csr_id),
                  :ok <- check_transition(fresh_csr.status, "approved"),
-                 {:ok, _approved} <- transition(repo, fresh_csr, "approved", %{
+                 {:ok, approved_csr} <- transition(repo, fresh_csr, "approved", %{
                    reviewed_by: nil,
                    reviewed_at: DateTime.utc_now()
                  }) do
@@ -237,6 +254,7 @@ defmodule PkiRaEngine.CsrValidation do
                 subject_dn: fresh_csr.subject_dn,
                 auto_approved: true
               })
+              WebhookDelivery.deliver_for_csr(tenant_id, approved_csr, "csr_approved", %{auto_approved: true})
 
               case forward_to_ca(tenant_id, csr_id) do
                 {:ok, _} ->
