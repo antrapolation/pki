@@ -1,7 +1,6 @@
 defmodule PkiPlatformPortalWeb.TenantDetailLive do
   use PkiPlatformPortalWeb, :live_view
 
-  alias PkiPlatformEngine.{Mailer, EmailTemplates}
   import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   require Logger
@@ -20,6 +19,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
           send(self(), :load_metrics)
           send(self(), :check_engines)
           send(self(), :load_hsm_access)
+          send(self(), :load_users)
         end
         ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
         ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
@@ -36,7 +36,13 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            engine_check_us: nil,
            hsm_devices: [],
            assigned_hsm_ids: [],
-           all_hsm_devices: []
+           all_hsm_devices: [],
+           user_management: %{
+             ca_users: [],
+             ra_users: [],
+             show_form: nil,
+             form_error: nil
+           }
          )}
     end
   end
@@ -79,22 +85,6 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         Logger.error("[tenant_detail] Failed to delete tenant: #{inspect(reason)}")
         {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete tenant", reason))}
     end
-  end
-
-  def handle_event("resend_credentials", _params, socket) do
-    tenant = socket.assigns.tenant
-    send(self(), {:credential_action, :resend})
-    {:noreply, put_flash(socket, :info, "Resending credentials to #{tenant.email}...")}
-  end
-
-  def handle_event("reset_ca_admin", _params, socket) do
-    send(self(), {:credential_action, :reset_ca})
-    {:noreply, put_flash(socket, :info, "Resetting CA Admin...")}
-  end
-
-  def handle_event("reset_ra_admin", _params, socket) do
-    send(self(), {:credential_action, :reset_ra})
-    {:noreply, put_flash(socket, :info, "Resetting RA Admin...")}
   end
 
   def handle_event("grant_hsm", %{"device-id" => device_id}, socket) do
@@ -149,10 +139,9 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
 
     case PkiPlatformEngine.Provisioner.activate_tenant(tenant.id) do
       {:ok, updated_tenant} ->
-        # Engines are now running — auto-create admins and send email
         socket = assign(socket, tenant: updated_tenant, ca_engine_status: :online, ra_engine_status: :online)
-        send(self(), :ensure_admins)
-        {:noreply, put_flash(socket, :info, "Tenant activated. Creating admin accounts...")}
+        send(self(), :load_users)
+        {:noreply, put_flash(socket, :info, "Tenant activated.")}
 
       {:error, reason} ->
         Logger.error("[tenant_detail] Failed to activate tenant: #{inspect(reason)}")
@@ -160,151 +149,84 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     end
   end
 
-  @impl true
-  def handle_info(:ensure_admins, socket) do
-    tenant = socket.assigns.tenant
-    ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
-    ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
-
-    ca_username = "#{tenant.slug}-ca-admin"
-    ra_username = "#{tenant.slug}-ra-admin"
-    ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-    ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-
-    errors = []
-
-    # Ensure default CA instance exists in tenant DB
-    errors = errors ++ ensure_default_ca_instance(tenant)
-
-    # Ensure default RA instance exists in tenant DB
-    errors = errors ++ ensure_default_ra_instance(tenant)
-
-    # Create CA admin if none exists
-    ca_instance_id = get_default_ca_instance_id(tenant)
-
-    errors =
-      if ca_instance_id do
-        ca_users = PkiCaEngine.UserManagement.list_users(tenant.id, ca_instance_id, role: "ca_admin")
-        if ca_users == [] do
-          case create_ca_admin(tenant, ca_instance_id, ca_username, ca_password) do
-            :ok -> errors
-            {:error, reason} ->
-              Logger.error("[tenant_detail] CA admin creation failed: #{inspect(reason)}")
-              errors ++ ["CA admin creation failed"]
-          end
-        else
-          Logger.info("[TenantDetail] CA admin already exists for #{tenant.slug}")
-          errors
-        end
-      else
-        errors ++ ["CA admin: no default CA instance"]
-      end
-
-    # Create RA admin if none exists
-    errors =
-      if PkiRaEngine.UserManagement.needs_setup?(tenant.id) do
-        case create_ra_admin(tenant, ra_username, ra_password) do
-          :ok -> errors
-          {:error, reason} ->
-            Logger.error("[tenant_detail] RA admin creation failed: #{inspect(reason)}")
-            errors ++ ["RA admin creation failed"]
-        end
-      else
-        Logger.info("[TenantDetail] RA admin already exists for #{tenant.slug}")
-        errors
-      end
-
-    # Send credential email
-    if errors == [] and tenant.email do
-      html = EmailTemplates.admin_credentials(
-        tenant.name, ca_username, ca_password, ra_username, ra_password,
-        "https://#{ca_host}", "https://#{ra_host}"
-      )
-
-      case Mailer.send_email(tenant.email, "Your #{tenant.name} admin credentials", html) do
-        {:ok, _} ->
-          Logger.info("[TenantDetail] Credentials sent to #{tenant.email}")
-        {:error, reason} ->
-          Logger.error("[TenantDetail] Failed to send email: #{inspect(reason)}")
-      end
-    end
-
-    # Refresh metrics to show updated admin counts
-    send(self(), :load_metrics)
-
-    socket =
-      if errors == [] do
-        put_flash(socket, :info, "Tenant activated. Admin credentials sent to #{tenant.email}.")
-      else
-        put_flash(socket, :warning, "Tenant activated but: #{Enum.join(errors, "; ")}")
-      end
-
-    {:noreply, socket}
+  def handle_event("show_user_form", %{"portal" => portal}, socket) do
+    user_management = %{socket.assigns.user_management | show_form: portal, form_error: nil}
+    {:noreply, assign(socket, user_management: user_management)}
   end
 
-  @impl true
-  def handle_info({:credential_action, action}, socket) do
+  def handle_event("cancel_user_form", _params, socket) do
+    user_management = %{socket.assigns.user_management | show_form: nil, form_error: nil}
+    {:noreply, assign(socket, user_management: user_management)}
+  end
+
+  def handle_event("create_user", %{"portal" => portal, "username" => username, "display_name" => display_name, "email" => email, "role" => role}, socket) do
     tenant = socket.assigns.tenant
     ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
     ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
 
-    {errors, email_result} =
-      case action do
-        :resend ->
-          ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-          ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-          ca_username = "#{tenant.slug}-ca-admin"
-          ra_username = "#{tenant.slug}-ra-admin"
+    portal_url = if portal == "ca", do: "https://#{ca_host}", else: "https://#{ra_host}"
 
-          errs = recreate_ca_admin(tenant, ca_username, ca_password) ++
-                   recreate_ra_admin(tenant, ra_username, ra_password)
+    case PkiPlatformEngine.PlatformAuth.create_user_for_portal(tenant.id, portal, %{
+      username: String.trim(username),
+      display_name: String.trim(display_name),
+      email: String.trim(email),
+      role: role
+    }, portal_url: portal_url, tenant_name: tenant.name) do
+      {:ok, _user} ->
+        send(self(), :load_users)
+        user_management = %{socket.assigns.user_management | show_form: nil, form_error: nil}
+        {:noreply,
+         socket
+         |> assign(user_management: user_management)
+         |> put_flash(:info, "User created. Credentials sent to #{String.trim(email)}.")}
 
-          html = EmailTemplates.admin_credentials(
-            tenant.name, ca_username, ca_password, ra_username, ra_password,
-            "https://#{ca_host}", "https://#{ra_host}"
-          )
-          {errs, {:send, "All admin credentials", html}}
-
-        :reset_ca ->
-          ca_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-          ca_username = "#{tenant.slug}-ca-admin"
-          errs = recreate_ca_admin(tenant, ca_username, ca_password)
-
-          html = EmailTemplates.single_admin_credential(
-            tenant.name, "CA Administrator", "https://#{ca_host}", ca_username, ca_password
-          )
-          {errs, {:send, "CA admin credentials", html}}
-
-        :reset_ra ->
-          ra_password = :crypto.strong_rand_bytes(12) |> Base.url_encode64()
-          ra_username = "#{tenant.slug}-ra-admin"
-          errs = recreate_ra_admin(tenant, ra_username, ra_password)
-
-          html = EmailTemplates.single_admin_credential(
-            tenant.name, "RA Administrator", "https://#{ra_host}", ra_username, ra_password
-          )
-          {errs, {:send, "RA admin credentials", html}}
-      end
-
-    if errors == [] do
-      {:send, subject, html} = email_result
-
-      case Mailer.send_email(tenant.email, "#{subject} for #{tenant.name}", html) do
-        {:ok, _} -> :ok
-        {:error, reason} -> Logger.error("Failed to send credential email: #{inspect(reason)}")
-      end
+      {:error, reason} ->
+        user_management = %{socket.assigns.user_management | form_error: inspect(reason)}
+        {:noreply, assign(socket, user_management: user_management)}
     end
+  end
 
-    send(self(), :load_metrics)
+  def handle_event("suspend_user_role", %{"role-id" => role_id}, socket) do
+    case PkiPlatformEngine.PlatformAuth.suspend_user_role(role_id) do
+      {:ok, _} ->
+        send(self(), :load_users)
+        {:noreply, put_flash(socket, :info, "User suspended.")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to suspend user: #{inspect(reason)}")}
+    end
+  end
 
-    socket =
-      if errors == [] do
-        put_flash(socket, :info, "Credentials reset and emailed to #{tenant.email}")
-      else
-        put_flash(socket, :error, Enum.join(errors, "; "))
-      end
+  def handle_event("activate_user_role", %{"role-id" => role_id}, socket) do
+    case PkiPlatformEngine.PlatformAuth.activate_user_role(role_id) do
+      {:ok, _} ->
+        send(self(), :load_users)
+        {:noreply, put_flash(socket, :info, "User activated.")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to activate user: #{inspect(reason)}")}
+    end
+  end
 
-    {:noreply, socket}
+  def handle_event("delete_user_role", %{"role-id" => role_id}, socket) do
+    case PkiPlatformEngine.PlatformAuth.delete_user_role(role_id) do
+      {:ok, _} ->
+        send(self(), :load_users)
+        {:noreply, put_flash(socket, :info, "User removed.")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to remove user: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_info(:load_users, socket) do
+    tenant_id = socket.assigns.tenant.id
+    ca_users = PkiPlatformEngine.PlatformAuth.list_users_for_portal(tenant_id, "ca")
+    ra_users = PkiPlatformEngine.PlatformAuth.list_users_for_portal(tenant_id, "ra")
+
+    user_management = %{socket.assigns.user_management |
+      ca_users: ca_users,
+      ra_users: ra_users
+    }
+
+    {:noreply, assign(socket, user_management: user_management)}
   end
 
   def handle_info(:load_hsm_access, socket) do
@@ -330,272 +252,6 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
       end
 
     {:noreply, assign(socket, metrics: metrics)}
-  end
-
-  # --- Direct engine calls for admin management ---
-
-  defp create_ca_admin(tenant, ca_instance_id, username, password) do
-    alias PkiPlatformEngine.PlatformAuth
-
-    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
-    display_name = "#{tenant.name} CA Admin"
-
-    with {:ok, profile} <-
-           PlatformAuth.find_or_create_user_profile(%{
-             username: username,
-             password: password,
-             display_name: display_name,
-             email: tenant.email,
-             must_change_password: true
-           }),
-         {:ok, _role} <-
-           PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
-             role: "ca_admin",
-             portal: "ca",
-             ca_instance_id: ca_instance_id
-           }),
-         {:ok, _user} <-
-           PkiCaEngine.UserManagement.register_user(tenant.id, ca_instance_id, %{
-             username: username,
-             password: password,
-             role: "ca_admin",
-             display_name: display_name,
-             email: tenant.email,
-             must_change_password: true,
-             credential_expires_at: expires_at
-           }) do
-      :ok
-    else
-      {:error, reason} -> {:error, reason}
-    end
-  rescue
-    e ->
-      Logger.error("[tenant_detail] CA admin creation failed: #{Exception.message(e)}")
-      {:error, "operation failed"}
-  end
-
-  defp create_ra_admin(tenant, username, password) do
-    alias PkiPlatformEngine.PlatformAuth
-
-    expires_at = DateTime.utc_now() |> DateTime.add(24, :hour) |> DateTime.truncate(:second)
-    display_name = "#{tenant.name} RA Admin"
-
-    with {:ok, profile} <-
-           PlatformAuth.find_or_create_user_profile(%{
-             username: username,
-             password: password,
-             display_name: display_name,
-             email: tenant.email,
-             must_change_password: true
-           }),
-         {:ok, _role} <-
-           PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
-             role: "ra_admin",
-             portal: "ra"
-           }),
-         {:ok, _user} <-
-           PkiRaEngine.UserManagement.register_user(tenant.id, %{
-             username: username,
-             password: password,
-             role: "ra_admin",
-             display_name: display_name,
-             email: tenant.email,
-             tenant_id: tenant.id,
-             must_change_password: true,
-             credential_expires_at: expires_at
-           }) do
-      :ok
-    else
-      {:error, reason} -> {:error, reason}
-    end
-  rescue
-    e ->
-      Logger.error("[tenant_detail] RA admin creation failed: #{Exception.message(e)}")
-      {:error, "operation failed"}
-  end
-
-  defp recreate_ca_admin(tenant, username, password) do
-    ca_instance_id = get_default_ca_instance_id(tenant)
-
-    if ca_instance_id do
-      # Find existing admin and reset password, or create new
-      existing =
-        PkiCaEngine.UserManagement.list_users(tenant.id, ca_instance_id, role: "ca_admin")
-        |> Enum.find(&(&1.username == username))
-
-      case existing do
-        nil ->
-          case create_ca_admin(tenant, ca_instance_id, username, password) do
-            :ok -> []
-            {:error, reason} ->
-              Logger.error("[tenant_detail] CA admin reset failed: #{inspect(reason)}")
-              ["CA admin reset failed"]
-          end
-
-        user ->
-          alias PkiPlatformEngine.PlatformAuth
-
-          # Ensure platform profile exists, reset password
-          case PlatformAuth.get_by_username(username) do
-            {:ok, profile} ->
-              PlatformAuth.reset_password(profile.id, password)
-              if profile.status == "suspended", do: PlatformAuth.reactivate(profile.id)
-
-            {:error, :not_found} ->
-              # Platform profile missing — create it + assign role
-              case PlatformAuth.find_or_create_user_profile(%{
-                     username: username, password: password,
-                     display_name: user.display_name, email: tenant.email,
-                     must_change_password: true
-                   }) do
-                {:ok, profile} ->
-                  PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
-                    role: "ca_admin", portal: "ca", ca_instance_id: ca_instance_id
-                  })
-                _ -> :ok
-              end
-          end
-
-          # Reactivate tenant DB user if suspended, reset password
-          if user.status == "suspended" do
-            PkiCaEngine.UserManagement.update_user(tenant.id, user.id, %{status: "active"})
-          end
-
-          case PkiCaEngine.UserManagement.update_user_password(tenant.id, user, %{
-                 password: password,
-                 must_change_password: true
-               }) do
-            {:ok, _} -> []
-            {:error, reason} ->
-              Logger.error("[tenant_detail] CA admin password reset failed: #{inspect(reason)}")
-              ["CA admin reset failed"]
-          end
-      end
-    else
-      ["CA admin reset failed: no default CA instance"]
-    end
-  rescue
-    e ->
-      Logger.error("[tenant_detail] CA admin reset failed: #{Exception.message(e)}")
-      ["CA admin reset failed"]
-  end
-
-  # --- Tenant instance bootstrapping ---
-
-  defp ensure_default_ca_instance(tenant) do
-    case PkiCaEngine.CaInstanceManagement.list_hierarchy(tenant.id) do
-      [] ->
-        case PkiCaEngine.CaInstanceManagement.create_ca_instance(tenant.id, %{
-               name: "#{tenant.name} Root CA",
-               status: "active"
-             }) do
-          {:ok, ca} ->
-            Logger.info("[TenantDetail] Created default CA instance #{ca.id} for #{tenant.slug}")
-            []
-
-          {:error, reason} ->
-            Logger.error("[tenant_detail] CA instance creation failed: #{inspect(reason)}")
-            ["CA instance creation failed"]
-        end
-
-      _instances ->
-        []
-    end
-  rescue
-    e ->
-      Logger.error("[tenant_detail] CA instance creation failed: #{Exception.message(e)}")
-      ["CA instance creation failed"]
-  end
-
-  defp ensure_default_ra_instance(tenant) do
-    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant.id) do
-      [] ->
-        case PkiRaEngine.RaInstanceManagement.create_ra_instance(tenant.id, %{
-               name: "#{tenant.name} RA",
-               status: "active"
-             }) do
-          {:ok, ra} ->
-            Logger.info("[TenantDetail] Created default RA instance #{ra.id} for #{tenant.slug}")
-            []
-
-          {:error, reason} ->
-            Logger.error("[tenant_detail] RA instance creation failed: #{inspect(reason)}")
-            ["RA instance creation failed"]
-        end
-
-      _instances ->
-        []
-    end
-  rescue
-    e ->
-      Logger.error("[tenant_detail] RA instance creation failed: #{Exception.message(e)}")
-      ["RA instance creation failed"]
-  end
-
-  defp get_default_ca_instance_id(tenant) do
-    case PkiCaEngine.CaInstanceManagement.list_hierarchy(tenant.id) do
-      [first | _] -> first.id
-      [] -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp recreate_ra_admin(tenant, username, password) do
-    existing =
-      PkiRaEngine.UserManagement.list_users(tenant.id, role: "ra_admin")
-      |> Enum.find(&(&1.username == username))
-
-    case existing do
-      nil ->
-        case create_ra_admin(tenant, username, password) do
-          :ok -> []
-          {:error, reason} ->
-            Logger.error("[tenant_detail] RA admin reset failed: #{inspect(reason)}")
-            ["RA admin reset failed"]
-        end
-
-      user ->
-        alias PkiPlatformEngine.PlatformAuth
-
-        # Ensure platform profile exists, reset password
-        case PlatformAuth.get_by_username(username) do
-          {:ok, profile} ->
-            PlatformAuth.reset_password(profile.id, password)
-            if profile.status == "suspended", do: PlatformAuth.reactivate(profile.id)
-
-          {:error, :not_found} ->
-            case PlatformAuth.find_or_create_user_profile(%{
-                   username: username, password: password,
-                   display_name: user.display_name, email: tenant.email,
-                   must_change_password: true
-                 }) do
-              {:ok, profile} ->
-                PlatformAuth.assign_tenant_role(profile.id, tenant.id, %{
-                  role: "ra_admin", portal: "ra"
-                })
-              _ -> :ok
-            end
-        end
-
-        if user.status == "suspended" do
-          PkiRaEngine.UserManagement.update_user(tenant.id, user.id, %{status: "active"})
-        end
-
-        case PkiRaEngine.UserManagement.update_user_password(tenant.id, user, %{
-               password: password,
-               must_change_password: true
-             }) do
-          {:ok, _} -> []
-          {:error, reason} ->
-            Logger.error("[tenant_detail] RA admin password reset failed: #{inspect(reason)}")
-            ["RA admin reset failed"]
-        end
-    end
-  rescue
-    e ->
-      Logger.error("[tenant_detail] RA admin reset failed: #{Exception.message(e)}")
-      ["RA admin reset failed"]
   end
 
   @impl true
@@ -630,7 +286,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             </div>
 
             <%!-- Action buttons --%>
-            <div class="flex items-center gap-2 flex-shrink-0">
+            <div :if={@current_user["role"] == "super_admin"} class="flex items-center gap-2 flex-shrink-0">
               <button
                 :if={@tenant.status in ["initialized", "suspended"]}
                 phx-click="activate"
@@ -713,88 +369,183 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         </div>
       </div>
 
-      <%!-- Admin setup status --%>
-      <div>
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold text-base-content">Admin Setup Status</h3>
-          <button
-            :if={@tenant.status == "active" && @tenant.email}
-            phx-click="resend_credentials"
-            data-confirm="This will reset ALL admin passwords and send new credentials. Continue?"
-            class="btn btn-ghost btn-xs text-primary"
-            phx-disable-with="Sending..."
-          >
-            <.icon name="hero-envelope" class="size-3.5" />
-            Resend All Credentials
-          </button>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <%!-- CA Admin --%>
-          <div class="card bg-base-100 shadow-sm border border-base-300">
-            <div class="card-body p-5">
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-2">
-                  <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
-                    <.icon name="hero-shield-check" class="size-4 text-primary" />
-                  </div>
-                  <h4 class="text-sm font-semibold">CA Admin</h4>
-                </div>
-                <span :if={@metrics.ca_users > 0} class="badge badge-sm badge-success">Configured</span>
-                <span :if={@metrics.ca_users == 0} class="badge badge-sm badge-warning">Pending</span>
-              </div>
-              <p :if={@metrics.ca_users > 0} class="text-sm text-base-content/60">
-                {@metrics.ca_users} user{if @metrics.ca_users != 1, do: "s", else: ""} configured.
-              </p>
-              <div :if={@metrics.ca_users == 0 && @tenant.status != "active"} class="text-xs text-base-content/50">
-                Activate the tenant first, then admin credentials will be provisioned.
-              </div>
-              <div class="flex gap-2 mt-3">
-                <button
-                  :if={@tenant.status == "active" && @tenant.email}
-                  phx-click="reset_ca_admin"
-                  data-confirm="This will delete the existing CA admin and create a new one with a temporary password. Continue?"
-                  class="btn btn-ghost btn-xs text-warning"
-                  phx-disable-with="Resetting..."
-                >
-                  <.icon name="hero-arrow-path" class="size-3.5" />
-                  Reset CA Admin
-                </button>
-              </div>
-            </div>
-          </div>
+      <%!-- User Management --%>
+      <div :if={@tenant.status == "active"}>
+        <h3 class="text-sm font-semibold text-base-content mb-3">User Management</h3>
 
-          <%!-- RA Admin --%>
-          <div class="card bg-base-100 shadow-sm border border-base-300">
-            <div class="card-body p-5">
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-2">
-                  <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-secondary/10">
-                    <.icon name="hero-clipboard-document-check" class="size-4 text-secondary" />
-                  </div>
-                  <h4 class="text-sm font-semibold">RA Admin</h4>
-                </div>
-                <span :if={@metrics.ra_users > 0} class="badge badge-sm badge-success">Configured</span>
-                <span :if={@metrics.ra_users == 0} class="badge badge-sm badge-warning">Pending</span>
+        <%!-- CA Users --%>
+        <div class="card bg-base-100 shadow-sm border border-base-300 mb-4">
+          <div class="card-body p-5">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <.icon name="hero-shield-check" class="size-4 text-primary" />
+                <h4 class="text-sm font-semibold">CA Portal Users</h4>
+                <span class="badge badge-sm badge-ghost">{length(@user_management.ca_users)}</span>
               </div>
-              <p :if={@metrics.ra_users > 0} class="text-sm text-base-content/60">
-                {@metrics.ra_users} user{if @metrics.ra_users != 1, do: "s", else: ""} configured.
-              </p>
-              <div :if={@metrics.ra_users == 0 && @tenant.status != "active"} class="text-xs text-base-content/50">
-                Activate the tenant first, then admin credentials will be provisioned.
-              </div>
-              <div class="flex gap-2 mt-3">
-                <button
-                  :if={@tenant.status == "active" && @tenant.email}
-                  phx-click="reset_ra_admin"
-                  data-confirm="This will delete the existing RA admin and create a new one with a temporary password. Continue?"
-                  class="btn btn-ghost btn-xs text-warning"
-                  phx-disable-with="Resetting..."
-                >
-                  <.icon name="hero-arrow-path" class="size-3.5" />
-                  Reset RA Admin
-                </button>
-              </div>
+              <button phx-click="show_user_form" phx-value-portal="ca" class="btn btn-ghost btn-xs text-primary">
+                <.icon name="hero-plus" class="size-3.5" /> Add User
+              </button>
             </div>
+
+            <%= if @user_management.show_form == "ca" do %>
+              <div class="bg-base-200 rounded-lg p-4 mb-3">
+                <%= if @user_management.form_error do %>
+                  <div class="alert alert-error text-sm mb-3">
+                    <.icon name="hero-exclamation-circle" class="size-4 shrink-0" />
+                    <span>{@user_management.form_error}</span>
+                  </div>
+                <% end %>
+                <form phx-submit="create_user" class="grid grid-cols-2 gap-3">
+                  <input type="hidden" name="portal" value="ca" />
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Username</label>
+                    <input type="text" name="username" required class="input input-bordered input-sm w-full" placeholder="e.g. jdoe" />
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Display Name</label>
+                    <input type="text" name="display_name" required class="input input-bordered input-sm w-full" placeholder="e.g. Jane Doe" />
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Email</label>
+                    <input type="email" name="email" required class="input input-bordered input-sm w-full" placeholder="jane@example.com" />
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Role</label>
+                    <select name="role" class="select select-bordered select-sm w-full">
+                      <option value="ca_admin">CA Admin</option>
+                      <option value="key_manager">Key Manager</option>
+                      <option value="auditor">Auditor</option>
+                    </select>
+                  </div>
+                  <div class="col-span-2 flex justify-end gap-2 pt-1">
+                    <button type="button" phx-click="cancel_user_form" class="btn btn-ghost btn-xs">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-xs" phx-disable-with="Creating...">Create & Send Invite</button>
+                  </div>
+                </form>
+              </div>
+            <% end %>
+
+            <table :if={@user_management.ca_users != []} class="table table-sm w-full">
+              <thead>
+                <tr class="text-xs uppercase text-base-content/50">
+                  <th>Username</th>
+                  <th>Display Name</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={user <- @user_management.ca_users} class="hover">
+                  <td class="font-mono text-sm">{user.username}</td>
+                  <td>{user.display_name}</td>
+                  <td><span class="badge badge-sm badge-ghost">{user.role}</span></td>
+                  <td>
+                    <span class={["badge badge-sm", user.status == "active" && "badge-success", user.status == "suspended" && "badge-warning"]}>{user.status}</span>
+                  </td>
+                  <td class="text-right">
+                    <button :if={user.status == "active"} phx-click="suspend_user_role" phx-value-role-id={user.role_id} data-confirm={"Suspend #{user.username}?"} class="btn btn-ghost btn-xs text-warning" title="Suspend">
+                      <.icon name="hero-pause-circle" class="size-4" />
+                    </button>
+                    <button :if={user.status == "suspended"} phx-click="activate_user_role" phx-value-role-id={user.role_id} class="btn btn-ghost btn-xs text-success" title="Activate">
+                      <.icon name="hero-play-circle" class="size-4" />
+                    </button>
+                    <button phx-click="delete_user_role" phx-value-role-id={user.role_id} data-confirm={"Remove #{user.username} from CA portal?"} class="btn btn-ghost btn-xs text-error" title="Remove">
+                      <.icon name="hero-trash" class="size-4" />
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p :if={@user_management.ca_users == []} class="text-xs text-base-content/40">No CA users yet.</p>
+          </div>
+        </div>
+
+        <%!-- RA Users --%>
+        <div class="card bg-base-100 shadow-sm border border-base-300">
+          <div class="card-body p-5">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <.icon name="hero-clipboard-document-check" class="size-4 text-secondary" />
+                <h4 class="text-sm font-semibold">RA Portal Users</h4>
+                <span class="badge badge-sm badge-ghost">{length(@user_management.ra_users)}</span>
+              </div>
+              <button phx-click="show_user_form" phx-value-portal="ra" class="btn btn-ghost btn-xs text-secondary">
+                <.icon name="hero-plus" class="size-3.5" /> Add User
+              </button>
+            </div>
+
+            <%= if @user_management.show_form == "ra" do %>
+              <div class="bg-base-200 rounded-lg p-4 mb-3">
+                <%= if @user_management.form_error do %>
+                  <div class="alert alert-error text-sm mb-3">
+                    <.icon name="hero-exclamation-circle" class="size-4 shrink-0" />
+                    <span>{@user_management.form_error}</span>
+                  </div>
+                <% end %>
+                <form phx-submit="create_user" class="grid grid-cols-2 gap-3">
+                  <input type="hidden" name="portal" value="ra" />
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Username</label>
+                    <input type="text" name="username" required class="input input-bordered input-sm w-full" placeholder="e.g. jdoe" />
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Display Name</label>
+                    <input type="text" name="display_name" required class="input input-bordered input-sm w-full" placeholder="e.g. Jane Doe" />
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Email</label>
+                    <input type="email" name="email" required class="input input-bordered input-sm w-full" placeholder="jane@example.com" />
+                  </div>
+                  <div>
+                    <label class="text-xs font-medium text-base-content/60">Role</label>
+                    <select name="role" class="select select-bordered select-sm w-full">
+                      <option value="ra_admin">RA Admin</option>
+                      <option value="ra_officer">RA Officer</option>
+                      <option value="auditor">Auditor</option>
+                    </select>
+                  </div>
+                  <div class="col-span-2 flex justify-end gap-2 pt-1">
+                    <button type="button" phx-click="cancel_user_form" class="btn btn-ghost btn-xs">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-xs" phx-disable-with="Creating...">Create & Send Invite</button>
+                  </div>
+                </form>
+              </div>
+            <% end %>
+
+            <table :if={@user_management.ra_users != []} class="table table-sm w-full">
+              <thead>
+                <tr class="text-xs uppercase text-base-content/50">
+                  <th>Username</th>
+                  <th>Display Name</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={user <- @user_management.ra_users} class="hover">
+                  <td class="font-mono text-sm">{user.username}</td>
+                  <td>{user.display_name}</td>
+                  <td><span class="badge badge-sm badge-ghost">{user.role}</span></td>
+                  <td>
+                    <span class={["badge badge-sm", user.status == "active" && "badge-success", user.status == "suspended" && "badge-warning"]}>{user.status}</span>
+                  </td>
+                  <td class="text-right">
+                    <button :if={user.status == "active"} phx-click="suspend_user_role" phx-value-role-id={user.role_id} data-confirm={"Suspend #{user.username}?"} class="btn btn-ghost btn-xs text-warning" title="Suspend">
+                      <.icon name="hero-pause-circle" class="size-4" />
+                    </button>
+                    <button :if={user.status == "suspended"} phx-click="activate_user_role" phx-value-role-id={user.role_id} class="btn btn-ghost btn-xs text-success" title="Activate">
+                      <.icon name="hero-play-circle" class="size-4" />
+                    </button>
+                    <button phx-click="delete_user_role" phx-value-role-id={user.role_id} data-confirm={"Remove #{user.username} from RA portal?"} class="btn btn-ghost btn-xs text-error" title="Remove">
+                      <.icon name="hero-trash" class="size-4" />
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p :if={@user_management.ra_users == []} class="text-xs text-base-content/40">No RA users yet.</p>
           </div>
         </div>
       </div>
@@ -884,8 +635,8 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
           </div>
         </div>
       </div>
-      <%!-- HSM Device Access (only for active tenants) --%>
-      <div :if={@tenant.status == "active"}>
+      <%!-- HSM Device Access (only for active tenants, super_admin only) --%>
+      <div :if={@tenant.status == "active" && @current_user["role"] == "super_admin"}>
         <h3 class="text-sm font-semibold text-base-content mb-3">HSM Device Access</h3>
         <div class="card bg-base-100 shadow-sm border border-base-300">
           <div class="card-body p-5">
