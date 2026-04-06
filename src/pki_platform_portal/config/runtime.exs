@@ -64,6 +64,7 @@ if config_env() == :prod do
 
   config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
+    check_origin: false,
     http: [
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
