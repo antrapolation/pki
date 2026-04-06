@@ -41,25 +41,7 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
          |> put_flash(:info, "Admin \"#{username}\" created. Invitation email sent to #{email}.")}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        errors =
-          Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-            Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-              atom_key = try do
-                String.to_existing_atom(key)
-              rescue
-                ArgumentError -> nil
-              end
-              case atom_key && Keyword.get(opts, atom_key) do
-                nil -> key
-                val -> to_string(val)
-              end
-            end)
-          end)
-
-        error_msg =
-          errors
-          |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
-          |> Enum.join("; ")
+        error_msg = friendly_changeset_error(changeset)
 
         {:noreply, assign(socket, form_error: error_msg)}
 
@@ -136,6 +118,33 @@ defmodule PkiPlatformPortalWeb.AdminsLive do
             {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete admin", reason))}
         end
     end
+  end
+
+  defp friendly_changeset_error(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.map_join("; ", fn
+      {:username, msgs} ->
+        if Enum.any?(msgs, &String.contains?(&1, "already been taken")) do
+          "A user with that username already exists."
+        else
+          "Username: #{Enum.join(msgs, ", ")}"
+        end
+
+      {:email, msgs} ->
+        if Enum.any?(msgs, &String.contains?(&1, "already been taken")) do
+          "A user with that email already exists."
+        else
+          "Email: #{Enum.join(msgs, ", ")}"
+        end
+
+      {field, msgs} ->
+        "#{Phoenix.Naming.humanize(field)}: #{Enum.join(msgs, ", ")}"
+    end)
   end
 
   defp list_admins do
