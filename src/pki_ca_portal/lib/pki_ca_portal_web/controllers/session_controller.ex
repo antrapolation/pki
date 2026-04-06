@@ -176,6 +176,8 @@ defmodule PkiCaPortalWeb.SessionController do
       {:ok, [first | _]} -> first[:id] || first.id
       _ -> nil
     end
+  rescue
+    _ -> nil
   end
 
   defp credential_expired?(%{credential_expires_at: nil}), do: false
