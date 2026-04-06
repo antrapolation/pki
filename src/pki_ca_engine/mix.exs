@@ -40,7 +40,7 @@ defmodule PkiCaEngine.MixProject do
       {:uniq, "~> 0.6"},
       {:hammer, "~> 6.2"},
       {:pki_platform_engine, path: "../pki_platform_engine"},
-      {:kaz_sign, path: "../../../PQC-KAZ/SIGN/bindings/elixir"}
+      {:kaz_sign, path: "../../../PQC-KAZ/SIGN/bindings/elixir", optional: true}
     ]
   end
 

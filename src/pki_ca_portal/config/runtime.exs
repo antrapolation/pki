@@ -27,11 +27,22 @@ config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
 if platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || System.get_env("DATABASE_URL") do
   config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
     url: platform_db_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE", "5"))
+    pool_size: 2
 end
 
 if cookie_secure = System.get_env("COOKIE_SECURE") do
   config :pki_ca_portal, cookie_secure: cookie_secure == "true"
+end
+
+# In direct mode, CA engine runs in-process and needs its repos configured
+if ca_engine_db_url = System.get_env("CA_ENGINE_DATABASE_URL") do
+  config :pki_ca_engine, PkiCaEngine.Repo,
+    url: ca_engine_db_url,
+    pool_size: 3
+
+  config :pki_audit_trail, PkiAuditTrail.Repo,
+    url: ca_engine_db_url,
+    pool_size: 2
 end
 
 if config_env() == :prod do
