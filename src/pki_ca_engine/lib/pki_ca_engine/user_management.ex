@@ -77,6 +77,17 @@ defmodule PkiCaEngine.UserManagement do
     end
   end
 
+  def get_user_by_username(tenant_id, username, nil) do
+    repo = TenantRepo.ca_repo(tenant_id)
+    case repo.one(from u in CaUser,
+      where: u.username == ^username and u.status == "active",
+      limit: 1
+    ) do
+      nil -> {:error, :not_found}
+      user -> {:ok, user}
+    end
+  end
+
   def get_user_by_username(tenant_id, username, ca_instance_id) do
     repo = TenantRepo.ca_repo(tenant_id)
     case repo.one(from u in CaUser,

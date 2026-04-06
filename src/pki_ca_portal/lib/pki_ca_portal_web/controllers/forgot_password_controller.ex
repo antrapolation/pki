@@ -16,7 +16,7 @@ defmodule PkiCaPortalWeb.ForgotPasswordController do
   end
 
   def create(conn, %{"username" => username}) do
-    case CaEngineClient.get_user_by_username(username, "default") do
+    case CaEngineClient.get_user_by_username(username, nil) do
       {:ok, %{id: id, email: email}} when not is_nil(id) and not is_nil(email) ->
         code = EmailVerification.generate_code(email)
         html = EmailTemplates.password_reset_code(code)
