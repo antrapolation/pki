@@ -98,7 +98,7 @@ defmodule PkiPlatformPortalWeb.ProfileLive do
             </div>
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">Role</label>
-              <span class="badge badge-sm badge-primary">{@admin.role}</span>
+              <span class="badge badge-sm badge-primary">{@admin.global_role}</span>
             </div>
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">Status</label>

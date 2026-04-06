@@ -45,7 +45,7 @@ defmodule PkiPlatformEngine.Provisioner do
         PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant_id)
 
         tenant
-        |> Tenant.changeset(%{status: "suspended"})
+        |> Tenant.status_changeset(%{status: "suspended"})
         |> PlatformRepo.update()
     end
   end
@@ -60,12 +60,19 @@ defmodule PkiPlatformEngine.Provisioner do
         case PkiPlatformEngine.TenantSupervisor.start_tenant(tenant) do
           {:ok, _pid} ->
             tenant
-            |> Tenant.changeset(%{status: "active"})
+            |> Tenant.status_changeset(%{status: "active"})
             |> PlatformRepo.update()
 
           {:error, reason} ->
             {:error, {:engine_start_failed, reason}}
         end
+    end
+  end
+
+  def update_tenant(tenant_id, attrs) do
+    case PlatformRepo.get(Tenant, tenant_id) do
+      nil -> {:error, :not_found}
+      tenant -> tenant |> Tenant.changeset(attrs) |> PlatformRepo.update()
     end
   end
 

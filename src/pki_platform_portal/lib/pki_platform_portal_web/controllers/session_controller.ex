@@ -129,13 +129,13 @@ defmodule PkiPlatformPortalWeb.SessionController do
 
     if ip not in known_ips and length(known_ips) > 0 do
       PkiPlatformPortal.SessionSecurity.notify(:new_ip_login, %{
-        username: admin.username, role: admin.role, ip: ip, portal: "platform"
+        username: admin.username, role: admin.global_role, ip: ip, portal: "platform"
       })
     end
 
     if length(existing) > 0 do
       PkiPlatformPortal.SessionSecurity.notify(:concurrent_sessions, %{
-        username: admin.username, role: admin.role,
+        username: admin.username, role: admin.global_role,
         session_count: length(existing) + 1, portal: "platform"
       })
     end
@@ -143,7 +143,7 @@ defmodule PkiPlatformPortalWeb.SessionController do
     PkiPlatformPortal.SessionStore.create(%{
       user_id: admin.id,
       username: admin.username,
-      role: admin.role,
+      role: admin.global_role,
       tenant_id: nil,
       ip: ip,
       user_agent: ua,

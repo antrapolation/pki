@@ -1,16 +1,24 @@
 defmodule PkiPlatformEngine.AdminManagement do
+  @moduledoc """
+  Manages super_admin users via the unified user_profiles table.
+  Super admins are identified by global_role == "super_admin".
+  """
   alias PkiPlatformEngine.PlatformRepo
-  alias PkiPlatformEngine.PlatformAdmin
+  alias PkiPlatformEngine.UserProfile
 
   import Ecto.Query
 
+  @super_admin_query from(u in UserProfile, where: u.global_role == "super_admin")
+
   def needs_setup? do
-    PlatformRepo.aggregate(PlatformAdmin, :count) == 0
+    PlatformRepo.aggregate(@super_admin_query, :count) == 0
   end
 
   def register_admin(attrs) do
-    %PlatformAdmin{}
-    |> PlatformAdmin.registration_changeset(attrs)
+    attrs = Map.put(attrs, :global_role, "super_admin")
+
+    %UserProfile{}
+    |> UserProfile.registration_changeset(attrs)
     |> PlatformRepo.insert()
   end
 
@@ -25,11 +33,12 @@ defmodule PkiPlatformEngine.AdminManagement do
       email: attrs[:email] || attrs["email"],
       password: temp_password,
       must_change_password: true,
-      credential_expires_at: expires_at
+      credential_expires_at: expires_at,
+      global_role: "super_admin"
     }
 
-    case %PlatformAdmin{}
-         |> PlatformAdmin.invitation_changeset(invite_attrs)
+    case %UserProfile{}
+         |> UserProfile.registration_changeset(invite_attrs)
          |> PlatformRepo.insert() do
       {:ok, admin} ->
         send_admin_invitation(admin, temp_password)
@@ -61,8 +70,8 @@ defmodule PkiPlatformEngine.AdminManagement do
   def authenticate(username, password) do
     admin =
       PlatformRepo.one(
-        from(a in PlatformAdmin,
-          where: a.username == ^username and a.status == "active"
+        from(u in UserProfile,
+          where: u.username == ^username and u.status == "active" and u.global_role == "super_admin"
         )
       )
 
@@ -78,61 +87,61 @@ defmodule PkiPlatformEngine.AdminManagement do
   end
 
   def get_admin_by_username(username) do
-    case PlatformRepo.one(from(a in PlatformAdmin, where: a.username == ^username and a.status == "active")) do
+    case PlatformRepo.one(from(u in UserProfile, where: u.username == ^username and u.global_role == "super_admin" and u.status == "active")) do
       nil -> {:error, :not_found}
       admin -> {:ok, admin}
     end
   end
 
   def reset_admin_password(admin_id, new_password) do
-    case PlatformRepo.get(PlatformAdmin, admin_id) do
+    case PlatformRepo.get(UserProfile, admin_id) do
       nil ->
         {:error, :not_found}
 
       admin ->
         admin
-        |> PlatformAdmin.password_changeset(%{password: new_password})
+        |> UserProfile.password_changeset(%{password: new_password})
         |> PlatformRepo.update()
     end
   end
 
   def list_admins do
-    PlatformRepo.all(from(a in PlatformAdmin, order_by: [asc: a.inserted_at]))
+    PlatformRepo.all(from(u in @super_admin_query, order_by: [asc: u.inserted_at]))
   end
 
   def get_admin(id) do
-    PlatformRepo.get(PlatformAdmin, id)
+    PlatformRepo.get(UserProfile, id)
   end
 
-  def update_admin_profile(%PlatformAdmin{} = admin, attrs) do
+  def update_admin_profile(%UserProfile{} = admin, attrs) do
     allowed = Map.take(attrs, [:display_name, :email, "display_name", "email"])
 
     admin
-    |> PlatformAdmin.profile_changeset(allowed)
+    |> UserProfile.changeset(allowed)
     |> PlatformRepo.update()
   end
 
-  def change_admin_password(%PlatformAdmin{} = admin, current_password, new_password) do
+  def change_admin_password(%UserProfile{} = admin, current_password, new_password) do
     if Argon2.verify_pass(current_password, admin.password_hash) do
       admin
-      |> PlatformAdmin.password_changeset(%{password: new_password})
+      |> UserProfile.password_changeset(%{password: new_password})
       |> PlatformRepo.update()
     else
       {:error, :invalid_current_password}
     end
   end
 
-  def update_admin(%PlatformAdmin{} = admin, attrs) do
+  def update_admin(%UserProfile{} = admin, attrs) do
     admin
-    |> PlatformAdmin.changeset(attrs)
+    |> UserProfile.changeset(attrs)
     |> PlatformRepo.update()
   end
 
-  def suspend_admin(%PlatformAdmin{} = admin) do
+  def suspend_admin(%UserProfile{} = admin) do
     PlatformRepo.transaction(fn ->
       active_count =
         PlatformRepo.aggregate(
-          from(a in PlatformAdmin, where: a.status == "active"),
+          from(u in @super_admin_query, where: u.status == "active"),
           :count
         )
 
@@ -140,21 +149,21 @@ defmodule PkiPlatformEngine.AdminManagement do
         PlatformRepo.rollback(:last_active_admin)
       else
         admin
-        |> PlatformAdmin.changeset(%{status: "suspended"})
+        |> UserProfile.changeset(%{status: "suspended"})
         |> PlatformRepo.update!()
       end
     end)
   end
 
-  def activate_admin(%PlatformAdmin{} = admin) do
+  def activate_admin(%UserProfile{} = admin) do
     update_admin(admin, %{status: "active"})
   end
 
-  def delete_admin(%PlatformAdmin{} = admin) do
+  def delete_admin(%UserProfile{} = admin) do
     PlatformRepo.transaction(fn ->
       active_count =
         PlatformRepo.aggregate(
-          from(a in PlatformAdmin, where: a.status == "active"),
+          from(u in @super_admin_query, where: u.status == "active"),
           :count
         )
 

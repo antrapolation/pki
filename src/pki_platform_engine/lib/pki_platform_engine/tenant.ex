@@ -31,6 +31,13 @@ defmodule PkiPlatformEngine.Tenant do
     |> maybe_generate_database_name()
   end
 
+  def status_changeset(tenant, attrs) do
+    tenant
+    |> cast(attrs, [:status])
+    |> validate_required([:status])
+    |> validate_inclusion(:status, @statuses)
+  end
+
   defp maybe_generate_id(changeset) do
     if get_field(changeset, :id) do
       changeset

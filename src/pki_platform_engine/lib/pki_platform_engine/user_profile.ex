@@ -14,6 +14,7 @@ defmodule PkiPlatformEngine.UserProfile do
     field :status, :string, default: "active"
     field :must_change_password, :boolean
     field :credential_expires_at, :utc_datetime
+    field :global_role, :string
 
     has_many :tenant_roles, PkiPlatformEngine.UserTenantRole
 
@@ -22,7 +23,7 @@ defmodule PkiPlatformEngine.UserProfile do
 
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:username, :display_name, :email, :status, :must_change_password, :credential_expires_at])
+    |> cast(attrs, [:username, :display_name, :email, :status, :must_change_password, :credential_expires_at, :global_role])
     |> validate_required([:username])
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:display_name, max: 100)
@@ -33,7 +34,7 @@ defmodule PkiPlatformEngine.UserProfile do
 
   def registration_changeset(user, attrs) do
     user
-    |> cast(attrs, [:username, :display_name, :email, :status, :must_change_password, :credential_expires_at, :password])
+    |> cast(attrs, [:username, :display_name, :email, :status, :must_change_password, :credential_expires_at, :password, :global_role])
     |> validate_required([:username, :password])
     |> validate_length(:username, min: 3, max: 50)
     |> validate_length(:display_name, max: 100)
@@ -52,6 +53,9 @@ defmodule PkiPlatformEngine.UserProfile do
     |> put_change(:credential_expires_at, nil)
     |> hash_password()
   end
+
+  def super_admin?(%__MODULE__{global_role: "super_admin"}), do: true
+  def super_admin?(_), do: false
 
   defp hash_password(%{valid?: true, changes: %{password: password}} = changeset) do
     changeset

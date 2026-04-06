@@ -31,6 +31,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            metrics: %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0, ca_instances: 0, ra_instances: 0},
            ca_setup_url: "https://#{ca_host}/setup?tenant=#{tenant.slug}",
            ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}",
+           editing_email: false,
            ca_engine_status: :checking,
            ra_engine_status: :checking,
            engine_check_us: nil,
@@ -66,6 +67,31 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     # Activation now starts engines via BEAM TenantSupervisor — no HTTP check needed
     send(self(), :do_activate)
     {:noreply, put_flash(socket, :info, "Activating tenant and starting engine processes...")}
+  end
+
+  def handle_event("edit_email", _params, socket) do
+    {:noreply, assign(socket, editing_email: true)}
+  end
+
+  def handle_event("cancel_edit_email", _params, socket) do
+    {:noreply, assign(socket, editing_email: false)}
+  end
+
+  def handle_event("save_email", %{"email" => email}, socket) do
+    case PkiPlatformEngine.Provisioner.update_tenant(socket.assigns.tenant.id, %{email: String.trim(email)}) do
+      {:ok, updated_tenant} ->
+        {:noreply,
+         socket
+         |> assign(tenant: updated_tenant, editing_email: false)
+         |> put_flash(:info, "Email updated.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        message = changeset |> Ecto.Changeset.traverse_errors(fn {msg, _} -> msg end) |> inspect()
+        {:noreply, put_flash(socket, :error, "Failed to update email: #{message}")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to update email", reason))}
+    end
   end
 
   def handle_event("check_engines", _params, socket) do
@@ -387,7 +413,19 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             </div>
             <div>
               <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider mb-1">Email</p>
-              <p class="font-mono text-sm font-medium">{@tenant.email}</p>
+              <div :if={@editing_email}>
+                <form phx-submit="save_email" class="flex items-center gap-2">
+                  <input type="email" name="email" value={@tenant.email || ""} class="input input-sm input-bordered font-mono text-sm w-64" placeholder="admin@example.com" autofocus />
+                  <button type="submit" class="btn btn-sm btn-success btn-outline">Save</button>
+                  <button type="button" phx-click="cancel_edit_email" class="btn btn-sm btn-ghost">Cancel</button>
+                </form>
+              </div>
+              <div :if={!@editing_email} class="flex items-center gap-2">
+                <p class="font-mono text-sm font-medium">{@tenant.email || "—"}</p>
+                <button :if={@current_user["role"] == "super_admin"} phx-click="edit_email" class="btn btn-ghost btn-xs" title="Edit email">
+                  <.icon name="hero-pencil-square" class="size-3.5" />
+                </button>
+              </div>
             </div>
             <div>
               <p class="text-xs font-medium text-base-content/50 uppercase tracking-wider mb-1">Database</p>

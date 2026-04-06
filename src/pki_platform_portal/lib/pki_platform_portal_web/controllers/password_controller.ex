@@ -52,7 +52,7 @@ defmodule PkiPlatformPortalWeb.PasswordController do
       {:ok, admin} ->
         # Clear must_change_password flag
         admin
-        |> PkiPlatformEngine.PlatformAdmin.changeset(%{must_change_password: false, credential_expires_at: nil})
+        |> PkiPlatformEngine.UserProfile.changeset(%{must_change_password: false, credential_expires_at: nil})
         |> PkiPlatformEngine.PlatformRepo.update()
 
         conn
