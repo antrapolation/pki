@@ -180,6 +180,10 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
          |> assign(user_management: user_management)
          |> put_flash(:info, "User created. Credentials sent to #{String.trim(email)}.")}
 
+      {:error, :tenant_not_active} ->
+        user_management = %{socket.assigns.user_management | form_error: "Tenant must be activated before creating users."}
+        {:noreply, assign(socket, user_management: user_management)}
+
       {:error, reason} ->
         user_management = %{socket.assigns.user_management | form_error: inspect(reason)}
         {:noreply, assign(socket, user_management: user_management)}

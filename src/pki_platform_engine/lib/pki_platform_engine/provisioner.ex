@@ -96,6 +96,16 @@ defmodule PkiPlatformEngine.Provisioner do
   def get_tenant(id), do: PlatformRepo.get(Tenant, id)
   def get_tenant_by_slug(slug), do: PlatformRepo.get_by(Tenant, slug: slug)
 
+  @doc "Returns true only if the tenant exists and has status \"active\"."
+  def tenant_active?(tenant_id) do
+    case get_tenant(tenant_id) do
+      %{status: "active"} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
   # --- Private ---
 
   defp validate_db_name!(db_name) do

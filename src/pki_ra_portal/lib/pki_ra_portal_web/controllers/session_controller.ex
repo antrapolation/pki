@@ -17,8 +17,8 @@ defmodule PkiRaPortalWeb.SessionController do
     case RaEngineClient.authenticate_with_session(username, password) do
       {:ok, user, session} ->
         cond do
-          tenant_suspended?(user) ->
-            render(conn, :login, layout: false, error: "Your organization's account has been suspended.")
+          tenant_not_active?(user) ->
+            render(conn, :login, layout: false, error: "Your organization's account is not active.")
 
           user[:must_change_password] && credential_expired?(user) ->
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact your platform administrator.")
@@ -135,14 +135,9 @@ defmodule PkiRaPortalWeb.SessionController do
   end
   defp credential_expired?(_), do: false
 
-  defp tenant_suspended?(%{tenant_id: nil}), do: false
-  defp tenant_suspended?(%{tenant_id: tenant_id}) do
-    case PkiPlatformEngine.Provisioner.get_tenant(tenant_id) do
-      %{status: "suspended"} -> true
-      _ -> false
-    end
-  rescue
-    _ -> false
+  defp tenant_not_active?(%{tenant_id: nil}), do: false
+  defp tenant_not_active?(%{tenant_id: tenant_id}) do
+    not PkiPlatformEngine.Provisioner.tenant_active?(tenant_id)
   end
-  defp tenant_suspended?(_), do: false
+  defp tenant_not_active?(_), do: false
 end

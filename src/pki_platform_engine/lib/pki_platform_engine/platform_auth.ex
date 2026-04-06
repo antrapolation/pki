@@ -145,9 +145,14 @@ defmodule PkiPlatformEngine.PlatformAuth do
   def create_user_for_portal(tenant_id, portal, attrs, opts \\ []) do
     email = attrs[:email] || attrs["email"]
 
-    unless email && String.contains?(to_string(email), "@") do
-      {:error, :email_required}
-    else
+    cond do
+      not (email && String.contains?(to_string(email), "@")) ->
+        {:error, :email_required}
+
+      not PkiPlatformEngine.Provisioner.tenant_active?(tenant_id) ->
+        {:error, :tenant_not_active}
+
+      true ->
       temp_password = generate_temp_password()
       expires_at = DateTime.utc_now() |> DateTime.add(24 * 3600, :second) |> DateTime.truncate(:second)
       role = attrs[:role] || attrs["role"]

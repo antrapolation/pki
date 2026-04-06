@@ -54,6 +54,10 @@ defmodule PkiCaPortalWeb.SessionController do
 
         tenant_id = user[:tenant_id]
 
+        unless PkiPlatformEngine.Provisioner.tenant_active?(tenant_id) do
+          render(conn, :login, layout: false, error: "Your organization's account is not active.")
+        else
+
         cond do
           user[:must_change_password] && credential_expired?(user) ->
             render(conn, :login, layout: false, error: "Your temporary credentials have expired. Contact your platform administrator.")
@@ -96,6 +100,7 @@ defmodule PkiCaPortalWeb.SessionController do
             |> configure_session(renew: true)
             |> put_session(:session_id, session_id)
             |> redirect(to: "/")
+        end
         end
 
       {:error, :invalid_credentials} ->

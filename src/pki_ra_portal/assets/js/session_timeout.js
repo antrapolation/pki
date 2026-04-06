@@ -37,10 +37,20 @@ const SessionTimeout = {
     const idle = Date.now() - this.lastActivity
 
     if (idle >= this.timeoutMs) {
-      window.location.href = "/logout"
+      this.submitLogout()
     } else if (idle >= this.warningMs && !this.warningShown) {
       this.showWarning()
     }
+  },
+
+  submitLogout() {
+    const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+    const form = document.createElement("form")
+    form.method = "post"
+    form.action = "/logout"
+    form.innerHTML = `<input type="hidden" name="_method" value="delete"><input type="hidden" name="_csrf_token" value="${csrfToken}">`
+    document.body.appendChild(form)
+    form.submit()
   },
 
   showWarning() {
@@ -54,7 +64,7 @@ const SessionTimeout = {
       this.countdownInterval = setInterval(() => {
         const left = this.timeoutMs - (Date.now() - this.lastActivity)
         if (left <= 0) {
-          window.location.href = "/logout"
+          this.submitLogout()
         } else {
           const mins = Math.floor(left / 60000)
           const secs = Math.floor((left % 60000) / 1000)
