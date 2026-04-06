@@ -56,6 +56,10 @@ if validation_db_url = System.get_env("VALIDATION_DATABASE_URL") do
     prepare: :unnamed
 end
 
+if signing_salt = System.get_env("PLATFORM_SIGNING_SALT") do
+  config :pki_platform_portal, signing_salt: signing_salt
+end
+
 if config_env() == :prod do
   admin_username =
     System.get_env("PLATFORM_ADMIN_USERNAME") ||

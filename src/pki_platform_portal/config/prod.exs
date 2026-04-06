@@ -11,11 +11,8 @@ config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
     ]
   ]
 
-# Signing salt — read at BUILD time (compile_env in endpoint.ex).
-# Set PLATFORM_SIGNING_SALT in the build environment or source .env before mix release.
-if salt = System.get_env("PLATFORM_SIGNING_SALT") do
-  config :pki_platform_portal, signing_salt: salt
-end
+# Signing salt is configured in runtime.exs to avoid compile_env mismatches
+# when running via mix (not releases).
 
 # Structured JSON logging for production — enables log aggregation
 config :logger, :default_handler,
