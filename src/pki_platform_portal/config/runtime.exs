@@ -29,6 +29,14 @@ if database_url do
     prepare: :unnamed
 end
 
+# TenantRepo config — base connection info for dynamic per-tenant DB pools.
+# Uses the same credentials as PlatformRepo but the database name is set per-tenant.
+config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
+  hostname: System.get_env("POSTGRES_HOST", "127.0.0.1"),
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "6432")),
+  username: System.get_env("POSTGRES_USER", "postgres"),
+  password: System.get_env("POSTGRES_PASSWORD", "postgres")
+
 # In direct mode, engines run in-process — configure all engine repos
 if ca_engine_db_url = System.get_env("CA_ENGINE_DATABASE_URL") do
   config :pki_ca_engine, PkiCaEngine.Repo,

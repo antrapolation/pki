@@ -31,6 +31,13 @@ if platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || System.get_env("
     prepare: :unnamed
 end
 
+# TenantRepo config — base connection info for dynamic per-tenant DB pools.
+config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
+  hostname: System.get_env("POSTGRES_HOST", "127.0.0.1"),
+  port: String.to_integer(System.get_env("POSTGRES_PORT", "6432")),
+  username: System.get_env("POSTGRES_USER", "postgres"),
+  password: System.get_env("POSTGRES_PASSWORD", "postgres")
+
 # In direct mode, RA engine runs in-process and needs its repos configured
 if ra_engine_db_url = System.get_env("RA_ENGINE_DATABASE_URL") do
   config :pki_ra_engine, PkiRaEngine.Repo,
