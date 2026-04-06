@@ -101,16 +101,19 @@ defmodule PkiPlatformEngine.TenantRepo do
   end
 
   defp build_config(database_name, schema_prefix) when schema_prefix in @valid_prefixes do
+    # Inherit connection details from PlatformRepo config (which has the DB URL)
+    platform_config = Application.get_env(:pki_platform_engine, PkiPlatformEngine.PlatformRepo, [])
     base = Application.get_env(:pki_platform_engine, __MODULE__, [])
 
     [
-      hostname: Keyword.get(base, :hostname, "localhost"),
-      port: Keyword.get(base, :port, 5434),
-      username: Keyword.get(base, :username, "postgres"),
-      password: Keyword.get(base, :password, "postgres"),
+      hostname: Keyword.get(base, :hostname, Keyword.get(platform_config, :hostname, "localhost")),
+      port: Keyword.get(base, :port, Keyword.get(platform_config, :port, 6432)),
+      username: Keyword.get(base, :username, Keyword.get(platform_config, :username, "postgres")),
+      password: Keyword.get(base, :password, Keyword.get(platform_config, :password, "postgres")),
       database: database_name,
       pool_size: Keyword.get(base, :pool_size, 2),
       connect_timeout: 5_000,
+      prepare: :unnamed,
       after_connect: {Postgrex, :query!, ["SET search_path TO #{schema_prefix}", []]},
       name: nil
     ]

@@ -60,7 +60,7 @@ defmodule PkiPlatformEngine.TenantProcess do
 
     [
       hostname: Keyword.get(config, :hostname, Keyword.get(platform_config, :hostname, "localhost")),
-      port: Keyword.get(config, :port, Keyword.get(platform_config, :port, 5434)),
+      port: Keyword.get(config, :port, Keyword.get(platform_config, :port, 6432)),
       username: Keyword.get(config, :username, Keyword.get(platform_config, :username, "postgres")),
       password: Keyword.get(config, :password, Keyword.get(platform_config, :password, "postgres")),
       database: database_name,
@@ -73,6 +73,7 @@ defmodule PkiPlatformEngine.TenantProcess do
       base_config
       |> Keyword.put(:name, name)
       |> Keyword.put(:after_connect, {Postgrex, :query!, ["SET search_path TO #{schema_prefix}", []]})
+      |> Keyword.put(:prepare, :unnamed)
 
     %{
       id: name,
