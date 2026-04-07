@@ -10,16 +10,13 @@ defmodule PkiCaEngine.CaInstanceManagement do
   alias PkiCaEngine.Schema.{CaInstance, IssuerKey}
 
   @doc """
-  Creates a CA instance. If attrs has parent_id, checks that the resulting
-  depth does not exceed `max_ca_depth` (default 2).
+  Creates a CA instance. If attrs has parent_id, validates the parent exists.
 
-  Returns `{:ok, ca}`, `{:error, :max_depth_exceeded}`,
-  `{:error, :parent_not_found}`, or `{:error, changeset}`.
+  Returns `{:ok, ca}`, `{:error, :parent_not_found}`, or `{:error, changeset}`.
   """
   def create_ca_instance(tenant_id, attrs, opts \\ []) do
     repo = TenantRepo.ca_repo(tenant_id)
     actor = Keyword.get(opts, :actor, %{actor_did: "system", actor_role: "system"})
-    max_depth = Keyword.get(opts, :max_ca_depth, 2)
 
     result =
       case Map.get(attrs, :parent_id) || Map.get(attrs, "parent_id") do
@@ -31,12 +28,8 @@ defmodule PkiCaEngine.CaInstanceManagement do
             nil ->
               {:error, :parent_not_found}
 
-            parent ->
-              if depth(tenant_id, parent) >= max_depth do
-                {:error, :max_depth_exceeded}
-              else
-                %CaInstance{} |> CaInstance.changeset(attrs) |> repo.insert()
-              end
+            _parent ->
+              %CaInstance{} |> CaInstance.changeset(attrs) |> repo.insert()
           end
       end
 

@@ -1220,19 +1220,35 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   # Flatten a tree of CA instances (with nested :children) into a flat list
   defp flatten_tree(instances) do
     Enum.flat_map(instances, fn instance ->
-      map = to_map(instance)
-      children = map[:children] || []
+      map = to_map(instance) |> put_role(instance)
+      children_structs = if Ecto.assoc_loaded?(instance.children), do: instance.children, else: []
+      children_maps = map[:children] || []
       parent = Map.put(map, :children, nil)
-      [parent | flatten_tree_maps(children)]
+      [parent | flatten_tree_children(children_structs, children_maps)]
     end)
   end
 
-  defp flatten_tree_maps(nil), do: []
-  defp flatten_tree_maps(children) when is_list(children) do
-    Enum.flat_map(children, fn child ->
-      grandchildren = child[:children] || []
-      [Map.put(child, :children, nil) | flatten_tree_maps(grandchildren)]
+  defp flatten_tree_children(structs, maps) when is_list(structs) and is_list(maps) do
+    Enum.zip(structs, maps)
+    |> Enum.flat_map(fn {struct, map} ->
+      map = put_role(map, struct)
+      grandchildren_structs = if Ecto.assoc_loaded?(struct.children), do: struct.children, else: []
+      grandchildren_maps = map[:children] || []
+      [Map.put(map, :children, nil) | flatten_tree_children(grandchildren_structs, grandchildren_maps)]
     end)
+  end
+
+  defp flatten_tree_children(_, _), do: []
+
+  defp put_role(map, %{parent_id: nil}), do: Map.put(map, :role, "root")
+  defp put_role(map, struct) do
+    children = if Ecto.assoc_loaded?(struct.children), do: struct.children, else: nil
+    role = cond do
+      children != nil and children == [] -> "issuing"
+      children != nil -> "intermediate"
+      true -> "issuing"
+    end
+    Map.put(map, :role, role)
   end
 
   defp changeset_errors(changeset) do

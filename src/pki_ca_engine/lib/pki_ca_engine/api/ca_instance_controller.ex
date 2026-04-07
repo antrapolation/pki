@@ -17,9 +17,6 @@ defmodule PkiCaEngine.Api.CaInstanceController do
           created_by: ca.created_by
         })
 
-      {:error, :max_depth_exceeded} ->
-        json(conn, 422, %{error: "max_depth_exceeded"})
-
       {:error, :parent_not_found} ->
         json(conn, 404, %{error: "parent_not_found"})
 

@@ -23,7 +23,7 @@ defmodule PkiPlatformEngine.Tenant do
     |> validate_required([:name, :slug, :email])
     |> validate_format(:email, ~r/@/)
     |> validate_inclusion(:status, @statuses)
-    |> validate_number(:max_ca_depth, greater_than: 0, less_than_or_equal_to: 10)
+    |> validate_number(:max_ca_depth, greater_than: 0)
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, message: "must be lowercase alphanumeric with hyphens")
     |> unique_constraint(:slug)
     |> unique_constraint(:name)

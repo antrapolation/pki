@@ -37,8 +37,15 @@ defmodule PkiCaEngine.Schema.CaInstance do
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint(:name)
     |> foreign_key_constraint(:parent_id)
+    |> freeze_parent_id()
     |> maybe_generate_id()
   end
+
+  defp freeze_parent_id(%{data: %{__meta__: %{state: :loaded}}} = changeset) do
+    delete_change(changeset, :parent_id)
+  end
+
+  defp freeze_parent_id(changeset), do: changeset
 
   defp maybe_generate_id(changeset) do
     if get_field(changeset, :id) do

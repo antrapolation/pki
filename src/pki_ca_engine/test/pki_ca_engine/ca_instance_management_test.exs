@@ -49,25 +49,13 @@ defmodule PkiCaEngine.CaInstanceManagementTest do
       assert sub.parent_id == root.id
     end
 
-    test "rejects depth exceeding max_ca_depth" do
-      root = create_root!()
-      sub = create_sub!(root)
-
-      assert {:error, :max_depth_exceeded} =
-               CaInstanceManagement.create_ca_instance(
-                 %{name: "deep-ca", status: "active", created_by: "admin", parent_id: sub.id},
-                 max_ca_depth: 2
-               )
-    end
-
-    test "allows deeper hierarchy when max_ca_depth is increased" do
+    test "allows arbitrary depth hierarchy" do
       root = create_root!()
       sub = create_sub!(root)
 
       assert {:ok, deep} =
                CaInstanceManagement.create_ca_instance(
-                 %{name: "deep-ca", status: "active", created_by: "admin", parent_id: sub.id},
-                 max_ca_depth: 3
+                 %{name: "deep-ca", status: "active", created_by: "admin", parent_id: sub.id}
                )
 
       assert deep.parent_id == sub.id

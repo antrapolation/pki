@@ -352,8 +352,8 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
               </p>
             <% end %>
             <div class="flex items-center gap-2 mt-0.5">
-              <span class={"badge badge-xs #{role_badge_class(@instance[:role] || "root")}"}>
-                {@instance[:role] || "root"}
+              <span class={"badge badge-xs #{role_badge_class(@instance[:role])}"}>
+                {@instance[:role]}
               </span>
               <span class={"badge badge-xs #{status_badge_class(@instance[:status] || "active")}"}>
                 {@instance[:status] || "active"}
