@@ -8,6 +8,7 @@ defmodule PkiValidation.Application do
     children =
       [
         PkiValidation.Repo,
+        PkiValidation.SigningKeyStore,
         PkiValidation.OcspCache,
         PkiValidation.CrlPublisher
       ] ++ http_children()
