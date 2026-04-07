@@ -29,47 +29,51 @@ defmodule PkiCaPortalWeb.AuditLogLive do
   end
 
   @impl true
-  def handle_info({:load_data, params}, socket) do
-    opts = tenant_opts(socket)
+  def handle_info({:load_data, params} = msg, socket) do
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    ca_instances =
-      case CaEngineClient.list_ca_instances(opts) do
-        {:ok, instances} -> instances
-        {:error, _} -> []
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
+
+      ca_instances =
+        case CaEngineClient.list_ca_instances(opts) do
+          {:ok, instances} -> instances
+          {:error, _} -> []
+        end
+
+      ca_id = params["ca"] || ""
+      category = params["category"] || "all"
+      action_filter = params["action"] || ""
+      actor_filter = params["actor"] || ""
+      date_from = params["date_from"] || ""
+      date_to = params["date_to"] || ""
+
+      ca_filters = if ca_id != "", do: maybe_add_filter([], :ca_instance_id, ca_id), else: []
+      all_events = load_all_events(opts, ca_filters)
+
+      events = case category do
+        "all" -> all_events
+        cat -> Enum.filter(all_events, &(&1.category == cat))
       end
 
-    ca_id = params["ca"] || ""
-    category = params["category"] || "all"
-    action_filter = params["action"] || ""
-    actor_filter = params["actor"] || ""
-    date_from = params["date_from"] || ""
-    date_to = params["date_to"] || ""
+      events = events
+        |> filter_by_actor(actor_filter)
+        |> filter_by_action(action_filter)
 
-    ca_filters = if ca_id != "", do: maybe_add_filter([], :ca_instance_id, ca_id), else: []
-    all_events = load_all_events(opts, ca_filters)
-
-    events = case category do
-      "all" -> all_events
-      cat -> Enum.filter(all_events, &(&1.category == cat))
-    end
-
-    events = events
-      |> filter_by_actor(actor_filter)
-      |> filter_by_action(action_filter)
-
-    {:noreply,
-     assign(socket,
-       events: events,
-       ca_instances: ca_instances,
-       selected_ca_instance_id: ca_id,
-       category: category,
-       filter_action: action_filter,
-       filter_actor: actor_filter,
-       filter_date_from: date_from,
-       filter_date_to: date_to,
-       loading: false,
-       page: 1
-     )}
+      {:noreply,
+       assign(socket,
+         events: events,
+         ca_instances: ca_instances,
+         selected_ca_instance_id: ca_id,
+         category: category,
+         filter_action: action_filter,
+         filter_actor: actor_filter,
+         filter_date_from: date_from,
+         filter_date_to: date_to,
+         loading: false,
+         page: 1
+       )}
+    end, retry_msg: msg)
   end
 
   @impl true

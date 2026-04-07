@@ -22,6 +22,7 @@ defmodule PkiCaPortalWeb.DashboardLive do
        active_keys: [],
        recent_ceremonies: [],
        loading: true,
+       load_retries: 0,
        page: 1,
        per_page: 10,
        setup_steps: @setup_steps,
@@ -37,36 +38,12 @@ defmodule PkiCaPortalWeb.DashboardLive do
 
     {status, keys, ceremonies, keystores, users} =
       if ca_id do
-        status =
-          case CaEngineClient.get_engine_status(ca_id, opts) do
-            {:ok, s} -> s
-            {:error, _} -> %{status: "unknown", uptime_seconds: 0, active_keys: 0}
-          end
-
-        keys =
-          case CaEngineClient.list_issuer_keys(ca_id, opts) do
-            {:ok, k} -> k
-            {:error, _} -> []
-          end
-
-        ceremonies =
-          case CaEngineClient.list_ceremonies(ca_id, opts) do
-            {:ok, c} -> c
-            {:error, _} -> []
-          end
-
-        keystores =
-          case CaEngineClient.list_keystores(ca_id, opts) do
-            {:ok, k} -> k
-            {:error, _} -> []
-          end
-
-        users =
-          case CaEngineClient.list_portal_users(opts) do
-            {:ok, u} -> u
-            {:error, _} -> []
-          end
-
+        status = safe_call(fn -> CaEngineClient.get_engine_status(ca_id, opts) end,
+          %{status: "unknown", uptime_seconds: 0, active_keys: 0})
+        keys = safe_call(fn -> CaEngineClient.list_issuer_keys(ca_id, opts) end, [])
+        ceremonies = safe_call(fn -> CaEngineClient.list_ceremonies(ca_id, opts) end, [])
+        keystores = safe_call(fn -> CaEngineClient.list_keystores(ca_id, opts) end, [])
+        users = safe_call(fn -> CaEngineClient.list_portal_users(opts) end, [])
         {status, keys, ceremonies, keystores, users}
       else
         {%{status: "no CA instance", uptime_seconds: 0, active_keys: 0}, [], [], [], []}
@@ -78,21 +55,36 @@ defmodule PkiCaPortalWeb.DashboardLive do
     completed_ceremonies = Enum.filter(ceremonies, fn c -> c[:status] == "completed" end)
 
     setup_status = %{
-      has_users: length(non_admin_users) > 0,
-      has_hsm: length(hsm_keystores) > 0,
-      has_keystores: length(keystores) > 0,
-      has_ceremony: length(completed_ceremonies) > 0,
-      has_active_keys: length(active_keys) > 0
+      has_users: non_admin_users != [],
+      has_hsm: hsm_keystores != [],
+      has_keystores: keystores != [],
+      has_ceremony: completed_ceremonies != [],
+      has_active_keys: active_keys != []
     }
 
-    {:noreply,
-     assign(socket,
-       engine_status: status,
-       active_keys: keys,
-       recent_ceremonies: ceremonies,
-       setup_status: setup_status,
-       loading: false
-     )}
+    retries = socket.assigns[:load_retries] || 0
+    all_empty = keys == [] && ceremonies == [] && keystores == [] && status.status == "unknown"
+
+    socket =
+      if all_empty && ca_id && retries < 3 do
+        Process.send_after(self(), :load_data, 2_000)
+        assign(socket, load_retries: retries + 1)
+      else
+        assign(socket,
+          engine_status: status,
+          active_keys: keys,
+          recent_ceremonies: ceremonies,
+          setup_status: setup_status,
+          loading: false,
+          load_retries: 0
+        )
+      end
+
+    {:noreply, socket}
+  end
+
+  defp safe_call(fun, fallback) do
+    PkiCaPortalWeb.SafeEngine.safe_call(fun, fallback)
   end
 
   @impl true

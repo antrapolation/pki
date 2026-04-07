@@ -83,50 +83,54 @@ defmodule PkiRaPortalWeb.CertProfilesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    {profiles, socket} = case RaEngineClient.list_cert_profiles(opts) do
-      {:ok, p} -> {p, socket}
-      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
-    end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
 
-    ra_instances =
-      case RaEngineClient.list_ra_instances(opts) do
-        {:ok, instances} -> instances
-        {:error, _} -> []
+      {profiles, socket} = case RaEngineClient.list_cert_profiles(opts) do
+        {:ok, p} -> {p, socket}
+        {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
       end
 
-    issuer_keys =
-      case RaEngineClient.available_issuer_keys(opts) do
-        {:ok, keys} -> keys
-        {:error, _} -> []
-      end
+      ra_instances =
+        case RaEngineClient.list_ra_instances(opts) do
+          {:ok, instances} -> instances
+          {:error, _} -> []
+        end
 
-    connections =
-      case RaEngineClient.list_ca_connections([], opts) do
-        {:ok, conns} -> conns
-        {:error, _} -> []
-      end
+      issuer_keys =
+        case RaEngineClient.available_issuer_keys(opts) do
+          {:ok, keys} -> keys
+          {:error, _} -> []
+        end
 
-    # Filter issuer keys to only those with an active CA connection
-    connected_key_ids = MapSet.new(connections, & &1.issuer_key_id)
+      connections =
+        case RaEngineClient.list_ca_connections([], opts) do
+          {:ok, conns} -> conns
+          {:error, _} -> []
+        end
 
-    connected_keys =
-      Enum.filter(issuer_keys, fn key ->
-        key_id = Map.get(key, :id) || Map.get(key, "id")
-        MapSet.member?(connected_key_ids, key_id)
-      end)
+      # Filter issuer keys to only those with an active CA connection
+      connected_key_ids = MapSet.new(connections, & &1.issuer_key_id)
 
-    {:noreply,
-     socket
-     |> assign(
-       profiles: profiles,
-       ra_instances: ra_instances,
-       issuer_keys: issuer_keys,
-       connected_keys: connected_keys,
-       loading: false
-     )
-     |> apply_pagination()}
+      connected_keys =
+        Enum.filter(issuer_keys, fn key ->
+          key_id = Map.get(key, :id) || Map.get(key, "id")
+          MapSet.member?(connected_key_ids, key_id)
+        end)
+
+      {:noreply,
+       socket
+       |> assign(
+         profiles: profiles,
+         ra_instances: ra_instances,
+         issuer_keys: issuer_keys,
+         connected_keys: connected_keys,
+         loading: false
+       )
+       |> apply_pagination()}
+    end, retry_msg: :load_data)
   end
 
   @impl true

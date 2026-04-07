@@ -40,37 +40,41 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
   end
 
   @impl true
-  def handle_info({:load_data, url_ca_id}, socket) do
-    user_ca_id = socket.assigns.current_user[:ca_instance_id]
-    opts = tenant_opts(socket)
+  def handle_info({:load_data, url_ca_id} = msg, socket) do
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    ca_instances =
-      case CaEngineClient.list_ca_instances(opts) do
-        {:ok, instances} -> instances
-        {:error, _} -> []
-      end
+    safe_load(socket, fn ->
+      user_ca_id = socket.assigns.current_user[:ca_instance_id]
+      opts = tenant_opts(socket)
 
-    effective_ca_id =
-      cond do
-        url_ca_id && url_ca_id != "" -> url_ca_id
-        user_ca_id -> user_ca_id
-        true ->
-          case ca_instances do
-            [first | _] -> first[:id]
-            [] -> nil
-          end
-      end
+      ca_instances =
+        case CaEngineClient.list_ca_instances(opts) do
+          {:ok, instances} -> instances
+          {:error, _} -> []
+        end
 
-    issuer_keys = load_keys(effective_ca_id, opts)
+      effective_ca_id =
+        cond do
+          url_ca_id && url_ca_id != "" -> url_ca_id
+          user_ca_id -> user_ca_id
+          true ->
+            case ca_instances do
+              [first | _] -> first[:id]
+              [] -> nil
+            end
+        end
 
-    {:noreply,
-     assign(socket,
-       ca_instances: ca_instances,
-       issuer_keys: issuer_keys,
-       effective_ca_id: effective_ca_id,
-       selected_ca_id: effective_ca_id || "",
-       loading: false
-     )}
+      issuer_keys = load_keys(effective_ca_id, opts)
+
+      {:noreply,
+       assign(socket,
+         ca_instances: ca_instances,
+         issuer_keys: issuer_keys,
+         effective_ca_id: effective_ca_id,
+         selected_ca_id: effective_ca_id || "",
+         loading: false
+       )}
+    end, retry_msg: msg)
   end
 
   # ---------------------------------------------------------------------------

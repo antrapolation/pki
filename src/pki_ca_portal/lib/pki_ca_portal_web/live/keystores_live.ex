@@ -31,36 +31,40 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   end
 
   @impl true
-  def handle_info({:load_data, url_ca_id}, socket) do
-    opts = tenant_opts(socket)
+  def handle_info({:load_data, url_ca_id} = msg, socket) do
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    ca_instances =
-      case CaEngineClient.list_ca_instances(opts) do
-        {:ok, instances} -> instances
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
+
+      ca_instances =
+        case CaEngineClient.list_ca_instances(opts) do
+          {:ok, instances} -> instances
+          {:error, _} -> []
+        end
+
+      ca_id = if url_ca_id && url_ca_id != "", do: url_ca_id, else: nil
+
+      keystores = case CaEngineClient.list_keystores(ca_id, opts) do
+        {:ok, ks} -> ks
         {:error, _} -> []
       end
 
-    ca_id = if url_ca_id && url_ca_id != "", do: url_ca_id, else: nil
+      hsm_devices =
+        case CaEngineClient.list_hsm_devices(opts) do
+          {:ok, devices} -> Enum.filter(devices, &(&1[:status] == "active"))
+          {:error, _} -> []
+        end
 
-    keystores = case CaEngineClient.list_keystores(ca_id, opts) do
-      {:ok, ks} -> ks
-      {:error, _} -> []
-    end
-
-    hsm_devices =
-      case CaEngineClient.list_hsm_devices(opts) do
-        {:ok, devices} -> Enum.filter(devices, &(&1[:status] == "active"))
-        {:error, _} -> []
-      end
-
-    {:noreply,
-     assign(socket,
-       keystores: keystores,
-       ca_instances: ca_instances,
-       hsm_devices: hsm_devices,
-       selected_ca_instance_id: url_ca_id || "",
-       loading: false
-     )}
+      {:noreply,
+       assign(socket,
+         keystores: keystores,
+         ca_instances: ca_instances,
+         hsm_devices: hsm_devices,
+         selected_ca_instance_id: url_ca_id || "",
+         loading: false
+       )}
+    end, retry_msg: msg)
   end
 
   @impl true

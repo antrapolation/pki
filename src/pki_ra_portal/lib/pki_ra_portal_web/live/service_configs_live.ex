@@ -28,12 +28,16 @@ defmodule PkiRaPortalWeb.ServiceConfigsLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    {configs, socket} = case RaEngineClient.list_service_configs(tenant_opts(socket)) do
-      {:ok, c} -> {c, socket}
-      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
-    end
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    {:noreply, socket |> assign(configs: configs) |> apply_pagination()}
+    safe_load(socket, fn ->
+      {configs, socket} = case RaEngineClient.list_service_configs(tenant_opts(socket)) do
+        {:ok, c} -> {c, socket}
+        {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
+      end
+
+      {:noreply, socket |> assign(configs: configs) |> apply_pagination()}
+    end, retry_msg: :load_data)
   end
 
   @impl true

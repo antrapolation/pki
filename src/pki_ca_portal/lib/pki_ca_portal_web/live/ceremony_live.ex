@@ -81,44 +81,48 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   end
 
   @impl true
-  def handle_info({:load_data, url_ca_id}, socket) do
-    user_ca_id = socket.assigns.current_user[:ca_instance_id]
-    opts = tenant_opts(socket)
+  def handle_info({:load_data, url_ca_id} = msg, socket) do
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    ca_instances =
-      case CaEngineClient.list_ca_instances(opts) do
-        {:ok, instances} -> instances
-        {:error, _} -> []
-      end
+    safe_load(socket, fn ->
+      user_ca_id = socket.assigns.current_user[:ca_instance_id]
+      opts = tenant_opts(socket)
 
-    # Priority: URL param > user's assigned CA > first available
-    effective_ca_id =
-      cond do
-        url_ca_id && url_ca_id != "" -> url_ca_id
-        user_ca_id -> user_ca_id
-        true ->
-          case ca_instances do
-            [first | _] -> first[:id]
-            [] -> nil
-          end
-      end
+      ca_instances =
+        case CaEngineClient.list_ca_instances(opts) do
+          {:ok, instances} -> instances
+          {:error, _} -> []
+        end
 
-    {ceremonies, keystores} = load_for_ca(effective_ca_id, opts)
+      # Priority: URL param > user's assigned CA > first available
+      effective_ca_id =
+        cond do
+          url_ca_id && url_ca_id != "" -> url_ca_id
+          user_ca_id -> user_ca_id
+          true ->
+            case ca_instances do
+              [first | _] -> first[:id]
+              [] -> nil
+            end
+        end
 
-    key_managers = load_key_managers(opts)
-    auditors = load_auditors(opts)
+      {ceremonies, keystores} = load_for_ca(effective_ca_id, opts)
 
-    {:noreply,
-     assign(socket,
-       ceremonies: ceremonies,
-       keystores: keystores,
-       ca_instances: ca_instances,
-       effective_ca_id: effective_ca_id,
-       selected_ca_id: effective_ca_id || "",
-       key_managers: key_managers,
-       auditors: auditors,
-       loading: false
-     )}
+      key_managers = load_key_managers(opts)
+      auditors = load_auditors(opts)
+
+      {:noreply,
+       assign(socket,
+         ceremonies: ceremonies,
+         keystores: keystores,
+         ca_instances: ca_instances,
+         effective_ca_id: effective_ca_id,
+         selected_ca_id: effective_ca_id || "",
+         key_managers: key_managers,
+         auditors: auditors,
+         loading: false
+       )}
+    end, retry_msg: msg)
   end
 
   def handle_info(:wipe_private_key, socket) do

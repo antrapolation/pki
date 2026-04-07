@@ -28,6 +28,11 @@ defmodule PkiCaPortalWeb.ProfileLive do
       {:ok, _updated} ->
         audit_log(socket, "profile_updated", "user_profile", user_id, %{display_name: display_name, email: email})
 
+        # Update session store so current_user reflects the change immediately
+        if sid = socket.assigns[:session_id] do
+          PkiCaPortal.SessionStore.update_profile(sid, %{display_name: display_name, email: email})
+        end
+
         {:noreply,
          socket
          |> put_flash(:info, "Profile updated successfully.")

@@ -25,10 +25,14 @@ defmodule PkiRaPortalWeb.CertificatesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    {:noreply,
-     socket
-     |> assign(loading: false)
-     |> load_certificates()}
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
+
+    safe_load(socket, fn ->
+      {:noreply,
+       socket
+       |> assign(loading: false)
+       |> load_certificates()}
+    end, retry_msg: :load_data)
   end
 
   @impl true

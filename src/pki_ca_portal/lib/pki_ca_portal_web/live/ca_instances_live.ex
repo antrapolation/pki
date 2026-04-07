@@ -16,6 +16,7 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
        page_title: "CA Instances",
        instances: [],
        loading: true,
+       load_retries: 0,
        show_create_modal: false,
        create_name: "",
        create_parent_id: "",
@@ -27,8 +28,20 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    instances = fetch_instances(tenant_opts(socket))
-    {:noreply, assign(socket, instances: instances, loading: false)}
+    opts = tenant_opts(socket)
+    retries = socket.assigns[:load_retries] || 0
+
+    case safe_fetch_instances(opts) do
+      {:ok, instances} ->
+        {:noreply, assign(socket, instances: instances, loading: false, load_retries: 0)}
+
+      {:error, _reason} when retries < 3 ->
+        Process.send_after(self(), :load_data, 2_000)
+        {:noreply, assign(socket, load_retries: retries + 1)}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, instances: [], loading: false, load_retries: 0)}
+    end
   end
 
   @impl true
@@ -161,6 +174,19 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
       {:ok, instances} -> instances
       {:error, _} -> []
     end
+  end
+
+  defp safe_fetch_instances(opts) do
+    case CaEngineClient.list_ca_instances(opts) do
+      {:ok, instances} -> {:ok, instances}
+      {:error, reason} ->
+        Logger.warning("[CaInstances] engine call returned error: #{inspect(reason)}")
+        {:error, reason}
+    end
+  rescue
+    e ->
+      Logger.warning("[CaInstances] engine call crashed: #{Exception.message(e)}")
+      {:error, e}
   end
 
   defp tenant_opts(socket) do

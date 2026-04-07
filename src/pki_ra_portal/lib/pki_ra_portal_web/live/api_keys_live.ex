@@ -32,41 +32,45 @@ defmodule PkiRaPortalWeb.ApiKeysLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    {keys, socket} = case RaEngineClient.list_api_keys([], opts) do
-      {:ok, k} -> {k, socket}
-      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
-    end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
 
-    ra_instances =
-      case RaEngineClient.list_ra_instances(opts) do
-        {:ok, instances} -> instances
-        {:error, _} -> []
+      {keys, socket} = case RaEngineClient.list_api_keys([], opts) do
+        {:ok, k} -> {k, socket}
+        {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
       end
 
-    ra_users =
-      case RaEngineClient.list_users(opts) do
-        {:ok, users} -> Enum.filter(users, fn u -> (u[:status] || u["status"]) == "active" end)
-        {:error, _} -> []
-      end
+      ra_instances =
+        case RaEngineClient.list_ra_instances(opts) do
+          {:ok, instances} -> instances
+          {:error, _} -> []
+        end
 
-    cert_profiles =
-      case RaEngineClient.list_cert_profiles(opts) do
-        {:ok, p} -> Enum.filter(p, fn p -> (p[:status] || "active") == "active" end)
-        {:error, _} -> []
-      end
+      ra_users =
+        case RaEngineClient.list_users(opts) do
+          {:ok, users} -> Enum.filter(users, fn u -> (u[:status] || u["status"]) == "active" end)
+          {:error, _} -> []
+        end
 
-    {:noreply,
-     socket
-     |> assign(
-       api_keys: Enum.map(keys, &normalize_key/1),
-       ra_instances: ra_instances,
-       ra_users: ra_users,
-       cert_profiles: cert_profiles,
-       loading: false
-     )
-     |> apply_pagination()}
+      cert_profiles =
+        case RaEngineClient.list_cert_profiles(opts) do
+          {:ok, p} -> Enum.filter(p, fn p -> (p[:status] || "active") == "active" end)
+          {:error, _} -> []
+        end
+
+      {:noreply,
+       socket
+       |> assign(
+         api_keys: Enum.map(keys, &normalize_key/1),
+         ra_instances: ra_instances,
+         ra_users: ra_users,
+         cert_profiles: cert_profiles,
+         loading: false
+       )
+       |> apply_pagination()}
+    end, retry_msg: :load_data)
   end
 
   @impl true

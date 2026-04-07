@@ -34,6 +34,11 @@ defmodule PkiRaPortalWeb.ProfileLive do
           portal: "ra",
           details: %{display_name: display_name, email: email}
         })
+        # Update session store so current_user reflects the change immediately
+        if sid = socket.assigns[:session_id] do
+          PkiRaPortal.SessionStore.update_profile(sid, %{display_name: display_name, email: email})
+        end
+
         {:noreply,
          socket
          |> put_flash(:info, "Profile updated successfully.")

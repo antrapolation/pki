@@ -95,26 +95,58 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
 
   @impl true
   def update_user_profile(user_id, attrs, opts \\ []) do
-    tenant_id = opts[:tenant_id]
+    # Try platform DB first (unified identity store), fall back to tenant DB
+    alias PkiPlatformEngine.{PlatformRepo, UserProfile}
 
-    case PkiRaEngine.UserManagement.update_user_profile(tenant_id, user_id, attrs) do
-      {:ok, user} -> {:ok, to_map(user)}
-      {:error, :not_found} = err -> err
-      {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
-      {:error, _} = err -> err
+    case PlatformRepo.get(UserProfile, user_id) do
+      nil ->
+        tenant_id = opts[:tenant_id]
+        case PkiRaEngine.UserManagement.update_user_profile(tenant_id, user_id, attrs) do
+          {:ok, user} -> {:ok, to_map(user)}
+          {:error, :not_found} = err -> err
+          {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
+          {:error, _} = err -> err
+        end
+
+      user ->
+        user
+        |> UserProfile.changeset(Map.take(attrs, [:display_name, :email, "display_name", "email"]))
+        |> PlatformRepo.update()
+        |> case do
+          {:ok, updated} -> {:ok, to_map(updated)}
+          {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
+        end
     end
   end
 
   @impl true
   def verify_and_change_password(user_id, current_password, new_password, opts \\ []) do
-    tenant_id = opts[:tenant_id]
+    # Try platform DB first (unified identity store), fall back to tenant DB
+    alias PkiPlatformEngine.{PlatformRepo, UserProfile}
 
-    case PkiRaEngine.UserManagement.verify_and_change_password(tenant_id, user_id, current_password, new_password) do
-      {:ok, user} -> {:ok, to_map(user)}
-      {:error, :not_found} = err -> err
-      {:error, :invalid_current_password} = err -> err
-      {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
-      {:error, _} = err -> err
+    case PlatformRepo.get(UserProfile, user_id) do
+      nil ->
+        tenant_id = opts[:tenant_id]
+        case PkiRaEngine.UserManagement.verify_and_change_password(tenant_id, user_id, current_password, new_password) do
+          {:ok, user} -> {:ok, to_map(user)}
+          {:error, :not_found} = err -> err
+          {:error, :invalid_current_password} = err -> err
+          {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
+          {:error, _} = err -> err
+        end
+
+      user ->
+        if Argon2.verify_pass(current_password, user.password_hash) do
+          user
+          |> UserProfile.password_changeset(%{password: new_password, must_change_password: false})
+          |> PlatformRepo.update()
+          |> case do
+            {:ok, updated} -> {:ok, to_map(updated)}
+            {:error, %Ecto.Changeset{} = cs} -> {:error, format_changeset_errors(cs)}
+          end
+        else
+          {:error, :invalid_current_password}
+        end
     end
   end
 

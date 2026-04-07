@@ -75,6 +75,21 @@ defmodule PkiRaPortal.SessionStore do
     end
   end
 
+  def update_profile(session_id, attrs) do
+    case :ets.lookup(@table, session_id) do
+      [{^session_id, record}] ->
+        updated = record
+          |> Map.put(:display_name, attrs[:display_name] || attrs["display_name"] || record.display_name)
+          |> Map.put(:email, attrs[:email] || attrs["email"] || record.email)
+          |> Map.put(:last_active_at, DateTime.utc_now())
+        :ets.insert(@table, {session_id, updated})
+        :ok
+
+      [] ->
+        {:error, :not_found}
+    end
+  end
+
   def delete(session_id) do
     case :ets.lookup(@table, session_id) do
       [{^session_id, record}] ->

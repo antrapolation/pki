@@ -45,61 +45,65 @@ defmodule PkiCaPortalWeb.CertificatesLive do
   end
 
   @impl true
-  def handle_info({:load_data, params}, socket) do
-    opts = tenant_opts(socket)
-    user_ca_id = socket.assigns.current_user[:ca_instance_id]
+  def handle_info({:load_data, params} = msg, socket) do
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    ca_instances = case CaEngineClient.list_ca_instances(opts) do
-      {:ok, instances} -> instances
-      _ -> []
-    end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
+      user_ca_id = socket.assigns.current_user[:ca_instance_id]
 
-    effective_ca_id =
-      cond do
-        params["ca"] && params["ca"] != "" -> params["ca"]
-        user_ca_id -> user_ca_id
-        true ->
-          case ca_instances do
-            [first | _] -> first[:id]
-            _ -> nil
-          end
-      end
-
-    issuer_keys = if effective_ca_id do
-      case CaEngineClient.list_issuer_keys(effective_ca_id, opts) do
-        {:ok, keys} -> keys
+      ca_instances = case CaEngineClient.list_ca_instances(opts) do
+        {:ok, instances} -> instances
         _ -> []
       end
-    else
-      []
-    end
 
-    url_key_id = params["key"] || ""
-    url_status = params["status"] || "all"
+      effective_ca_id =
+        cond do
+          params["ca"] && params["ca"] != "" -> params["ca"]
+          user_ca_id -> user_ca_id
+          true ->
+            case ca_instances do
+              [first | _] -> first[:id]
+              _ -> nil
+            end
+        end
 
-    key_label = if url_key_id != "" do
-      case Enum.find(issuer_keys, fn k -> k[:id] == url_key_id end) do
-        nil -> ""
-        key -> "#{key[:key_alias]} (#{key[:algorithm]})"
+      issuer_keys = if effective_ca_id do
+        case CaEngineClient.list_issuer_keys(effective_ca_id, opts) do
+          {:ok, keys} -> keys
+          _ -> []
+        end
+      else
+        []
       end
-    else
-      ""
-    end
 
-    {:noreply,
-     socket
-     |> assign(
-       ca_instances: ca_instances,
-       selected_ca_id: effective_ca_id || "",
-       issuer_keys: issuer_keys,
-       selected_issuer_key_id: url_key_id,
-       selected_key_label: key_label,
-       status_filter: url_status,
-       selected_cert: nil,
-       loading: false,
-       page: 1
+      url_key_id = params["key"] || ""
+      url_status = params["status"] || "all"
+
+      key_label = if url_key_id != "" do
+        case Enum.find(issuer_keys, fn k -> k[:id] == url_key_id end) do
+          nil -> ""
+          key -> "#{key[:key_alias]} (#{key[:algorithm]})"
+        end
+      else
+        ""
+      end
+
+      {:noreply,
+       socket
+       |> assign(
+         ca_instances: ca_instances,
+         selected_ca_id: effective_ca_id || "",
+         issuer_keys: issuer_keys,
+         selected_issuer_key_id: url_key_id,
+         selected_key_label: key_label,
+         status_filter: url_status,
+         selected_cert: nil,
+         loading: false,
+         page: 1
      )
      |> load_certificates()}
+    end, retry_msg: msg)
   end
 
   @impl true

@@ -23,15 +23,19 @@ defmodule PkiRaPortalWeb.AuditLogLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    events =
-      case RaEngineClient.list_audit_events([], opts) do
-        {:ok, events} -> events
-        {:error, _} -> []
-      end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
 
-    {:noreply, assign(socket, events: events, loading: false)}
+      events =
+        case RaEngineClient.list_audit_events([], opts) do
+          {:ok, events} -> events
+          {:error, _} -> []
+        end
+
+      {:noreply, assign(socket, events: events, loading: false)}
+    end, retry_msg: :load_data)
   end
 
   @impl true

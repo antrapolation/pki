@@ -30,24 +30,28 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
 
   @impl true
   def handle_info(:load_ceremonies, socket) do
-    user = socket.assigns.current_user
-    opts = tenant_opts(socket)
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    ceremonies =
-      case CaEngineClient.list_my_witness_ceremonies(user[:id], opts) do
-        {:ok, list} -> list
-        {:error, _} -> []
+    safe_load(socket, fn ->
+      user = socket.assigns.current_user
+      opts = tenant_opts(socket)
+
+      ceremonies =
+        case CaEngineClient.list_my_witness_ceremonies(user[:id], opts) do
+          {:ok, list} -> list
+          {:error, _} -> []
+        end
+
+      # Subscribe to PubSub for each ceremony
+      if connected?(socket) do
+        Enum.each(ceremonies, fn c ->
+          ceremony_id = c[:id] || c.id
+          Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{ceremony_id}")
+        end)
       end
 
-    # Subscribe to PubSub for each ceremony
-    if connected?(socket) do
-      Enum.each(ceremonies, fn c ->
-        ceremony_id = c[:id] || c.id
-        Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{ceremony_id}")
-      end)
-    end
-
-    {:noreply, assign(socket, ceremonies: ceremonies, loading: false)}
+      {:noreply, assign(socket, ceremonies: ceremonies, loading: false)}
+    end, retry_msg: :load_ceremonies)
   end
 
   # ---------------------------------------------------------------------------

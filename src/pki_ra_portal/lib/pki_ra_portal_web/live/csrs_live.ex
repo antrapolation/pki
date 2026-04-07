@@ -29,27 +29,31 @@ defmodule PkiRaPortalWeb.CsrsLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    csrs = case RaEngineClient.list_csrs([], opts) do
-      {:ok, c} -> c
-      {:error, _} -> []
-    end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
 
-    ra_instances =
-      case RaEngineClient.list_ra_instances(opts) do
-        {:ok, instances} -> instances
+      csrs = case RaEngineClient.list_csrs([], opts) do
+        {:ok, c} -> c
         {:error, _} -> []
       end
 
-    {:noreply,
-     socket
-     |> assign(
-       csrs: csrs,
-       ra_instances: ra_instances,
-       loading: false
-     )
-     |> apply_pagination()}
+      ra_instances =
+        case RaEngineClient.list_ra_instances(opts) do
+          {:ok, instances} -> instances
+          {:error, _} -> []
+        end
+
+      {:noreply,
+       socket
+       |> assign(
+         csrs: csrs,
+         ra_instances: ra_instances,
+         loading: false
+       )
+       |> apply_pagination()}
+    end, retry_msg: :load_data)
   end
 
   @impl true

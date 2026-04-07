@@ -21,12 +21,16 @@ defmodule PkiCaPortalWeb.HsmDevicesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    devices = case CaEngineClient.list_hsm_devices(tenant_opts(socket)) do
-      {:ok, d} -> d
-      {:error, _} -> []
-    end
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    {:noreply, assign(socket, devices: devices, loading: false)}
+    safe_load(socket, fn ->
+      devices = case CaEngineClient.list_hsm_devices(tenant_opts(socket)) do
+        {:ok, d} -> d
+        {:error, _} -> []
+      end
+
+      {:noreply, assign(socket, devices: devices, loading: false)}
+    end, retry_msg: :load_data)
   end
 
   @impl true

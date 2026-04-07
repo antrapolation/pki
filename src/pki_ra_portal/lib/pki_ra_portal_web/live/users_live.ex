@@ -23,18 +23,22 @@ defmodule PkiRaPortalWeb.UsersLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = actor_opts(socket)
-    users = case RaEngineClient.list_portal_users(opts) do
-      {:ok, u} -> u
-      {:error, _} -> []
-    end
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    {:noreply,
-     assign(socket,
-       users: users,
-       filtered_users: users,
-       loading: false
-     )}
+    safe_load(socket, fn ->
+      opts = actor_opts(socket)
+      users = case RaEngineClient.list_portal_users(opts) do
+        {:ok, u} -> u
+        {:error, _} -> []
+      end
+
+      {:noreply,
+       assign(socket,
+         users: users,
+         filtered_users: users,
+         loading: false
+       )}
+    end, retry_msg: :load_data)
   end
 
   @impl true

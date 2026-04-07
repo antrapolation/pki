@@ -32,11 +32,19 @@ if platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || System.get_env("
 end
 
 # TenantRepo config — base connection info for dynamic per-tenant DB pools.
+# Derive defaults from PLATFORM_DATABASE_URL so tenant repos connect to the same server.
+tenant_base =
+  if platform_db_url do
+    Ecto.Repo.Supervisor.parse_url(platform_db_url)
+  else
+    []
+  end
+
 config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
-  hostname: System.get_env("POSTGRES_HOST", "127.0.0.1"),
-  port: String.to_integer(System.get_env("POSTGRES_PORT", "6432")),
-  username: System.get_env("POSTGRES_USER", "postgres"),
-  password: System.get_env("POSTGRES_PASSWORD", "postgres")
+  hostname: System.get_env("POSTGRES_HOST", Keyword.get(tenant_base, :hostname, "127.0.0.1")),
+  port: String.to_integer(System.get_env("POSTGRES_PORT", to_string(Keyword.get(tenant_base, :port, 5432)))),
+  username: System.get_env("POSTGRES_USER", Keyword.get(tenant_base, :username, "postgres")),
+  password: System.get_env("POSTGRES_PASSWORD", Keyword.get(tenant_base, :password, "postgres"))
 
 if cookie_secure = System.get_env("COOKIE_SECURE") do
   config :pki_ca_portal, cookie_secure: cookie_secure == "true"

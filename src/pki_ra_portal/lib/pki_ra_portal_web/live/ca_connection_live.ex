@@ -22,37 +22,41 @@ defmodule PkiRaPortalWeb.CaConnectionLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    connections =
-      case RaEngineClient.list_ca_connections([], opts) do
-        {:ok, conns} -> conns
-        {:error, _} -> []
-      end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
 
-    available_keys =
-      case RaEngineClient.available_issuer_keys(opts) do
-        {:ok, keys} -> keys
-        {:error, _} -> []
-      end
+      connections =
+        case RaEngineClient.list_ca_connections([], opts) do
+          {:ok, conns} -> conns
+          {:error, _} -> []
+        end
 
-    # Filter out already-connected keys
-    connected_key_ids = MapSet.new(connections, & &1.issuer_key_id)
+      available_keys =
+        case RaEngineClient.available_issuer_keys(opts) do
+          {:ok, keys} -> keys
+          {:error, _} -> []
+        end
 
-    filtered_keys =
-      Enum.reject(available_keys, fn key ->
-        key_id = Map.get(key, :id) || Map.get(key, "id")
-        MapSet.member?(connected_key_ids, key_id)
-      end)
+      # Filter out already-connected keys
+      connected_key_ids = MapSet.new(connections, & &1.issuer_key_id)
 
-    {:noreply,
-     assign(socket,
-       connections: connections,
-       available_keys: filtered_keys,
-       loading: false,
-       connecting_key_id: nil,
-       disconnecting_id: nil
-     )}
+      filtered_keys =
+        Enum.reject(available_keys, fn key ->
+          key_id = Map.get(key, :id) || Map.get(key, "id")
+          MapSet.member?(connected_key_ids, key_id)
+        end)
+
+      {:noreply,
+       assign(socket,
+         connections: connections,
+         available_keys: filtered_keys,
+         loading: false,
+         connecting_key_id: nil,
+         disconnecting_id: nil
+       )}
+    end, retry_msg: :load_data)
   end
 
   @impl true

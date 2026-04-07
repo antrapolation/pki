@@ -105,9 +105,12 @@ defmodule PkiPlatformEngine.TenantRepo do
     platform_config = Application.get_env(:pki_platform_engine, PkiPlatformEngine.PlatformRepo, [])
     base = Application.get_env(:pki_platform_engine, __MODULE__, [])
 
+    # Tenant repos connect directly to PostgreSQL (port 5432), bypassing PgBouncer.
+    # PgBouncer's transaction-mode pooling runs DISCARD ALL between transactions,
+    # which resets the search_path we set via after_connect.
     [
       hostname: Keyword.get(base, :hostname, Keyword.get(platform_config, :hostname, "localhost")),
-      port: Keyword.get(base, :port, Keyword.get(platform_config, :port, 6432)),
+      port: Keyword.get(base, :direct_port, 5432),
       username: Keyword.get(base, :username, Keyword.get(platform_config, :username, "postgres")),
       password: Keyword.get(base, :password, Keyword.get(platform_config, :password, "postgres")),
       database: database_name,

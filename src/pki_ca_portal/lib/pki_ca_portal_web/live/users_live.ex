@@ -28,23 +28,27 @@ defmodule PkiCaPortalWeb.UsersLive do
   end
 
   @impl true
-  def handle_info({:load_data, url_role}, socket) do
-    opts = actor_opts(socket)
-    users = case CaEngineClient.list_portal_users(opts) do
-      {:ok, u} -> u
-      {:error, _} -> []
-    end
+  def handle_info({:load_data, url_role} = msg, socket) do
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    role = url_role || "all"
-    filtered = filter_users(users, role)
+    safe_load(socket, fn ->
+      opts = actor_opts(socket)
+      users = case CaEngineClient.list_portal_users(opts) do
+        {:ok, u} -> u
+        {:error, _} -> []
+      end
 
-    {:noreply,
-     assign(socket,
-       users: users,
-       filtered_users: filtered,
-       role_filter: role,
-       loading: false
-     )}
+      role = url_role || "all"
+      filtered = filter_users(users, role)
+
+      {:noreply,
+       assign(socket,
+         users: users,
+         filtered_users: filtered,
+         role_filter: role,
+         loading: false
+       )}
+    end, retry_msg: msg)
   end
 
   @impl true

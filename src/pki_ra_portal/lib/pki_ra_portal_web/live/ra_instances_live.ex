@@ -24,23 +24,27 @@ defmodule PkiRaPortalWeb.RaInstancesLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
-    {instances, socket} = case RaEngineClient.list_ra_instances(opts) do
-      {:ok, i} -> {i, socket}
-      {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
-    end
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    profiles = case RaEngineClient.list_cert_profiles(opts) do
-      {:ok, p} -> p
-      {:error, _} -> []
-    end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
+      {instances, socket} = case RaEngineClient.list_ra_instances(opts) do
+        {:ok, i} -> {i, socket}
+        {:error, _} -> {[], put_flash(socket, :error, "Failed to load data. Try refreshing.")}
+      end
 
-    api_keys = case RaEngineClient.list_api_keys([], opts) do
-      {:ok, k} -> k
-      {:error, _} -> []
-    end
+      profiles = case RaEngineClient.list_cert_profiles(opts) do
+        {:ok, p} -> p
+        {:error, _} -> []
+      end
 
-    {:noreply, assign(socket, instances: instances, profiles: profiles, api_keys: api_keys, loading: false)}
+      api_keys = case RaEngineClient.list_api_keys([], opts) do
+        {:ok, k} -> k
+        {:error, _} -> []
+      end
+
+      {:noreply, assign(socket, instances: instances, profiles: profiles, api_keys: api_keys, loading: false)}
+    end, retry_msg: :load_data)
   end
 
   @impl true

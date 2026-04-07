@@ -116,68 +116,72 @@ defmodule PkiRaPortalWeb.SetupWizardLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    opts = tenant_opts(socket)
+    import PkiRaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    connections =
-      case RaEngineClient.list_ca_connections([], opts) do
-        {:ok, c} -> c
-        {:error, _} -> []
-      end
+    safe_load(socket, fn ->
+      opts = tenant_opts(socket)
 
-    available =
-      case RaEngineClient.available_issuer_keys(opts) do
-        {:ok, k} -> k
-        {:error, _} -> []
-      end
+      connections =
+        case RaEngineClient.list_ca_connections([], opts) do
+          {:ok, c} -> c
+          {:error, _} -> []
+        end
 
-    connected_ids = MapSet.new(connections, & &1.issuer_key_id)
+      available =
+        case RaEngineClient.available_issuer_keys(opts) do
+          {:ok, k} -> k
+          {:error, _} -> []
+        end
 
-    filtered =
-      Enum.reject(available, fn key ->
-        kid = Map.get(key, :id) || Map.get(key, "id")
-        MapSet.member?(connected_ids, kid)
-      end)
+      connected_ids = MapSet.new(connections, & &1.issuer_key_id)
 
-    profiles =
-      case RaEngineClient.list_cert_profiles(opts) do
-        {:ok, p} -> p
-        {:error, _} -> []
-      end
+      filtered =
+        Enum.reject(available, fn key ->
+          kid = Map.get(key, :id) || Map.get(key, "id")
+          MapSet.member?(connected_ids, kid)
+        end)
 
-    users =
-      case RaEngineClient.list_portal_users(opts) do
-        {:ok, u} -> u
-        {:error, _} -> []
-      end
+      profiles =
+        case RaEngineClient.list_cert_profiles(opts) do
+          {:ok, p} -> p
+          {:error, _} -> []
+        end
 
-    services =
-      case RaEngineClient.list_service_configs(opts) do
-        {:ok, s} -> s
-        {:error, _} -> []
-      end
+      users =
+        case RaEngineClient.list_portal_users(opts) do
+          {:ok, u} -> u
+          {:error, _} -> []
+        end
 
-    api_keys =
-      case RaEngineClient.list_api_keys([], opts) do
-        {:ok, k} -> k
-        {:error, _} -> []
-      end
+      services =
+        case RaEngineClient.list_service_configs(opts) do
+          {:ok, s} -> s
+          {:error, _} -> []
+        end
 
-    key_options =
-      Enum.map(connections, fn c ->
-        %{id: c.issuer_key_id, label: "#{c.issuer_key_name} (#{c.algorithm})"}
-      end)
+      api_keys =
+        case RaEngineClient.list_api_keys([], opts) do
+          {:ok, k} -> k
+          {:error, _} -> []
+        end
 
-    {:noreply,
-     assign(socket,
-       available_keys: filtered,
-       connected_keys: connections,
-       created_profiles: profiles,
-       connected_key_options: key_options,
-       invited_users: users,
-       configured_services: services,
-       created_api_keys: api_keys,
-       loading: false
-     )}
+      key_options =
+        Enum.map(connections, fn c ->
+          %{id: c.issuer_key_id, label: "#{c.issuer_key_name} (#{c.algorithm})"}
+        end)
+
+      {:noreply,
+       assign(socket,
+         available_keys: filtered,
+         connected_keys: connections,
+         created_profiles: profiles,
+         connected_key_options: key_options,
+         invited_users: users,
+         configured_services: services,
+         created_api_keys: api_keys,
+         loading: false
+       )}
+    end, retry_msg: :load_data)
   end
 
   # ---------------------------------------------------------------------------

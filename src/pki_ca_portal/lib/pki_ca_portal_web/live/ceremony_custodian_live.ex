@@ -27,21 +27,25 @@ defmodule PkiCaPortalWeb.CeremonyCustodianLive do
 
   @impl true
   def handle_info(:load_shares, socket) do
-    user_id = socket.assigns.current_user[:id]
-    opts = tenant_opts(socket)
+    import PkiCaPortalWeb.SafeEngine, only: [safe_load: 3]
 
-    shares =
-      case CaEngineClient.list_my_ceremony_shares(user_id, opts) do
-        {:ok, shares} -> shares
-        {:error, _} -> []
+    safe_load(socket, fn ->
+      user_id = socket.assigns.current_user[:id]
+      opts = tenant_opts(socket)
+
+      shares =
+        case CaEngineClient.list_my_ceremony_shares(user_id, opts) do
+          {:ok, shares} -> shares
+          {:error, _} -> []
+        end
+
+      # Subscribe to PubSub for each ceremony
+      for share <- shares do
+        Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{share.ceremony_id}")
       end
 
-    # Subscribe to PubSub for each ceremony
-    for share <- shares do
-      Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "ceremony:#{share.ceremony_id}")
-    end
-
-    {:noreply, assign(socket, shares: shares, loading: false)}
+      {:noreply, assign(socket, shares: shares, loading: false)}
+    end, retry_msg: :load_shares)
   end
 
   def handle_info({:custodian_ready, %{user_id: _uid, username: username}}, socket) do
