@@ -63,20 +63,80 @@ defmodule PkiValidation.SigningKeyStoreTest do
     assert {:ok, _} = SigningKeyStore.get(name, new_id)
   end
 
+  test "find_by_key_hash returns {:ok, key, issuer_id} for known key hash",
+       %{name: name, issuer_key_id: id} do
+    {:ok, key} = SigningKeyStore.get(name, id)
+    target_hash = PkiValidation.CertId.issuer_key_hash(key.certificate_der)
+    assert {:ok, found_key, ^id} = SigningKeyStore.find_by_key_hash(name, target_hash)
+    assert found_key.algorithm == "ecc_p256"
+  end
+
+  test "find_by_key_hash returns :not_found for unknown hash", %{name: name} do
+    assert :not_found = SigningKeyStore.find_by_key_hash(name, :crypto.strong_rand_bytes(20))
+  end
+
+  test "key with wrong password is dropped at startup; other keys still load" do
+    bad_id = Uniq.UUID.uuid7()
+    {_pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
+    encrypted_with_wrong = SigningKeyStore.encrypt_for_test(priv, "different-password")
+    cert_pem = generate_test_cert_pem()
+
+    {:ok, _} =
+      %SigningKeyConfig{}
+      |> SigningKeyConfig.changeset(%{
+        issuer_key_id: bad_id,
+        algorithm: "ecc_p256",
+        certificate_pem: cert_pem,
+        encrypted_private_key: encrypted_with_wrong,
+        not_before: DateTime.utc_now(),
+        not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+        status: "active"
+      })
+      |> Repo.insert()
+
+    name2 = :"ks_bad_#{System.unique_integer([:positive])}"
+    {:ok, _} = SigningKeyStore.start_link(name: name2, password: "test-password")
+
+    assert :not_found = SigningKeyStore.get(name2, bad_id)
+  end
+
+  test "key with malformed (truncated) ciphertext is dropped at startup" do
+    bad_id = Uniq.UUID.uuid7()
+    cert_pem = generate_test_cert_pem()
+
+    {:ok, _} =
+      %SigningKeyConfig{}
+      |> SigningKeyConfig.changeset(%{
+        issuer_key_id: bad_id,
+        algorithm: "ecc_p256",
+        certificate_pem: cert_pem,
+        encrypted_private_key: <<1, 2, 3>>,
+        not_before: DateTime.utc_now(),
+        not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+        status: "active"
+      })
+      |> Repo.insert()
+
+    name3 = :"ks_truncated_#{System.unique_integer([:positive])}"
+    {:ok, _} = SigningKeyStore.start_link(name: name3, password: "test-password")
+
+    assert :not_found = SigningKeyStore.get(name3, bad_id)
+  end
+
   defp generate_test_signing_keypair do
     {_pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
     encrypted = SigningKeyStore.encrypt_for_test(priv, "test-password")
+    {generate_test_cert_pem(), encrypted}
+  end
 
-    cert_pem =
-      case :public_key.pkix_test_root_cert(~c"Test Signing", []) do
-        %{cert: der} ->
-          :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+  defp generate_test_cert_pem do
+    case :public_key.pkix_test_root_cert(~c"Test Signing", []) do
+      %{cert: der} ->
+        :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
 
-        {tbs, _} ->
-          der = :public_key.pkix_encode(:OTPCertificate, tbs, :otp)
-          :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
-      end
-
-    {cert_pem, encrypted}
+      {tbs, _} ->
+        der = :public_key.pkix_encode(:OTPCertificate, tbs, :otp)
+        :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+    end
   end
 end

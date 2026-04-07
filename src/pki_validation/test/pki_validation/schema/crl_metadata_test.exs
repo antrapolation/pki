@@ -35,4 +35,10 @@ defmodule PkiValidation.Schema.CrlMetadataTest do
     changeset = CrlMetadata.changeset(%CrlMetadata{}, attrs)
     refute changeset.valid?
   end
+
+  test "rejects nil generation_count" do
+    attrs = Map.put(@valid_attrs, :generation_count, nil)
+    changeset = CrlMetadata.changeset(%CrlMetadata{}, attrs)
+    refute changeset.valid?
+  end
 end

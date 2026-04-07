@@ -23,8 +23,8 @@ defmodule PkiValidation.Schema.CrlMetadata do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @required_fields ~w(issuer_key_id crl_number)a
-  @optional_fields ~w(last_generated_at last_der_bytes last_der_size generation_count)a
+  @required_fields ~w(issuer_key_id crl_number generation_count)a
+  @optional_fields ~w(last_generated_at last_der_bytes last_der_size)a
 
   def changeset(record, attrs) do
     record

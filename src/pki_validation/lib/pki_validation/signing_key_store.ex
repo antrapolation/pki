@@ -50,8 +50,9 @@ defmodule PkiValidation.SigningKeyStore do
   scheme this module uses for at-rest storage.
   """
   def encrypt_for_test(private_key, password) do
+    password_bin = coerce_password(password)
     salt = :crypto.strong_rand_bytes(16)
-    key = :crypto.pbkdf2_hmac(:sha256, password, salt, @kdf_iterations, @kdf_key_length)
+    key = :crypto.pbkdf2_hmac(:sha256, password_bin, salt, @kdf_iterations, @kdf_key_length)
     iv = :crypto.strong_rand_bytes(12)
     {ct, tag} = :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, private_key, "", true)
     salt <> iv <> tag <> ct
@@ -78,15 +79,8 @@ defmodule PkiValidation.SigningKeyStore do
   def handle_call({:find_by_key_hash, target_hash}, _from, state) do
     result =
       Enum.find_value(state.keys, :not_found, fn {issuer_id, key} ->
-        cond do
-          is_nil(key.certificate_der) ->
-            nil
-
-          PkiValidation.CertId.issuer_key_hash(key.certificate_der) == target_hash ->
-            {:ok, key, issuer_id}
-
-          true ->
-            nil
+        if key.key_hash == target_hash do
+          {:ok, key, issuer_id}
         end
       end)
 
@@ -100,8 +94,17 @@ defmodule PkiValidation.SigningKeyStore do
   ## Private helpers
 
   defp resolve_password(opts) do
-    Keyword.get(opts, :password) || System.get_env("VALIDATION_SIGNING_KEY_PASSWORD") || ""
+    raw =
+      Keyword.get(opts, :password) || System.get_env("VALIDATION_SIGNING_KEY_PASSWORD") || ""
+
+    coerce_password(raw)
   end
+
+  # Ensure we always feed a binary into PBKDF2 so a stray charlist (e.g. from
+  # a config file) doesn't silently produce a different derived key.
+  defp coerce_password(p) when is_binary(p), do: p
+  defp coerce_password(p) when is_list(p), do: IO.iodata_to_binary(p)
+  defp coerce_password(p), do: to_string(p)
 
   defp load_keys(password) do
     SigningKeyConfig
@@ -114,6 +117,9 @@ defmodule PkiValidation.SigningKeyStore do
           algorithm: config.algorithm,
           private_key: priv,
           certificate_der: cert_der,
+          # Cache the SHA-1 issuerKeyHash so OCSP lookups by key hash don't
+          # have to re-decode + re-hash every cert on every request.
+          key_hash: PkiValidation.CertId.issuer_key_hash(cert_der),
           not_after: config.not_after
         })
       else

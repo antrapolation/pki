@@ -44,11 +44,25 @@ defmodule PkiValidation.CertId do
   """
   @spec issuer_key_hash(binary()) :: binary()
   def issuer_key_hash(der_cert) when is_binary(der_cert) do
-    otp_cert = :public_key.pkix_decode_cert(der_cert, :otp)
-    tbs = :erlang.element(2, otp_cert)
+    # Use the :plain decoder so the raw subjectPublicKey BIT STRING bytes are
+    # preserved exactly as they appear on the wire. The :otp decoder eagerly
+    # parses the key into algorithm-specific records (e.g. RSAPublicKey), and
+    # re-encoding via :public_key.der_encode/2 may produce bytes that differ
+    # from the original DER (e.g. leading-zero handling on the modulus),
+    # which makes the issuerKeyHash diverge from openssl's output.
+    #
+    # The :plain Certificate record is:
+    #   {:Certificate, tbsCertificate, signatureAlgorithm, signature}
+    # The :plain TBSCertificate record exposes subjectPublicKeyInfo at
+    # element 8 (1-indexed). The :plain SubjectPublicKeyInfo record is:
+    #   {:SubjectPublicKeyInfo, algorithm, raw_key_bytes :: binary}
+    # OTP already strips the leading "unused bits" byte from the BIT STRING,
+    # so element 3 is the raw value (excluding tag and length) per
+    # RFC 6960 section 4.1.1.
+    plain_cert = :public_key.pkix_decode_cert(der_cert, :plain)
+    tbs = :erlang.element(2, plain_cert)
     spki = :erlang.element(8, tbs)
-    # OTPSubjectPublicKeyInfo: {:OTPSubjectPublicKeyInfo, algorithm, public_key}
-    raw_key_bytes = extract_key_bytes(:erlang.element(3, spki))
+    raw_key_bytes = :erlang.element(3, spki)
     :crypto.hash(:sha, raw_key_bytes)
   end
 
@@ -65,16 +79,4 @@ defmodule PkiValidation.CertId do
       request_cert_id.serial_number == known.serial_number
   end
 
-  # Convert various OTP public key representations into the raw BIT STRING bytes
-  # (the "value excluding tag and length" of the subjectPublicKey field).
-  defp extract_key_bytes(bytes) when is_binary(bytes), do: bytes
-  defp extract_key_bytes({:ECPoint, point}) when is_binary(point), do: point
-
-  defp extract_key_bytes({:RSAPublicKey, _modulus, _exponent} = rsa) do
-    :public_key.der_encode(:RSAPublicKey, rsa)
-  end
-
-  defp extract_key_bytes(other) do
-    raise "Unsupported public key shape for CertID: #{inspect(other)}"
-  end
 end

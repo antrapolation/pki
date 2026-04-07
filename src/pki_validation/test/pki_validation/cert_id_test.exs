@@ -27,6 +27,20 @@ defmodule PkiValidation.CertIdTest do
     assert CertId.issuer_key_hash(der) == CertId.issuer_key_hash(der)
   end
 
+  test "issuer_key_hash matches openssl-computed hash for an RSA cert" do
+    # Fixture-based test: the .der is a 2048-bit RSA self-signed cert and
+    # the .bin is the 20-byte SHA-1 hash of the raw subjectPublicKey BIT STRING
+    # value as computed by `openssl ocsp -reqout` (cross-checked at fixture
+    # creation time). This guards the C1 regression where re-encoding RSA via
+    # the :otp decoder produced bytes that didn't match openssl.
+    fixture_dir = Path.expand("../fixtures", __DIR__)
+    rsa_der = File.read!(Path.join(fixture_dir, "test_issuer_rsa.der"))
+    expected_hash = File.read!(Path.join(fixture_dir, "test_issuer_rsa_keyhash.bin"))
+
+    assert byte_size(expected_hash) == 20
+    assert CertId.issuer_key_hash(rsa_der) == expected_hash
+  end
+
   test "matches? returns true when name_hash, key_hash, and serial all match" do
     name_hash = :crypto.strong_rand_bytes(20)
     key_hash = :crypto.strong_rand_bytes(20)
