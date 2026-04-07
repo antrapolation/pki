@@ -27,12 +27,13 @@ defmodule PkiValidation.Schema.CertificateStatus do
     field :not_after, :utc_datetime_usec
     field :revoked_at, :utc_datetime_usec
     field :revocation_reason, :string
+    field :issuer_name_hash, :binary
 
     timestamps(type: :utc_datetime_usec)
   end
 
   @required_fields ~w(serial_number issuer_key_id subject_dn status not_before not_after)a
-  @optional_fields ~w(revoked_at revocation_reason)a
+  @optional_fields ~w(revoked_at revocation_reason issuer_name_hash)a
 
   @doc """
   Changeset for creating or updating a certificate status record.
