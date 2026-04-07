@@ -8,6 +8,8 @@ defmodule PkiValidation.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      erlc_paths: ["src"],
+      compilers: [:asn1] ++ Mix.compilers(),
       aliases: aliases(),
       deps: deps()
     ]

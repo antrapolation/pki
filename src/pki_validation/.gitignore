@@ -21,3 +21,9 @@ pki_validation-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Auto-generated ASN.1 outputs (compiled from asn1/*.asn1)
+/src/*.erl
+/src/*.hrl
+/src/*.beam
+/src/*.asn1db
