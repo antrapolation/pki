@@ -244,13 +244,14 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
     {@ecdsa_sha384_alg_der, signature}
   end
 
-  defp sign_tbs(tbs, %{algorithm: "rsa4096", private_key: priv}) do
-    signature = :public_key.sign(tbs, :sha256, priv)
-    {@rsa_sha256_alg_der, signature}
-  end
-
-  defp sign_tbs(tbs, %{algorithm: "rsa2048", private_key: priv}) do
-    signature = :public_key.sign(tbs, :sha256, priv)
+  defp sign_tbs(tbs, %{algorithm: alg, private_key: priv}) when alg in ["rsa2048", "rsa4096"] do
+    # SigningKeyStore holds RSA keys as raw DER-encoded :RSAPrivateKey bytes
+    # (see the comment in signing_key_store.ex). :public_key.sign/3 requires
+    # the decoded record form, so we decode at sign time. The per-signature
+    # decode cost is negligible at OCSP volumes and keeps the key store
+    # algorithm-agnostic.
+    rsa_priv = :public_key.der_decode(:RSAPrivateKey, priv)
+    signature = :public_key.sign(tbs, :sha256, rsa_priv)
     {@rsa_sha256_alg_der, signature}
   end
 

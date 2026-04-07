@@ -106,5 +106,8 @@ defmodule PkiValidation.Ocsp.RequestDecoder do
     nonce
   end
 
-  defp unwrap_octet_string(other) when is_binary(other), do: other
+  # If the extnValue bytes don't match any recognised DER OCTET STRING form
+  # we return nil rather than handing back the raw bytes verbatim — otherwise
+  # a malformed nonce would silently feed through to echo.
+  defp unwrap_octet_string(_), do: nil
 end

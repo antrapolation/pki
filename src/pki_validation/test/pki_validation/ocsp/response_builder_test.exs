@@ -3,19 +3,35 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
 
   alias PkiValidation.Ocsp.ResponseBuilder
 
+  @secp256r1_oid {1, 2, 840, 10045, 3, 1, 7}
+  @secp384r1_oid {1, 3, 132, 0, 34}
+  @nonce_oid {1, 3, 6, 1, 5, 5, 7, 48, 1, 2}
+
   setup do
+    # pkix_test_root_cert generates a self-signed cert AND returns the matching
+    # private key. Use BOTH so the signature we later embed in the response is
+    # verifiable against the public key extracted from the cert (which is what
+    # real OCSP clients do). The default curve is not P-256, so we pass an
+    # explicit P-256 private key in via the :key option.
     {pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
 
-    cert_der =
-      case :public_key.pkix_test_root_cert(~c"Test Responder", []) do
-        %{cert: der} when is_binary(der) -> der
-        {tbs, _key} -> :public_key.pkix_encode(:OTPCertificate, tbs, :otp)
-      end
+    provided_key =
+      {:ECPrivateKey, 1, priv, {:namedCurve, @secp256r1_oid}, pub, :asn1_NOVALUE}
+
+    %{cert: cert_der, key: ec_priv_key_record} =
+      :public_key.pkix_test_root_cert(~c"Test Responder", [{:key, provided_key}])
+
+    # ec_priv_key_record is an :ECPrivateKey tuple. Extract the raw scalar for
+    # storage in the signing_key map (the responder builder constructs the
+    # ECPrivateKey wrapper at sign time from this raw bytes form).
+    {:ECPrivateKey, _v, priv_scalar, _curve, pub_point_raw, _attrs} = ec_priv_key_record
+
+    pub_point = resolve_pub_point(pub_point_raw, cert_der)
 
     signing_key = %{
       algorithm: "ecc_p256",
-      private_key: priv,
-      public_key: pub,
+      private_key: priv_scalar,
+      public_key: pub_point,
       certificate_der: cert_der
     }
 
@@ -42,6 +58,9 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
     assert {:ok, {:OCSPResponse, status, response_bytes}} = :OCSP.decode(:OCSPResponse, der)
     assert status == :successful
     assert response_bytes != :asn1_NOVALUE
+
+    # Decode inner CertStatus to prove it's actually :good (not silently remapped).
+    assert match?({:good, _}, decode_first_cert_status(der))
   end
 
   test "builds a 'revoked' response with reason", %{signing_key: key, cert_id: cert_id} do
@@ -55,6 +74,11 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
     assert {:ok, der} = ResponseBuilder.build(:successful, [response], key, nonce: nil)
     assert is_binary(der)
     assert {:ok, {:OCSPResponse, :successful, _}} = :OCSP.decode(:OCSPResponse, der)
+
+    assert match?(
+             {:revoked, {:RevokedInfo, _when, :keyCompromise}},
+             decode_first_cert_status(der)
+           )
   end
 
   test "builds an 'unknown' response", %{signing_key: key, cert_id: cert_id} do
@@ -68,6 +92,8 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
     assert {:ok, der} = ResponseBuilder.build(:successful, [response], key, nonce: nil)
     assert is_binary(der)
     assert {:ok, {:OCSPResponse, :successful, _}} = :OCSP.decode(:OCSPResponse, der)
+
+    assert match?({:unknown, _}, decode_first_cert_status(der))
   end
 
   test "builds a malformedRequest error response with no signed body", %{signing_key: key} do
@@ -83,7 +109,7 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
     {:ok, {:OCSPResponse, :unauthorized, :asn1_NOVALUE}} = :OCSP.decode(:OCSPResponse, der)
   end
 
-  test "echoes nonce when provided", %{signing_key: key, cert_id: cert_id} do
+  test "echoes nonce bytes exactly when provided", %{signing_key: key, cert_id: cert_id} do
     nonce = :crypto.strong_rand_bytes(16)
 
     response = %{
@@ -106,15 +132,20 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
     refute response_extensions_der == :asn1_NOVALUE
 
     parsed_extensions = :public_key.der_decode(:Extensions, response_extensions_der)
-    nonce_oid = {1, 3, 6, 1, 5, 5, 7, 48, 1, 2}
 
-    assert Enum.find(parsed_extensions, fn
-             {:Extension, ^nonce_oid, _, _} -> true
-             _ -> false
-           end)
+    found =
+      Enum.find_value(parsed_extensions, fn
+        {:Extension, @nonce_oid, _critical, value} -> value
+        _ -> nil
+      end)
+
+    # Compare the raw value against the DER OCTET STRING wrapping of the
+    # original nonce bytes to prove the echo is byte-exact (not just present).
+    expected_wrapped = <<0x04, byte_size(nonce)::8, nonce::binary>>
+    assert found == expected_wrapped
   end
 
-  test "the signature is verifiable with the responder public key", %{
+  test "the signature is verifiable with the cert-embedded public key", %{
     signing_key: key,
     cert_id: cert_id
   } do
@@ -127,22 +158,161 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
 
     assert {:ok, der} = ResponseBuilder.build(:successful, [response], key, nonce: nil)
 
+    # Decode the response, extract the cert from the certs field, pull its
+    # public key out, and verify the signature with THAT key. This is what a
+    # real OCSP client does, and it proves the cert-key binding is correct.
     {:ok, {:OCSPResponse, :successful, {:ResponseBytes, _oid, basic_der}}} =
       :OCSP.decode(:OCSPResponse, der)
 
-    {:ok, {:BasicOCSPResponse, response_data, _alg, signature, _certs}} =
+    {:ok, {:BasicOCSPResponse, response_data, _alg, signature, certs}} =
       :OCSP.decode(:BasicOCSPResponse, basic_der)
 
+    [cert_der_from_response | _] = certs
+    cert_pub = extract_ec_public_key(cert_der_from_response)
+
+    # The TBS round-trip is byte-identical here only because OCSP.asn1 declares
+    # ResponseData's sub-fields as ANY, so the codec passes them through opaquely.
+    # If those fields ever became structured types, this encode/decode pair
+    # could produce different bytes and the signature check below would break.
     {:ok, tbs_der} = :OCSP.encode(:ResponseData, response_data)
     tbs_bin = IO.iodata_to_binary(tbs_der)
-
-    pub_point = key.public_key
 
     assert :public_key.verify(
              tbs_bin,
              :sha256,
              signature,
-             {{:ECPoint, pub_point}, {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}}
+             {{:ECPoint, cert_pub}, {:namedCurve, @secp256r1_oid}}
            )
+  end
+
+  test "signs with ECC P-384 and the signature verifies against the cert public key", %{
+    cert_id: cert_id
+  } do
+    {pub, priv} = :crypto.generate_key(:ecdh, :secp384r1)
+
+    provided_key =
+      {:ECPrivateKey, 1, priv, {:namedCurve, @secp384r1_oid}, pub, :asn1_NOVALUE}
+
+    %{cert: cert_der, key: ec_priv} =
+      :public_key.pkix_test_root_cert(~c"Test Responder P384", [{:key, provided_key}])
+
+    {:ECPrivateKey, _v, priv_scalar, _curve, _pub_raw, _attrs} = ec_priv
+
+    key = %{
+      algorithm: "ecc_p384",
+      private_key: priv_scalar,
+      public_key: pub,
+      certificate_der: cert_der
+    }
+
+    response = %{
+      cert_id: cert_id,
+      status: :good,
+      this_update: DateTime.utc_now(),
+      next_update: nil
+    }
+
+    assert {:ok, der} = ResponseBuilder.build(:successful, [response], key, nonce: nil)
+
+    {:ok, {:OCSPResponse, :successful, {:ResponseBytes, _oid, basic_der}}} =
+      :OCSP.decode(:OCSPResponse, der)
+
+    {:ok, {:BasicOCSPResponse, response_data, _alg, signature, [cert_out | _]}} =
+      :OCSP.decode(:BasicOCSPResponse, basic_der)
+
+    cert_pub = extract_ec_public_key(cert_out)
+
+    {:ok, tbs_der} = :OCSP.encode(:ResponseData, response_data)
+    tbs_bin = IO.iodata_to_binary(tbs_der)
+
+    assert :public_key.verify(
+             tbs_bin,
+             :sha384,
+             signature,
+             {{:ECPoint, cert_pub}, {:namedCurve, @secp384r1_oid}}
+           )
+  end
+
+  test "signs with RSA-2048 and the signature verifies against the cert public key", %{
+    cert_id: cert_id
+  } do
+    # Generate a fresh RSA-2048 keypair and mint a self-signed cert using the
+    # same pkix_test_root_cert helper (passing the RSA key in via :key).
+    rsa_priv_record = :public_key.generate_key({:rsa, 2048, 65537})
+
+    %{cert: cert_der, key: _} =
+      :public_key.pkix_test_root_cert(~c"Test Responder RSA", [{:key, rsa_priv_record}])
+
+    # SigningKeyStore stores RSA private keys as DER-encoded :RSAPrivateKey
+    # bytes. Mirror that shape in the test so we exercise the full sign_tbs
+    # decode path (Fix D1 regression guard).
+    rsa_der = :public_key.der_encode(:RSAPrivateKey, rsa_priv_record)
+
+    key = %{
+      algorithm: "rsa2048",
+      private_key: rsa_der,
+      public_key: <<>>,
+      certificate_der: cert_der
+    }
+
+    response = %{
+      cert_id: cert_id,
+      status: :good,
+      this_update: DateTime.utc_now(),
+      next_update: nil
+    }
+
+    assert {:ok, der} = ResponseBuilder.build(:successful, [response], key, nonce: nil)
+
+    {:ok, {:OCSPResponse, :successful, {:ResponseBytes, _oid, basic_der}}} =
+      :OCSP.decode(:OCSPResponse, der)
+
+    {:ok, {:BasicOCSPResponse, response_data, _alg, signature, [cert_out | _]}} =
+      :OCSP.decode(:BasicOCSPResponse, basic_der)
+
+    rsa_pub = extract_rsa_public_key(cert_out)
+
+    {:ok, tbs_der} = :OCSP.encode(:ResponseData, response_data)
+    tbs_bin = IO.iodata_to_binary(tbs_der)
+
+    assert :public_key.verify(tbs_bin, :sha256, signature, rsa_pub)
+  end
+
+  # ---- Helpers ----
+
+  defp resolve_pub_point(:asn1_NOVALUE, cert_der) do
+    plain = :public_key.pkix_decode_cert(cert_der, :plain)
+    tbs = :erlang.element(2, plain)
+    spki = :erlang.element(8, tbs)
+    :erlang.element(3, spki)
+  end
+
+  defp resolve_pub_point(bytes, _cert_der) when is_binary(bytes), do: bytes
+
+  defp decode_first_cert_status(der) do
+    {:ok, {:OCSPResponse, :successful, {:ResponseBytes, _oid, basic_der}}} =
+      :OCSP.decode(:OCSPResponse, der)
+
+    {:ok, {:BasicOCSPResponse, response_data, _alg, _sig, _certs}} =
+      :OCSP.decode(:BasicOCSPResponse, basic_der)
+
+    {:ResponseData, _v, _rid, _produced, [single | _], _ext} = response_data
+    {:SingleResponse, _cid, cert_status, _this, _next, _ext} = single
+    cert_status
+  end
+
+  defp extract_ec_public_key(cert_der) do
+    plain = :public_key.pkix_decode_cert(cert_der, :plain)
+    tbs = :erlang.element(2, plain)
+    spki = :erlang.element(8, tbs)
+    :erlang.element(3, spki)
+  end
+
+  defp extract_rsa_public_key(cert_der) do
+    otp = :public_key.pkix_decode_cert(cert_der, :otp)
+    tbs = :erlang.element(2, otp)
+    # OTPSubjectPublicKeyInfo with RSA → {:OTPSubjectPublicKeyInfo, alg, rsa_pub_record}
+    spki = :erlang.element(8, tbs)
+    :erlang.element(3, spki)
   end
 end

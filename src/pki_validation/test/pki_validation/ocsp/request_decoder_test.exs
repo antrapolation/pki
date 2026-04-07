@@ -42,6 +42,24 @@ defmodule PkiValidation.Ocsp.RequestDecoderTest do
     assert {:error, :malformed} = RequestDecoder.decode(<<>>)
   end
 
+  test "decodes a TBSRequest with an empty requestList" do
+    tbs = {:TBSRequest, :v1, :asn1_NOVALUE, [], :asn1_NOVALUE}
+    ocsp_req = {:OCSPRequest, tbs, :asn1_NOVALUE}
+    {:ok, der} = :OCSP.encode(:OCSPRequest, ocsp_req)
+    der = IO.iodata_to_binary(der)
+
+    assert {:ok, decoded} = RequestDecoder.decode(der)
+    assert decoded.cert_ids == []
+    assert is_nil(decoded.nonce)
+  end
+
+  test "returns {:error, :malformed} for a truncated DER request without crashing" do
+    full = build_request(serial: 77, nonce: :crypto.strong_rand_bytes(16))
+    half = binary_part(full, 0, div(byte_size(full), 2))
+
+    assert {:error, :malformed} = RequestDecoder.decode(half)
+  end
+
   test "decodes a request with multiple CertIDs" do
     cert_id_a = build_cert_id(serial: 1)
     cert_id_b = build_cert_id(serial: 2)

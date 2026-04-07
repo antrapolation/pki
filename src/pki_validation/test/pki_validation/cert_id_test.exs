@@ -75,52 +75,15 @@ defmodule PkiValidation.CertIdTest do
 
   defp generate_test_cert do
     try do
-      case :public_key.pkix_test_root_cert(~c"Test Issuer", []) do
-        %{cert: der} when is_binary(der) -> der
-        {tbs_record, _key} -> :public_key.pkix_encode(:OTPCertificate, tbs_record, :otp)
-      end
+      %{cert: der} = :public_key.pkix_test_root_cert(~c"Test Issuer", [])
+      der
     rescue
-      _ -> load_or_generate_fixture()
+      _ -> load_fixture()
     end
   end
 
-  defp load_or_generate_fixture do
+  defp load_fixture do
     fixture_path = Path.expand("../fixtures/test_issuer.der", __DIR__)
-
-    case File.read(fixture_path) do
-      {:ok, der} ->
-        der
-
-      {:error, _} ->
-        File.mkdir_p!(Path.dirname(fixture_path))
-
-        tmp_key = Path.join(System.tmp_dir!(), "test_issuer.key")
-        tmp_pem = Path.join(System.tmp_dir!(), "test_issuer.pem")
-
-        {_, 0} =
-          System.cmd("openssl", [
-            "req",
-            "-x509",
-            "-newkey",
-            "ec",
-            "-pkeyopt",
-            "ec_paramgen_curve:P-256",
-            "-nodes",
-            "-keyout",
-            tmp_key,
-            "-out",
-            tmp_pem,
-            "-days",
-            "30",
-            "-subj",
-            "/CN=Test Issuer"
-          ])
-
-        {der, 0} = System.cmd("openssl", ["x509", "-in", tmp_pem, "-outform", "DER"])
-        File.write!(fixture_path, der)
-        File.rm(tmp_key)
-        File.rm(tmp_pem)
-        der
-    end
+    File.read!(fixture_path)
   end
 end

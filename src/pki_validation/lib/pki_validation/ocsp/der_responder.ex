@@ -39,12 +39,12 @@ defmodule PkiValidation.Ocsp.DerResponder do
           ResponseBuilder.build(:successful, responses, signing_key, nonce: nonce)
 
         :unauthorized ->
-          ResponseBuilder.build(:unauthorized, [], dummy_key(), nonce: nonce)
+          ResponseBuilder.build(:unauthorized, [], dummy_key())
       end
     rescue
-      _ -> ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
+      _ -> ResponseBuilder.build(:internalError, [], dummy_key())
     catch
-      _, _ -> ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
+      _, _ -> ResponseBuilder.build(:internalError, [], dummy_key())
     end
   end
 
@@ -52,10 +52,24 @@ defmodule PkiValidation.Ocsp.DerResponder do
 
   defp resolve_signing_key([], _store), do: :unauthorized
 
-  defp resolve_signing_key([first | _rest], store) do
-    case SigningKeyStore.find_by_key_hash(store, first.issuer_key_hash) do
-      {:ok, signing_key, issuer_key_id} -> {:ok, signing_key, issuer_key_id}
-      :not_found -> :unauthorized
+  defp resolve_signing_key(cert_ids, store) do
+    hashes = cert_ids |> Enum.map(& &1.issuer_key_hash) |> Enum.uniq()
+
+    case hashes do
+      [single_hash] ->
+        # All CertIDs share the same issuer — the normal case.
+        case SigningKeyStore.find_by_key_hash(store, single_hash) do
+          {:ok, signing_key, issuer_key_id} -> {:ok, signing_key, issuer_key_id}
+          :not_found -> :unauthorized
+        end
+
+      _multiple ->
+        # RFC 6960 §2.1: a single signed BasicOCSPResponse must be authoritative
+        # for every CertID it contains. A request mixing CertIDs from distinct
+        # issuers cannot be answered with a single signature, so we refuse it
+        # with :unauthorized rather than silently scoping every lookup to the
+        # first issuer's key_id (which would return wrong-issuer serials).
+        :unauthorized
     end
   end
 

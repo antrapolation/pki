@@ -119,6 +119,12 @@ defmodule PkiValidation.SigningKeyStore do
     |> Enum.reduce(%{}, fn config, acc ->
       with {:ok, priv} <- decrypt_private_key(config.encrypted_private_key, password),
            {:ok, cert_der} <- decode_cert_pem(config.certificate_pem) do
+        # NOTE: `private_key` here is the raw decrypted bytes and its shape is
+        # algorithm-dependent: for ECC it's the raw private scalar, for RSA
+        # it's the DER encoding of an :RSAPrivateKey record. This module is
+        # deliberately algorithm-agnostic; downstream consumers such as
+        # `PkiValidation.Ocsp.ResponseBuilder.sign_tbs/2` are responsible for
+        # interpreting the bytes according to `algorithm`.
         Map.put(acc, config.issuer_key_id, %{
           algorithm: config.algorithm,
           private_key: priv,

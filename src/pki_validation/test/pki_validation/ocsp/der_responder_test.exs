@@ -170,6 +170,82 @@ defmodule PkiValidation.Ocsp.DerResponderTest do
       end)
 
     refute is_nil(found), "nonce extension should be present in response"
+
+    # Assert the echo is byte-exact, not just present.
+    expected_wrapped = <<0x04, byte_size(nonce)::8, nonce::binary>>
+    assert found == expected_wrapped
+  end
+
+  test "returns :unauthorized when request mixes CertIDs from two different issuers", ctx do
+    # Stand up a SECOND signing key in the same store. A request mixing
+    # CertIDs from both issuers must be rejected — RFC 6960 §2.1 requires
+    # a single signed BasicOCSPResponse to be authoritative for all CertIDs.
+    issuer_b_key_id = Uniq.UUID.uuid7()
+    {_pub_b, priv_b} = :crypto.generate_key(:ecdh, :secp256r1)
+    encrypted_b = SigningKeyStore.encrypt_for_test(priv_b, "test-password")
+    cert_pem_b = generate_test_cert_pem()
+    {:ok, cert_der_b} = decode_cert_pem(cert_pem_b)
+    issuer_b_key_hash = CertId.issuer_key_hash(cert_der_b)
+
+    {:ok, _} =
+      %SigningKeyConfig{}
+      |> SigningKeyConfig.changeset(%{
+        issuer_key_id: issuer_b_key_id,
+        algorithm: "ecc_p256",
+        certificate_pem: cert_pem_b,
+        encrypted_private_key: encrypted_b,
+        not_before: DateTime.utc_now(),
+        not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+        status: "active"
+      })
+      |> Repo.insert()
+
+    :ok = SigningKeyStore.reload(ctx.store)
+
+    request = %{
+      cert_ids: [
+        %{
+          issuer_name_hash: :crypto.strong_rand_bytes(20),
+          issuer_key_hash: ctx.issuer_key_hash,
+          serial_number: 1
+        },
+        %{
+          issuer_name_hash: :crypto.strong_rand_bytes(20),
+          issuer_key_hash: issuer_b_key_hash,
+          serial_number: 2
+        }
+      ],
+      nonce: nil
+    }
+
+    assert {:ok, der} = DerResponder.respond(request, signing_key_store: ctx.store)
+    {:ok, {:OCSPResponse, status, body}} = :OCSP.decode(:OCSPResponse, der)
+    assert status == :unauthorized
+    assert body == :asn1_NOVALUE
+
+    # A follow-up request scoped only to issuer B must succeed AND the cert
+    # embedded in the signed response must be issuer B's cert (proving routing
+    # picked the right signing key).
+    request_b_only = %{
+      cert_ids: [
+        %{
+          issuer_name_hash: :crypto.strong_rand_bytes(20),
+          issuer_key_hash: issuer_b_key_hash,
+          serial_number: 42
+        }
+      ],
+      nonce: nil
+    }
+
+    assert {:ok, der_b} = DerResponder.respond(request_b_only, signing_key_store: ctx.store)
+
+    {:ok, {:OCSPResponse, :successful, {:ResponseBytes, _oid, basic_der}}} =
+      :OCSP.decode(:OCSPResponse, der_b)
+
+    {:ok, {:BasicOCSPResponse, _rd, _alg, _sig, [cert_in_resp | _]}} =
+      :OCSP.decode(:BasicOCSPResponse, basic_der)
+
+    assert cert_in_resp == cert_der_b
   end
 
   # ---- Helpers ----
@@ -188,14 +264,8 @@ defmodule PkiValidation.Ocsp.DerResponderTest do
   end
 
   defp generate_test_cert_pem do
-    case :public_key.pkix_test_root_cert(~c"Test Responder", []) do
-      %{cert: der} when is_binary(der) ->
-        :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
-
-      {tbs, _key} ->
-        der = :public_key.pkix_encode(:OTPCertificate, tbs, :otp)
-        :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
-    end
+    %{cert: der} = :public_key.pkix_test_root_cert(~c"Test Responder", [])
+    :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
   end
 
   defp decode_cert_pem(pem) do
