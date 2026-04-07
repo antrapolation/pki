@@ -15,6 +15,8 @@
    - [Creating a New Tenant](#tenant-create)
    - [Tenant Detail & Configuration](#tenant-detail)
    - [Tenant Lifecycle](#tenant-lifecycle)
+   - [Tenant Onboarding Flow](#tenant-onboarding)
+   - [User Invite Flow (CA / RA Users)](#user-invite)
 6. [HSM Device Management](#hsm-devices)
 7. [Platform Admin Management](#admins)
 8. [System Health Monitoring](#system-health)
@@ -122,19 +124,27 @@ Click **Sign out** in the top-right corner of any page.
 
 The Dashboard is the landing page after login. It provides a high-level overview of your PKI deployment.
 
+> **Note:** Users whose role is `tenant_admin` are redirected directly to their tenant detail page and do not see the platform-wide dashboard.
+
 ### Summary Cards
+
+Cards are arranged in two rows:
+
+**Row 1**
 
 | Card | Description |
 |------|-------------|
 | **Total Tenants** | Total number of provisioned tenant organizations |
 | **Active** | Tenants currently operational (green) |
 | **Suspended** | Tenants temporarily disabled (yellow) |
-| **Pending Setup** | Tenants provisioned but not yet activated (blue) |
-| **Services** | Number of healthy services out of total monitored (e.g., "5/6 healthy") |
+| **Create Tenant** *(quick action)* | Clickable card that navigates to the Tenants page to start the creation workflow |
 
-### Quick Action
+**Row 2**
 
-A **Create Tenant** card links directly to the tenant creation workflow.
+| Card | Description |
+|------|-------------|
+| **Pending Setup** | Tenants provisioned but not yet activated (`initialized` state) |
+| **Services** | Healthy services out of total monitored (e.g., `5/6 healthy`). Card turns amber if any service is unhealthy. |
 
 ### Recent Tenants
 
@@ -190,13 +200,13 @@ Click **New Tenant** in the top-right to start the creation workflow.
 
 ### 5.2 Creating a New Tenant <a name="tenant-create"></a>
 
-The tenant creation wizard guides you through a multi-step process. A step indicator at the top shows your progress: **Tenant Info** → **Verify Email** → **Complete**.
+Click **New Tenant** from the tenant list (or **Create Tenant** from the Dashboard) to open the creation page. Click **Back to Tenants** at any time to cancel.
 
-Click **Back to Tenants** at any time to cancel and return to the tenant list.
+Tenant creation is a two-phase experience: a short form, followed by an automatic provisioning chain that runs in the background while you watch the progress live.
 
-#### Step 1 — Tenant Information
+#### Phase 1 — Tenant Form
 
-Heading: *"Tenant Information"*
+Heading: *"Create Tenant"*
 Subtitle: *"Enter the details for the new Certificate Authority tenant."*
 
 | Field | Required | Placeholder | Validation |
@@ -205,52 +215,44 @@ Subtitle: *"Enter the details for the new Certificate Authority tenant."*
 | **Slug** | Yes | `acme-corp` | Lowercase alphanumeric + hyphens only; must start and end with a letter or number |
 | **Email** | Yes | `admin@acme-corp.com` | Must be a valid email address |
 
-Helper text below Slug: *"Lowercase alphanumeric with hyphens (e.g. acme-corp)"*
-Helper text below Email: *"Admin credentials will be sent to this email after verification."*
+Helper text below Slug: *"Lowercase alphanumeric with hyphens (e.g. `acme-corp`)"*
+Helper text below Email: *"Tenant admin credentials will be sent to this email."*
 
-Buttons: **Cancel** | **Next**
+Buttons: **Cancel** | **Create Tenant** (shows *"Creating..."* while submitting)
 
-#### Step 2 — Verify Email
+> **Note:** There is no email verification step. The address you enter is where the initial tenant admin credentials will be sent, so make sure it is correct before submitting.
 
-Heading: *"Verify Email"*
-Subtitle: *"We sent a 6-digit verification code to [email]."*
+#### Phase 2 — Provisioning
 
-A green alert confirms: *"Verification code sent to [email]."*
+After you submit, the page switches to a live checklist:
 
-| Field | Description |
-|-------|-------------|
-| **Verification Code** | 6-digit code sent to the email address |
+Heading: *"Creating [Name]"*
+Subtitle: *"Setting up the tenant environment..."*
 
-Buttons: **Back** | **Resend Code** | **Verify**
+The system runs the following steps automatically and updates each row with a spinner → green check in real time:
 
-**Important notes:**
-- Codes expire after **10 minutes**. If expired, you will see: *"Verification code has expired. Please resend."*
-- Maximum **5 verification attempts**. After that, you must resend a new code.
-- Clicking **Resend Code** invalidates the previous code and sends a new one.
+| # | Step | What Happens |
+|---|------|--------------|
+| 1 | **Database created** | An isolated PostgreSQL database is created and CA/RA schemas are applied |
+| 2 | **Engines started** | Tenant CA and RA engine processes are started under the BEAM tenant supervisor |
+| 3 | **CA and RA instances created** | Default instance records are registered inside the tenant database |
+| 4 | **Tenant admin account created** | A `tenant_admin` user is provisioned in the **platform portal** for this tenant |
+| 5 | **Credentials sent** | An invitation email with a temporary password is sent to the address you entered |
 
-#### Step 3 — Provisioning
+If any step fails, its row turns red, the error is shown in an alert, and a **Retry** button appears. Clicking Retry re-runs the failed step (earlier completed steps are kept).
 
-The system automatically provisions the tenant's infrastructure:
-- Creates an isolated PostgreSQL database
-- Applies CA and RA schemas (tables, indexes, constraints)
-- Sets up audit infrastructure
+#### Success State
 
-You will see a spinner with: *"Creating tenant database..."*
+Once all five steps are green, a success card appears:
 
-If provisioning fails, you will see the heading *"Provisioning Failed"* with the message *"The tenant database could not be created."* Click **Try Again** to retry.
+> ✓ **Tenant "[Name]" is ready.**
+> Credentials sent to [email].
 
-#### Step 4 — Success
+Buttons:
+- **View Tenant** — opens the tenant detail page
+- **Create Another** — returns to an empty creation form
 
-Heading: *"Tenant Created"*
-Message: *"[TenantName] database has been provisioned successfully."*
-
-A **"Next Steps"** section outlines what to do after creation:
-
-1. **Deploy the CA and RA engines for this tenant**
-2. **Verify engines are online from the tenant detail page**
-3. **Activate the tenant** — this will create CA/RA admin accounts and send credentials to the tenant's email
-
-Buttons: **View Tenant** (opens tenant detail) | **Back to List** (returns to tenant list)
+> **What happens next:** The tenant admin will receive an email containing a temporary password and a link to the Platform Portal. They must sign in, change their password, and can then manage CA and RA users for their tenant. See [§5.5 Tenant Onboarding Flow](#tenant-onboarding).
 
 ### 5.3 Tenant Detail & Configuration <a name="tenant-detail"></a>
 
@@ -258,48 +260,78 @@ Click the **View Details** (eye icon) action on any tenant to open its detail pa
 
 #### Tenant Information
 
-The top card shows the tenant name, status badge, and key details:
+The top card shows the tenant name, status badge, and a details grid:
 
 | Field | Description |
 |-------|-------------|
 | **Slug** | URL-safe identifier |
-| **Email** | Admin contact email |
+| **Email** | Admin contact email — click the pencil icon to edit inline (super_admin only) |
 | **Database** | Internal database name |
-| **Created** | Creation timestamp |
+| **Created** | Creation date |
 
-Action buttons (shown based on current status):
-- **Activate** — Start the tenant, create admin accounts, send credentials
-- **Suspend** — Temporarily disable the tenant
-- **Delete** — Permanently remove (suspended tenants only)
-- **Refresh** — Re-check engine connectivity
+Action buttons (shown based on current status and only to super_admins):
+
+| Button | Available When | Behavior |
+|--------|----------------|----------|
+| **Activate** | `initialized` or `suspended` | Starts the tenant engine processes via the BEAM tenant supervisor and flips the tenant to `active` |
+| **Suspend** | `active` | Confirmation: *"Are you sure you want to suspend "[name]"?"* Stops engine processes and blocks tenant user logins. |
+| **Delete** | `suspended` | Confirmation: *"This will permanently delete "[name]" and its database. This action cannot be undone. Continue?"* |
+| **Refresh** | Always | Re-checks engine connectivity |
 
 #### Engine Status
 
-Real-time connectivity status for the tenant's CA and RA engines:
+Real-time status for the tenant's CA and RA engines (checked via the in-process BEAM tenant registry):
 
 | Status | Indicator | Meaning |
 |--------|-----------|---------|
-| **Online** | Green dot | Engine is running and reachable |
-| **Offline** | Red dot | Engine is unreachable |
-| **Checking** | Spinner | Connectivity check in progress |
+| **Online** | Green "Online" badge | Engine processes are running under the tenant supervisor |
+| **Offline** | Red "Offline" badge | No engine processes found for this tenant |
+| **Checking** | Grey badge with spinner | Lookup in progress |
 
-Click **Refresh** to manually re-check status.
+A small monospace timer next to the badges shows how long the last check took. Click **Refresh** to re-check.
 
-#### Admin Setup Status
+#### User Management
 
-Shows whether CA and RA admin accounts have been provisioned:
+> **Visible only when the tenant status is `active`.**
 
-**CA Admin / RA Admin cards each show:**
-- **Configured** (green badge) — Admin account exists, with user count: *"[count] user(s) configured."*
-- **Pending** (yellow badge) — Not yet provisioned: *"Activate the tenant first, then admin credentials will be provisioned."*
+When a tenant is active, the detail page exposes two user-management cards:
 
-**Credential actions:**
+##### CA Portal Users
 
-| Action | Confirmation | Description |
-|--------|-------------|-------------|
-| **Resend All Credentials** | *"This will reset ALL admin passwords and send new credentials. Continue?"* | Reset and re-send credentials for both CA and RA admins |
-| **Reset CA Admin** | *"This will delete the existing CA admin and create a new one with a temporary password. Continue?"* | Reset CA admin credentials |
-| **Reset RA Admin** | *"This will delete the existing RA admin and create a new one with a temporary password. Continue?"* | Reset RA admin credentials |
+Heading: **CA Portal Users** with a count badge.
+
+Table columns: **Username**, **Display Name**, **Role**, **Status**, **Actions**.
+
+Click **+ Add User** to reveal an inline form:
+
+| Field | Placeholder | Description |
+|-------|-------------|-------------|
+| **Username** | `e.g. jdoe` | Unique login identifier |
+| **Display Name** | `e.g. Jane Doe` | Full name for the UI |
+| **Email** | `jane@example.com` | Where the invitation will be sent |
+| **Role** | dropdown | `CA Admin`, `Key Manager`, or `Auditor` |
+
+Buttons: **Cancel** | **Create & Send Invite** (*"Creating..."* while submitting).
+
+On success, you see: *"User created. Credentials sent to [email]."* The user appears in the table, and an invitation email with a temporary password is sent to the portal host defined by `CA_PORTAL_HOST`.
+
+**Row actions:**
+
+| Icon | Action | Confirmation |
+|------|--------|--------------|
+| Pause | **Suspend user** (when active) | *"Suspend [username]?"* |
+| Play | **Activate user** (when suspended) | None |
+| Trash | **Remove user** | *"Remove [username] from CA portal?"* |
+
+If there are no users yet, the card shows: *"No CA users yet."*
+
+##### RA Portal Users
+
+Identical layout to the CA Portal Users card, with role dropdown values `RA Admin`, `RA Officer`, `Auditor`, and the portal host defined by `RA_PORTAL_HOST`.
+
+> **Tenant must be active.** If the tenant is not active when you submit the form, you will see the inline error: *"Tenant must be activated before creating users."*
+
+See [§5.6 User Invite Flow](#user-invite) for the end-to-end lifecycle of these invitations.
 
 #### Health Metrics
 
@@ -317,6 +349,8 @@ Loaded asynchronously. Displays operational metrics for the tenant:
 | **RA Instances** | Number of RA engine instances |
 
 #### HSM Device Access
+
+> **Visible only when the tenant status is `active` and you are a super_admin.**
 
 Heading: *"HSM Device Access"*
 Description: *"Assign PKCS#11 HSM devices to this tenant. The tenant's CA admin will see assigned devices when creating HSM-backed keystores."*
@@ -352,12 +386,112 @@ Tenants follow this lifecycle:
 
 | Transition | What Happens |
 |------------|-------------|
-| **Initialized → Active** | Tenant engine processes start. CA and RA admin accounts are created. Credentials are emailed to the tenant's contact address. |
-| **Active → Suspended** | Engine processes stop. Users can no longer log in to the tenant's CA or RA portals. Existing certificates remain valid. |
+| **Initialized → Active** | Tenant engine processes start under the BEAM tenant supervisor. The User Management section of the tenant detail page becomes available so a platform admin or tenant admin can invite CA/RA users. |
+| **Active → Suspended** | Engine processes stop. Users can no longer log in to the tenant's CA or RA portals. Existing certificates remain valid. The User Management and HSM Device Access sections are hidden. |
 | **Suspended → Active** | Engine processes restart. Users regain access. |
 | **Suspended → Deleted** | The tenant database is permanently dropped. All data (users, keys, certificates) is destroyed. **This cannot be undone.** |
 
+> **Note:** During tenant **creation** (§5.2) the provisioning chain already starts engines and creates the initial `tenant_admin` user, so a freshly created tenant lands in `active` state with its tenant admin already invited. You only need the `Initialized → Active` transition if a tenant was explicitly left in the `initialized` state or previously suspended.
+
 > **Important:** A tenant must be **suspended** before it can be deleted. Active tenants cannot be deleted directly.
+
+### 5.5 Tenant Onboarding Flow <a name="tenant-onboarding"></a>
+
+This section describes the end-to-end flow from the moment a platform admin clicks **Create Tenant** to the moment the tenant starts managing their own CA/RA users.
+
+#### Actors
+
+| Actor | Role |
+|-------|------|
+| **Platform Admin** | A `super_admin` on the Platform Portal |
+| **Tenant Admin** | The first user of the new tenant, created automatically during provisioning with the role `tenant_admin` |
+| **Email System** | Delivers invitation and credential emails via the platform engine's email transport |
+
+#### Step-by-step
+
+1. **Platform Admin fills the tenant form** — Name, Slug, Email. See [§5.2](#tenant-create).
+2. **Provisioning chain runs automatically** — The five steps (database, engines, instances, tenant_admin, credentials) execute in order. The Platform Admin sees a live checklist.
+3. **Tenant admin user is created** — During step 4 (`Tenant admin account created`) the platform engine creates a `UserProfile` in the **platform portal** database with:
+   - `role = "tenant_admin"`
+   - A generated temporary password
+   - `must_change_password = true`
+4. **Invitation email is sent** — During step 5 (`Credentials sent`) the engine sends an email to the address entered in step 1. The email contains:
+   - The tenant name
+   - The username and **temporary password**
+   - A link to the **Platform Portal** (`https://<PLATFORM_PORTAL_HOST>`)
+5. **Tenant Admin receives the email and signs in** — They visit the Platform Portal login page and enter the username and temporary password.
+6. **Forced password change** — Because `must_change_password` is `true`, login immediately redirects to `/change-password`. The Tenant Admin enters their current (temporary) password, a new password (minimum 8 characters), and confirms it.
+7. **Auto-redirect to tenant detail** — After changing the password, the Tenant Admin lands on the Dashboard. Because their role is `tenant_admin`, they are automatically redirected from the Dashboard to **their** tenant's detail page (`/tenants/:id`).
+8. **Tenant Admin manages users from the tenant detail page** — From the User Management section (visible because the tenant is `active`), they invite CA Portal and RA Portal users. See [§5.6](#user-invite).
+
+#### What the Tenant Admin can and cannot see
+
+The `tenant_admin` role is scoped to a **single tenant**. On the Platform Portal they can:
+
+- View their own tenant's detail page
+- Invite, suspend, activate, and remove CA/RA portal users for that tenant
+- Edit their own profile and password
+
+They **cannot** see the Tenants list, HSM Devices page, System page, Admins page, or any other tenant's data. These navigation items are hidden in the sidebar (which only renders them for `super_admin`).
+
+#### If the invitation is lost or expired
+
+- **Temporary credentials expire after 24 hours.** If the Tenant Admin tries to log in after that window, they will see: *"Your temporary credentials have expired. Contact another platform admin."*
+- A Platform Admin can reset the tenant admin by using **Forgot Password** on the Platform Portal, or by deleting and re-inviting the tenant admin via platform tooling.
+
+---
+
+### 5.6 User Invite Flow (CA / RA Users) <a name="user-invite"></a>
+
+This flow describes how CA Portal and RA Portal users are invited from the Platform Portal. Unlike the tenant onboarding flow, these users log in to the **CA Portal** or **RA Portal** — not the Platform Portal.
+
+#### Who can trigger it
+
+- **Platform Admins** (`super_admin`) from any active tenant's detail page
+- **Tenant Admins** (`tenant_admin`) from their own tenant's detail page
+
+#### Prerequisites
+
+- The tenant must be in the **`active`** state. If it isn't, the User Management section is hidden, and attempting to create a user will return the error: *"Tenant must be activated before creating users."*
+- For CA portal invites, `CA_PORTAL_HOST` must be configured (defaults to `ca.straptrust.com`).
+- For RA portal invites, `RA_PORTAL_HOST` must be configured (defaults to `ra.straptrust.com`).
+
+#### Step-by-step
+
+1. **Open tenant detail** — Navigate to the tenant's detail page and scroll to **User Management**.
+2. **Choose the portal** — Click **+ Add User** on either the **CA Portal Users** card or the **RA Portal Users** card. An inline form expands.
+3. **Fill the form:**
+   - **Username** — e.g. `jdoe`
+   - **Display Name** — e.g. `Jane Doe`
+   - **Email** — where the invitation will be sent
+   - **Role** — select from the dropdown:
+     - CA portal roles: `CA Admin`, `Key Manager`, `Auditor`
+     - RA portal roles: `RA Admin`, `RA Officer`, `Auditor`
+4. **Submit** — Click **Create & Send Invite**. The backend (`PlatformAuth.create_user_for_portal/4`) performs the following atomically:
+   - Generates a random temporary password
+   - Creates a `UserProfile` with `must_change_password = true`
+   - Creates a `UserTenantRole` binding the user to this tenant with the chosen portal and role
+   - Sends an invitation email containing the tenant name, role, username, temporary password, and the target portal URL
+5. **Confirmation flash** — You see: *"User created. Credentials sent to [email]."* The user appears in the portal's user table with status `active`.
+6. **Invitee receives the email** — The email links to the CA or RA portal login page and includes the temporary password.
+7. **First login** — The invitee signs in to the CA or RA portal with their username and temporary password. The portal detects `must_change_password` and immediately redirects them to its own change-password screen.
+8. **Password set** — After confirming a new password, the invitee is granted full access to the portal with their assigned role.
+
+#### Ongoing management
+
+From the same User Management section, the inviter can at any time:
+
+| Action | Effect |
+|--------|--------|
+| **Suspend** | Sets the user's role status to `suspended`. They can no longer log in. Confirmation: *"Suspend [username]?"* |
+| **Activate** | Reverses a suspension. No confirmation. |
+| **Remove** | Deletes the `UserTenantRole` record, removing access to this portal. Confirmation: *"Remove [username] from CA portal?"* (or `RA portal`). |
+
+All suspend/activate/remove actions are scoped to the current tenant — the system verifies that the target `UserTenantRole` belongs to the tenant shown on the page before acting. A user with roles in multiple tenants is unaffected in their other tenants.
+
+#### Resending invitations / resetting passwords
+
+If an invitee loses their email or their temporary password expires, the platform engine exposes `PlatformAuth.reset_user_password/2` which regenerates a temporary password and re-sends the credential email. In the current release this is triggered programmatically (e.g. via a console task) rather than from a dedicated button in the Platform Portal UI. Ask your platform engineer to run the reset if needed.
 
 ---
 
@@ -460,8 +594,9 @@ Click **Create & Send Invite**. The system generates a temporary password and se
 
 ### Safety Protections
 
-The system prevents locking out all administrators:
+The system prevents locking out all administrators and prevents self-lockout:
 
+- **You cannot suspend or delete yourself.** The Suspend and Delete action icons are hidden on your own row (the row marked with the **"you"** badge).
 - **Cannot suspend the last active admin.** You will see: *"Cannot suspend the last active admin."*
 - **Cannot delete the last active admin.** You will see: *"Cannot delete the last active admin."*
 
@@ -511,20 +646,22 @@ Each monitored service shows:
 
 ## 9. Active Sessions <a name="sessions"></a>
 
-Navigate to **Sessions** in the sidebar (accessible from the Admins section context) to monitor and manage active user sessions across **all portals** (CA, RA, and Platform).
+Visit `/sessions` directly in the browser to monitor and manage active user sessions across **all portals** (CA, RA, and Platform).
+
+> **Note:** In the current release this page is **not linked from the sidebar** — it is only reachable via direct URL. Platform admins who need to use it regularly should bookmark `https://your-domain:4006/sessions`.
 
 Heading: *"Active Sessions"*
 
-The session list updates in **real-time** via PubSub — no manual refresh is needed.
+The session list updates in **real-time** via PubSub — no manual refresh is needed. It subscribes to the `session_events` topic on all three portal PubSub instances (CA, RA, Platform) and reloads when any session is created, expired, or deleted.
 
 ### Session Table
 
 | Column | Description |
 |--------|-------------|
 | **User** | Username of the logged-in user |
-| **Portal** | Which portal — **CA** (blue), **RA** (purple), or **PLATFORM** (accent) badge |
+| **Portal** | Which portal — **CA** (primary badge), **RA** (secondary badge), or **PLATFORM** (accent badge), uppercased |
 | **Role** | User's role in that portal session |
-| **Tenant** | Tenant the session belongs to (blank for platform sessions) |
+| **Tenant** | Tenant ID the session belongs to (shown as `—` for platform superadmin sessions). This is the raw tenant UUID, not the tenant name. |
 | **IP** | Client IP address |
 | **Login Time** | When the session was created |
 | **Last Active** | Most recent activity timestamp |
@@ -630,8 +767,7 @@ If you forget your password:
 | Action | Limit |
 |--------|-------|
 | Login attempts | 5 per 5 minutes per IP |
-| Password reset requests | 3 per 15 minutes per IP |
-| Email verification attempts | 5 per code |
+| Password reset requests | 3 per 15 minutes per IP (covers both code request and code submission) |
 
 ### Session Security
 
@@ -689,14 +825,29 @@ HSM devices with tenants assigned cannot be deactivated. Go to each assigned ten
 
 ### Tenant activation fails
 
-Ensure the CA and RA engines are deployed and reachable for the tenant. Check the **Engine Status** section on the tenant detail page — both engines should show **Online** before activation.
+Activation starts the tenant's engine processes under the in-process BEAM tenant supervisor. If it fails, check the platform logs for the specific reason (supervisor startup, database reachability, schema version). The tenant detail page's **Engine Status** should flip to **Online** after a successful activation; click **Refresh** to re-check.
 
-### Email verification code not received
+### Tenant provisioning step fails during creation
+
+If any row on the tenant creation checklist turns red, an error alert explains which step failed. Click **Retry** on that step — earlier successful steps are not re-run. Typical causes:
+
+- **Database created** — PostgreSQL not reachable, or the slug collides with an existing database
+- **Engines started** — Tenant supervisor failed to start (check logs)
+- **Credentials sent** — Email transport misconfigured (check the platform engine's mailer settings)
+
+### Tenant admin didn't receive the invitation email
 
 - Check spam/junk folders
-- Verify the email address is correct (go **Back** to Step 1 to check)
-- Click **Resend Code** to send a new code
-- Codes expire after 10 minutes
+- Confirm the email address on the tenant detail page; it is editable inline by super_admins
+- Verify the platform engine's email transport is configured and the mail server is reachable
+- As a last resort, a platform engineer can regenerate the tenant admin's temporary password via `PlatformAuth.reset_user_password/2`
+
+### CA or RA user didn't receive their invitation email
+
+- Verify the tenant is in the `active` state
+- Confirm the email address in the user form was correct
+- Check that `CA_PORTAL_HOST` / `RA_PORTAL_HOST` env vars are set correctly so the invitation link points somewhere reachable
+- Ask a platform engineer to run `PlatformAuth.reset_user_password/2` on the user's role to re-issue credentials
 
 ### Session expired unexpectedly
 
