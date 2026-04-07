@@ -15,7 +15,7 @@ defmodule PkiValidation.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :tzdata],
       mod: {PkiValidation.Application, []}
     ]
   end
