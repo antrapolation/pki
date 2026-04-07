@@ -1394,8 +1394,10 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
   end
 
   defp generalized_time(%DateTime{} = dt) do
+    # All datetimes in this codebase are stored as :utc_datetime_usec.
+    # Do NOT call DateTime.shift_zone!/2 — it's a no-op for UTC and triggers
+    # the configured time zone database (Tzdata) unnecessarily.
     dt
-    |> DateTime.shift_zone!("Etc/UTC")
     |> Calendar.strftime("%Y%m%d%H%M%SZ")
     |> String.to_charlist()
   end
@@ -1903,7 +1905,8 @@ defmodule PkiValidation.Crl.DerGenerator do
   end
 
   defp utc_time(%DateTime{} = dt) do
-    {:utcTime, dt |> DateTime.shift_zone!("Etc/UTC") |> Calendar.strftime("%y%m%d%H%M%SZ") |> String.to_charlist()}
+    # Datetimes are already UTC (stored as :utc_datetime_usec). No shift needed.
+    {:utcTime, dt |> Calendar.strftime("%y%m%d%H%M%SZ") |> String.to_charlist()}
   end
 
   defp encode_reason("key_compromise"), do: :public_key.der_encode(:CRLReason, :keyCompromise)
