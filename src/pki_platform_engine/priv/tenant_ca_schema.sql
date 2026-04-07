@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS ca.ca_instances (
     created_by character varying(255),
     inserted_at timestamp(0) without time zone NOT NULL,
     updated_at timestamp(0) without time zone NOT NULL,
-    parent_id uuid
+    parent_id uuid,
+    is_offline boolean DEFAULT false
 );
 CREATE TABLE IF NOT EXISTS ca.ca_users (
     id uuid NOT NULL,
