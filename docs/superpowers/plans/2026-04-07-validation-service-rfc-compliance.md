@@ -1387,9 +1387,15 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
   defp build_cert_status(:unknown), do: {:unknown, :NULL}
 
   defp build_responder_id(cert_der) do
+    # OTPTBSCertificate fields (1-indexed positions in the record tuple,
+    # position 1 is the record tag :OTPTBSCertificate):
+    #   2 version, 3 serialNumber, 4 signature, 5 issuer, 6 validity,
+    #   7 subject, 8 subjectPublicKeyInfo, ...
+    # The OCSP ResponderID byName is the responder cert's SUBJECT (not its
+    # issuer) per RFC 6960 §4.2.2.3.
     otp = :public_key.pkix_decode_cert(cert_der, :otp)
-    tbs = elem(otp, 1)
-    subject = elem(tbs, 5)
+    tbs = :erlang.element(2, otp)
+    subject = :erlang.element(7, tbs)
     {:byName, subject}
   end
 
@@ -1888,9 +1894,13 @@ defmodule PkiValidation.Crl.DerGenerator do
   end
 
   defp extract_issuer(cert_der) do
+    # The CRL "issuer" field comes from the SUBJECT of the signing certificate
+    # — the signer is the issuer of the CRL. OTPTBSCertificate is 1-indexed:
+    # position 7 is subject. Use :erlang.element/2 (1-indexed), not Kernel.elem/2
+    # (0-indexed).
     otp = :public_key.pkix_decode_cert(cert_der, :otp)
-    tbs = elem(otp, 1)
-    elem(tbs, 5)
+    tbs = :erlang.element(2, otp)
+    :erlang.element(7, tbs)
   end
 
   defp parse_serial(s) when is_binary(s) do
