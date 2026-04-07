@@ -56,9 +56,16 @@ defmodule PkiValidation.CertId do
     # The :plain TBSCertificate record exposes subjectPublicKeyInfo at
     # element 8 (1-indexed). The :plain SubjectPublicKeyInfo record is:
     #   {:SubjectPublicKeyInfo, algorithm, raw_key_bytes :: binary}
-    # OTP already strips the leading "unused bits" byte from the BIT STRING,
-    # so element 3 is the raw value (excluding tag and length) per
-    # RFC 6960 section 4.1.1.
+    # OTP's :plain codec layer strips the leading "unused bits" byte from
+    # the BIT STRING during decoding (this is part of how :asn1ct handles
+    # BIT STRING values, not specific to :otp vs :plain), so element 3
+    # is the raw value (excluding tag and length) per RFC 6960 §4.1.1.
+    #
+    # Empirically verified against the committed RSA fixture
+    # (test/fixtures/test_issuer_rsa.der) whose hash matches openssl
+    # ocsp -reqout output byte-for-byte. For SubjectPublicKey BIT STRINGs,
+    # X.509 always uses 0 unused bits (RFC 5280), so this is safe for any
+    # well-formed certificate.
     plain_cert = :public_key.pkix_decode_cert(der_cert, :plain)
     tbs = :erlang.element(2, plain_cert)
     spki = :erlang.element(8, tbs)

@@ -66,9 +66,18 @@ defmodule PkiValidation.SigningKeyStoreTest do
   test "find_by_key_hash returns {:ok, key, issuer_id} for known key hash",
        %{name: name, issuer_key_id: id} do
     {:ok, key} = SigningKeyStore.get(name, id)
-    target_hash = PkiValidation.CertId.issuer_key_hash(key.certificate_der)
-    assert {:ok, found_key, ^id} = SigningKeyStore.find_by_key_hash(name, target_hash)
+
+    # Verify the cached key_hash field is populated and matches a fresh
+    # computation. This pins the H1 fix: if the cache field were dropped or
+    # left nil, this assertion would fail rather than silently re-hashing on
+    # every find_by_key_hash call.
+    expected_hash = PkiValidation.CertId.issuer_key_hash(key.certificate_der)
+    assert key.key_hash == expected_hash
+
+    # Looking up by the cached hash returns the same key with the issuer id.
+    assert {:ok, found_key, ^id} = SigningKeyStore.find_by_key_hash(name, key.key_hash)
     assert found_key.algorithm == "ecc_p256"
+    assert found_key.key_hash == expected_hash
   end
 
   test "find_by_key_hash returns :not_found for unknown hash", %{name: name} do

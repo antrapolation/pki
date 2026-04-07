@@ -101,10 +101,16 @@ defmodule PkiValidation.SigningKeyStore do
   end
 
   # Ensure we always feed a binary into PBKDF2 so a stray charlist (e.g. from
-  # a config file) doesn't silently produce a different derived key.
+  # a config file) doesn't silently produce a different derived key. Reject
+  # anything that isn't clearly a password — silently coercing nil/atom/integer
+  # to a string would mask configuration mistakes.
   defp coerce_password(p) when is_binary(p), do: p
   defp coerce_password(p) when is_list(p), do: IO.iodata_to_binary(p)
-  defp coerce_password(p), do: to_string(p)
+
+  defp coerce_password(p) do
+    raise ArgumentError,
+          "SigningKeyStore password must be a binary or charlist, got: #{inspect(p)}"
+  end
 
   defp load_keys(password) do
     SigningKeyConfig
