@@ -132,6 +132,70 @@ defmodule PkiValidation.SigningKeyStoreTest do
     assert :not_found = SigningKeyStore.get(name3, bad_id)
   end
 
+  describe "status/1" do
+    test "reports healthy state when all keys load", %{name: name, issuer_key_id: _id} do
+      status = SigningKeyStore.status(name)
+      assert status.healthy == true
+      assert status.loaded == 1
+      assert status.failed == 0
+      assert status.last_error == nil
+    end
+
+    test "reports failed count when a key has wrong password" do
+      bad_id = Uniq.UUID.uuid7()
+      {_pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
+      encrypted_with_wrong = SigningKeyStore.encrypt_for_test(priv, "different-password")
+      cert_pem = generate_test_cert_pem()
+
+      {:ok, _} =
+        %SigningKeyConfig{}
+        |> SigningKeyConfig.changeset(%{
+          issuer_key_id: bad_id,
+          algorithm: "ecc_p256",
+          certificate_pem: cert_pem,
+          encrypted_private_key: encrypted_with_wrong,
+          not_before: DateTime.utc_now(),
+          not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+          status: "active"
+        })
+        |> Repo.insert()
+
+      name2 = :"ks_status_bad_#{System.unique_integer([:positive])}"
+      {:ok, _} = SigningKeyStore.start_link(name: name2, password: "test-password")
+
+      status = SigningKeyStore.status(name2)
+      assert status.healthy == false
+      assert status.failed >= 1
+      assert status.last_error == :decryption_failed
+    end
+
+    test "reports zero loaded when the only key is malformed" do
+      bad_id = Uniq.UUID.uuid7()
+      cert_pem = generate_test_cert_pem()
+
+      {:ok, _} =
+        %SigningKeyConfig{}
+        |> SigningKeyConfig.changeset(%{
+          issuer_key_id: bad_id,
+          algorithm: "ecc_p256",
+          certificate_pem: cert_pem,
+          encrypted_private_key: <<1, 2, 3>>,
+          not_before: DateTime.utc_now(),
+          not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+          status: "active"
+        })
+        |> Repo.insert()
+
+      name3 = :"ks_status_trunc_#{System.unique_integer([:positive])}"
+      {:ok, _} = SigningKeyStore.start_link(name: name3, password: "test-password")
+
+      status = SigningKeyStore.status(name3)
+      assert status.healthy == false
+      assert status.failed >= 1
+      assert status.last_error in [:malformed_ciphertext, :decryption_failed]
+    end
+  end
+
   defp generate_test_signing_keypair do
     {_pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
     encrypted = SigningKeyStore.encrypt_for_test(priv, "test-password")

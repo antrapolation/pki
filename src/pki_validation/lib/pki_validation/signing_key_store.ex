@@ -45,6 +45,24 @@ defmodule PkiValidation.SigningKeyStore do
     GenServer.call(server, :reload)
   end
 
+  @type status :: %{
+          loaded: non_neg_integer(),
+          failed: non_neg_integer(),
+          last_error: atom() | nil,
+          healthy: boolean()
+        }
+
+  @doc """
+  Return an operational status summary for the store.
+
+  Used by /health to report signing key availability. When `failed > 0` the
+  store is considered degraded (not healthy).
+  """
+  @spec status(GenServer.server()) :: status()
+  def status(server \\ __MODULE__) do
+    GenServer.call(server, :status)
+  end
+
   @doc """
   Test helper: encrypt a private key with the given password using the same
   scheme this module uses for at-rest storage.
@@ -63,9 +81,21 @@ defmodule PkiValidation.SigningKeyStore do
   @impl true
   def init(opts) do
     password = resolve_password(opts)
-    keys = load_keys(password)
-    Logger.info("SigningKeyStore loaded #{map_size(keys)} signing keys")
-    {:ok, %{password: password, keys: keys}}
+    {keys, loaded_count, failed} = load_keys(password)
+
+    Logger.info(
+      "SigningKeyStore loaded #{loaded_count} signing keys " <>
+        "(#{length(failed)} failed)"
+    )
+
+    state = %{
+      password: password,
+      keys: keys,
+      loaded_count: loaded_count,
+      failed: failed
+    }
+
+    {:ok, state}
   end
 
   @impl true
@@ -88,7 +118,33 @@ defmodule PkiValidation.SigningKeyStore do
   end
 
   def handle_call(:reload, _from, state) do
-    {:reply, :ok, %{state | keys: load_keys(state.password)}}
+    {keys, loaded_count, failed} = load_keys(state.password)
+
+    new_state = %{
+      state
+      | keys: keys,
+        loaded_count: loaded_count,
+        failed: failed
+    }
+
+    {:reply, :ok, new_state}
+  end
+
+  def handle_call(:status, _from, state) do
+    last_error =
+      case state.failed do
+        [%{reason: reason} | _] -> reason
+        _ -> nil
+      end
+
+    status = %{
+      loaded: state.loaded_count,
+      failed: length(state.failed),
+      last_error: last_error,
+      healthy: state.failed == []
+    }
+
+    {:reply, status, state}
   end
 
   ## Private helpers
@@ -116,7 +172,7 @@ defmodule PkiValidation.SigningKeyStore do
     SigningKeyConfig
     |> where([c], c.status == "active")
     |> Repo.all()
-    |> Enum.reduce(%{}, fn config, acc ->
+    |> Enum.reduce({%{}, 0, []}, fn config, {keys, loaded, failed} ->
       with {:ok, priv} <- decrypt_private_key(config.encrypted_private_key, password),
            {:ok, cert_der} <- decode_cert_pem(config.certificate_pem) do
         # NOTE: `private_key` here is the raw decrypted bytes and its shape is
@@ -125,7 +181,7 @@ defmodule PkiValidation.SigningKeyStore do
         # deliberately algorithm-agnostic; downstream consumers such as
         # `PkiValidation.Ocsp.ResponseBuilder.sign_tbs/2` are responsible for
         # interpreting the bytes according to `algorithm`.
-        Map.put(acc, config.issuer_key_id, %{
+        entry = %{
           algorithm: config.algorithm,
           private_key: priv,
           certificate_der: cert_der,
@@ -133,14 +189,20 @@ defmodule PkiValidation.SigningKeyStore do
           # have to re-decode + re-hash every cert on every request.
           key_hash: PkiValidation.CertId.issuer_key_hash(cert_der),
           not_after: config.not_after
-        })
+        }
+
+        {Map.put(keys, config.issuer_key_id, entry), loaded + 1, failed}
       else
         {:error, reason} ->
           Logger.error(
             "Failed to load signing key for issuer #{config.issuer_key_id}: #{inspect(reason)}"
           )
 
-          acc
+          failure = %{issuer_key_id: config.issuer_key_id, reason: reason}
+          # Cap the failed list at the 50 most recent entries to prevent
+          # unbounded growth on many-key deployments.
+          new_failed = Enum.take([failure | failed], 50)
+          {keys, loaded, new_failed}
       end
     end)
   end

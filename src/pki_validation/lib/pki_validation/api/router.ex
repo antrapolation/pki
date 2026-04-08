@@ -35,7 +35,18 @@ defmodule PkiValidation.Api.Router do
   plug :dispatch
 
   get "/health" do
-    send_json(conn, 200, %{status: "ok"})
+    case PkiValidation.SigningKeyStore.status() do
+      %{healthy: true, loaded: loaded} ->
+        send_json(conn, 200, %{status: "ok", signing_keys_loaded: loaded})
+
+      %{loaded: loaded, failed: failed, last_error: last_error} ->
+        send_json(conn, 503, %{
+          status: "degraded",
+          signing_keys_loaded: loaded,
+          signing_keys_failed: failed,
+          last_error: if(last_error, do: Atom.to_string(last_error), else: nil)
+        })
+    end
   end
 
   post "/ocsp" do
