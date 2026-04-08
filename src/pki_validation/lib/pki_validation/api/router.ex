@@ -4,10 +4,15 @@ defmodule PkiValidation.Api.Router do
 
   Endpoints:
   - GET  /health           — health check
-  - POST /ocsp             — OCSP status query (simplified JSON)
-  - GET  /crl              — current CRL
+  - POST /ocsp             — OCSP status query (simplified JSON, legacy)
+  - POST /ocsp/der         — RFC 6960 OCSP (application/ocsp-request)
+  - GET  /ocsp/der/:base64 — RFC 5019 lightweight OCSP (GET form)
+  - GET  /crl              — current CRL (JSON, legacy)
+  - GET  /crl/der          — RFC 5280 DER CRL (default issuer)
+  - GET  /crl/der/:issuer_key_id — RFC 5280 DER CRL for a specific issuer
   - POST /notify/issuance  — CA notifies of new certificate (internal, authenticated)
   - POST /notify/revocation — CA notifies of certificate revocation (internal, authenticated)
+  - POST /notify/signing-key-rotation — trigger SigningKeyStore.reload/0 (internal, authenticated)
   """
 
   use Plug.Router
@@ -15,13 +20,18 @@ defmodule PkiValidation.Api.Router do
   require Logger
 
   alias PkiValidation.Repo
-  alias PkiValidation.Schema.CertificateStatus
+  alias PkiValidation.Schema.{CertificateStatus, SigningKeyConfig}
   alias PkiValidation.OcspCache
 
   import Ecto.Query
 
   plug :match
-  plug Plug.Parsers, parsers: [:json], json_decoder: Jason
+
+  plug Plug.Parsers,
+    parsers: [:json],
+    pass: ["application/ocsp-request"],
+    json_decoder: Jason
+
   plug :dispatch
 
   get "/health" do
@@ -111,6 +121,61 @@ defmodule PkiValidation.Api.Router do
     end
   end
 
+  post "/ocsp/der" do
+    case Plug.Conn.read_body(conn, length: 1_000_000) do
+      {:ok, body, conn} ->
+        handle_der_ocsp_body(conn, body)
+
+      {:more, _partial, conn} ->
+        # Body exceeded our 1 MB cap — treat as malformed rather than
+        # attempt to process an unbounded OCSP request.
+        send_malformed_ocsp(conn)
+
+      {:error, _reason} ->
+        send_malformed_ocsp(conn)
+    end
+  end
+
+  get "/ocsp/der/:b64" do
+    case decode_ocsp_get_param(b64) do
+      {:ok, der_request} ->
+        case PkiValidation.Ocsp.RequestDecoder.decode(der_request) do
+          {:ok, request} ->
+            {:ok, der} = PkiValidation.Ocsp.DerResponder.respond(request, [])
+            send_der_ocsp(conn, der)
+
+          {:error, :malformed} ->
+            send_malformed_ocsp(conn)
+        end
+
+      :error ->
+        send_malformed_ocsp(conn)
+    end
+  end
+
+  get "/crl/der" do
+    case first_active_issuer_key_id() do
+      nil -> send_resp(conn, 503, "")
+      issuer_key_id -> serve_crl(conn, issuer_key_id)
+    end
+  end
+
+  get "/crl/der/:issuer_key_id" do
+    serve_crl(conn, issuer_key_id)
+  end
+
+  post "/notify/signing-key-rotation" do
+    case verify_internal_auth(conn) do
+      :ok ->
+        PkiValidation.SigningKeyStore.reload()
+        Logger.info("SigningKeyStore reloaded via /notify/signing-key-rotation")
+        send_json(conn, 200, %{status: "ok"})
+
+      {:error, :unauthorized} ->
+        send_json(conn, 401, %{error: "unauthorized"})
+    end
+  end
+
   match _ do
     send_json(conn, 404, %{error: "not_found"})
   end
@@ -187,6 +252,99 @@ defmodule PkiValidation.Api.Router do
   end
 
   defp parse_datetime(value), do: value
+
+  defp handle_der_ocsp_body(conn, body) do
+    case PkiValidation.Ocsp.RequestDecoder.decode(body) do
+      {:ok, request} ->
+        {:ok, der} = PkiValidation.Ocsp.DerResponder.respond(request, [])
+        send_der_ocsp(conn, der)
+
+      {:error, :malformed} ->
+        send_malformed_ocsp(conn)
+    end
+  end
+
+  defp send_der_ocsp(conn, der) do
+    etag = :crypto.hash(:sha256, der) |> Base.encode16(case: :lower)
+
+    conn
+    |> put_resp_header("content-type", "application/ocsp-response")
+    |> put_resp_header("cache-control", "public, max-age=300, no-transform")
+    |> put_resp_header("etag", "\"#{etag}\"")
+    |> send_resp(200, der)
+  end
+
+  defp send_malformed_ocsp(conn) do
+    {:ok, der} =
+      PkiValidation.Ocsp.ResponseBuilder.build(:malformedRequest, [], dummy_signing_key())
+
+    send_der_ocsp(conn, der)
+  end
+
+  # ResponseBuilder.build/4 requires a signing_key argument even for error
+  # statuses, but the error path never signs anything — it just produces an
+  # OCSPResponse with `:asn1_NOVALUE` body.
+  defp dummy_signing_key do
+    %{algorithm: "ecc_p256", private_key: <<>>, certificate_der: <<>>}
+  end
+
+  # Try url-safe base64 first (RFC 5019 permits it). Some clients use
+  # standard base64 (possibly URL-encoded by the HTTP layer); fall back to
+  # that so both forms round-trip.
+  defp decode_ocsp_get_param(b64) when is_binary(b64) do
+    case Base.url_decode64(b64, padding: false) do
+      {:ok, bin} ->
+        {:ok, bin}
+
+      :error ->
+        case Base.url_decode64(b64, padding: true) do
+          {:ok, bin} ->
+            {:ok, bin}
+
+          :error ->
+            case Base.decode64(b64, padding: false) do
+              {:ok, bin} ->
+                {:ok, bin}
+
+              :error ->
+                Base.decode64(b64, padding: true)
+            end
+        end
+    end
+  end
+
+  defp serve_crl(conn, issuer_key_id) do
+    case PkiValidation.SigningKeyStore.get(issuer_key_id) do
+      {:ok, signing_key} ->
+        case PkiValidation.Crl.DerGenerator.generate(issuer_key_id, signing_key) do
+          {:ok, der, crl_number} ->
+            conn
+            |> put_resp_header("content-type", "application/pkix-crl")
+            |> put_resp_header("cache-control", "public, max-age=3600, no-transform")
+            |> put_resp_header("etag", "\"#{crl_number}-#{short_id(issuer_key_id)}\"")
+            |> send_resp(200, der)
+
+          {:error, _reason} ->
+            send_resp(conn, 503, "")
+        end
+
+      :not_found ->
+        send_resp(conn, 404, "")
+    end
+  end
+
+  defp first_active_issuer_key_id do
+    Repo.one(
+      from c in SigningKeyConfig,
+        where: c.status == "active",
+        order_by: [asc: c.inserted_at],
+        limit: 1,
+        select: c.issuer_key_id
+    )
+  end
+
+  defp short_id(id) when is_binary(id),
+    do: binary_part(id, 0, min(8, byte_size(id)))
 
   defp format_changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
