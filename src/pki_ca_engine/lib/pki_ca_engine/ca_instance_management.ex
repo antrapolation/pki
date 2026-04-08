@@ -104,7 +104,7 @@ defmodule PkiCaEngine.CaInstanceManagement do
     CaInstance
     |> where([c], is_nil(c.parent_id))
     |> repo.all()
-    |> repo.preload(children: [:children, :issuer_keys])
+    |> repo.preload([:issuer_keys, children: [:children, :issuer_keys]])
   end
 
   @doc """

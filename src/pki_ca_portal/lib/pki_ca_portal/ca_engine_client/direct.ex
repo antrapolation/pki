@@ -1254,7 +1254,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   # Flatten a tree of CA instances (with nested :children) into a flat list
   defp flatten_tree(instances) do
     Enum.flat_map(instances, fn instance ->
-      map = to_map(instance) |> put_role(instance)
+      map = to_map(instance) |> put_role(instance) |> put_issuer_key_count(instance)
       children_structs = if Ecto.assoc_loaded?(instance.children), do: instance.children, else: []
       children_maps = map[:children] || []
       parent = Map.put(map, :children, nil)
@@ -1265,7 +1265,7 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   defp flatten_tree_children(structs, maps) when is_list(structs) and is_list(maps) do
     Enum.zip(structs, maps)
     |> Enum.flat_map(fn {struct, map} ->
-      map = put_role(map, struct)
+      map = put_role(map, struct) |> put_issuer_key_count(struct)
       grandchildren_structs = if Ecto.assoc_loaded?(struct.children), do: struct.children, else: []
       grandchildren_maps = map[:children] || []
       [Map.put(map, :children, nil) | flatten_tree_children(grandchildren_structs, grandchildren_maps)]
@@ -1283,6 +1283,15 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
       true -> "issuing"
     end
     Map.put(map, :role, role)
+  end
+
+  defp put_issuer_key_count(map, struct) do
+    count =
+      if Ecto.assoc_loaded?(struct.issuer_keys),
+        do: length(struct.issuer_keys),
+        else: 0
+
+    Map.put(map, :issuer_key_count, count)
   end
 
   defp changeset_errors(changeset) do
