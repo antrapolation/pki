@@ -45,7 +45,7 @@ defmodule PkiValidation.Crl.DerGenerator do
 
   @ecdsa_sha256_oid {1, 2, 840, 10045, 4, 3, 2}
   @ecdsa_sha384_oid {1, 2, 840, 10045, 4, 3, 3}
-  @rsa_sha256_oid {1, 2, 840, 113549, 1, 1, 11}
+  @rsa_sha256_oid {1, 2, 840, 113_549, 1, 1, 11}
 
   @crl_number_oid {2, 5, 29, 20}
   @crl_reason_oid {2, 5, 29, 21}

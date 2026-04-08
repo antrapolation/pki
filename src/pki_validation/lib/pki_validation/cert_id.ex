@@ -85,5 +85,4 @@ defmodule PkiValidation.CertId do
       request_cert_id.issuer_key_hash == known.key_hash and
       request_cert_id.serial_number == known.serial_number
   end
-
 end

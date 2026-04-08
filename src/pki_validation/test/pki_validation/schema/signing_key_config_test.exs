@@ -40,7 +40,10 @@ defmodule PkiValidation.Schema.SigningKeyConfigTest do
 
   test "persists to database with unique constraint on issuer_key_id where status=active" do
     {:ok, _} = %SigningKeyConfig{} |> SigningKeyConfig.changeset(@valid_attrs) |> Repo.insert()
-    {:error, changeset} = %SigningKeyConfig{} |> SigningKeyConfig.changeset(@valid_attrs) |> Repo.insert()
+
+    {:error, changeset} =
+      %SigningKeyConfig{} |> SigningKeyConfig.changeset(@valid_attrs) |> Repo.insert()
+
     assert %{issuer_key_id: ["only one active signing key per issuer"]} = errors_on(changeset)
   end
 

@@ -90,9 +90,12 @@ defmodule PkiValidation.OpensslInteropTest do
           "openssl",
           [
             "ocsp",
-            "-reqout", request_file,
-            "-issuer", ctx.responder_cert_file,
-            "-cert", ctx.responder_cert_file,
+            "-reqout",
+            request_file,
+            "-issuer",
+            ctx.responder_cert_file,
+            "-cert",
+            ctx.responder_cert_file,
             "-no_nonce"
           ],
           stderr_to_stdout: true
@@ -135,9 +138,12 @@ defmodule PkiValidation.OpensslInteropTest do
           "openssl",
           [
             "ocsp",
-            "-reqout", request_file,
-            "-issuer", ctx.responder_cert_file,
-            "-cert", ctx.responder_cert_file,
+            "-reqout",
+            request_file,
+            "-issuer",
+            ctx.responder_cert_file,
+            "-cert",
+            ctx.responder_cert_file,
             "-no_nonce"
           ],
           stderr_to_stdout: true
@@ -164,11 +170,16 @@ defmodule PkiValidation.OpensslInteropTest do
           "openssl",
           [
             "ocsp",
-            "-respin", response_file,
-            "-issuer", ctx.responder_cert_file,
-            "-CAfile", ctx.responder_cert_file,
-            "-VAfile", ctx.responder_cert_file,
-            "-cert", ctx.responder_cert_file
+            "-respin",
+            response_file,
+            "-issuer",
+            ctx.responder_cert_file,
+            "-CAfile",
+            ctx.responder_cert_file,
+            "-VAfile",
+            ctx.responder_cert_file,
+            "-cert",
+            ctx.responder_cert_file
           ],
           stderr_to_stdout: true
         )
@@ -234,9 +245,12 @@ defmodule PkiValidation.OpensslInteropTest do
           "openssl",
           [
             "crl",
-            "-inform", "DER",
-            "-in", crl_file,
-            "-CAfile", ctx.responder_cert_file,
+            "-inform",
+            "DER",
+            "-in",
+            crl_file,
+            "-CAfile",
+            ctx.responder_cert_file,
             "-noout"
           ],
           stderr_to_stdout: true

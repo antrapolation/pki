@@ -206,6 +206,7 @@ defmodule PkiValidation.Api.RouterTest do
 
       assert conn.status == 200
       assert get_resp_header(conn, "content-type") == ["application/pkix-crl"]
+
       assert {:CertificateList, _tbs, _alg, _sig} =
                :public_key.der_decode(:CertificateList, conn.resp_body)
     end

@@ -103,7 +103,11 @@ defmodule PkiValidation.Api.Router do
           case Repo.update(changeset) do
             {:ok, _updated} ->
               OcspCache.invalidate(serial_number)
-              Logger.info("Certificate revocation recorded: serial=#{serial_number} reason=#{reason}")
+
+              Logger.info(
+                "Certificate revocation recorded: serial=#{serial_number} reason=#{reason}"
+              )
+
               send_json(conn, 200, %{status: "ok", serial_number: serial_number})
 
             {:error, changeset} ->
@@ -226,7 +230,8 @@ defmodule PkiValidation.Api.Router do
 
   defp validate_revocation_params(params) do
     case {params["serial_number"], params["reason"]} do
-      {serial, reason} when is_binary(serial) and serial != "" and is_binary(reason) and reason != "" ->
+      {serial, reason}
+      when is_binary(serial) and serial != "" and is_binary(reason) and reason != "" ->
         {:ok, serial, reason}
 
       _ ->

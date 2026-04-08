@@ -140,11 +140,13 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
     IO.iodata_to_binary(basic_iodata)
   end
 
-  defp build_single_response(%{
-         cert_id: cert_id,
-         status: status,
-         this_update: this_update
-       } = entry) do
+  defp build_single_response(
+         %{
+           cert_id: cert_id,
+           status: status,
+           this_update: this_update
+         } = entry
+       ) do
     next_update = Map.get(entry, :next_update)
 
     cert_id_record =

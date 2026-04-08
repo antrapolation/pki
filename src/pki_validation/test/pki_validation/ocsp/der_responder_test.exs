@@ -32,10 +32,7 @@ defmodule PkiValidation.Ocsp.DerResponderTest do
     name = :"signing_store_#{System.unique_integer([:positive])}"
     {:ok, _} = SigningKeyStore.start_link(name: name, password: "test-password")
 
-    {:ok,
-     store: name,
-     issuer_key_id: issuer_key_id,
-     issuer_key_hash: issuer_key_hash}
+    {:ok, store: name, issuer_key_id: issuer_key_id, issuer_key_hash: issuer_key_hash}
   end
 
   test "responds with :successful for an active certificate", ctx do

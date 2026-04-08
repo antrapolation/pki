@@ -37,8 +37,9 @@ defmodule PkiValidation.Schema.SigningKeyConfig do
     |> validate_inclusion(:algorithm, @valid_algorithms)
     |> validate_inclusion(:status, @valid_statuses)
     |> unique_constraint(:issuer_key_id,
-         name: :signing_key_config_one_active_per_issuer,
-         message: "only one active signing key per issuer")
+      name: :signing_key_config_one_active_per_issuer,
+      message: "only one active signing key per issuer"
+    )
   end
 
   defp maybe_generate_id(changeset) do
