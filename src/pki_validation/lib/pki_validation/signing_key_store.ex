@@ -216,16 +216,16 @@ defmodule PkiValidation.SigningKeyStore do
     end
   end
 
+  # The Signer behaviour's `decode_private_key/1` callback returns the
+  # decoded term directly (not wrapped). ECC modules return the raw scalar
+  # binary; RSA modules return a decoded `:RSAPrivateKey` record. We wrap
+  # the call in a rescue so an algorithm-specific decode failure (e.g.
+  # malformed RSA DER) drops that single key with a clean failure reason
+  # rather than crashing the whole GenServer.
   defp decode_private_key(signer_mod, raw_priv) do
-    try do
-      case signer_mod.decode_private_key(raw_priv) do
-        {:ok, decoded} -> {:ok, decoded}
-        {:error, _} -> {:error, :private_key_decode_failed}
-        decoded -> {:ok, decoded}
-      end
-    rescue
-      _ -> {:error, :private_key_decode_failed}
-    end
+    {:ok, signer_mod.decode_private_key(raw_priv)}
+  rescue
+    _ -> {:error, :private_key_decode_failed}
   end
 
   defp decrypt_private_key(

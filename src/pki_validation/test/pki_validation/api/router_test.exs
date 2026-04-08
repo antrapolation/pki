@@ -13,7 +13,7 @@ defmodule PkiValidation.Api.RouterTest do
   @sha1_alg_der <<0x30, 0x09, 0x06, 0x05, 0x2B, 0x0E, 0x03, 0x02, 0x1A, 0x05, 0x00>>
 
   describe "GET /health" do
-    test "returns 200 with ok status" do
+    test "returns 200 and healthy=true for a clean store (including empty)" do
       # Ensure the app-level SigningKeyStore is in a clean state regardless
       # of what previous tests in this file left behind. Other tests in
       # this module intentionally push the store into a degraded state to
@@ -23,11 +23,20 @@ defmodule PkiValidation.Api.RouterTest do
       # guarantee that this test starts from a known good state.
       PkiValidation.SigningKeyStore.reload()
 
+      # This test intentionally exercises the "clean store" case regardless
+      # of whether any SigningKeyConfig rows happen to exist in the sandbox.
+      # By design, an empty store is considered healthy: `state.failed == []`
+      # trivially holds, so /health returns 200. A separate test in the next
+      # describe block covers the "healthy with a loaded key" case with
+      # signing_keys_loaded >= 1.
       conn = conn(:get, "/health") |> Router.call(@opts)
 
       assert conn.status == 200
       body = Jason.decode!(conn.resp_body)
       assert body["status"] == "ok"
+      # signing_keys_loaded is always present on a 200 response — it may be 0
+      # (empty store) or >= 1 (loaded keys), but never missing.
+      assert is_integer(body["signing_keys_loaded"])
     end
   end
 

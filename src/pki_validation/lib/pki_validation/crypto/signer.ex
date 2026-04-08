@@ -29,6 +29,11 @@ defmodule PkiValidation.Crypto.Signer do
 
   Called once per key at `SigningKeyStore` load time. The returned term is
   cached and passed back to `sign/2` on every signature.
+
+  Return the decoded term directly (not wrapped in `{:ok, ...}`). If the
+  raw bytes are unparseable for this algorithm, raise — `SigningKeyStore`
+  wraps the call in a rescue and drops that single key with a clean
+  `:private_key_decode_failed` status.
   """
   @callback decode_private_key(binary()) :: term()
 
