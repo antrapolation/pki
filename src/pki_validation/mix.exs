@@ -8,6 +8,8 @@ defmodule PkiValidation.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      erlc_paths: ["src"],
+      compilers: [:asn1] ++ Mix.compilers(),
       aliases: aliases(),
       deps: deps()
     ]
@@ -15,7 +17,7 @@ defmodule PkiValidation.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :tzdata],
       mod: {PkiValidation.Application, []}
     ]
   end

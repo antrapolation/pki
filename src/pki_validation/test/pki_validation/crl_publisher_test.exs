@@ -77,7 +77,9 @@ defmodule PkiValidation.CrlPublisherTest do
   end
 
   describe "error handling" do
-    test "CRL generation error is logged and does not produce false empty CRL", %{publisher: publisher} do
+    test "CRL generation error is logged and does not produce false empty CRL", %{
+      publisher: publisher
+    } do
       # First, insert a revoked cert and generate a valid CRL
       insert_revoked_cert("CRL_ERR01", ~U[2026-06-01 00:00:00.000000Z], "key_compromise")
       {:ok, crl} = CrlPublisher.regenerate(publisher)
@@ -90,7 +92,10 @@ defmodule PkiValidation.CrlPublisherTest do
       refute Map.has_key?(current_crl, :generation_error)
     end
 
-    test "get_current_crl includes generation_error flag after failed generation", %{publisher: publisher, pid: pid} do
+    test "get_current_crl includes generation_error flag after failed generation", %{
+      publisher: publisher,
+      pid: pid
+    } do
       # First, insert a revoked cert and generate a valid CRL
       insert_revoked_cert("ERR_FLAG_01", ~U[2026-06-01 00:00:00.000000Z], "key_compromise")
       {:ok, valid_crl} = CrlPublisher.regenerate(publisher)

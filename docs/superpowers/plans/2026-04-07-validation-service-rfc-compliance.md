@@ -1387,15 +1387,23 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
   defp build_cert_status(:unknown), do: {:unknown, :NULL}
 
   defp build_responder_id(cert_der) do
+    # OTPTBSCertificate fields (1-indexed positions in the record tuple,
+    # position 1 is the record tag :OTPTBSCertificate):
+    #   2 version, 3 serialNumber, 4 signature, 5 issuer, 6 validity,
+    #   7 subject, 8 subjectPublicKeyInfo, ...
+    # The OCSP ResponderID byName is the responder cert's SUBJECT (not its
+    # issuer) per RFC 6960 §4.2.2.3.
     otp = :public_key.pkix_decode_cert(cert_der, :otp)
-    tbs = elem(otp, 1)
-    subject = elem(tbs, 5)
+    tbs = :erlang.element(2, otp)
+    subject = :erlang.element(7, tbs)
     {:byName, subject}
   end
 
   defp generalized_time(%DateTime{} = dt) do
+    # All datetimes in this codebase are stored as :utc_datetime_usec.
+    # Do NOT call DateTime.shift_zone!/2 — it's a no-op for UTC and triggers
+    # the configured time zone database (Tzdata) unnecessarily.
     dt
-    |> DateTime.shift_zone!("Etc/UTC")
     |> Calendar.strftime("%Y%m%d%H%M%SZ")
     |> String.to_charlist()
   end
@@ -1886,9 +1894,13 @@ defmodule PkiValidation.Crl.DerGenerator do
   end
 
   defp extract_issuer(cert_der) do
+    # The CRL "issuer" field comes from the SUBJECT of the signing certificate
+    # — the signer is the issuer of the CRL. OTPTBSCertificate is 1-indexed:
+    # position 7 is subject. Use :erlang.element/2 (1-indexed), not Kernel.elem/2
+    # (0-indexed).
     otp = :public_key.pkix_decode_cert(cert_der, :otp)
-    tbs = elem(otp, 1)
-    elem(tbs, 5)
+    tbs = :erlang.element(2, otp)
+    :erlang.element(7, tbs)
   end
 
   defp parse_serial(s) when is_binary(s) do
@@ -1903,7 +1915,8 @@ defmodule PkiValidation.Crl.DerGenerator do
   end
 
   defp utc_time(%DateTime{} = dt) do
-    {:utcTime, dt |> DateTime.shift_zone!("Etc/UTC") |> Calendar.strftime("%y%m%d%H%M%SZ") |> String.to_charlist()}
+    # Datetimes are already UTC (stored as :utc_datetime_usec). No shift needed.
+    {:utcTime, dt |> Calendar.strftime("%y%m%d%H%M%SZ") |> String.to_charlist()}
   end
 
   defp encode_reason("key_compromise"), do: :public_key.der_encode(:CRLReason, :keyCompromise)

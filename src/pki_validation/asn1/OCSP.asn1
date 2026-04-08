@@ -1,0 +1,107 @@
+OCSP DEFINITIONS EXPLICIT TAGS ::=
+
+BEGIN
+
+OCSPRequest ::= SEQUENCE {
+    tbsRequest                  TBSRequest,
+    optionalSignature   [0]     EXPLICIT Signature OPTIONAL }
+
+TBSRequest ::= SEQUENCE {
+    version             [0]     EXPLICIT Version DEFAULT v1,
+    requestorName       [1]     EXPLICIT GeneralName OPTIONAL,
+    requestList                 SEQUENCE OF Request,
+    requestExtensions   [2]     EXPLICIT Extensions OPTIONAL }
+
+Signature ::= SEQUENCE {
+    signatureAlgorithm   AlgorithmIdentifier,
+    signature            BIT STRING,
+    certs            [0] EXPLICIT SEQUENCE OF Certificate OPTIONAL }
+
+Version ::= INTEGER { v1(0) }
+
+Request ::= SEQUENCE {
+    reqCert                    CertID,
+    singleRequestExtensions    [0] EXPLICIT Extensions OPTIONAL }
+
+CertID ::= SEQUENCE {
+    hashAlgorithm   AlgorithmIdentifier,
+    issuerNameHash  OCTET STRING,
+    issuerKeyHash   OCTET STRING,
+    serialNumber    CertificateSerialNumber }
+
+OCSPResponse ::= SEQUENCE {
+    responseStatus   OCSPResponseStatus,
+    responseBytes  [0] EXPLICIT ResponseBytes OPTIONAL }
+
+OCSPResponseStatus ::= ENUMERATED {
+    successful       (0),
+    malformedRequest (1),
+    internalError    (2),
+    tryLater         (3),
+    sigRequired      (5),
+    unauthorized     (6) }
+
+ResponseBytes ::= SEQUENCE {
+    responseType   OBJECT IDENTIFIER,
+    response       OCTET STRING }
+
+BasicOCSPResponse ::= SEQUENCE {
+    tbsResponseData       ResponseData,
+    signatureAlgorithm    AlgorithmIdentifier,
+    signature             BIT STRING,
+    certs             [0] EXPLICIT SEQUENCE OF Certificate OPTIONAL }
+
+ResponseData ::= SEQUENCE {
+    version              [0] EXPLICIT Version DEFAULT v1,
+    responderID              ResponderID,
+    producedAt               GeneralizedTime,
+    responses                SEQUENCE OF SingleResponse,
+    responseExtensions   [1] EXPLICIT Extensions OPTIONAL }
+
+ResponderID ::= CHOICE {
+    byName   [1] Name,
+    byKey    [2] KeyHash }
+
+KeyHash ::= OCTET STRING
+
+SingleResponse ::= SEQUENCE {
+    certID                       CertID,
+    certStatus                   CertStatus,
+    thisUpdate                   GeneralizedTime,
+    nextUpdate           [0]     EXPLICIT GeneralizedTime OPTIONAL,
+    singleExtensions     [1]     EXPLICIT Extensions OPTIONAL }
+
+CertStatus ::= CHOICE {
+    good        [0] IMPLICIT NULL,
+    revoked     [1] IMPLICIT RevokedInfo,
+    unknown     [2] IMPLICIT UnknownInfo }
+
+RevokedInfo ::= SEQUENCE {
+    revocationTime              GeneralizedTime,
+    revocationReason    [0]     EXPLICIT CRLReason OPTIONAL }
+
+UnknownInfo ::= NULL
+
+CRLReason ::= ENUMERATED {
+    unspecified          (0),
+    keyCompromise        (1),
+    cACompromise         (2),
+    affiliationChanged   (3),
+    superseded           (4),
+    cessationOfOperation (5),
+    certificateHold      (6),
+    removeFromCRL        (8),
+    privilegeWithdrawn   (9),
+    aACompromise         (10) }
+
+-- External types we treat as ANY (handled at the Elixir layer)
+-- Built-in ASN.1 types like GeneralizedTime, INTEGER, OBJECT IDENTIFIER,
+-- BIT STRING, OCTET STRING, NULL are NOT redefined here.
+GeneralName ::= ANY
+Name ::= ANY
+Certificate ::= ANY
+AlgorithmIdentifier ::= ANY
+CertificateSerialNumber ::= INTEGER
+Extensions ::= ANY
+
+END
