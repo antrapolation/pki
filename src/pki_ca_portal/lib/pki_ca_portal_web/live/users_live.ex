@@ -53,26 +53,30 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("create_user", params, socket) do
-    attrs = %{
-      username: params["username"],
-      display_name: params["display_name"],
-      email: params["email"],
-      role: params["role"]
-    }
+    unless socket.assigns.current_user[:role] in ["ca_admin"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      attrs = %{
+        username: params["username"],
+        display_name: params["display_name"],
+        email: params["email"],
+        role: params["role"]
+      }
 
-    case CaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
-      {:ok, user} ->
-        audit_log(socket, "user_created", "user", user[:id] || user["id"], %{username: attrs.username, role: attrs.role, email: attrs.email})
-        send(self(), {:load_data, socket.assigns.role_filter})
-        {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
+      case CaEngineClient.create_portal_user(attrs, actor_opts(socket)) do
+        {:ok, user} ->
+          audit_log(socket, "user_created", "user", user[:id] || user["id"], %{username: attrs.username, role: attrs.role, email: attrs.email})
+          send(self(), {:load_data, socket.assigns.role_filter})
+          {:noreply, put_flash(socket, :info, "User created. Invitation email sent.")}
 
-      {:error, {:validation_error, errors}} ->
-        msg = format_validation_errors(errors)
-        {:noreply, put_flash(socket, :error, "Failed to create user: #{msg}")}
+        {:error, {:validation_error, errors}} ->
+          msg = format_validation_errors(errors)
+          {:noreply, put_flash(socket, :error, "Failed to create user: #{msg}")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to create user: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, sanitize_error("Failed to create user", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to create user: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, sanitize_error("Failed to create user", reason))}
+      end
     end
   end
 
@@ -106,14 +110,18 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("reset_password", %{"user-id" => user_id}, socket) do
-    case CaEngineClient.reset_user_password(user_id, actor_opts(socket)) do
-      :ok ->
-        audit_log(socket, "password_reset", "user_profile", user_id)
-        {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
+    unless socket.assigns.current_user[:role] in ["ca_admin"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case CaEngineClient.reset_user_password(user_id, actor_opts(socket)) do
+        :ok ->
+          audit_log(socket, "password_reset", "user_profile", user_id)
+          {:noreply, put_flash(socket, :info, "Password reset. New credentials emailed.")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to reset password: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, sanitize_error("Failed to reset password", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to reset password: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, sanitize_error("Failed to reset password", reason))}
+      end
     end
   end
 
@@ -132,15 +140,19 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("delete_user", %{"role-id" => role_id}, socket) do
-    case CaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
-      {:ok, _} ->
-        audit_log(socket, "user_deleted", "user_role", role_id)
-        send(self(), {:load_data, socket.assigns.role_filter})
-        {:noreply, put_flash(socket, :info, "User removed.")}
+    unless socket.assigns.current_user[:role] in ["ca_admin"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      case CaEngineClient.delete_user_role(role_id, actor_opts(socket)) do
+        {:ok, _} ->
+          audit_log(socket, "user_deleted", "user_role", role_id)
+          send(self(), {:load_data, socket.assigns.role_filter})
+          {:noreply, put_flash(socket, :info, "User removed.")}
 
-      {:error, reason} ->
-        Logger.error("[users] Failed to remove user: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, sanitize_error("Failed to remove user", reason))}
+        {:error, reason} ->
+          Logger.error("[users] Failed to remove user: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, sanitize_error("Failed to remove user", reason))}
+      end
     end
   end
 
@@ -152,8 +164,17 @@ defmodule PkiCaPortalWeb.UsersLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, assign(socket, page: parse_int(page) || 1)}
   end
+
+  defp parse_int(val) when is_integer(val), do: val
+  defp parse_int(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+  defp parse_int(_), do: nil
 
   defp filter_users(users, "all"), do: users
   defp filter_users(users, role), do: Enum.filter(users, fn u -> (u[:role] || u["role"]) == role end)

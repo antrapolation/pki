@@ -82,7 +82,29 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-### 1.4 System packages
+### 1.4 Timezone and locale
+
+The Erlang VM requires UTF-8 locale. The system must run in UTC to ensure consistent timestamps across all services, logs, and database records.
+
+```bash
+# Set timezone to UTC
+sudo timedatectl set-timezone UTC
+timedatectl  # verify: Time zone: UTC (UTC, +0000)
+
+# Ensure UTF-8 locale is available and set
+sudo apt install -y locales
+sudo locale-gen en_US.UTF-8
+sudo update-locale LANG=C.UTF-8
+
+# Verify
+locale  # all values should show C.UTF-8 or en_US.UTF-8
+```
+
+> **Why UTC?** All Elixir code uses `DateTime.utc_now()`. Mixed timezones cause certificate validity windows, ceremony deadlines, and audit timestamps to be inconsistent.
+
+> **Why UTF-8?** The BEAM VM defaults to latin1 if LANG is unset, causing Elixir string operations to malfunction on non-ASCII characters. This is especially important for systemd services which don't inherit shell locale.
+
+### 1.5 System packages
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -374,6 +396,9 @@ SQL
 ```bash
 cd /home/pki/pki
 
+# Ensure UTF-8 locale is set for compilation
+export LANG=C.UTF-8
+
 # Fetch deps for all services
 for dir in src/pki_platform_engine src/pki_ca_engine src/pki_ra_engine \
            src/pki_validation \
@@ -425,11 +450,13 @@ After=postgresql.service network.target
 Requires=postgresql.service
 
 [Service]
+LimitNOFILE=65536
 Type=simple
 User=pki
 Group=pki
 WorkingDirectory=/home/pki/pki/src/pki_platform_portal
 EnvironmentFile=/home/pki/pki/.env
+Environment=LANG=C.UTF-8
 Environment=MIX_ENV=prod
 ExecStart=/home/pki/.asdf/shims/elixir --sname platform_portal -S mix phx.server
 Restart=on-failure
@@ -450,11 +477,13 @@ After=postgresql.service pki-platform-portal.service
 Requires=postgresql.service
 
 [Service]
+LimitNOFILE=65536
 Type=simple
 User=pki
 Group=pki
 WorkingDirectory=/home/pki/pki/src/pki_ca_portal
 EnvironmentFile=/home/pki/pki/.env
+Environment=LANG=C.UTF-8
 Environment=MIX_ENV=prod
 ExecStart=/home/pki/.asdf/shims/elixir --sname ca_portal -S mix phx.server
 Restart=on-failure
@@ -475,11 +504,13 @@ After=postgresql.service pki-platform-portal.service
 Requires=postgresql.service
 
 [Service]
+LimitNOFILE=65536
 Type=simple
 User=pki
 Group=pki
 WorkingDirectory=/home/pki/pki/src/pki_ra_portal
 EnvironmentFile=/home/pki/pki/.env
+Environment=LANG=C.UTF-8
 Environment=MIX_ENV=prod
 ExecStart=/home/pki/.asdf/shims/elixir --sname ra_portal -S mix phx.server
 Restart=on-failure
@@ -502,11 +533,13 @@ After=postgresql.service
 Requires=postgresql.service
 
 [Service]
+LimitNOFILE=65536
 Type=simple
 User=pki
 Group=pki
 WorkingDirectory=/home/pki/pki/src/pki_validation
 EnvironmentFile=/home/pki/pki/.env
+Environment=LANG=C.UTF-8
 Environment=MIX_ENV=prod
 ExecStart=/home/pki/.asdf/shims/elixir --sname validation -S mix run --no-halt
 Restart=on-failure

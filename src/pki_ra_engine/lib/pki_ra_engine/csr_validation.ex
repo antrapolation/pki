@@ -132,6 +132,7 @@ defmodule PkiRaEngine.CsrValidation do
   @spec reject_csr(String.t(), String.t(), String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def reject_csr(tenant_id, csr_id, reviewer_user_id, reason) do
     repo = TenantRepo.ra_repo(tenant_id)
+    reason = if is_binary(reason), do: String.slice(reason, 0, 1000), else: "No reason provided"
 
     with {:ok, csr} <- get_csr(tenant_id, csr_id),
          :ok <- check_transition(csr.status, "rejected"),

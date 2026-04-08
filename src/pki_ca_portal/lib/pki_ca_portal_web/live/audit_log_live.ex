@@ -133,8 +133,17 @@ defmodule PkiCaPortalWeb.AuditLogLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, assign(socket, page: parse_int(page) || 1)}
   end
+
+  defp parse_int(val) when is_integer(val), do: val
+  defp parse_int(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+  defp parse_int(_), do: nil
 
   defp generate_csv(events, tz_offset, tz_name) do
     header = "Timestamp (#{tz_name}),Category,Action,Actor,Event ID\r\n"

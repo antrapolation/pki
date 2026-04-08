@@ -96,6 +96,10 @@ defmodule PkiPlatformPortal.SessionStore do
     list_all() |> Enum.filter(&(&1.user_id == user_id))
   end
 
+  def delete_by_user(user_id) do
+    GenServer.call(__MODULE__, {:delete_by_user, user_id})
+  end
+
   def expired?(session_id, timeout_ms) do
     case lookup(session_id) do
       {:ok, session} ->
@@ -133,9 +137,16 @@ defmodule PkiPlatformPortal.SessionStore do
 
   @impl true
   def init(_opts) do
-    table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+    table = :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
     schedule_sweep()
     {:ok, %{table: table}}
+  end
+
+  @impl true
+  def handle_call({:delete_by_user, user_id}, _from, state) do
+    match_spec = [{{:"$1", %{user_id: user_id}}, [], [true]}]
+    count = :ets.select_delete(@table, match_spec)
+    {:reply, {:ok, count}, state}
   end
 
   @impl true

@@ -2,9 +2,9 @@ defmodule PkiPlatformEngine.EmailVerification do
   use GenServer
 
   @table :email_verification_codes
-  @code_length 6
+  @code_length 8
   @expiry_seconds 600
-  @max_attempts 5
+  @max_attempts 3
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
@@ -25,7 +25,7 @@ defmodule PkiPlatformEngine.EmailVerification do
 
   @impl true
   def handle_call({:generate_code, email}, _from, state) do
-    code = :crypto.strong_rand_bytes(4) |> :binary.decode_unsigned() |> rem(1_000_000) |> Integer.to_string() |> String.pad_leading(@code_length, "0")
+    code = :crypto.strong_rand_bytes(4) |> :binary.decode_unsigned() |> rem(100_000_000) |> Integer.to_string() |> String.pad_leading(@code_length, "0")
     expires_at = System.system_time(:second) + @expiry_seconds
     :ets.insert(@table, {String.downcase(email), code, expires_at, 0})
     {:reply, code, state}

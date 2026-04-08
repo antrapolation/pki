@@ -83,9 +83,23 @@ defmodule PkiPlatformEngine.PlatformAuth do
       |> Map.put(:user_profile_id, user_profile_id)
       |> Map.put(:tenant_id, tenant_id)
 
-    %UserTenantRole{}
-    |> UserTenantRole.changeset(full_attrs)
-    |> PlatformRepo.insert(on_conflict: :nothing)
+    result =
+      %UserTenantRole{}
+      |> UserTenantRole.changeset(full_attrs)
+      |> PlatformRepo.insert(on_conflict: :nothing)
+
+    case result do
+      {:ok, %{id: id}} when not is_nil(id) ->
+        PkiPlatformEngine.PlatformAudit.log("role_assigned", %{
+          actor_id: attrs[:assigned_by] || "system",
+          details: %{user_profile_id: user_profile_id, tenant_id: tenant_id, role: attrs[:role], portal: attrs[:portal]}
+        })
+
+      _ ->
+        :ok
+    end
+
+    result
   end
 
   def reset_password(user_profile_id, new_password, opts \\ []) do
@@ -252,7 +266,7 @@ defmodule PkiPlatformEngine.PlatformAuth do
   end
 
   defp generate_temp_password do
-    :crypto.strong_rand_bytes(12) |> Base.encode64(padding: false) |> binary_part(0, 16)
+    :crypto.strong_rand_bytes(18) |> Base.url_encode64(padding: false)
   end
 
   defp send_invitation_email(user, role, portal, password, opts) do

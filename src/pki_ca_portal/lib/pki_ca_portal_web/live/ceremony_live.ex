@@ -141,7 +141,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   def handle_info({:custodian_ready, %{user_id: _uid, username: username} = details}, socket) do
     participants = update_participant_status(socket.assigns.participants, details[:user_id], "accepted")
     entry = %{timestamp: DateTime.utc_now(), message: "#{username} accepted their key share"}
-    activity_log = [entry | socket.assigns.activity_log]
+    activity_log = [entry | socket.assigns.activity_log] |> Enum.take(50)
     {:noreply, assign(socket, participants: participants, activity_log: activity_log)}
   end
 
@@ -149,19 +149,19 @@ defmodule PkiCaPortalWeb.CeremonyLive do
     auditor_name = details[:auditor_name] || "Auditor"
     participants = update_participant_status(socket.assigns.participants, details[:auditor_id], "attested (#{phase})")
     entry = %{timestamp: DateTime.utc_now(), message: "#{auditor_name} attested to #{phase} phase"}
-    activity_log = [entry | socket.assigns.activity_log]
+    activity_log = [entry | socket.assigns.activity_log] |> Enum.take(50)
     {:noreply, assign(socket, participants: participants, activity_log: activity_log)}
   end
 
   def handle_info({:phase_changed, %{phase: phase}}, socket) do
     entry = %{timestamp: DateTime.utc_now(), message: "Ceremony phase changed to: #{phase}"}
-    activity_log = [entry | socket.assigns.activity_log]
+    activity_log = [entry | socket.assigns.activity_log] |> Enum.take(50)
     {:noreply, assign(socket, activity_log: activity_log)}
   end
 
   def handle_info({:ceremony_failed, %{reason: reason}}, socket) do
     entry = %{timestamp: DateTime.utc_now(), message: "Ceremony failed: #{reason}"}
-    activity_log = [entry | socket.assigns.activity_log]
+    activity_log = [entry | socket.assigns.activity_log] |> Enum.take(50)
     opts = tenant_opts(socket)
     {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
 
@@ -173,7 +173,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   def handle_info({:ceremony_completed, _details}, socket) do
     entry = %{timestamp: DateTime.utc_now(), message: "Ceremony completed successfully"}
-    activity_log = [entry | socket.assigns.activity_log]
+    activity_log = [entry | socket.assigns.activity_log] |> Enum.take(50)
     opts = tenant_opts(socket)
     {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id, opts)
 

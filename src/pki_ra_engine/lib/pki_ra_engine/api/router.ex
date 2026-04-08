@@ -8,7 +8,7 @@ defmodule PkiRaEngine.Api.Router do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:pki, :ra, :endpoint]
   plug :match
-  plug Plug.Parsers, parsers: [:json], json_decoder: Jason, length: 1_000_000
+  plug Plug.Parsers, parsers: [:json], json_decoder: Jason, length: 2_000_000
   plug :dispatch
 
   get "/health" do

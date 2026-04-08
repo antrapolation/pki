@@ -22,27 +22,7 @@ defmodule PkiCaPortal.SessionStore do
   end
 
   def create(attrs) do
-    session_id = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
-    now = DateTime.utc_now()
-
-    record = %{
-      session_id: session_id,
-      user_id: attrs.user_id,
-      username: attrs.username,
-      role: attrs.role,
-      tenant_id: attrs.tenant_id,
-      ip: attrs.ip,
-      user_agent: attrs.user_agent,
-      display_name: attrs[:display_name],
-      email: attrs[:email],
-      ca_instance_id: attrs[:ca_instance_id],
-      created_at: now,
-      last_active_at: now
-    }
-
-    :ets.insert(@table, {session_id, record})
-    broadcast(:session_created, record)
-    {:ok, session_id}
+    GenServer.call(__MODULE__, {:create, attrs})
   end
 
   def lookup(session_id) do
@@ -53,55 +33,19 @@ defmodule PkiCaPortal.SessionStore do
   end
 
   def touch(session_id) do
-    case :ets.lookup(@table, session_id) do
-      [{^session_id, record}] ->
-        updated = %{record | last_active_at: DateTime.utc_now()}
-        :ets.insert(@table, {session_id, updated})
-        :ok
-
-      [] ->
-        {:error, :not_found}
-    end
+    GenServer.call(__MODULE__, {:touch, session_id})
   end
 
   def update_ip(session_id, new_ip) do
-    case :ets.lookup(@table, session_id) do
-      [{^session_id, record}] ->
-        updated = %{record | ip: new_ip, last_active_at: DateTime.utc_now()}
-        :ets.insert(@table, {session_id, updated})
-        :ok
-
-      [] ->
-        {:error, :not_found}
-    end
+    GenServer.call(__MODULE__, {:update_ip, session_id, new_ip})
   end
 
   def update_profile(session_id, attrs) do
-    case :ets.lookup(@table, session_id) do
-      [{^session_id, record}] ->
-        updated = record
-          |> Map.put(:display_name, attrs[:display_name] || attrs["display_name"] || record.display_name)
-          |> Map.put(:email, attrs[:email] || attrs["email"] || record.email)
-          |> Map.put(:last_active_at, DateTime.utc_now())
-        :ets.insert(@table, {session_id, updated})
-        :ok
-
-      [] ->
-        {:error, :not_found}
-    end
+    GenServer.call(__MODULE__, {:update_profile, session_id, attrs})
   end
 
   def delete(session_id) do
-    case :ets.lookup(@table, session_id) do
-      [{^session_id, record}] ->
-        :ets.delete(@table, session_id)
-        broadcast(:session_deleted, record)
-
-      [] ->
-        :ok
-    end
-
-    :ok
+    GenServer.call(__MODULE__, {:delete, session_id})
   end
 
   def list_all do
@@ -124,6 +68,125 @@ defmodule PkiCaPortal.SessionStore do
   end
 
   def sweep(timeout_ms) do
+    GenServer.call(__MODULE__, {:sweep, timeout_ms})
+  end
+
+  def clear_all do
+    GenServer.call(__MODULE__, :clear_all)
+  end
+
+  # --- GenServer Callbacks ---
+
+  @impl true
+  def init(_opts) do
+    table = :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
+    schedule_sweep()
+    {:ok, %{table: table}}
+  end
+
+  @impl true
+  def handle_call({:create, attrs}, _from, state) do
+    session_id = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+    now = DateTime.utc_now()
+
+    record = %{
+      session_id: session_id,
+      user_id: attrs.user_id,
+      username: attrs.username,
+      role: attrs.role,
+      tenant_id: attrs.tenant_id,
+      ip: attrs.ip,
+      user_agent: attrs.user_agent,
+      display_name: attrs[:display_name],
+      email: attrs[:email],
+      ca_instance_id: attrs[:ca_instance_id],
+      created_at: now,
+      last_active_at: now
+    }
+
+    :ets.insert(@table, {session_id, record})
+    broadcast(:session_created, record)
+    {:reply, {:ok, session_id}, state}
+  end
+
+  def handle_call({:touch, session_id}, _from, state) do
+    result = case :ets.lookup(@table, session_id) do
+      [{^session_id, record}] ->
+        updated = %{record | last_active_at: DateTime.utc_now()}
+        :ets.insert(@table, {session_id, updated})
+        :ok
+
+      [] ->
+        {:error, :not_found}
+    end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:update_ip, session_id, new_ip}, _from, state) do
+    result = case :ets.lookup(@table, session_id) do
+      [{^session_id, record}] ->
+        updated = %{record | ip: new_ip, last_active_at: DateTime.utc_now()}
+        :ets.insert(@table, {session_id, updated})
+        :ok
+
+      [] ->
+        {:error, :not_found}
+    end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:update_profile, session_id, attrs}, _from, state) do
+    result = case :ets.lookup(@table, session_id) do
+      [{^session_id, record}] ->
+        updated = record
+          |> Map.put(:display_name, attrs[:display_name] || attrs["display_name"] || record.display_name)
+          |> Map.put(:email, attrs[:email] || attrs["email"] || record.email)
+          |> Map.put(:last_active_at, DateTime.utc_now())
+        :ets.insert(@table, {session_id, updated})
+        :ok
+
+      [] ->
+        {:error, :not_found}
+    end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:delete, session_id}, _from, state) do
+    case :ets.lookup(@table, session_id) do
+      [{^session_id, record}] ->
+        :ets.delete(@table, session_id)
+        broadcast(:session_deleted, record)
+
+      [] ->
+        :ok
+    end
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:sweep, timeout_ms}, _from, state) do
+    count = do_sweep(timeout_ms)
+    {:reply, count, state}
+  end
+
+  def handle_call(:clear_all, _from, state) do
+    :ets.delete_all_objects(@table)
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_info(:sweep, state) do
+    timeout_ms = Application.get_env(:pki_ca_portal, :session_idle_timeout_ms, 30 * 60 * 1000)
+    count = do_sweep(timeout_ms)
+    if count > 0, do: Logger.info("[session_store] Swept #{count} expired sessions")
+    schedule_sweep()
+    {:noreply, state}
+  end
+
+  defp do_sweep(timeout_ms) do
     now = DateTime.utc_now()
 
     expired =
@@ -138,29 +201,6 @@ defmodule PkiCaPortal.SessionStore do
     end)
 
     length(expired)
-  end
-
-  def clear_all do
-    :ets.delete_all_objects(@table)
-    :ok
-  end
-
-  # --- GenServer Callbacks ---
-
-  @impl true
-  def init(_opts) do
-    table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
-    schedule_sweep()
-    {:ok, %{table: table}}
-  end
-
-  @impl true
-  def handle_info(:sweep, state) do
-    timeout_ms = Application.get_env(:pki_ca_portal, :session_idle_timeout_ms, 30 * 60 * 1000)
-    count = sweep(timeout_ms)
-    if count > 0, do: Logger.info("[session_store] Swept #{count} expired sessions")
-    schedule_sweep()
-    {:noreply, state}
   end
 
   defp schedule_sweep do

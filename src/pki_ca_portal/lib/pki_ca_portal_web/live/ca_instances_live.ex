@@ -63,23 +63,27 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
 
   @impl true
   def handle_event("create_instance", %{"name" => name, "parent_id" => parent_id}, socket) do
-    attrs =
-      %{name: name}
-      |> maybe_put_parent_id(parent_id)
+    unless socket.assigns.current_user[:role] in ["ca_admin"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      attrs =
+        %{name: name}
+        |> maybe_put_parent_id(parent_id)
 
-    case CaEngineClient.create_ca_instance(attrs, tenant_opts(socket)) do
-      {:ok, instance} ->
-        audit_log(socket, "ca_instance_created", "ca_instance", instance[:id] || instance["id"], %{name: name, parent_id: parent_id})
-        instances = fetch_instances(tenant_opts(socket))
+      case CaEngineClient.create_ca_instance(attrs, tenant_opts(socket)) do
+        {:ok, instance} ->
+          audit_log(socket, "ca_instance_created", "ca_instance", instance[:id] || instance["id"], %{name: name, parent_id: parent_id})
+          instances = fetch_instances(tenant_opts(socket))
 
-        {:noreply,
-         socket
-         |> assign(instances: instances, show_create_modal: false)
-         |> put_flash(:info, "CA instance created successfully")}
+          {:noreply,
+           socket
+           |> assign(instances: instances, show_create_modal: false)
+           |> put_flash(:info, "CA instance created successfully")}
 
-      {:error, reason} ->
-        Logger.error("[ca_instances] Failed to create CA instance: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, sanitize_error("Failed to create CA instance", reason))}
+        {:error, reason} ->
+          Logger.error("[ca_instances] Failed to create CA instance: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, sanitize_error("Failed to create CA instance", reason))}
+      end
     end
   end
 
@@ -95,24 +99,28 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
 
   @impl true
   def handle_event("save_rename", %{"name" => name}, socket) do
-    id = socket.assigns.renaming_id
-    name = String.trim(name)
-
-    if name == "" do
-      {:noreply, put_flash(socket, :error, "Name cannot be empty")}
+    unless socket.assigns.current_user[:role] in ["ca_admin"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
     else
-      case CaEngineClient.update_ca_instance(id, %{"name" => name}, tenant_opts(socket)) do
-        {:ok, _} ->
-          audit_log(socket, "ca_instance_renamed", "ca_instance", id, %{new_name: name})
-          instances = fetch_instances(tenant_opts(socket))
-          {:noreply,
-           socket
-           |> assign(instances: instances, renaming_id: nil, rename_value: "")
-           |> put_flash(:info, "CA instance renamed")}
+      id = socket.assigns.renaming_id
+      name = String.trim(name)
 
-        {:error, reason} ->
-          Logger.error("[ca_instances] Rename failed: #{inspect(reason)}")
-          {:noreply, put_flash(socket, :error, sanitize_error("Rename failed", reason))}
+      if name == "" do
+        {:noreply, put_flash(socket, :error, "Name cannot be empty")}
+      else
+        case CaEngineClient.update_ca_instance(id, %{"name" => name}, tenant_opts(socket)) do
+          {:ok, _} ->
+            audit_log(socket, "ca_instance_renamed", "ca_instance", id, %{new_name: name})
+            instances = fetch_instances(tenant_opts(socket))
+            {:noreply,
+             socket
+             |> assign(instances: instances, renaming_id: nil, rename_value: "")
+             |> put_flash(:info, "CA instance renamed")}
+
+          {:error, reason} ->
+            Logger.error("[ca_instances] Rename failed: #{inspect(reason)}")
+            {:noreply, put_flash(socket, :error, sanitize_error("Rename failed", reason))}
+        end
       end
     end
   end

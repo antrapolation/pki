@@ -36,6 +36,9 @@ defmodule PkiCaEngine.Schema.KeyCeremony do
       :participants, :algorithm, :keystore_id, :threshold_k, :threshold_n,
       :domain_info, :window_expires_at, :auditor_user_id, :time_window_hours
     ])
+    # auditor_user_id is intentionally optional at creation time: async ceremonies
+    # may assign auditors after initiation. The CeremonyOrchestrator.attest/5
+    # guard rejects attestation attempts when auditor_user_id is nil.
     |> validate_required([:ca_instance_id, :ceremony_type])
     |> validate_inclusion(:ceremony_type, @ceremony_types)
     |> validate_inclusion(:status, @statuses)

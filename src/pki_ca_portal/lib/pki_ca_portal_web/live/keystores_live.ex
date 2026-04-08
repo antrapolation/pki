@@ -69,6 +69,14 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def handle_event("configure_keystore", params, socket) do
+    unless socket.assigns.current_user[:role] in ["ca_admin", "key_manager"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      handle_configure_keystore(params, socket)
+    end
+  end
+
+  defp handle_configure_keystore(params, socket) do
     type = params["type"]
     ca_instance_id = params["ca_instance_id"]
     hsm_device_id = params["hsm_device_id"]
@@ -124,8 +132,17 @@ defmodule PkiCaPortalWeb.KeystoresLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, page: String.to_integer(page))}
+    {:noreply, assign(socket, page: parse_int(page) || 1)}
   end
+
+  defp parse_int(val) when is_integer(val), do: val
+  defp parse_int(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+  defp parse_int(_), do: nil
 
   defp tenant_opts(socket) do
     case socket.assigns[:tenant_id] do

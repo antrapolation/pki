@@ -24,7 +24,7 @@ defmodule PkiPlatformEngine.AdminManagement do
 
   @doc "Creates an admin with a temp password and sends invitation email."
   def invite_admin(attrs) do
-    temp_password = :crypto.strong_rand_bytes(12) |> Base.encode64(padding: false) |> binary_part(0, 16)
+    temp_password = :crypto.strong_rand_bytes(18) |> Base.url_encode64(padding: false)
     expires_at = DateTime.add(DateTime.utc_now(), 24 * 3600, :second)
 
     invite_attrs = %{
@@ -138,7 +138,7 @@ defmodule PkiPlatformEngine.AdminManagement do
   end
 
   def suspend_admin(%UserProfile{} = admin) do
-    PlatformRepo.transaction(fn ->
+    result = PlatformRepo.transaction(fn ->
       active_count =
         PlatformRepo.aggregate(
           from(u in @super_admin_query, where: u.status == "active"),
@@ -153,6 +153,20 @@ defmodule PkiPlatformEngine.AdminManagement do
         |> PlatformRepo.update!()
       end
     end)
+
+    case result do
+      {:ok, _suspended_admin} ->
+        # Terminate active sessions for suspended admin
+        try do
+          PkiPlatformPortal.SessionStore.delete_by_user(admin.id)
+        rescue
+          _ -> :ok  # SessionStore may not be available in engine context
+        end
+        result
+
+      _ ->
+        result
+    end
   end
 
   def activate_admin(%UserProfile{} = admin) do

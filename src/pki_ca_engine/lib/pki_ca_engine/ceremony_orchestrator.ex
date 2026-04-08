@@ -142,7 +142,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     repo = TenantRepo.ca_repo(tenant_id)
 
     case get_ceremony(repo, ceremony_id) do
-      {:ok, ceremony} when ceremony.auditor_user_id == auditor_user_id ->
+      {:ok, ceremony} when not is_nil(ceremony.auditor_user_id) and ceremony.auditor_user_id == auditor_user_id ->
         %CeremonyAttestation{}
         |> CeremonyAttestation.changeset(%{
           ceremony_id: ceremony_id,
@@ -214,18 +214,24 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
         # Build password map: prefer passed-in passwords (ETS), fall back to DB-stored encrypted passwords
         password_map =
           if custodian_passwords == [] or custodian_passwords == %{} do
-            # Read from DB
+            # Read from DB — halt on first decryption failure
             db_shares
-            |> Enum.reduce(%{}, fn share, acc ->
+            |> Enum.reduce_while({:ok, %{}}, fn share, {:ok, acc} ->
               case CeremonyPassword.decrypt(share.encrypted_password) do
-                {:ok, pw} -> Map.put(acc, share.custodian_user_id, pw)
-                _ -> acc
+                {:ok, pw} -> {:cont, {:ok, Map.put(acc, share.custodian_user_id, pw)}}
+                _error -> {:halt, {:error, {:password_decrypt_failed, share.custodian_user_id}}}
               end
             end)
           else
-            Map.new(custodian_passwords)
+            {:ok, Map.new(custodian_passwords)}
           end
 
+        case password_map do
+          {:error, reason} ->
+            fail_ceremony(repo, ceremony_id, "password_recovery_failed")
+            {:error, reason}
+
+          {:ok, passwords} ->
         # Generate keypair
         case SyncCeremony.generate_keypair(ceremony.algorithm) do
           {:ok, %{public_key: pub, private_key: priv}} ->
@@ -259,13 +265,23 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
                     # Encrypt each share with the correct custodian's password,
                     # matching by share_index (db_shares ordered by share_index,
                     # raw_shares ordered by split index)
-                    encrypted_pairs =
+                    encrypt_result =
                       Enum.zip(db_shares, raw_shares)
-                      |> Enum.map(fn {db_share, raw_share} ->
-                        password = Map.fetch!(password_map, db_share.custodian_user_id)
-                        {:ok, encrypted} = ShareEncryption.encrypt_share(raw_share, password)
-                        {db_share, encrypted}
+                      |> Enum.reduce_while({:ok, []}, fn {db_share, raw_share}, {:ok, acc} ->
+                        password = Map.fetch!(passwords, db_share.custodian_user_id)
+                        case ShareEncryption.encrypt_share(raw_share, password) do
+                          {:ok, encrypted} -> {:cont, {:ok, [{db_share, encrypted} | acc]}}
+                          {:error, reason} -> {:halt, {:error, {:share_encryption_failed, reason}}}
+                        end
                       end)
+
+                    case encrypt_result do
+                      {:error, reason} ->
+                        fail_ceremony(repo, ceremony_id, "share_encryption_failed")
+                        {:error, reason}
+
+                      {:ok, encrypted_pairs_reversed} ->
+                        encrypted_pairs = Enum.reverse(encrypted_pairs_reversed)
 
                     # All DB writes in a transaction
                     case repo.transaction(fn ->
@@ -315,6 +331,8 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
                         {:error, reason}
                     end
 
+                    end  # case encrypt_result
+
                   error ->
                     fail_ceremony(repo, ceremony_id, "shamir_split_failed")
                     error
@@ -329,6 +347,8 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
             fail_ceremony(repo, ceremony_id, "keygen_failed")
             error
         end
+
+        end  # case password_map
 
       {:ok, _} -> {:error, :invalid_status}
       error -> error

@@ -103,10 +103,11 @@ defmodule PkiRaEngine.DcvChallenge do
   @spec check_dcv_passed(String.t(), String.t()) :: :ok | {:error, :dcv_not_passed}
   def check_dcv_passed(tenant_id, csr_id) do
     repo = TenantRepo.ra_repo(tenant_id)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     passed_count =
       DcvChallenge
-      |> where([c], c.csr_id == ^csr_id and c.status == "passed")
+      |> where([c], c.csr_id == ^csr_id and c.status == "passed" and c.expires_at > ^now)
       |> repo.aggregate(:count)
 
     if passed_count > 0 do

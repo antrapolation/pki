@@ -142,6 +142,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
     if get_role(socket) not in ["ra_admin", "ra_officer"] do
       {:noreply, put_flash(socket, :error, "Unauthorized")}
     else
+      reason = String.slice(reason, 0, 500)
       case RaEngineClient.reject_csr(id, reason, %{reviewer_user_id: socket.assigns.current_user[:id] || socket.assigns.current_user["id"]}, tenant_opts(socket)) do
         {:ok, _} ->
           filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)

@@ -23,14 +23,16 @@ defmodule PkiValidation.OcspCache do
   Returns `{:ok, value}` if found and not expired, `:miss` otherwise.
   """
   def get(serial_number, table \\ @table_name) do
+    now = System.monotonic_time(:millisecond)
+
+    # Atomically delete expired entries for this key, avoiding TOCTOU races
+    :ets.select_delete(table, [
+      {{serial_number, :_, :"$1"}, [{:<, :"$1", now}], [true]}
+    ])
+
     case :ets.lookup(table, serial_number) do
-      [{^serial_number, value, expires_at}] ->
-        if System.monotonic_time(:millisecond) < expires_at do
-          {:ok, value}
-        else
-          :ets.delete(table, serial_number)
-          :miss
-        end
+      [{^serial_number, value, _expires_at}] ->
+        {:ok, value}
 
       [] ->
         :miss

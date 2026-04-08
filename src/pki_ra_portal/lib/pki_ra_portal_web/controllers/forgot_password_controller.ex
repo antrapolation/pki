@@ -6,6 +6,10 @@ defmodule PkiRaPortalWeb.ForgotPasswordController do
   alias PkiRaPortal.RaEngineClient
   alias PkiPlatformEngine.{EmailVerification, Mailer, EmailTemplates}
 
+  plug PkiRaPortalWeb.Plugs.RateLimiter,
+    [key_prefix: "ra_forgot_pw", scale_ms: 900_000, limit: 3]
+    when action in [:create, :update]
+
   def new(conn, _params) do
     render(conn, :new, layout: false, error: nil)
   end

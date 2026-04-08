@@ -184,6 +184,14 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
     do: {:noreply, socket}
 
   def handle_event("reconstruct_and_sign", params, socket) do
+    unless socket.assigns.current_user[:role] in ["ca_admin", "key_manager"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      handle_reconstruct_and_sign(params, socket)
+    end
+  end
+
+  defp handle_reconstruct_and_sign(params, socket) do
     key = socket.assigns.modal_key
     shares = socket.assigns.modal_shares
     opts = tenant_opts(socket)
@@ -362,23 +370,27 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
   end
 
   def handle_event("archive_key", %{"id" => id}, socket) do
-    opts = tenant_opts(socket)
+    unless socket.assigns.current_user[:role] in ["ca_admin"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      opts = tenant_opts(socket)
 
-    case CaEngineClient.archive_issuer_key(id, opts) do
-      {:ok, _key} ->
-        audit_log(socket, "issuer_key_archived", "issuer_key", id)
-        keys = load_keys(socket.assigns.effective_ca_id, opts)
+      case CaEngineClient.archive_issuer_key(id, opts) do
+        {:ok, _key} ->
+          audit_log(socket, "issuer_key_archived", "issuer_key", id)
+          keys = load_keys(socket.assigns.effective_ca_id, opts)
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Key archived successfully.")
-         |> assign(issuer_keys: keys)}
+          {:noreply,
+           socket
+           |> put_flash(:info, "Key archived successfully.")
+           |> assign(issuer_keys: keys)}
 
-      {:error, reason} ->
-        Logger.error("[issuer_keys] Failed to archive key #{id}: #{inspect(reason)}")
+        {:error, reason} ->
+          Logger.error("[issuer_keys] Failed to archive key #{id}: #{inspect(reason)}")
 
-        {:noreply,
-         put_flash(socket, :error, sanitize_error("Failed to archive key", reason))}
+          {:noreply,
+           put_flash(socket, :error, sanitize_error("Failed to archive key", reason))}
+      end
     end
   end
 

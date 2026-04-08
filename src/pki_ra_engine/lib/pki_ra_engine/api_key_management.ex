@@ -62,16 +62,24 @@ defmodule PkiRaEngine.ApiKeyManagement do
     with {:ok, raw_key} <- Base.decode64(raw_key_base64) do
       hashed = hash_key(raw_key)
 
-      case repo.one(from k in RaApiKey, where: k.hashed_key == ^hashed and k.status == "active") do
-        nil ->
-          {:error, :invalid_key}
+      # Fetch by status only, then use timing-safe comparison on the hash
+      # to prevent timing side-channel attacks on the key value.
+      query = from k in RaApiKey, where: k.status == "active"
 
+      repo.all(query)
+      |> Enum.find(fn %RaApiKey{hashed_key: stored_hash} ->
+        Plug.Crypto.secure_compare(hashed, stored_hash)
+      end)
+      |> case do
         %RaApiKey{} = api_key ->
           if expired?(api_key) do
             {:error, :expired}
           else
             {:ok, api_key}
           end
+
+        nil ->
+          {:error, :invalid_key}
       end
     else
       :error -> {:error, :invalid_key}

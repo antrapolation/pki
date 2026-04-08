@@ -20,18 +20,28 @@ defmodule PkiRaEngine.Api.ConnHelpers do
     if remote in trusted do
       case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
         [forwarded | _] ->
-          forwarded
-          |> String.split(",")
-          |> Enum.map(&String.trim/1)
-          |> Enum.reverse()
-          |> Enum.drop_while(&(&1 in trusted))
-          |> List.first(remote)
+          candidate =
+            forwarded
+            |> String.split(",")
+            |> Enum.map(&String.trim/1)
+            |> Enum.reverse()
+            |> Enum.drop_while(&(&1 in trusted))
+            |> List.first(remote)
+
+          if valid_ip?(candidate), do: candidate, else: remote
 
         [] ->
           remote
       end
     else
       remote
+    end
+  end
+
+  defp valid_ip?(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, _} -> true
+      _ -> false
     end
   end
 end
