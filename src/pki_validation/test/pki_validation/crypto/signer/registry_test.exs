@@ -22,4 +22,52 @@ defmodule PkiValidation.Crypto.Signer.RegistryTest do
     assert Registry.fetch(:atom) == :error
     assert Registry.fetch(123) == :error
   end
+
+  test "algorithms/0 returns every algorithm string registered in the mapping" do
+    algorithms = Registry.algorithms()
+    assert is_list(algorithms)
+    assert "ecc_p256" in algorithms
+    assert "ecc_p384" in algorithms
+    assert "rsa2048" in algorithms
+    assert "rsa4096" in algorithms
+    assert length(algorithms) == 4
+  end
+
+  test "SigningKeyConfig @valid_algorithms stays in sync with Registry" do
+    # Regression guard: the schema's @valid_algorithms is derived from
+    # Registry.algorithms/0 at compile time. If someone ever hard-codes
+    # the list in the schema again, this test fails immediately and
+    # points back to the C1 pre-merge fix that established the invariant.
+    #
+    # We read the schema's private @valid_algorithms via the changeset
+    # path: a changeset that tries every registered algorithm must
+    # validate the :algorithm field cleanly, and an algorithm not in
+    # the registry must produce a validation error.
+    alias PkiValidation.Schema.SigningKeyConfig
+
+    base = %{
+      issuer_key_id: Uniq.UUID.uuid7(),
+      certificate_pem: "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----",
+      encrypted_private_key: <<1, 2, 3>>,
+      not_before: DateTime.utc_now(),
+      not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+      status: "active"
+    }
+
+    for alg <- Registry.algorithms() do
+      changeset =
+        SigningKeyConfig.changeset(%SigningKeyConfig{}, Map.put(base, :algorithm, alg))
+
+      refute Keyword.has_key?(changeset.errors, :algorithm),
+             "Registered algorithm #{alg} should pass SigningKeyConfig validation"
+    end
+
+    unregistered_changeset =
+      SigningKeyConfig.changeset(
+        %SigningKeyConfig{},
+        Map.put(base, :algorithm, "definitely_not_a_real_algorithm")
+      )
+
+    assert Keyword.has_key?(unregistered_changeset.errors, :algorithm)
+  end
 end

@@ -21,6 +21,8 @@ defmodule PkiValidation.Crypto.Signer.Registry do
     "rsa4096" => Rsa4096
   }
 
+  @algorithms Map.keys(@mapping)
+
   @doc """
   Look up the signer module for a given algorithm string.
 
@@ -30,4 +32,16 @@ defmodule PkiValidation.Crypto.Signer.Registry do
   @spec fetch(String.t()) :: {:ok, module()} | :error
   def fetch(algorithm) when is_binary(algorithm), do: Map.fetch(@mapping, algorithm)
   def fetch(_), do: :error
+
+  @doc """
+  Return the list of algorithm strings with a registered signer.
+
+  This is the single source of truth for which algorithm strings the
+  validation service can sign with. `SigningKeyConfig.@valid_algorithms`
+  is derived from this list at compile time, so the schema and the
+  dispatch table cannot drift apart — adding an entry to `@mapping`
+  automatically extends the schema's allowed set.
+  """
+  @spec algorithms() :: [String.t()]
+  def algorithms, do: @algorithms
 end

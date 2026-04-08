@@ -10,7 +10,14 @@ defmodule PkiValidation.Schema.SigningKeyConfig do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @valid_algorithms ~w(ecc_p256 ecc_p384 rsa4096 ml_dsa kaz_sign slh_dsa)
+  # Single source of truth: the set of algorithm strings we accept is
+  # exactly the set of algorithm strings for which a concrete Signer
+  # module is registered. Deriving this from Registry.algorithms/0 at
+  # compile time guarantees the schema and the dispatch table cannot
+  # drift apart — adding a signer to the Registry automatically makes
+  # its algorithm string storable; removing one makes stored rows with
+  # that string fail validation on the next insert.
+  @valid_algorithms PkiValidation.Crypto.Signer.Registry.algorithms()
   @valid_statuses ~w(active pending_rotation expired)
 
   @primary_key {:id, :binary_id, autogenerate: false}
