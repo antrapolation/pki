@@ -193,6 +193,11 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
             # Step 6: Notification
             CeremonyNotifications.notify_witness_attested(ceremony, phase)
 
+            # Step 7: Notify auditor of next witness step
+            if phase == "key_generation" do
+              CeremonyNotifications.notify_auditor_witness_completion(ceremony)
+            end
+
             # Refresh attestations and ceremony list
             attestations = load_attestations(ceremony_id, opts)
             ceremonies = reload_ceremonies(socket)
@@ -253,6 +258,9 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
               "ceremony:#{ceremony_id}",
               {:phase_changed, %{phase: "key_generation"}}
             )
+
+            # Notify auditor that key generation is done and needs witnessing
+            CeremonyNotifications.notify_auditor_keygen_done(socket.assigns.selected_ceremony)
 
             assign(socket, keygen_result: result)
             |> add_activity("Key generation triggered automatically.")

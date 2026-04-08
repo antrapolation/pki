@@ -44,6 +44,24 @@ defmodule PkiCaPortal.CeremonyNotifications do
     end)
   end
 
+  def notify_auditor_keygen_done(ceremony) do
+    send_async(fn ->
+      auditor_emails = resolve_emails([ceremony[:auditor_user_id]])
+      subject = "[PKI Ceremony] Key generation complete — please witness #{short_id(ceremony[:id])}"
+      body = auditor_keygen_done_body(ceremony)
+      send_to_all(auditor_emails, subject, body)
+    end)
+  end
+
+  def notify_auditor_witness_completion(ceremony) do
+    send_async(fn ->
+      auditor_emails = resolve_emails([ceremony[:auditor_user_id]])
+      subject = "[PKI Ceremony] Please witness completion for Ceremony #{short_id(ceremony[:id])}"
+      body = auditor_witness_completion_body(ceremony)
+      send_to_all(auditor_emails, subject, body)
+    end)
+  end
+
   def notify_ceremony_completed(ceremony, participants) do
     send_async(fn ->
       all_ids = participants.custodian_user_ids ++ [participants.auditor_user_id, ceremony.initiated_by]
@@ -102,13 +120,20 @@ defmodule PkiCaPortal.CeremonyNotifications do
   end
 
   defp resolve_emails(user_ids) do
-    # Look up emails from platform admin list and CA user list
-    admins = PkiPlatformEngine.AdminManagement.list_admins()
-    admin_map = Map.new(admins, fn a -> {a.id, a.email} end)
+    alias PkiPlatformEngine.{PlatformRepo, UserProfile}
+    import Ecto.Query
 
-    user_ids
-    |> Enum.map(fn id -> admin_map[id] end)
-    |> Enum.reject(&is_nil/1)
+    ids = Enum.reject(user_ids, &is_nil/1)
+
+    if ids == [] do
+      []
+    else
+      PlatformRepo.all(
+        from u in UserProfile,
+          where: u.id in ^ids and not is_nil(u.email),
+          select: u.email
+      )
+    end
   rescue
     _ -> []
   end
@@ -187,6 +212,32 @@ defmodule PkiCaPortal.CeremonyNotifications do
     <h2 style="color: #dc2626;">Ceremony Failed</h2>
     <p>Key Ceremony <strong>#{short_id(ceremony.id)}</strong> has failed.</p>
     <p>Reason: #{reason}</p>
+    </body></html>
+    """
+  end
+
+  defp auditor_keygen_done_body(ceremony) do
+    """
+    <!DOCTYPE html><html><head><meta charset="utf-8"></head>
+    <body style="font-family: sans-serif; padding: 20px;">
+    <h2>Key Generation Complete</h2>
+    <p>Key generation has completed for Ceremony <strong>#{short_id(ceremony[:id])}</strong>.</p>
+    <p>Algorithm: #{ceremony[:algorithm]} | Threshold: #{ceremony[:threshold_k]}-of-#{ceremony[:threshold_n]}</p>
+    <p><strong>Action required:</strong> Please log in to the CA Portal and witness the key generation phase.</p>
+    <p style="color: #6b7280; font-size: 12px;">This is an automated notification from the PKI CA System.</p>
+    </body></html>
+    """
+  end
+
+  defp auditor_witness_completion_body(ceremony) do
+    """
+    <!DOCTYPE html><html><head><meta charset="utf-8"></head>
+    <body style="font-family: sans-serif; padding: 20px;">
+    <h2>Ceremony Ready for Completion Witness</h2>
+    <p>Ceremony <strong>#{short_id(ceremony[:id])}</strong> is ready for your final witness attestation.</p>
+    <p>Algorithm: #{ceremony[:algorithm]} | Threshold: #{ceremony[:threshold_k]}-of-#{ceremony[:threshold_n]}</p>
+    <p><strong>Action required:</strong> Please log in to the CA Portal and witness the completion phase.</p>
+    <p style="color: #6b7280; font-size: 12px;">This is an automated notification from the PKI CA System.</p>
     </body></html>
     """
   end

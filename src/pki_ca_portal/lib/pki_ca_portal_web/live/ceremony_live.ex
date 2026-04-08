@@ -595,6 +595,13 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       %{timestamp: s[:inserted_at], message: "Share ##{s[:share_index]} assigned to #{name}"}
     end)
 
+    auditor_assigned = if ceremony[:auditor_user_id] do
+      auditor_name = ceremony[:auditor_username] || ceremony[:auditor_user_id]
+      [%{timestamp: ceremony[:inserted_at], message: "Auditor #{auditor_name} assigned as witness"}]
+    else
+      []
+    end
+
     accepted = shares
     |> Enum.filter(fn s -> s[:status] == "accepted" and s[:accepted_at] end)
     |> Enum.map(fn s ->
@@ -613,7 +620,7 @@ defmodule PkiCaPortalWeb.CeremonyLive do
       []
     end
 
-    (initiated ++ assigned ++ accepted ++ attested ++ completed)
+    (initiated ++ assigned ++ auditor_assigned ++ accepted ++ attested ++ completed)
     |> Enum.filter(fn e -> e.timestamp != nil end)
     |> Enum.sort_by(fn e -> to_sortable_time(e.timestamp) end)
   end
