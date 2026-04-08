@@ -22,7 +22,8 @@ defmodule PkiValidation.Crl.DerGeneratorTest do
 
     signing_key = %{
       algorithm: "ecc_p256",
-      private_key: priv_scalar,
+      signer: PkiValidation.Crypto.Signer.EcdsaP256,
+      private_key: PkiValidation.Crypto.Signer.EcdsaP256.decode_private_key(priv_scalar),
       public_key: pub_point,
       certificate_der: cert_der
     }

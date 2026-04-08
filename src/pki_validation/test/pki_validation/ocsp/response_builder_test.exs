@@ -30,7 +30,8 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
 
     signing_key = %{
       algorithm: "ecc_p256",
-      private_key: priv_scalar,
+      signer: PkiValidation.Crypto.Signer.EcdsaP256,
+      private_key: PkiValidation.Crypto.Signer.EcdsaP256.decode_private_key(priv_scalar),
       public_key: pub_point,
       certificate_der: cert_der
     }
@@ -200,7 +201,8 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
 
     key = %{
       algorithm: "ecc_p384",
-      private_key: priv_scalar,
+      signer: PkiValidation.Crypto.Signer.EcdsaP384,
+      private_key: PkiValidation.Crypto.Signer.EcdsaP384.decode_private_key(priv_scalar),
       public_key: pub,
       certificate_der: cert_der
     }
@@ -250,7 +252,8 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
 
     key = %{
       algorithm: "rsa2048",
-      private_key: rsa_der,
+      signer: PkiValidation.Crypto.Signer.Rsa2048,
+      private_key: PkiValidation.Crypto.Signer.Rsa2048.decode_private_key(rsa_der),
       public_key: <<>>,
       certificate_der: cert_der
     }

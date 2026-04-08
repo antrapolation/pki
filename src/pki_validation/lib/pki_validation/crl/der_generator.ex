@@ -40,13 +40,6 @@ defmodule PkiValidation.Crl.DerGenerator do
   alias PkiValidation.Repo
   alias PkiValidation.Schema.{CertificateStatus, CrlMetadata}
 
-  @secp256r1_oid {1, 2, 840, 10045, 3, 1, 7}
-  @secp384r1_oid {1, 3, 132, 0, 34}
-
-  @ecdsa_sha256_oid {1, 2, 840, 10045, 4, 3, 2}
-  @ecdsa_sha384_oid {1, 2, 840, 10045, 4, 3, 3}
-  @rsa_sha256_oid {1, 2, 840, 113_549, 1, 1, 11}
-
   @crl_number_oid {2, 5, 29, 20}
   @crl_reason_oid {2, 5, 29, 21}
 
@@ -158,7 +151,7 @@ defmodule PkiValidation.Crl.DerGenerator do
 
   defp build_tbs(signing_key, revoked, crl_number, this_update, next_update) do
     issuer = extract_issuer(signing_key.certificate_der)
-    sig_alg_id = sig_alg_identifier(signing_key)
+    sig_alg_id = signing_key.signer.algorithm_identifier_record()
 
     revoked_entries =
       case Enum.map(revoked, &build_revoked_entry/1) do
@@ -259,49 +252,15 @@ defmodule PkiValidation.Crl.DerGenerator do
     :unspecified
   end
 
-  # ---- Signature algorithm identifiers ----
-
-  defp sig_alg_identifier(%{algorithm: "ecc_p256"}),
-    do: {:AlgorithmIdentifier, @ecdsa_sha256_oid, :asn1_NOVALUE}
-
-  defp sig_alg_identifier(%{algorithm: "ecc_p384"}),
-    do: {:AlgorithmIdentifier, @ecdsa_sha384_oid, :asn1_NOVALUE}
-
-  defp sig_alg_identifier(%{algorithm: alg}) when alg in ["rsa2048", "rsa4096"],
-    do: {:AlgorithmIdentifier, @rsa_sha256_oid, <<5, 0>>}
-
-  defp sig_alg_identifier(%{algorithm: alg}),
-    do: raise(ArgumentError, "unsupported signing algorithm: #{inspect(alg)}")
-
   # ---- Signing ----
 
-  defp sign_tbs(tbs_der, %{algorithm: "ecc_p256", private_key: priv}) do
-    ec_priv =
-      {:ECPrivateKey, 1, priv, {:namedCurve, @secp256r1_oid}, :asn1_NOVALUE, :asn1_NOVALUE}
-
-    signature = :public_key.sign(tbs_der, :sha256, ec_priv)
-    {sig_alg_identifier(%{algorithm: "ecc_p256"}), signature}
-  end
-
-  defp sign_tbs(tbs_der, %{algorithm: "ecc_p384", private_key: priv}) do
-    ec_priv =
-      {:ECPrivateKey, 1, priv, {:namedCurve, @secp384r1_oid}, :asn1_NOVALUE, :asn1_NOVALUE}
-
-    signature = :public_key.sign(tbs_der, :sha384, ec_priv)
-    {sig_alg_identifier(%{algorithm: "ecc_p384"}), signature}
-  end
-
-  defp sign_tbs(tbs_der, %{algorithm: alg, private_key: priv})
-       when alg in ["rsa2048", "rsa4096"] do
-    # SigningKeyStore stores RSA private keys as DER-encoded :RSAPrivateKey
-    # bytes. :public_key.sign/3 requires the decoded record form, so we
-    # decode at sign time. Same pattern as Ocsp.ResponseBuilder (fix D1).
-    rsa_priv = :public_key.der_decode(:RSAPrivateKey, priv)
-    signature = :public_key.sign(tbs_der, :sha256, rsa_priv)
-    {sig_alg_identifier(%{algorithm: alg}), signature}
-  end
-
-  defp sign_tbs(_tbs, %{algorithm: alg}) do
-    raise ArgumentError, "unsupported signing algorithm: #{inspect(alg)}"
+  # Algorithm dispatch lives in the Signer module (cached on the signing_key
+  # at SigningKeyStore load time). The signer exposes both the signing
+  # primitive and the AlgorithmIdentifier as an Erlang record (for the CRL
+  # path, which uses :public_key.der_encode(:TBSCertList, ...) and needs the
+  # typed form).
+  defp sign_tbs(tbs_der, %{signer: signer_mod, private_key: priv}) do
+    signature = signer_mod.sign(tbs_der, priv)
+    {signer_mod.algorithm_identifier_record(), signature}
   end
 end

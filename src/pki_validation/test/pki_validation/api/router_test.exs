@@ -13,11 +13,133 @@ defmodule PkiValidation.Api.RouterTest do
   @sha1_alg_der <<0x30, 0x09, 0x06, 0x05, 0x2B, 0x0E, 0x03, 0x02, 0x1A, 0x05, 0x00>>
 
   describe "GET /health" do
-    test "returns 200 with ok status" do
+    test "returns 200 and healthy=true for a clean store (including empty)" do
+      # Ensure the app-level SigningKeyStore is in a clean state regardless
+      # of what previous tests in this file left behind. Other tests in
+      # this module intentionally push the store into a degraded state to
+      # exercise the 503 path, and because the sandbox + named singleton
+      # combination can leave the store holding stale refs after a test
+      # transaction rolls back, a fresh reload here is the simplest
+      # guarantee that this test starts from a known good state.
+      PkiValidation.SigningKeyStore.reload()
+
+      # This test intentionally exercises the "clean store" case regardless
+      # of whether any SigningKeyConfig rows happen to exist in the sandbox.
+      # By design, an empty store is considered healthy: `state.failed == []`
+      # trivially holds, so /health returns 200. A separate test in the next
+      # describe block covers the "healthy with a loaded key" case with
+      # signing_keys_loaded >= 1.
       conn = conn(:get, "/health") |> Router.call(@opts)
 
       assert conn.status == 200
-      assert %{"status" => "ok"} = Jason.decode!(conn.resp_body)
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "ok"
+      # signing_keys_loaded is always present on a 200 response — it may be 0
+      # (empty store) or >= 1 (loaded keys), but never missing.
+      assert is_integer(body["signing_keys_loaded"])
+    end
+  end
+
+  describe "GET /health (with SigningKeyStore status)" do
+    test "returns 200 with signing_keys_loaded when store is healthy" do
+      issuer_key_id = Uniq.UUID.uuid7()
+
+      {pub_point, priv_scalar} = :crypto.generate_key(:ecdh, :secp256r1)
+      p256_oid = {1, 2, 840, 10045, 3, 1, 7}
+
+      ec_priv_record =
+        {:ECPrivateKey, 1, priv_scalar, {:namedCurve, p256_oid}, pub_point, :asn1_NOVALUE}
+
+      %{cert: cert_der} =
+        :public_key.pkix_test_root_cert(~c"Test Health Signer", [{:key, ec_priv_record}])
+
+      cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+      encrypted = SigningKeyStore.encrypt_for_test(priv_scalar, "")
+
+      {:ok, _} =
+        %SigningKeyConfig{}
+        |> SigningKeyConfig.changeset(%{
+          issuer_key_id: issuer_key_id,
+          algorithm: "ecc_p256",
+          certificate_pem: cert_pem,
+          encrypted_private_key: encrypted,
+          not_before: DateTime.utc_now(),
+          not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+          status: "active"
+        })
+        |> Repo.insert()
+
+      :ok = SigningKeyStore.reload()
+
+      on_exit(fn ->
+        try do
+          SigningKeyStore.reload()
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      conn = conn(:get, "/health") |> Router.call(@opts)
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "ok"
+      assert is_integer(body["signing_keys_loaded"])
+      assert body["signing_keys_loaded"] >= 1
+    end
+
+    test "returns 503 degraded when a signing key fails to decrypt" do
+      issuer_key_id = Uniq.UUID.uuid7()
+
+      {pub_point, priv_scalar} = :crypto.generate_key(:ecdh, :secp256r1)
+      p256_oid = {1, 2, 840, 10045, 3, 1, 7}
+
+      ec_priv_record =
+        {:ECPrivateKey, 1, priv_scalar, {:namedCurve, p256_oid}, pub_point, :asn1_NOVALUE}
+
+      %{cert: cert_der} =
+        :public_key.pkix_test_root_cert(~c"Test Degraded Signer", [{:key, ec_priv_record}])
+
+      cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+
+      # Encrypt with a NON-empty password — the application store defaults to
+      # empty password, so decryption will fail and the store becomes
+      # unhealthy.
+      encrypted = SigningKeyStore.encrypt_for_test(priv_scalar, "wrong-password")
+
+      {:ok, _} =
+        %SigningKeyConfig{}
+        |> SigningKeyConfig.changeset(%{
+          issuer_key_id: issuer_key_id,
+          algorithm: "ecc_p256",
+          certificate_pem: cert_pem,
+          encrypted_private_key: encrypted,
+          not_before: DateTime.utc_now(),
+          not_after: DateTime.add(DateTime.utc_now(), 30, :day),
+          status: "active"
+        })
+        |> Repo.insert()
+
+      :ok = SigningKeyStore.reload()
+
+      on_exit(fn ->
+        try do
+          SigningKeyStore.reload()
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      conn = conn(:get, "/health") |> Router.call(@opts)
+
+      assert conn.status == 503
+      body = Jason.decode!(conn.resp_body)
+      assert body["status"] == "degraded"
+      assert is_integer(body["signing_keys_loaded"])
+      assert is_integer(body["signing_keys_failed"])
+      assert body["signing_keys_failed"] >= 1
+      assert Map.has_key?(body, "last_error")
+      assert is_binary(body["last_error"])
     end
   end
 
