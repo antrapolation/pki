@@ -131,6 +131,48 @@ defmodule PkiValidation.Crl.DerGeneratorTest do
     refute 600 in serials
   end
 
+  test "tolerates out-of-band rows with unknown revocation_reason", ctx do
+    # Bypass the changeset enum validation to simulate a row inserted
+    # directly via SQL / migration / manual ops with a reason that isn't
+    # in the known set. Without the defensive catch-all in reason_to_atom,
+    # this would raise FunctionClauseError and take down CRL generation
+    # for the entire issuer.
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Repo,
+        """
+        INSERT INTO certificate_status
+          (id, serial_number, issuer_key_id, subject_dn, status,
+           not_before, not_after, revoked_at, revocation_reason,
+           inserted_at, updated_at)
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        """,
+        [
+          Uniq.UUID.uuid7(:raw),
+          "700",
+          Uniq.UUID.string_to_binary!(ctx.issuer_key_id),
+          "CN=OutOfBand",
+          "revoked",
+          DateTime.utc_now(),
+          DateTime.add(DateTime.utc_now(), 1, :day),
+          DateTime.utc_now(),
+          "exotic_reason_not_in_enum",
+          DateTime.utc_now(),
+          DateTime.utc_now()
+        ]
+      )
+
+    assert {:ok, der, _} = DerGenerator.generate(ctx.issuer_key_id, ctx.signing_key)
+    {:CertificateList, tbs, _, _} = :public_key.der_decode(:CertificateList, der)
+    revoked = extract_revoked(tbs)
+
+    # The entry should still appear in the CRL; the reason just falls
+    # back to :unspecified which is a valid CRLReason.
+    serials = Enum.map(revoked, fn {_, s, _, _} -> s end)
+    assert 700 in serials
+  end
+
   # ---- Helpers ----
 
   defp insert_revoked_cert(issuer_key_id, serial, reason) do

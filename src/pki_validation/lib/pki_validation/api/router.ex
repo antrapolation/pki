@@ -145,8 +145,7 @@ defmodule PkiValidation.Api.Router do
       {:ok, der_request} ->
         case PkiValidation.Ocsp.RequestDecoder.decode(der_request) do
           {:ok, request} ->
-            {:ok, der} = PkiValidation.Ocsp.DerResponder.respond(request, [])
-            send_der_ocsp(conn, der)
+            respond_der_ocsp(conn, request)
 
           {:error, :malformed} ->
             send_malformed_ocsp(conn)
@@ -261,11 +260,24 @@ defmodule PkiValidation.Api.Router do
   defp handle_der_ocsp_body(conn, body) do
     case PkiValidation.Ocsp.RequestDecoder.decode(body) do
       {:ok, request} ->
-        {:ok, der} = PkiValidation.Ocsp.DerResponder.respond(request, [])
-        send_der_ocsp(conn, der)
+        respond_der_ocsp(conn, request)
 
       {:error, :malformed} ->
         send_malformed_ocsp(conn)
+    end
+  end
+
+  # Guard the DerResponder.respond/2 result. The orchestrator's internal
+  # rescue branch can still return {:error, _} if the ASN.1 encoder itself
+  # fails while producing an :internalError response. In that rare case we
+  # can't produce a signed body at all, so fall back to a bare HTTP 500.
+  defp respond_der_ocsp(conn, request) do
+    case PkiValidation.Ocsp.DerResponder.respond(request, []) do
+      {:ok, der} ->
+        send_der_ocsp(conn, der)
+
+      {:error, _reason} ->
+        send_resp(conn, 500, "")
     end
   end
 

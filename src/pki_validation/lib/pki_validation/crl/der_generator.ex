@@ -248,6 +248,17 @@ defmodule PkiValidation.Crl.DerGenerator do
   defp reason_to_atom("privilege_withdrawn"), do: :privilegeWithdrawn
   defp reason_to_atom("aa_compromise"), do: :aACompromise
 
+  # Defensive catch-all: the certificate_status changeset validates
+  # revocation_reason against a fixed enum, so this clause should never fire
+  # in normal operation. It exists so a row inserted out-of-band (migration,
+  # manual ops, direct SQL) with an unknown reason string does not crash CRL
+  # generation for the entire issuer — we log and fall back to :unspecified.
+  defp reason_to_atom(other) do
+    require Logger
+    Logger.warning("Unknown revocation reason in CRL: #{inspect(other)}, using :unspecified")
+    :unspecified
+  end
+
   # ---- Signature algorithm identifiers ----
 
   defp sig_alg_identifier(%{algorithm: "ecc_p256"}),
