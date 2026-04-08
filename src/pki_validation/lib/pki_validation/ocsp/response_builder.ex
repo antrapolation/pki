@@ -26,15 +26,10 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
   @basic_ocsp_oid {1, 3, 6, 1, 5, 5, 7, 48, 1, 1}
   @nonce_oid {1, 3, 6, 1, 5, 5, 7, 48, 1, 2}
 
-  # Pre-encoded AlgorithmIdentifier DER blobs
+  # AlgorithmIdentifier DER blob for SHA-1 — used in CertID records (RFC 6960).
+  # Per-signer AlgorithmIdentifier blobs now live in the signer modules
+  # (`PkiValidation.Crypto.Signer.*.algorithm_identifier_der/0`).
   @sha1_alg_der <<0x30, 0x09, 0x06, 0x05, 0x2B, 0x0E, 0x03, 0x02, 0x1A, 0x05, 0x00>>
-  @ecdsa_sha256_alg_der <<0x30, 0x0A, 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02>>
-  @ecdsa_sha384_alg_der <<0x30, 0x0A, 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03>>
-  @rsa_sha256_alg_der <<0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01,
-                        0x0B, 0x05, 0x00>>
-
-  @secp256r1_oid {1, 2, 840, 10045, 3, 1, 7}
-  @secp384r1_oid {1, 3, 132, 0, 34}
 
   @error_statuses [
     :malformedRequest,
@@ -230,34 +225,13 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
 
   # ---- Signing ----
 
-  defp sign_tbs(tbs, %{algorithm: "ecc_p256", private_key: priv}) do
-    ec_priv =
-      {:ECPrivateKey, 1, priv, {:namedCurve, @secp256r1_oid}, :asn1_NOVALUE, :asn1_NOVALUE}
-
-    signature = :public_key.sign(tbs, :sha256, ec_priv)
-    {@ecdsa_sha256_alg_der, signature}
-  end
-
-  defp sign_tbs(tbs, %{algorithm: "ecc_p384", private_key: priv}) do
-    ec_priv =
-      {:ECPrivateKey, 1, priv, {:namedCurve, @secp384r1_oid}, :asn1_NOVALUE, :asn1_NOVALUE}
-
-    signature = :public_key.sign(tbs, :sha384, ec_priv)
-    {@ecdsa_sha384_alg_der, signature}
-  end
-
-  defp sign_tbs(tbs, %{algorithm: alg, private_key: priv}) when alg in ["rsa2048", "rsa4096"] do
-    # SigningKeyStore holds RSA keys as raw DER-encoded :RSAPrivateKey bytes
-    # (see the comment in signing_key_store.ex). :public_key.sign/3 requires
-    # the decoded record form, so we decode at sign time. The per-signature
-    # decode cost is negligible at OCSP volumes and keeps the key store
-    # algorithm-agnostic.
-    rsa_priv = :public_key.der_decode(:RSAPrivateKey, priv)
-    signature = :public_key.sign(tbs, :sha256, rsa_priv)
-    {@rsa_sha256_alg_der, signature}
-  end
-
-  defp sign_tbs(_tbs, %{algorithm: alg}) do
-    raise ArgumentError, "unsupported signing algorithm: #{inspect(alg)}"
+  # Algorithm dispatch lives in the Signer module (cached on the signing_key
+  # at SigningKeyStore load time). The signer exposes both the signing
+  # primitive and the pre-encoded AlgorithmIdentifier DER blob, so sign_tbs/2
+  # is a single clause regardless of whether the underlying algorithm is
+  # ECDSA, RSA, or a future PQC primitive like ML-DSA.
+  defp sign_tbs(tbs, %{signer: signer_mod, private_key: priv}) do
+    signature = signer_mod.sign(tbs, priv)
+    {signer_mod.algorithm_identifier_der(), signature}
   end
 end

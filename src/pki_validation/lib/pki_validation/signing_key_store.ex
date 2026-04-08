@@ -173,17 +173,19 @@ defmodule PkiValidation.SigningKeyStore do
     |> where([c], c.status == "active")
     |> Repo.all()
     |> Enum.reduce({%{}, 0, []}, fn config, {keys, loaded, failed} ->
-      with {:ok, priv} <- decrypt_private_key(config.encrypted_private_key, password),
+      # Resolve the signer FIRST so a row with an unknown algorithm fails
+      # fast without doing wasted crypto work.
+      with {:ok, signer_mod} <- resolve_signer(config.algorithm),
+           {:ok, raw_priv} <- decrypt_private_key(config.encrypted_private_key, password),
+           {:ok, decoded_priv} <- decode_private_key(signer_mod, raw_priv),
            {:ok, cert_der} <- decode_cert_pem(config.certificate_pem) do
-        # NOTE: `private_key` here is the raw decrypted bytes and its shape is
-        # algorithm-dependent: for ECC it's the raw private scalar, for RSA
-        # it's the DER encoding of an :RSAPrivateKey record. This module is
-        # deliberately algorithm-agnostic; downstream consumers such as
-        # `PkiValidation.Ocsp.ResponseBuilder.sign_tbs/2` are responsible for
-        # interpreting the bytes according to `algorithm`.
         entry = %{
           algorithm: config.algorithm,
-          private_key: priv,
+          signer: signer_mod,
+          # `private_key` is now in the signer-specific decoded form. For ECC
+          # signers this is still the raw scalar binary (passthrough). For
+          # RSA signers this is an `:RSAPrivateKey` record.
+          private_key: decoded_priv,
           certificate_der: cert_der,
           # Cache the SHA-1 issuerKeyHash so OCSP lookups by key hash don't
           # have to re-decode + re-hash every cert on every request.
@@ -205,6 +207,25 @@ defmodule PkiValidation.SigningKeyStore do
           {keys, loaded, new_failed}
       end
     end)
+  end
+
+  defp resolve_signer(algorithm) do
+    case PkiValidation.Crypto.Signer.Registry.fetch(algorithm) do
+      {:ok, mod} -> {:ok, mod}
+      :error -> {:error, :unknown_algorithm}
+    end
+  end
+
+  defp decode_private_key(signer_mod, raw_priv) do
+    try do
+      case signer_mod.decode_private_key(raw_priv) do
+        {:ok, decoded} -> {:ok, decoded}
+        {:error, _} -> {:error, :private_key_decode_failed}
+        decoded -> {:ok, decoded}
+      end
+    rescue
+      _ -> {:error, :private_key_decode_failed}
+    end
   end
 
   defp decrypt_private_key(
