@@ -57,7 +57,13 @@ defmodule PkiRaEngine.Api.Router do
 
   get "/metrics" do
     expected = Application.get_env(:pki_ra_engine, :internal_api_secret)
-    provided = get_req_header(conn, "authorization") |> List.first()
+
+    provided =
+      case get_req_header(conn, "authorization") do
+        ["Bearer " <> token] -> token
+        [token] -> token
+        _ -> nil
+      end
 
     if expected && provided && Plug.Crypto.secure_compare(provided, expected) do
       metrics = PkiRaEngine.Telemetry.get_metrics()

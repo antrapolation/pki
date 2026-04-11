@@ -18,7 +18,8 @@ defmodule PkiRaEngine.Application do
     # for other strategies and supported options
     PkiRaEngine.Telemetry.setup()
 
-    opts = [strategy: :one_for_one, name: PkiRaEngine.Supervisor]
+    # :rest_for_one — if Repo crashes, restart CaEngineConfig, DcvPoller, HTTP, etc.
+    opts = [strategy: :rest_for_one, name: PkiRaEngine.Supervisor]
     Supervisor.start_link(children, opts)
   end
 

@@ -84,7 +84,7 @@ defmodule PkiCaEngine.KeyActivationTest do
     end
   end
 
-  describe "submit_share/4" do
+  describe "submit_share/5" do
     test "custodian submits share, decrypted and accumulated", ctx do
       name = :"test_activation_#{System.unique_integer([:positive])}"
 
@@ -98,7 +98,7 @@ defmodule PkiCaEngine.KeyActivationTest do
       password = "password-#{c1.id}"
 
       assert {:ok, :share_accepted} =
-               KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, password)
+               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, password)
     end
 
     test "returns :key_activated when K threshold met", ctx do
@@ -115,10 +115,10 @@ defmodule PkiCaEngine.KeyActivationTest do
       pw2 = "password-#{c2.id}"
 
       assert {:ok, :share_accepted} =
-               KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, pw1)
+               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, pw1)
 
       assert {:ok, :key_activated} =
-               KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, pw2)
+               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, pw2)
     end
   end
 
@@ -136,10 +136,10 @@ defmodule PkiCaEngine.KeyActivationTest do
 
       assert KeyActivation.is_active?(name, ctx.issuer_key.id) == false
 
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
       assert KeyActivation.is_active?(name, ctx.issuer_key.id) == false
 
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
       assert KeyActivation.is_active?(name, ctx.issuer_key.id) == true
     end
   end
@@ -155,8 +155,8 @@ defmodule PkiCaEngine.KeyActivationTest do
       )
 
       [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
 
       assert KeyActivation.is_active?(name, ctx.issuer_key.id) == true
 
@@ -188,8 +188,8 @@ defmodule PkiCaEngine.KeyActivationTest do
       )
 
       [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
 
       assert KeyActivation.is_active?(name, ctx.issuer_key.id) == true
 
@@ -214,10 +214,10 @@ defmodule PkiCaEngine.KeyActivationTest do
       password = "password-#{c1.id}"
 
       assert {:ok, :share_accepted} =
-               KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, password)
+               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, password)
 
       assert {:error, :already_submitted} =
-               KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, password)
+               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, password)
     end
   end
 
@@ -234,7 +234,7 @@ defmodule PkiCaEngine.KeyActivationTest do
       [c1 | _] = ctx.custodians
 
       assert {:error, :decryption_failed} =
-               KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "wrong-password")
+               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "wrong-password")
     end
   end
 
@@ -255,7 +255,7 @@ defmodule PkiCaEngine.KeyActivationTest do
       non_existent_key_id = Uniq.UUID.uuid7()
 
       assert {:error, :share_not_found} =
-               KeyActivation.submit_share(name, non_existent_key_id, c1.id, "password-#{c1.id}")
+               KeyActivation.submit_share(name, nil, non_existent_key_id, c1.id, "password-#{c1.id}")
     end
   end
 
@@ -270,8 +270,8 @@ defmodule PkiCaEngine.KeyActivationTest do
       )
 
       [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
 
       assert {:ok, secret} = KeyActivation.get_active_key(name, ctx.issuer_key.id)
       assert is_binary(secret)
@@ -300,8 +300,8 @@ defmodule PkiCaEngine.KeyActivationTest do
       )
 
       [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
 
       assert {:ok, _} = KeyActivation.get_active_key(name, ctx.issuer_key.id)
 
@@ -323,8 +323,8 @@ defmodule PkiCaEngine.KeyActivationTest do
       )
 
       [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
+      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
 
       assert :ok = KeyActivation.deactivate(name, ctx.issuer_key.id)
       assert {:error, :not_active} = KeyActivation.deactivate(name, ctx.issuer_key.id)

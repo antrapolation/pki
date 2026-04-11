@@ -203,6 +203,37 @@ defmodule PkiCaEngine.CaInstanceManagement do
     end)
   end
 
+  @doc """
+  Sets a CA instance offline. Used by ceremony completion to auto-offline root CAs.
+
+  Returns `{:ok, ca}` or `{:error, :not_found}`.
+  """
+  def set_offline(tenant_id, ca_instance_id) do
+    repo = TenantRepo.ca_repo(tenant_id)
+
+    case repo.get(CaInstance, ca_instance_id) do
+      nil ->
+        {:error, :not_found}
+
+      ca ->
+        ca
+        |> CaInstance.changeset(%{is_offline: true})
+        |> repo.update()
+        |> case do
+          {:ok, updated} ->
+            Audit.log(tenant_id, %{actor_did: "system", actor_role: "system"},
+              "ca_instance_auto_offline",
+              %{resource_type: "ca_instance", resource_id: ca_instance_id,
+                ca_instance_id: ca_instance_id,
+                details: %{name: ca.name, reason: "root_ca_ceremony_completed"}})
+            {:ok, updated}
+
+          error ->
+            error
+        end
+    end
+  end
+
   @doc "Renames a CA instance."
   def rename(tenant_id, id, new_name) do
     repo = TenantRepo.ca_repo(tenant_id)

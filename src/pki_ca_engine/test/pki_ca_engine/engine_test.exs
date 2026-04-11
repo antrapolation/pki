@@ -150,8 +150,8 @@ defmodule PkiCaEngine.EngineTest do
       )
 
       [c1, c2 | _] = custodians
-      {:ok, :share_accepted} = KeyActivation.submit_share(activation_name, issuer_key.id, c1.id, "password-#{c1.id}")
-      {:ok, :key_activated} = KeyActivation.submit_share(activation_name, issuer_key.id, c2.id, "password-#{c2.id}")
+      {:ok, :share_accepted} = KeyActivation.submit_share(activation_name, nil, issuer_key.id, c1.id, "password-#{c1.id}")
+      {:ok, :key_activated} = KeyActivation.submit_share(activation_name, nil, issuer_key.id, c2.id, "password-#{c2.id}")
 
       {:ok, _pid} = Engine.start_engine(ctx.ca.id)
 

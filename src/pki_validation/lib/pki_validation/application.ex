@@ -13,7 +13,8 @@ defmodule PkiValidation.Application do
         PkiValidation.CrlPublisher
       ] ++ http_children()
 
-    opts = [strategy: :one_for_one, name: PkiValidation.Supervisor]
+    # :rest_for_one — Repo → SigningKeyStore → OcspCache → CrlPublisher must restart in order
+    opts = [strategy: :rest_for_one, name: PkiValidation.Supervisor]
     Supervisor.start_link(children, opts)
   end
 

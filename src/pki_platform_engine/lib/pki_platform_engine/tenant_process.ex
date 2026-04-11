@@ -19,19 +19,26 @@ defmodule PkiPlatformEngine.TenantProcess do
     ra_repo_name = :"ra_repo_#{tenant.id}"
     audit_repo_name = :"audit_repo_#{tenant.id}"
 
-    # Start supervisor and children first, then register
+    # Start supervisor and children first, then register.
+    # If registration fails, stop the supervisor to avoid orphaned processes.
     case Supervisor.start_link(__MODULE__, {tenant, ca_repo_name, ra_repo_name, audit_repo_name}, name: via(tenant.id)) do
       {:ok, pid} ->
-        TenantRegistry.register(registry, tenant.id, %{
-          ca_repo: ca_repo_name,
-          ra_repo: ra_repo_name,
-          audit_repo: audit_repo_name,
-          slug: tenant.slug,
-          tenant: tenant
-        })
+        case TenantRegistry.register(registry, tenant.id, %{
+               ca_repo: ca_repo_name,
+               ra_repo: ra_repo_name,
+               audit_repo: audit_repo_name,
+               slug: tenant.slug,
+               tenant: tenant
+             }) do
+          :ok ->
+            Logger.info("[TenantProcess] Engines ready for tenant #{tenant.slug} (#{tenant.id})")
+            {:ok, pid}
 
-        Logger.info("[TenantProcess] Engines ready for tenant #{tenant.slug} (#{tenant.id})")
-        {:ok, pid}
+          {:error, reason} ->
+            Logger.error("[TenantProcess] Registry failed for tenant #{tenant.slug}: #{inspect(reason)}, stopping supervisor")
+            Supervisor.stop(pid, :normal)
+            {:error, {:registration_failed, reason}}
+        end
 
       {:error, reason} = err ->
         Logger.error("[TenantProcess] Failed to start engines for tenant #{tenant.slug}: #{inspect(reason)}")
@@ -48,7 +55,7 @@ defmodule PkiPlatformEngine.TenantProcess do
     children = [
       repo_child_spec(ca_repo_name, base_config, "ca"),
       repo_child_spec(ra_repo_name, base_config, "ra"),
-      repo_child_spec(audit_repo_name, base_config, "ca")
+      repo_child_spec(audit_repo_name, base_config, "audit")
     ]
 
     Supervisor.init(children, strategy: :one_for_all)
@@ -68,7 +75,7 @@ defmodule PkiPlatformEngine.TenantProcess do
       username: Keyword.get(config, :username, Keyword.get(platform_config, :username, "postgres")),
       password: Keyword.get(config, :password, Keyword.get(platform_config, :password, "postgres")),
       database: database_name,
-      pool_size: String.to_integer(System.get_env("TENANT_POOL_SIZE", "2"))
+      pool_size: String.to_integer(System.get_env("TENANT_POOL_SIZE", "5"))
     ]
   end
 

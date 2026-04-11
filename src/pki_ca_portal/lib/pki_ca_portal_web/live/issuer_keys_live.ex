@@ -369,6 +369,31 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
     end
   end
 
+  def handle_event("retire_key", %{"id" => id}, socket) do
+    unless socket.assigns.current_user[:role] in ["ca_admin", "key_manager"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      opts = tenant_opts(socket)
+
+      case CaEngineClient.retire_issuer_key(id, opts) do
+        {:ok, _key} ->
+          audit_log(socket, "issuer_key_retired", "issuer_key", id)
+          keys = load_keys(socket.assigns.effective_ca_id, opts)
+
+          {:noreply,
+           socket
+           |> put_flash(:info, "Key retired. It can no longer sign certificates but existing certificates remain valid.")
+           |> assign(issuer_keys: keys)}
+
+        {:error, reason} ->
+          Logger.error("[issuer_keys] Failed to retire key #{id}: #{inspect(reason)}")
+
+          {:noreply,
+           put_flash(socket, :error, sanitize_error("Failed to retire key", reason))}
+      end
+    end
+  end
+
   def handle_event("archive_key", %{"id" => id}, socket) do
     unless socket.assigns.current_user[:role] in ["ca_admin"] do
       {:noreply, put_flash(socket, :error, "Unauthorized")}
@@ -572,9 +597,20 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
                     >
                       <.icon name="hero-play" class="size-4" />
                     </button>
+                    <%!-- Retire: for active or suspended keys (can verify, cannot sign) --%>
+                    <button
+                      :if={k[:status] in ["active", "suspended"]}
+                      phx-click="retire_key"
+                      phx-value-id={k[:id]}
+                      data-confirm="Retire this key? It will no longer sign certificates but existing certificates remain valid."
+                      title="Retire"
+                      class="btn btn-ghost btn-xs text-orange-400"
+                    >
+                      <.icon name="hero-archive-box-arrow-down" class="size-4" />
+                    </button>
                     <%!-- Archive: for non-archived keys (terminal action) --%>
                     <button
-                      :if={k[:status] in ["pending", "active", "suspended"]}
+                      :if={k[:status] in ["pending", "active", "suspended", "retired"]}
                       phx-click="archive_key"
                       phx-value-id={k[:id]}
                       data-confirm="Are you sure you want to archive this key? This action cannot be undone."

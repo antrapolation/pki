@@ -6,7 +6,7 @@ defmodule PkiCaEngine.KeyVault.ManagedKeypair do
   @foreign_key_type :binary_id
 
   @protection_modes ["credential_own", "split_auth_token", "split_key"]
-  @statuses ["pending", "active", "suspended", "archived"]
+  @statuses ["pending", "active", "suspended", "retired", "archived"]
 
   schema "managed_keypairs" do
     field :name, :string

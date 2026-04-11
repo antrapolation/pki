@@ -29,7 +29,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
       )
 
     custodians =
-      for i <- 1..3 do
+      for _i <- 1..3 do
         {:ok, user} =
           Repo.insert(
             CaUser.changeset(%CaUser{}, %{
@@ -73,8 +73,8 @@ defmodule PkiCaEngine.CertificateSigningTest do
     )
 
     [c1, c2 | _] = custodians
-    {:ok, :share_accepted} = KeyActivation.submit_share(activation_name, issuer_key.id, c1.id, "password-#{c1.id}")
-    {:ok, :key_activated} = KeyActivation.submit_share(activation_name, issuer_key.id, c2.id, "password-#{c2.id}")
+    {:ok, :share_accepted} = KeyActivation.submit_share(activation_name, nil, issuer_key.id, c1.id, "password-#{c1.id}")
+    {:ok, :key_activated} = KeyActivation.submit_share(activation_name, nil, issuer_key.id, c2.id, "password-#{c2.id}")
 
     # Reload issuer_key after ceremony completion (now has cert)
     issuer_key = Repo.get!(PkiCaEngine.Schema.IssuerKey, issuer_key.id)
@@ -97,6 +97,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
       assert {:ok, cert} =
                CertificateSigning.sign_certificate(
+                 nil,
                  ctx.issuer_key.id,
                  csr_data,
                  cert_profile,
@@ -122,6 +123,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
       assert {:error, :key_not_active} =
                CertificateSigning.sign_certificate(
+                 nil,
                  ctx.issuer_key.id,
                  csr_data,
                  cert_profile,
@@ -135,17 +137,50 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
       {:ok, cert1} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data, cert_profile,
+          nil, ctx.issuer_key.id, csr_data, cert_profile,
           activation_server: ctx.activation_server
         )
 
       {:ok, cert2} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data, cert_profile,
+          nil, ctx.issuer_key.id, csr_data, cert_profile,
           activation_server: ctx.activation_server
         )
 
       assert cert1.serial_number != cert2.serial_number
+    end
+
+    test "returns error when key is suspended (DB status check)", ctx do
+      # Key is active in KeyActivation memory, but we suspend it in DB
+      issuer_key = Repo.get!(PkiCaEngine.Schema.IssuerKey, ctx.issuer_key.id)
+      {:ok, _suspended} = PkiCaEngine.IssuerKeyManagement.update_status(nil, issuer_key,"suspended")
+
+      cert_profile = %{validity_days: 365, subject_dn: "CN=test.example.com,O=Test"}
+
+      assert {:error, :key_not_active} =
+               CertificateSigning.sign_certificate(
+                 nil,
+                 ctx.issuer_key.id,
+                 ctx.csr_pem,
+                 cert_profile,
+                 activation_server: ctx.activation_server
+               )
+    end
+
+    test "returns error when key is retired (DB status check)", ctx do
+      issuer_key = Repo.get!(PkiCaEngine.Schema.IssuerKey, ctx.issuer_key.id)
+      {:ok, _retired} = PkiCaEngine.IssuerKeyManagement.update_status(nil, issuer_key, "retired")
+
+      cert_profile = %{validity_days: 365, subject_dn: "CN=test.example.com,O=Test"}
+
+      assert {:error, :key_not_active} =
+               CertificateSigning.sign_certificate(
+                 nil,
+                 ctx.issuer_key.id,
+                 ctx.csr_pem,
+                 cert_profile,
+                 activation_server: ctx.activation_server
+               )
     end
 
     test "uses default subject_dn from CSR when not in profile", ctx do
@@ -154,7 +189,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
       {:ok, cert} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data, cert_profile,
+          nil, ctx.issuer_key.id, csr_data, cert_profile,
           activation_server: ctx.activation_server
         )
 
@@ -169,18 +204,18 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
       {:ok, cert} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data, cert_profile,
+          nil, ctx.issuer_key.id, csr_data, cert_profile,
           activation_server: ctx.activation_server
         )
 
-      assert {:ok, revoked} = CertificateSigning.revoke_certificate(cert.serial_number, "keyCompromise")
+      assert {:ok, revoked} = CertificateSigning.revoke_certificate(nil, cert.serial_number,"key_compromise")
       assert revoked.status == "revoked"
-      assert revoked.revocation_reason == "keyCompromise"
+      assert revoked.revocation_reason == "key_compromise"
       assert revoked.revoked_at != nil
     end
 
     test "returns error for non-existent certificate" do
-      assert {:error, :not_found} = CertificateSigning.revoke_certificate("nonexistent-serial", "keyCompromise")
+      assert {:error, :not_found} = CertificateSigning.revoke_certificate(nil, "nonexistent-serial","key_compromise")
     end
   end
 
@@ -191,17 +226,17 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
       {:ok, cert} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data, cert_profile,
+          nil, ctx.issuer_key.id, csr_data, cert_profile,
           activation_server: ctx.activation_server
         )
 
-      assert {:ok, found} = CertificateSigning.get_certificate(cert.serial_number)
+      assert {:ok, found} = CertificateSigning.get_certificate(nil, cert.serial_number)
       assert found.id == cert.id
       assert found.serial_number == cert.serial_number
     end
 
     test "returns error for non-existent serial" do
-      assert {:error, :not_found} = CertificateSigning.get_certificate("does-not-exist")
+      assert {:error, :not_found} = CertificateSigning.get_certificate(nil, "does-not-exist")
     end
   end
 
@@ -211,19 +246,19 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
       {:ok, _cert1} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn: "CN=list1.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr_data,
+          %{validity_days: 365, subject_dn:"CN=list1.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 
       {:ok, _cert2} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn: "CN=list2.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr_data,
+          %{validity_days: 365, subject_dn:"CN=list2.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 
-      certs = CertificateSigning.list_certificates(ctx.issuer_key.id)
+      certs = CertificateSigning.list_certificates(nil, ctx.issuer_key.id)
       assert length(certs) == 2
     end
 
@@ -233,33 +268,33 @@ defmodule PkiCaEngine.CertificateSigningTest do
       # This cert has DN "active" but will be revoked below
       {:ok, cert_to_revoke} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn: "CN=active.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr_data,
+          %{validity_days: 365, subject_dn:"CN=active.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 
       # This cert has DN "revoked" but actually stays active (never revoked)
       {:ok, _cert_stays_active} =
         CertificateSigning.sign_certificate(
-          ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn: "CN=revoked.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr_data,
+          %{validity_days: 365, subject_dn:"CN=revoked.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 
       # Revoke the first cert (DN=active), leaving the second (DN=revoked) active
-      CertificateSigning.revoke_certificate(cert_to_revoke.serial_number, "keyCompromise")
+      CertificateSigning.revoke_certificate(nil, cert_to_revoke.serial_number,"key_compromise")
 
-      active_certs = CertificateSigning.list_certificates(ctx.issuer_key.id, status: "active")
+      active_certs = CertificateSigning.list_certificates(nil, ctx.issuer_key.id, status: "active")
       assert length(active_certs) == 1
       assert hd(active_certs).subject_dn == "CN=revoked.example.com,O=Test"
 
-      revoked_certs = CertificateSigning.list_certificates(ctx.issuer_key.id, status: "revoked")
+      revoked_certs = CertificateSigning.list_certificates(nil, ctx.issuer_key.id, status: "revoked")
       assert length(revoked_certs) == 1
       assert hd(revoked_certs).subject_dn == "CN=active.example.com,O=Test"
     end
 
     test "returns empty list for unknown issuer_key_id" do
-      assert [] == CertificateSigning.list_certificates(Uniq.UUID.uuid7())
+      assert [] == CertificateSigning.list_certificates(nil, Uniq.UUID.uuid7())
     end
   end
 end

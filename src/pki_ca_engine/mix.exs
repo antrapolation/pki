@@ -35,6 +35,7 @@ defmodule PkiCaEngine.MixProject do
       {:ex_ccrypto, path: "../ex_ccrypto", override: true},
       {:ap_java_crypto, path: "../ap_java_crypto"},
       {:pki_crypto, path: "../pki_crypto"},
+      {:pki_oqs_nif, path: "../pki_oqs_nif"},
       {:pki_audit_trail, path: "../pki_audit_trail"},
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"},

@@ -229,6 +229,56 @@ defmodule PkiCaEngine.CeremonyOrchestratorTest do
 
       assert {:error, :invalid_status} = CeremonyOrchestrator.execute_keygen(ctx.tenant_id, ceremony.id, [])
     end
+
+    test "root CA is automatically taken offline after keygen completes", ctx do
+      # Verify CA starts online
+      ca_before = Repo.get!(CaInstance, ctx.ca.id)
+      refute ca_before.is_offline
+
+      params = initiate_params(ctx, %{is_root: true})
+      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+
+      passwords = [{ctx.km1, "password1"}, {ctx.km2, "password2"}, {ctx.km3, "password3"}]
+      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
+      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
+      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km3, "key3")
+
+      {:ok, _result} = CeremonyOrchestrator.execute_keygen(ctx.tenant_id, ceremony.id, passwords)
+
+      # Root CA should now be offline
+      ca_after = Repo.get!(CaInstance, ctx.ca.id)
+      assert ca_after.is_offline
+    end
+
+    test "sub-CA keygen does NOT auto-offline the CA instance", ctx do
+      # Create a sub-CA
+      {:ok, sub_ca} = Repo.insert(CaInstance.changeset(%CaInstance{}, %{
+        name: "sub-ca-orch-#{System.unique_integer([:positive])}",
+        created_by: "test",
+        parent_id: ctx.ca.id
+      }))
+      {:ok, sub_keystore} = Repo.insert(Keystore.changeset(%Keystore{}, %{
+        ca_instance_id: sub_ca.id, type: "software"
+      }))
+
+      params = initiate_params(ctx, %{
+        is_root: false,
+        keystore_id: sub_keystore.id,
+        domain_info: %{"is_root" => false, "subject_dn" => "/CN=Sub CA"}
+      })
+      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, sub_ca.id, params)
+
+      passwords = [{ctx.km1, "password1"}, {ctx.km2, "password2"}, {ctx.km3, "password3"}]
+      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
+      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
+      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km3, "key3")
+
+      {:ok, _result} = CeremonyOrchestrator.execute_keygen(ctx.tenant_id, ceremony.id, passwords)
+
+      # Sub-CA should remain online
+      sub_ca_after = Repo.get!(CaInstance, sub_ca.id)
+      refute sub_ca_after.is_offline
+    end
   end
 
   describe "fail_ceremony/3" do

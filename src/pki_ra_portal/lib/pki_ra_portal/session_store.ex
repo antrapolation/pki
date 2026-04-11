@@ -111,6 +111,10 @@ defmodule PkiRaPortal.SessionStore do
     list_all() |> Enum.filter(&(&1.user_id == user_id))
   end
 
+  def delete_by_user(user_id) do
+    GenServer.call(__MODULE__, {:delete_by_user, user_id})
+  end
+
   def expired?(session_id, timeout_ms) do
     case lookup(session_id) do
       {:ok, session} ->
@@ -148,9 +152,23 @@ defmodule PkiRaPortal.SessionStore do
 
   @impl true
   def init(_opts) do
-    table = :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
+    table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
     schedule_sweep()
     {:ok, %{table: table}}
+  end
+
+  @impl true
+  def handle_call({:delete_by_user, user_id}, _from, state) do
+    sessions =
+      :ets.tab2list(@table)
+      |> Enum.filter(fn {_id, record} -> record.user_id == user_id end)
+
+    Enum.each(sessions, fn {session_id, record} ->
+      :ets.delete(@table, session_id)
+      broadcast(:session_deleted, record)
+    end)
+
+    {:reply, {:ok, length(sessions)}, state}
   end
 
   @impl true

@@ -48,3 +48,6 @@ config :pki_ca_engine, :validation_url, System.get_env("VALIDATION_URL", "http:/
 
 # Relax rate limiting in dev to avoid being blocked during debugging
 config :pki_ca_engine, :rate_limit_enabled, false
+
+# Allow dev_activate shortcut (bypasses ceremony) — NEVER enable in production
+config :pki_ca_engine, :allow_dev_activate, true

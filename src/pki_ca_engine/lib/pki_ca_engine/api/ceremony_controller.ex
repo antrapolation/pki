@@ -11,23 +11,16 @@ defmodule PkiCaEngine.Api.CeremonyController do
   alias PkiCaEngine.KeyCeremonyManager
   alias PkiCaEngine.Api.Helpers
 
-  # Agent-based registry mapping ceremony IDs to PIDs for the multi-phase flow.
-  # Supervised in PkiCaEngine.Application.
-  @registry_name :ceremony_pid_registry
-
   defp register_ceremony(ceremony_id, pid) do
-    Agent.update(@registry_name, &Map.put(&1, ceremony_id, pid))
+    PkiCaEngine.CeremonyRegistry.register(ceremony_id, pid)
   end
 
   defp lookup_ceremony(ceremony_id) do
-    case Agent.get(@registry_name, &Map.get(&1, ceremony_id)) do
-      nil -> {:error, :not_found}
-      pid when is_pid(pid) -> if Process.alive?(pid), do: {:ok, pid}, else: {:error, :not_found}
-    end
+    PkiCaEngine.CeremonyRegistry.lookup(ceremony_id)
   end
 
   defp unregister_ceremony(ceremony_id) do
-    Agent.update(@registry_name, &Map.delete(&1, ceremony_id))
+    PkiCaEngine.CeremonyRegistry.unregister(ceremony_id)
   end
 
   def index(conn) do

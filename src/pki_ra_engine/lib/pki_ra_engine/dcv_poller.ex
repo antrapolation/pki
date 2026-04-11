@@ -63,6 +63,16 @@ defmodule PkiRaEngine.DcvPoller do
     end
   end
 
+  defp broadcast_dcv_update(csr_id, challenge) do
+    pubsub = Application.get_env(:pki_ra_engine, :dcv_pubsub)
+
+    if pubsub do
+      Phoenix.PubSub.broadcast(pubsub, "dcv:#{csr_id}", {:dcv_updated, challenge})
+    end
+  rescue
+    _ -> :ok
+  end
+
   defp poll_tenant(tenant_id) do
     # Expire overdue challenges first
     PkiRaEngine.DcvChallenge.expire_overdue(tenant_id)
@@ -78,6 +88,8 @@ defmodule PkiRaEngine.DcvPoller do
               "[dcv_poller] Challenge #{challenge.id} passed for #{challenge.domain}"
             )
           end
+
+          broadcast_dcv_update(challenge.csr_id, updated)
 
         {:error, reason} ->
           Logger.debug(

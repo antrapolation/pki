@@ -15,7 +15,7 @@ if config_env() == :prod do
     Keyword.merge(db_config, pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"))
 
   config :pki_audit_trail, PkiAuditTrail.Repo,
-    Keyword.merge(db_config, pool_size: 2)
+    Keyword.merge(db_config, pool_size: String.to_integer(System.get_env("AUDIT_POOL_SIZE") || "5"))
 
   # PlatformRepo used via pki_platform_engine dependency                      
   platform_database_url =                                                     
@@ -27,8 +27,8 @@ if config_env() == :prod do
                   
   platform_db_config = Ecto.Repo.Supervisor.parse_url(platform_database_url)  
    
-  config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,                
-      Keyword.merge(platform_db_config, pool_size: 2)
+  config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
+      Keyword.merge(platform_db_config, pool_size: String.to_integer(System.get_env("PLATFORM_POOL_SIZE") || "5"))
 
   # HTTP API server
   config :pki_ca_engine, :start_http, true

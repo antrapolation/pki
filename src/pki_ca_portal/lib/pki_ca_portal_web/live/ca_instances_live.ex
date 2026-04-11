@@ -403,7 +403,14 @@ defmodule PkiCaPortalWeb.CaInstancesLive do
             phx-click="toggle_offline"
             phx-value-id={@instance[:id]}
             phx-value-offline={to_string(!@instance[:is_offline])}
-            data-confirm={if @instance[:is_offline], do: "Bring this CA online?", else: "Take this CA offline? Certificate signing will be blocked."}
+            data-confirm={cond do
+              @instance[:is_offline] && is_nil(@instance[:parent_id]) ->
+                "Bring this Root CA online? It will go offline automatically once a new key ceremony is completed for this CA."
+              @instance[:is_offline] ->
+                "Bring this CA online?"
+              true ->
+                "Take this CA offline? Certificate signing will be blocked."
+            end}
             title={if @instance[:is_offline], do: "Bring Online", else: "Take Offline"}
             class={"btn btn-ghost btn-xs #{if @instance[:is_offline], do: "text-emerald-400", else: "text-amber-400"}"}
           >

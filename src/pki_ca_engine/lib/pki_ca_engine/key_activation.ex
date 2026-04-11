@@ -8,7 +8,7 @@ defmodule PkiCaEngine.KeyActivation do
   """
   use GenServer
 
-  alias PkiCaEngine.{Repo, Schema.ThresholdShare}
+  alias PkiCaEngine.{TenantRepo, Schema.ThresholdShare}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
   import Ecto.Query
 
@@ -25,8 +25,8 @@ defmodule PkiCaEngine.KeyActivation do
   Decrypts the share from DB using the custodian's password and accumulates it.
   Returns `{:ok, :share_accepted}` or `{:ok, :key_activated}` when threshold met.
   """
-  def submit_share(server \\ __MODULE__, issuer_key_id, custodian_user_id, password) do
-    GenServer.call(server, {:submit_share, issuer_key_id, custodian_user_id, password})
+  def submit_share(server \\ __MODULE__, tenant_id, issuer_key_id, custodian_user_id, password) do
+    GenServer.call(server, {:submit_share, tenant_id, issuer_key_id, custodian_user_id, password})
   end
 
   @doc "Returns true if the given issuer key is currently activated."
@@ -49,7 +49,7 @@ defmodule PkiCaEngine.KeyActivation do
   Bypasses the threshold ceremony. Only works in :dev environment.
   """
   def dev_activate(server \\ __MODULE__, issuer_key_id, private_key_der) do
-    if Mix.env() == :dev do
+    if Application.get_env(:pki_ca_engine, :allow_dev_activate, false) do
       GenServer.call(server, {:dev_activate, issuer_key_id, private_key_der})
     else
       {:error, :not_available_in_production}
@@ -72,16 +72,18 @@ defmodule PkiCaEngine.KeyActivation do
   end
 
   @impl true
-  def handle_call({:submit_share, issuer_key_id, custodian_user_id, password}, _from, state) do
+  def handle_call({:submit_share, tenant_id, issuer_key_id, custodian_user_id, password}, _from, state) do
     # Check for duplicate submission
     submitted_set = Map.get(state.custodians_submitted, issuer_key_id, MapSet.new())
 
     if MapSet.member?(submitted_set, custodian_user_id) do
       {:reply, {:error, :already_submitted}, state}
     else
-      # Fetch encrypted share from DB
+      # Fetch encrypted share from tenant-specific DB
+      repo = TenantRepo.ca_repo(tenant_id)
+
       share_record =
-        Repo.one(
+        repo.one(
           from ts in ThresholdShare,
             where: ts.issuer_key_id == ^issuer_key_id and ts.custodian_user_id == ^custodian_user_id
         )
@@ -107,7 +109,14 @@ defmodule PkiCaEngine.KeyActivation do
               pending = Map.get(state.pending_shares, issuer_key_id, [])
               new_pending = [decrypted_share | pending]
 
-              if length(new_pending) >= record.min_shares do
+              # Use min_shares from DB — consistent across all shares for this key
+              min_shares = repo.one(
+                from ts in ThresholdShare,
+                  where: ts.issuer_key_id == ^issuer_key_id,
+                  select: min(ts.min_shares)
+              ) || record.min_shares
+
+              if length(new_pending) >= min_shares do
                 # Threshold met - reconstruct secret
                 case PkiCrypto.Shamir.recover(new_pending) do
                   {:ok, secret} ->

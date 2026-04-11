@@ -329,7 +329,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
                       <.icon name="hero-eye" class="size-4" />
                     </button>
                     <button
-                      :if={csr.status == "pending"}
+                      :if={csr.status == "verified"}
                       phx-click="approve_csr"
                       phx-value-id={csr.id}
                       title="Approve"
@@ -403,10 +403,20 @@ defmodule PkiRaPortalWeb.CsrsLive do
             </div>
           </div>
 
-          <div :if={@selected_csr.status == "pending"} id="csr-actions" class="mt-4 pt-4 border-t border-base-300 space-y-4">
-            <button phx-click="approve_csr" phx-value-id={@selected_csr.id} class="btn btn-sm btn-success">
-              <.icon name="hero-check" class="size-4" /> Approve
-            </button>
+          <div :if={@selected_csr.status == "verified"} id="csr-actions" class="mt-4 pt-4 border-t border-base-300 space-y-4">
+            <%!-- NOTE: Only disables when a DCV challenge exists but hasn't passed.
+                 If DCV is required by cert profile but no challenge initiated yet,
+                 the button stays active — server-side approve_csr still rejects. --%>
+            <%= if @dcv_challenge && @dcv_challenge[:status] != "passed" do %>
+              <button disabled class="btn btn-sm btn-success btn-disabled" title="Complete domain validation before approving">
+                <.icon name="hero-check" class="size-4" /> Approve
+              </button>
+              <p class="text-xs text-warning">Domain validation must pass before this CSR can be approved.</p>
+            <% else %>
+              <button phx-click="approve_csr" phx-value-id={@selected_csr.id} class="btn btn-sm btn-success">
+                <.icon name="hero-check" class="size-4" /> Approve
+              </button>
+            <% end %>
 
             <form phx-submit="reject_csr" id="reject-form" class="space-y-2">
               <input type="hidden" name="csr_id" value={@selected_csr.id} />

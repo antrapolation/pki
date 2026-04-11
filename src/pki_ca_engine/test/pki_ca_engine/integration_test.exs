@@ -98,7 +98,7 @@ defmodule PkiCaEngine.IntegrationTest do
 
       # 9. Verify: issuer key status is "active", ceremony status is "completed"
       assert completed_ceremony.status == "completed"
-      {:ok, updated_key} = IssuerKeyManagement.get_issuer_key(issuer_key.id)
+      {:ok, updated_key} = IssuerKeyManagement.get_issuer_key(nil, issuer_key.id)
       assert updated_key.status == "active"
 
       # 10. Day-to-day activation: 2 of 3 key managers submit shares with passwords
@@ -111,10 +111,10 @@ defmodule PkiCaEngine.IntegrationTest do
       )
 
       {:ok, :share_accepted} =
-        KeyActivation.submit_share(activation_name, issuer_key.id, km1.id, "km1-secret-pass")
+        KeyActivation.submit_share(activation_name, nil, issuer_key.id, km1.id, "km1-secret-pass")
 
       {:ok, :key_activated} =
-        KeyActivation.submit_share(activation_name, issuer_key.id, km2.id, "km2-secret-pass")
+        KeyActivation.submit_share(activation_name, nil, issuer_key.id, km2.id, "km2-secret-pass")
 
       # 11. Verify: key is active via KeyActivation.is_active?
       assert KeyActivation.is_active?(activation_name, issuer_key.id)
@@ -125,6 +125,7 @@ defmodule PkiCaEngine.IntegrationTest do
 
       {:ok, cert} =
         CertificateSigning.sign_certificate(
+          nil,
           issuer_key.id,
           csr_data,
           cert_profile,
@@ -137,15 +138,15 @@ defmodule PkiCaEngine.IntegrationTest do
       assert cert.subject_dn == "CN=test.example.com,O=IntegTest"
       assert cert.status == "active"
 
-      {:ok, fetched_cert} = CertificateSigning.get_certificate(cert.serial_number)
+      {:ok, fetched_cert} = CertificateSigning.get_certificate(nil, cert.serial_number)
       assert fetched_cert.id == cert.id
 
       # 14. Revoke the certificate
-      {:ok, revoked_cert} = CertificateSigning.revoke_certificate(cert.serial_number, "keyCompromise")
+      {:ok, revoked_cert} = CertificateSigning.revoke_certificate(nil, cert.serial_number, "key_compromise")
 
       # 15. Verify: cert status is "revoked"
       assert revoked_cert.status == "revoked"
-      assert revoked_cert.revocation_reason == "keyCompromise"
+      assert revoked_cert.revocation_reason == "key_compromise"
       assert revoked_cert.revoked_at != nil
 
       # 16. Deactivate key
@@ -154,6 +155,7 @@ defmodule PkiCaEngine.IntegrationTest do
       # 17. Verify: signing fails with :key_not_active
       assert {:error, :key_not_active} =
                CertificateSigning.sign_certificate(
+                 nil,
                  issuer_key.id,
                  csr_data,
                  cert_profile,
@@ -284,6 +286,7 @@ defmodule PkiCaEngine.IntegrationTest do
       # Verify signing fails
       assert {:error, :key_not_active} =
                CertificateSigning.sign_certificate(
+                 nil,
                  issuer_key_id,
                  "CSR_DATA",
                  %{validity_days: 365, subject_dn: "CN=timeout.test"},

@@ -109,6 +109,9 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   database: "pki_ca_engine_dev",
   pool_size: 2
 
+# DCV PubSub — RA engine broadcasts DCV updates to the portal's PubSub
+config :pki_ra_engine, :dcv_pubsub, PkiRaPortal.PubSub
+
 # Disable engine HTTP servers (portal runs Direct, not HTTP)
 config :pki_ra_engine, start_http: false
 config :pki_ca_engine, :start_http, false
@@ -118,6 +121,7 @@ config :pki_ra_engine, :ca_engine_module, PkiRaEngine.CsrValidation.DirectCaClie
 
 # Dev-only: auto-activate issuer keys on boot (bypasses threshold ceremony)
 config :pki_ca_engine, :dev_auto_activate_keys, true
+config :pki_platform_engine, :dev_auto_activate_keys, true
 
 # Hammer rate limiter config (pulled in via engine dependencies)
 config :hammer,

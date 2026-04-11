@@ -223,7 +223,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         is_root: true
       }
 
-      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(ctx.ca.id, params)
+      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(nil, ctx.ca.id, params)
 
       Map.put(ctx, :ceremony, ceremony)
     end
@@ -233,15 +233,66 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
       cert_pem = "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"
 
       assert {:ok, updated_ceremony} =
-               SyncCeremony.complete_as_root(ctx.ceremony, cert_der, cert_pem)
+               SyncCeremony.complete_as_root(nil, ctx.ceremony, cert_der, cert_pem)
 
       assert updated_ceremony.status == "completed"
 
       # Issuer key should be active with certificate
-      {:ok, key} = PkiCaEngine.IssuerKeyManagement.get_issuer_key(ctx.ceremony.issuer_key_id)
+      {:ok, key} = PkiCaEngine.IssuerKeyManagement.get_issuer_key(nil, ctx.ceremony.issuer_key_id)
       assert key.status == "active"
       assert key.certificate_der == cert_der
       assert key.certificate_pem == cert_pem
+    end
+
+    test "root CA is automatically taken offline after ceremony completion", ctx do
+      # Verify CA starts online
+      ca_before = Repo.get!(CaInstance, ctx.ca.id)
+      refute ca_before.is_offline
+
+      cert_der = <<0x30, 0x82, 0x01, 0x22>>
+      cert_pem = "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"
+
+      assert {:ok, _} = SyncCeremony.complete_as_root(nil, ctx.ceremony, cert_der, cert_pem)
+
+      # Root CA should now be offline
+      ca_after = Repo.get!(CaInstance, ctx.ca.id)
+      assert ca_after.is_offline
+    end
+
+    test "sub-CA ceremony does NOT auto-offline the CA instance", ctx do
+      # Create a sub-CA (has parent_id)
+      {:ok, sub_ca} =
+        Repo.insert(CaInstance.changeset(%CaInstance{}, %{
+          name: "sub-ca-#{System.unique_integer([:positive])}",
+          created_by: "admin",
+          parent_id: ctx.ca.id
+        }))
+
+      {:ok, sub_keystore} =
+        Repo.insert(Keystore.changeset(
+          %Keystore{}, %{ca_instance_id: sub_ca.id, type: "software"}
+        ))
+
+      # Initiate ceremony for sub-CA with is_root: true (complete_as_root path)
+      # even though the CA has a parent — the auto-offline checks parent_id
+      {:ok, {sub_ceremony, _}} =
+        SyncCeremony.initiate(nil, sub_ca.id, %{
+          algorithm: "RSA-4096",
+          keystore_id: sub_keystore.id,
+          threshold_k: 2,
+          threshold_n: 3,
+          initiated_by: ctx.initiator.id,
+          is_root: true
+        })
+
+      cert_der = <<0x30, 0x82, 0x01, 0x22>>
+      cert_pem = "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"
+
+      assert {:ok, _} = SyncCeremony.complete_as_root(nil, sub_ceremony, cert_der, cert_pem)
+
+      # Sub-CA should remain online
+      sub_ca_after = Repo.get!(CaInstance, sub_ca.id)
+      refute sub_ca_after.is_offline
     end
   end
 
@@ -281,7 +332,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
       assert X509.CSR.valid?(csr)
 
       # Issuer key should still be pending (awaiting external CA signing)
-      {:ok, key} = PkiCaEngine.IssuerKeyManagement.get_issuer_key(ctx.ceremony.issuer_key_id)
+      {:ok, key} = PkiCaEngine.IssuerKeyManagement.get_issuer_key(nil, ctx.ceremony.issuer_key_id)
       assert key.status == "pending"
     end
 

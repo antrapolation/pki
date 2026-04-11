@@ -12,9 +12,11 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   Private key material is NEVER persisted to DB -- only encrypted shares are stored.
   """
 
+  require Logger
+
   alias PkiCaEngine.TenantRepo
-  alias PkiCaEngine.Schema.{KeyCeremony, IssuerKey, ThresholdShare}
-  alias PkiCaEngine.{KeystoreManagement, IssuerKeyManagement}
+  alias PkiCaEngine.Schema.{CaInstance, KeyCeremony, IssuerKey, ThresholdShare}
+  alias PkiCaEngine.{CaInstanceManagement, KeystoreManagement, IssuerKeyManagement}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
 
   @doc """
@@ -160,29 +162,48 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremony do
   def complete_as_root(tenant_id, ceremony, cert_der, cert_pem) do
     repo = TenantRepo.ca_repo(tenant_id)
 
-    repo.transaction(fn ->
-      case repo.get(IssuerKey, ceremony.issuer_key_id) do
-        nil ->
-          repo.rollback(:issuer_key_not_found)
+    result =
+      repo.transaction(fn ->
+        case repo.get(IssuerKey, ceremony.issuer_key_id) do
+          nil ->
+            repo.rollback(:issuer_key_not_found)
 
-        issuer_key ->
-          case IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
-                 certificate_der: cert_der,
-                 certificate_pem: cert_pem
-               }) do
-            {:ok, _key} ->
-              case ceremony
-                   |> Ecto.Changeset.change(status: "completed")
-                   |> repo.update() do
-                {:ok, updated} -> updated
-                {:error, reason} -> repo.rollback({:operation_failed, reason})
-              end
+          issuer_key ->
+            case IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
+                   certificate_der: cert_der,
+                   certificate_pem: cert_pem
+                 }) do
+              {:ok, _key} ->
+                case ceremony
+                     |> Ecto.Changeset.change(status: "completed")
+                     |> repo.update() do
+                  {:ok, updated} -> updated
+                  {:error, reason} -> repo.rollback({:operation_failed, reason})
+                end
 
+              {:error, reason} ->
+                repo.rollback({:operation_failed, reason})
+            end
+        end
+      end)
+
+    # Auto-offline root CA after successful ceremony completion
+    case result do
+      {:ok, _} ->
+        ca = repo.get(CaInstance, ceremony.ca_instance_id)
+        if ca && CaInstanceManagement.is_root?(ca) do
+          case CaInstanceManagement.set_offline(tenant_id, ceremony.ca_instance_id) do
+            {:ok, _} -> :ok
             {:error, reason} ->
-              repo.rollback({:operation_failed, reason})
+              Logger.error("[auto_offline] Failed to take root CA #{ceremony.ca_instance_id} offline after ceremony: #{inspect(reason)}")
           end
-      end
-    end)
+        end
+
+      _ ->
+        :ok
+    end
+
+    result
   end
 
   @doc """

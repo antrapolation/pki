@@ -542,6 +542,17 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def retire_issuer_key(id, _opts) do
+    Agent.update(__MODULE__, fn state ->
+      updated = Enum.map(state.issuer_keys, fn k ->
+        if k.id == id, do: Map.put(k, :status, "retired"), else: k
+      end)
+      %{state | issuer_keys: updated}
+    end)
+    {:ok, %{id: id, status: "retired"}}
+  end
+
+  @impl true
   def archive_issuer_key(id, _opts) do
     Agent.update(__MODULE__, fn state ->
       updated = Enum.map(state.issuer_keys, fn k ->

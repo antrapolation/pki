@@ -236,6 +236,28 @@ defmodule PkiCaEngine.CaInstanceManagementTest do
     end
   end
 
+  describe "set_offline/2" do
+    test "sets CA instance offline" do
+      root = create_root!()
+      refute root.is_offline
+
+      assert {:ok, updated} = CaInstanceManagement.set_offline(nil, root.id)
+      assert updated.is_offline == true
+    end
+
+    test "returns :not_found for missing CA" do
+      assert {:error, :not_found} = CaInstanceManagement.set_offline(nil, Uniq.UUID.uuid7())
+    end
+
+    test "is idempotent (already offline)" do
+      root = create_root!()
+      {:ok, _} = CaInstanceManagement.set_offline(nil, root.id)
+
+      assert {:ok, updated} = CaInstanceManagement.set_offline(nil, root.id)
+      assert updated.is_offline == true
+    end
+  end
+
   describe "active_leaf_issuer_keys/0" do
     test "returns only active keys from leaf CAs" do
       root = create_root!()

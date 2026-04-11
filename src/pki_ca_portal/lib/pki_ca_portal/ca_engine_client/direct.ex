@@ -877,6 +877,22 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
+  def retire_issuer_key(issuer_key_id, opts) do
+    tenant_id = opts[:tenant_id]
+
+    case IssuerKeyManagement.get_issuer_key(tenant_id, issuer_key_id) do
+      {:ok, key} ->
+        case IssuerKeyManagement.retire_key(tenant_id, key) do
+          {:ok, updated} -> {:ok, to_map(updated)}
+          {:error, _} = err -> err
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
   def archive_issuer_key(issuer_key_id, opts) do
     tenant_id = opts[:tenant_id]
 

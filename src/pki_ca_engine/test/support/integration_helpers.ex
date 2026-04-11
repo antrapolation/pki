@@ -139,6 +139,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
       {:ok, ^expected} =
         KeyActivation.submit_share(
           activation_server,
+          nil,
           ceremony_result.issuer_key.id,
           user_id,
           password

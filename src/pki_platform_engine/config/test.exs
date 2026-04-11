@@ -12,9 +12,10 @@ config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
 config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   hostname: "localhost",
   port: 5434,
+  direct_port: 5434,
   username: "postgres",
   password: "postgres",
-  pool_size: 2
+  pool_size: 5
 
 # Disable date log handler in test
 config :pki_platform_engine, :start_date_log_handler, false

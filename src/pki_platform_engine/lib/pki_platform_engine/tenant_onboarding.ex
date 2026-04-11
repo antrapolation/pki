@@ -9,7 +9,6 @@ defmodule PkiPlatformEngine.TenantOnboarding do
   """
 
   alias PkiPlatformEngine.{Provisioner, PlatformAuth}
-  require Logger
 
   def create_database(name, slug, email) do
     Provisioner.create_tenant(name, slug, email: email)
@@ -20,13 +19,7 @@ defmodule PkiPlatformEngine.TenantOnboarding do
   end
 
   def create_instances(tenant) do
-    ca_errors = ensure_default_ca_instance(tenant)
-    ra_errors = ensure_default_ra_instance(tenant)
-
-    case ca_errors ++ ra_errors do
-      [] -> :ok
-      errors -> {:error, Enum.join(errors, "; ")}
-    end
+    PkiPlatformEngine.EngineBootstrap.ensure_all_instances(tenant)
   end
 
   def create_tenant_admin(tenant) do
@@ -41,43 +34,4 @@ defmodule PkiPlatformEngine.TenantOnboarding do
     }, portal_url: portal_url, tenant_name: tenant.name)
   end
 
-  defp ensure_default_ca_instance(tenant) do
-    case PkiCaEngine.CaInstanceManagement.list_hierarchy(tenant.id) do
-      [] ->
-        case PkiCaEngine.CaInstanceManagement.create_ca_instance(tenant.id, %{
-               name: "#{tenant.name} Root CA",
-               status: "active"
-             }) do
-          {:ok, _ca} -> []
-          {:error, reason} ->
-            Logger.error("[TenantOnboarding] CA instance creation failed: #{inspect(reason)}")
-            ["CA instance creation failed"]
-        end
-      _instances -> []
-    end
-  rescue
-    e ->
-      Logger.error("[TenantOnboarding] CA instance creation failed: #{Exception.message(e)}")
-      ["CA instance creation failed"]
-  end
-
-  defp ensure_default_ra_instance(tenant) do
-    case PkiRaEngine.RaInstanceManagement.list_ra_instances(tenant.id) do
-      [] ->
-        case PkiRaEngine.RaInstanceManagement.create_ra_instance(tenant.id, %{
-               name: "#{tenant.name} RA",
-               status: "active"
-             }) do
-          {:ok, _ra} -> []
-          {:error, reason} ->
-            Logger.error("[TenantOnboarding] RA instance creation failed: #{inspect(reason)}")
-            ["RA instance creation failed"]
-        end
-      _instances -> []
-    end
-  rescue
-    e ->
-      Logger.error("[TenantOnboarding] RA instance creation failed: #{Exception.message(e)}")
-      ["RA instance creation failed"]
-  end
 end

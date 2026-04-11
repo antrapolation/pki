@@ -25,7 +25,7 @@ database_url = System.get_env("PLATFORM_DATABASE_URL") || System.get_env("DATABA
 if database_url do
   config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
     url: database_url,
-    pool_size: 3,
+    pool_size: String.to_integer(System.get_env("PLATFORM_POOL_SIZE", "5")),
     prepare: :unnamed
 end
 
@@ -41,26 +41,26 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
 if ca_engine_db_url = System.get_env("CA_ENGINE_DATABASE_URL") do
   config :pki_ca_engine, PkiCaEngine.Repo,
     url: ca_engine_db_url,
-    pool_size: 2,
+    pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
     prepare: :unnamed
 
   config :pki_audit_trail, PkiAuditTrail.Repo,
     url: ca_engine_db_url,
-    pool_size: 2,
+    pool_size: String.to_integer(System.get_env("AUDIT_POOL_SIZE", "5")),
     prepare: :unnamed
 end
 
 if ra_engine_db_url = System.get_env("RA_ENGINE_DATABASE_URL") do
   config :pki_ra_engine, PkiRaEngine.Repo,
     url: ra_engine_db_url,
-    pool_size: 2,
+    pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
     prepare: :unnamed
 end
 
 if validation_db_url = System.get_env("VALIDATION_DATABASE_URL") do
   config :pki_validation, PkiValidation.Repo,
     url: validation_db_url,
-    pool_size: 2,
+    pool_size: String.to_integer(System.get_env("VALIDATION_POOL_SIZE", "20")),
     prepare: :unnamed
 end
 

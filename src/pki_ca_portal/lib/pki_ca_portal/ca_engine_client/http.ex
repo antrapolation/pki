@@ -725,8 +725,116 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def retire_issuer_key(_id, _opts) do
+    # TODO: implement HTTP endpoint
+    {:ok, %{status: "retired"}}
+  end
+
+  @impl true
   def archive_issuer_key(_id, _opts) do
     # TODO: implement HTTP endpoint
     {:ok, %{status: "archived"}}
+  end
+
+  # ── HSM Device Management (HTTP stubs) ──────────────────────────
+
+  @impl true
+  def list_hsm_devices(_opts \\ []) do
+    # TODO: implement HTTP endpoint for HSM device listing
+    {:ok, []}
+  end
+
+  @impl true
+  def register_hsm_device(_params, _opts \\ []) do
+    # TODO: implement HTTP endpoint for HSM device registration
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def probe_hsm_device(_device_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint for HSM device probing
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def deactivate_hsm_device(_device_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint for HSM device deactivation
+    {:error, :not_implemented}
+  end
+
+  # ── Ceremony Management (HTTP stubs) ────────────────────────────
+
+  @impl true
+  def get_ceremony(_ceremony_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint for ceremony retrieval
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def generate_ceremony_keypair(_ceremony_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint for ceremony keypair generation
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def distribute_ceremony_shares(_ceremony_id, _private_key, _custodian_passwords, _opts \\ []) do
+    # TODO: implement HTTP endpoint for ceremony share distribution
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def complete_ceremony_root(_ceremony_id, _private_key, _subject_dn, _opts \\ []) do
+    # TODO: implement HTTP endpoint for root ceremony completion
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def complete_ceremony_sub_ca(_ceremony_id, _private_key, _opts \\ []) do
+    # TODO: implement HTTP endpoint for sub-CA ceremony completion
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def cancel_ceremony(_ceremony_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint for ceremony cancellation
+    {:error, :not_implemented}
+  end
+
+  # ── Issuer Key & Signing (HTTP stubs) ───────────────────────────
+
+  @impl true
+  def delete_ceremony(_ceremony_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def get_issuer_key(_issuer_key_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def list_threshold_shares(_issuer_key_id, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:ok, []}
+  end
+
+  @impl true
+  def reconstruct_key(_issuer_key_id, _custodian_shares, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def sign_csr(_issuer_key_id, _csr_pem, _subject_dn, _cert_profile, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:error, :not_implemented}
+  end
+
+  @impl true
+  def activate_issuer_key(_issuer_key_id, _cert_data, _opts \\ []) do
+    # TODO: implement HTTP endpoint
+    {:error, :not_implemented}
   end
 end

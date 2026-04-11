@@ -5,7 +5,7 @@ defmodule PkiCaEngine.Schema.IssuerKey do
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
 
-  @statuses ["pending", "active", "suspended", "archived"]
+  @statuses ["pending", "active", "suspended", "retired", "archived"]
 
   schema "issuer_keys" do
     field :key_alias, :string

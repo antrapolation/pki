@@ -29,7 +29,7 @@ if config_env() == :prod do
 
   config :pki_platform_engine,
          PkiPlatformEngine.PlatformRepo,
-         Keyword.merge(platform_db_config, pool_size: 2)
+         Keyword.merge(platform_db_config, pool_size: String.to_integer(System.get_env("PLATFORM_POOL_SIZE") || "5"))
 
   config :pki_validation,
          :internal_api_secret,

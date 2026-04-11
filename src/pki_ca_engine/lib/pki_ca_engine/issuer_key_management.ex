@@ -5,6 +5,7 @@ defmodule PkiCaEngine.IssuerKeyManagement do
   Issuer keys progress through a defined lifecycle:
 
       pending → active → suspended → active (re-activate)
+      active/suspended → retired (can verify, cannot sign)
       any status → archived (terminal)
 
   This module handles CRUD operations and status transitions.
@@ -22,9 +23,12 @@ defmodule PkiCaEngine.IssuerKeyManagement do
     {"pending", "active"} => true,
     {"pending", "archived"} => true,
     {"active", "suspended"} => true,
+    {"active", "retired"} => true,
     {"active", "archived"} => true,
     {"suspended", "active"} => true,
+    {"suspended", "retired"} => true,
     {"suspended", "archived"} => true,
+    {"retired", "archived"} => true,
     {"archived", "archived"} => true
   }
 
@@ -77,7 +81,9 @@ defmodule PkiCaEngine.IssuerKeyManagement do
   Valid transitions:
   - pending → active
   - active → suspended
+  - active/suspended → retired (can verify, cannot sign)
   - suspended → active
+  - retired → archived
   - any → archived
   - archived → archived (noop)
 
@@ -91,9 +97,23 @@ defmodule PkiCaEngine.IssuerKeyManagement do
 
     if valid_transition?(current, new_status) do
       with :ok <- maybe_pre_archive_check(key, new_status) do
-        key
-        |> IssuerKey.update_status_changeset(%{status: new_status})
-        |> repo.update()
+        result =
+          key
+          |> IssuerKey.update_status_changeset(%{status: new_status})
+          |> repo.update()
+
+        # Deactivate key from memory when retiring or archiving (prevents signing)
+        case {result, new_status} do
+          {{:ok, _}, status} when status in ["retired", "archived"] ->
+            try do
+              PkiCaEngine.KeyActivation.deactivate(PkiCaEngine.KeyActivation, key.id)
+            catch
+              :exit, _ -> :ok
+            end
+          _ -> :ok
+        end
+
+        result
       end
     else
       {:error, {:invalid_transition, current, new_status}}
@@ -117,6 +137,16 @@ defmodule PkiCaEngine.IssuerKeyManagement do
 
   def activate_by_certificate(_tenant_id, %IssuerKey{status: status}, _cert_attrs) do
     {:error, {:invalid_status, status}}
+  end
+
+  @doc """
+  Retires an issuer key. Retired keys can still be used for certificate
+  verification but cannot sign new certificates. Also deactivates the key
+  from in-memory KeyActivation to prevent signing.
+  """
+  def retire_key(tenant_id, %IssuerKey{} = key, _opts \\ []) do
+    # update_status handles deactivation from KeyActivation memory
+    update_status(tenant_id, key, "retired")
   end
 
   @doc """

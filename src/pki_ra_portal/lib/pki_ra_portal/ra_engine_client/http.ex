@@ -634,6 +634,12 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   @impl true
   def list_audit_events(_filters, _opts \\ []), do: {:error, :not_implemented}
 
+  @impl true
+  def list_webhook_deliveries(_api_key_id, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def update_api_key(_api_key_id, _params, _opts \\ []), do: {:error, :not_implemented}
+
   # --- DCV (Domain Control Validation) ---
 
   @impl true

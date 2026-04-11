@@ -62,6 +62,7 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback activate_issuer_key(String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
   @callback suspend_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback reactivate_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
+  @callback retire_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback archive_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback list_certificates(String.t(), opts()) :: {:ok, [map()]} | {:error, term()}
   @callback get_certificate(String.t(), opts()) :: {:ok, map()} | {:error, term()}
@@ -121,6 +122,7 @@ defmodule PkiCaPortal.CaEngineClient do
   def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []), do: impl().activate_issuer_key(issuer_key_id, cert_attrs, opts)
   def suspend_issuer_key(issuer_key_id, opts \\ []), do: impl().suspend_issuer_key(issuer_key_id, opts)
   def reactivate_issuer_key(issuer_key_id, opts \\ []), do: impl().reactivate_issuer_key(issuer_key_id, opts)
+  def retire_issuer_key(issuer_key_id, opts \\ []), do: impl().retire_issuer_key(issuer_key_id, opts)
   def archive_issuer_key(issuer_key_id, opts \\ []), do: impl().archive_issuer_key(issuer_key_id, opts)
   def list_certificates(issuer_key_id, opts \\ []), do: impl().list_certificates(issuer_key_id, opts)
   def list_certificates_by_ca(ca_instance_id, opts \\ []), do: impl().list_certificates_by_ca(ca_instance_id, opts)

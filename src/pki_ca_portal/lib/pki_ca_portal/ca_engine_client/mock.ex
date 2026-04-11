@@ -567,5 +567,8 @@ defmodule PkiCaPortal.CaEngineClient.Mock do
   def reactivate_issuer_key(_id, _opts), do: {:ok, %{status: "active"}}
 
   @impl true
+  def retire_issuer_key(_id, _opts), do: {:ok, %{status: "retired"}}
+
+  @impl true
   def archive_issuer_key(_id, _opts), do: {:ok, %{status: "archived"}}
 end

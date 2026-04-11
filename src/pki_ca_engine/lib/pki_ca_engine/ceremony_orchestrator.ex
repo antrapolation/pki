@@ -9,9 +9,11 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   - Triggering atomic key generation when all participants are ready
   """
 
+  require Logger
+
   alias PkiCaEngine.TenantRepo
-  alias PkiCaEngine.Schema.{KeyCeremony, ThresholdShare, CeremonyAttestation}
-  alias PkiCaEngine.{IssuerKeyManagement, KeystoreManagement}
+  alias PkiCaEngine.Schema.{CaInstance, KeyCeremony, ThresholdShare, CeremonyAttestation}
+  alias PkiCaEngine.{CaInstanceManagement, IssuerKeyManagement, KeystoreManagement}
   alias PkiCaEngine.KeyCeremony.{SyncCeremony, ShareEncryption}
   alias PkiCaEngine.CeremonyPassword
   import Ecto.Query
@@ -197,161 +199,185 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   def execute_keygen(tenant_id, ceremony_id, custodian_passwords) do
     repo = TenantRepo.ca_repo(tenant_id)
 
-    case get_ceremony(repo, ceremony_id) do
-      {:ok, ceremony} when ceremony.status == "preparing" ->
-        # Transition to generating
-        ceremony
-        |> Ecto.Changeset.change(%{status: "generating"})
-        |> repo.update!()
+    # Step 1: Atomically claim the ceremony with FOR UPDATE lock (prevents D5 race)
+    claim_result =
+      repo.transaction(fn ->
+        case repo.one(from c in KeyCeremony, where: c.id == ^ceremony_id, lock: "FOR UPDATE") do
+          nil ->
+            repo.rollback(:not_found)
 
-        # Load shares ordered by share_index to ensure deterministic ordering
-        db_shares = repo.all(
-          from s in ThresholdShare,
-            where: s.issuer_key_id == ^ceremony.issuer_key_id,
-            order_by: [asc: s.share_index]
-        )
+          %{status: status} = ceremony when status in ["preparing", "generating"] ->
+            ceremony
+            |> Ecto.Changeset.change(%{status: "generating"})
+            |> repo.update!()
 
-        # Build password map: prefer passed-in passwords (ETS), fall back to DB-stored encrypted passwords
-        password_map =
-          if custodian_passwords == [] or custodian_passwords == %{} do
-            # Read from DB — halt on first decryption failure
-            db_shares
-            |> Enum.reduce_while({:ok, %{}}, fn share, {:ok, acc} ->
-              case CeremonyPassword.decrypt(share.encrypted_password) do
-                {:ok, pw} -> {:cont, {:ok, Map.put(acc, share.custodian_user_id, pw)}}
-                _error -> {:halt, {:error, {:password_decrypt_failed, share.custodian_user_id}}}
-              end
-            end)
+          _other ->
+            repo.rollback(:invalid_status)
+        end
+      end)
+
+    case claim_result do
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, :invalid_status} -> {:error, :invalid_status}
+      {:ok, ceremony} ->
+        do_execute_keygen(repo, tenant_id, ceremony_id, ceremony, custodian_passwords)
+    end
+  end
+
+  defp do_execute_keygen(repo, tenant_id, ceremony_id, ceremony, custodian_passwords) do
+    # Load shares ordered by share_index to ensure deterministic ordering
+    db_shares = repo.all(
+      from s in ThresholdShare,
+        where: s.issuer_key_id == ^ceremony.issuer_key_id,
+        order_by: [asc: s.share_index]
+    )
+
+    # Build password map: prefer passed-in passwords (ETS), fall back to DB-stored encrypted passwords
+    password_map =
+      if custodian_passwords == [] or custodian_passwords == %{} do
+        db_shares
+        |> Enum.reduce_while({:ok, %{}}, fn share, {:ok, acc} ->
+          case CeremonyPassword.decrypt(share.encrypted_password) do
+            {:ok, pw} -> {:cont, {:ok, Map.put(acc, share.custodian_user_id, pw)}}
+            _error -> {:halt, {:error, {:password_decrypt_failed, share.custodian_user_id}}}
+          end
+        end)
+      else
+        {:ok, Map.new(custodian_passwords)}
+      end
+
+    case password_map do
+      {:error, reason} ->
+        fail_ceremony(repo, ceremony_id, "password_recovery_failed")
+        {:error, reason}
+
+      {:ok, passwords} ->
+        do_keygen_and_split(repo, tenant_id, ceremony_id, ceremony, db_shares, passwords)
+    end
+  end
+
+  defp do_keygen_and_split(repo, tenant_id, ceremony_id, ceremony, db_shares, passwords) do
+    case SyncCeremony.generate_keypair(ceremony.algorithm) do
+      {:ok, %{public_key: pub, private_key: priv}} ->
+        fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower)
+
+        is_root = Map.get(ceremony.domain_info || %{}, "is_root", true)
+        subject_dn = Map.get(ceremony.domain_info || %{}, "subject_dn", "/CN=CA-#{ceremony.id}")
+
+        # Sign cert or generate CSR
+        {cert_or_csr_result, cert_der, cert_pem, csr_pem} =
+          if is_root do
+            case generate_self_signed(ceremony.algorithm, priv, pub, subject_dn) do
+              {:ok, der, pem} -> {:ok, der, pem, nil}
+              error -> {error, nil, nil, nil}
+            end
           else
-            {:ok, Map.new(custodian_passwords)}
+            case generate_csr(ceremony.algorithm, priv, pub, subject_dn) do
+              {:ok, pem} -> {:ok, nil, nil, pem}
+              error -> {error, nil, nil, nil}
+            end
           end
 
-        case password_map do
-          {:error, reason} ->
-            fail_ceremony(repo, ceremony_id, "password_recovery_failed")
-            {:error, reason}
+        case cert_or_csr_result do
+          :ok ->
+            case PkiCrypto.Shamir.split(priv, ceremony.threshold_k, ceremony.threshold_n) do
+              {:ok, raw_shares} ->
+                # Force GC to release private key bytes (D3)
+                :erlang.garbage_collect()
 
-          {:ok, passwords} ->
-        # Generate keypair
-        case SyncCeremony.generate_keypair(ceremony.algorithm) do
-          {:ok, %{public_key: pub, private_key: priv}} ->
-            fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower)
-
-            is_root = Map.get(ceremony.domain_info || %{}, "is_root", true)
-            subject_dn = Map.get(ceremony.domain_info || %{}, "subject_dn", "/CN=CA-#{ceremony.id}")
-
-            # Sign cert or generate CSR
-            {cert_or_csr_result, cert_der, cert_pem, csr_pem} =
-              if is_root do
-                case generate_self_signed(ceremony.algorithm, priv, pub, subject_dn) do
-                  {:ok, der, pem} -> {:ok, der, pem, nil}
-                  error -> {error, nil, nil, nil}
-                end
-              else
-                case generate_csr(ceremony.algorithm, priv, pub, subject_dn) do
-                  {:ok, pem} -> {:ok, nil, nil, pem}
-                  error -> {error, nil, nil, nil}
-                end
-              end
-
-            case cert_or_csr_result do
-              :ok ->
-                # Split private key — shares come out in index order
-                case PkiCrypto.Shamir.split(priv, ceremony.threshold_k, ceremony.threshold_n) do
-                  {:ok, raw_shares} ->
-                    # Wipe private key immediately after split
-                    _priv = nil
-
-                    # Encrypt each share with the correct custodian's password,
-                    # matching by share_index (db_shares ordered by share_index,
-                    # raw_shares ordered by split index)
-                    encrypt_result =
-                      Enum.zip(db_shares, raw_shares)
-                      |> Enum.reduce_while({:ok, []}, fn {db_share, raw_share}, {:ok, acc} ->
-                        password = Map.fetch!(passwords, db_share.custodian_user_id)
-                        case ShareEncryption.encrypt_share(raw_share, password) do
-                          {:ok, encrypted} -> {:cont, {:ok, [{db_share, encrypted} | acc]}}
-                          {:error, reason} -> {:halt, {:error, {:share_encryption_failed, reason}}}
-                        end
-                      end)
-
-                    case encrypt_result do
-                      {:error, reason} ->
-                        fail_ceremony(repo, ceremony_id, "share_encryption_failed")
-                        {:error, reason}
-
-                      {:ok, encrypted_pairs_reversed} ->
-                        encrypted_pairs = Enum.reverse(encrypted_pairs_reversed)
-
-                    # All DB writes in a transaction
-                    case repo.transaction(fn ->
-                      # Update each share with encrypted data
-                      Enum.each(encrypted_pairs, fn {db_share, encrypted_share} ->
-                        db_share
-                        |> Ecto.Changeset.change(%{encrypted_share: encrypted_share})
-                        |> repo.update!()
-                      end)
-
-                      # Activate issuer key if root CA
-                      if is_root and cert_der do
-                        issuer_key = repo.get!(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id)
-                        IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
-                          certificate_der: cert_der,
-                          certificate_pem: cert_pem
-                        })
-                      end
-
-                      # Update ceremony to completed
-                      ceremony = repo.get!(KeyCeremony, ceremony_id)
-                      ceremony
-                      |> Ecto.Changeset.change(%{
-                        status: "completed",
-                        domain_info: Map.merge(ceremony.domain_info || %{}, %{
-                          "fingerprint" => fingerprint,
-                          "csr_pem" => csr_pem,
-                          "subject_dn" => subject_dn
-                        })
-                      })
-                      |> repo.update!()
-                    end) do
-                      {:ok, _} ->
-                        # Wipe encrypted passwords from DB
-                        wipe_stored_passwords(repo, ceremony.issuer_key_id)
-
-                        # Wipe all sensitive variables and force GC
-                        _raw_shares = nil
-                        _encrypted_pairs = nil
-                        _password_map = nil
-                        :erlang.garbage_collect()
-
-                        {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem}}
-
-                      {:error, reason} ->
-                        fail_ceremony(repo, ceremony_id, "transaction_failed: #{inspect(reason)}")
-                        {:error, reason}
-                    end
-
-                    end  # case encrypt_result
-
-                  error ->
-                    fail_ceremony(repo, ceremony_id, "shamir_split_failed")
-                    error
-                end
+                encrypt_and_commit(
+                  repo, tenant_id, ceremony_id, ceremony, db_shares, passwords,
+                  raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn
+                )
 
               error ->
-                fail_ceremony(repo, ceremony_id, "cert_generation_failed")
+                fail_ceremony(repo, ceremony_id, "shamir_split_failed")
                 error
             end
 
           error ->
-            fail_ceremony(repo, ceremony_id, "keygen_failed")
+            fail_ceremony(repo, ceremony_id, "cert_generation_failed")
             error
         end
 
-        end  # case password_map
+      error ->
+        fail_ceremony(repo, ceremony_id, "keygen_failed")
+        error
+    end
+  end
 
-      {:ok, _} -> {:error, :invalid_status}
-      error -> error
+  defp encrypt_and_commit(
+         repo, tenant_id, ceremony_id, ceremony, db_shares, passwords,
+         raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn
+       ) do
+    encrypt_result =
+      Enum.zip(db_shares, raw_shares)
+      |> Enum.reduce_while({:ok, []}, fn {db_share, raw_share}, {:ok, acc} ->
+        password = Map.fetch!(passwords, db_share.custodian_user_id)
+        case ShareEncryption.encrypt_share(raw_share, password) do
+          {:ok, encrypted} -> {:cont, {:ok, [{db_share, encrypted} | acc]}}
+          {:error, reason} -> {:halt, {:error, {:share_encryption_failed, reason}}}
+        end
+      end)
+
+    case encrypt_result do
+      {:error, reason} ->
+        fail_ceremony(repo, ceremony_id, "share_encryption_failed")
+        {:error, reason}
+
+      {:ok, encrypted_pairs_reversed} ->
+        encrypted_pairs = Enum.reverse(encrypted_pairs_reversed)
+
+        case repo.transaction(fn ->
+          # Update each share with encrypted data
+          Enum.each(encrypted_pairs, fn {db_share, encrypted_share} ->
+            db_share
+            |> Ecto.Changeset.change(%{encrypted_share: encrypted_share})
+            |> repo.update!()
+          end)
+
+          # Activate issuer key if root CA
+          if is_root and cert_der do
+            issuer_key = repo.get!(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id)
+            IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
+              certificate_der: cert_der,
+              certificate_pem: cert_pem
+            })
+          end
+
+          # Update ceremony to completed
+          ceremony_rec = repo.get!(KeyCeremony, ceremony_id)
+          ceremony_rec
+          |> Ecto.Changeset.change(%{
+            status: "completed",
+            domain_info: Map.merge(ceremony_rec.domain_info || %{}, %{
+              "fingerprint" => fingerprint,
+              "csr_pem" => csr_pem,
+              "subject_dn" => subject_dn
+            })
+          })
+          |> repo.update!()
+        end) do
+          {:ok, _} ->
+            wipe_stored_passwords(repo, ceremony.issuer_key_id)
+            :erlang.garbage_collect()
+
+            # Auto-offline root CA after ceremony completion
+            ca = repo.get(CaInstance, ceremony.ca_instance_id)
+            if ca && CaInstanceManagement.is_root?(ca) do
+              case CaInstanceManagement.set_offline(tenant_id, ceremony.ca_instance_id) do
+                {:ok, _} -> :ok
+                {:error, reason} ->
+                  Logger.error("[auto_offline] Failed to take root CA #{ceremony.ca_instance_id} offline after ceremony: #{inspect(reason)}")
+              end
+            end
+
+            {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem}}
+
+          {:error, reason} ->
+            fail_ceremony(repo, ceremony_id, "transaction_failed: #{inspect(reason)}")
+            {:error, reason}
+        end
     end
   end
 
@@ -409,8 +435,8 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}
 
   defp generate_self_signed(algorithm, private_key, public_key, subject_dn) do
-    case kaz_sign_level(algorithm) do
-      {:ok, level} ->
+    case classify_algorithm(algorithm) do
+      {:kaz_sign, level} ->
         with :ok <- KazSign.init(level),
              {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn),
              {:ok, cert_der} <- KazSign.self_sign(level, private_key, public_key, csr_der, 365 * 25) do
@@ -418,7 +444,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           {:ok, cert_der, cert_pem}
         end
 
-      :error ->
+      {:ml_dsa, oqs_algo} ->
+        generate_pqc_self_signed(oqs_algo, private_key, public_key, subject_dn)
+
+      :classical ->
         try do
           native_key = decode_private_key(private_key)
           root_cert = X509.Certificate.self_signed(native_key, subject_dn,
@@ -433,15 +462,18 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   end
 
   defp generate_csr(algorithm, private_key, public_key, subject_dn) do
-    case kaz_sign_level(algorithm) do
-      {:ok, level} ->
+    case classify_algorithm(algorithm) do
+      {:kaz_sign, level} ->
         with :ok <- KazSign.init(level),
              {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn) do
           csr_pem = pem_encode("CERTIFICATE REQUEST", csr_der)
           {:ok, csr_pem}
         end
 
-      :error ->
+      {:ml_dsa, oqs_algo} ->
+        generate_pqc_csr(oqs_algo, private_key, public_key, subject_dn)
+
+      :classical ->
         try do
           native_key = decode_private_key(private_key)
           csr = X509.CSR.new(native_key, subject_dn)
@@ -452,12 +484,72 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
-  defp kaz_sign_level(algorithm) do
-    case String.downcase(algorithm) do
-      "kaz-sign-128" -> {:ok, 128}
-      "kaz-sign-192" -> {:ok, 192}
-      "kaz-sign-256" -> {:ok, 256}
-      _ -> :error
+  defp generate_pqc_self_signed(oqs_algo, private_key, public_key, subject_dn) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    not_after = DateTime.add(now, 365 * 25 * 86400, :second)
+    serial = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+
+    tbs = %{
+      version: 3,
+      serial: serial,
+      algorithm: oqs_algo,
+      issuer: subject_dn,
+      not_before: DateTime.to_iso8601(now),
+      not_after: DateTime.to_iso8601(not_after),
+      subject: subject_dn,
+      public_key: Base.encode64(public_key)
+    }
+
+    tbs_json = Jason.encode!(tbs)
+    digest = :crypto.hash(:sha3_256, tbs_json)
+
+    case PkiOqsNif.sign(oqs_algo, private_key, digest) do
+      {:ok, signature} ->
+        cert_map = Map.put(tbs, :signature, Base.encode64(signature))
+        cert_json = Jason.encode!(cert_map)
+        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_json)}\n-----END PKI CERTIFICATE-----\n"
+        {:ok, cert_json, cert_pem}
+
+      {:error, reason} ->
+        {:error, {:ml_dsa_sign_failed, reason}}
+    end
+  rescue
+    e -> {:error, {:signing_failed, e}}
+  end
+
+  defp generate_pqc_csr(oqs_algo, private_key, public_key, subject_dn) do
+    csr_data = %{
+      algorithm: oqs_algo,
+      subject: subject_dn,
+      public_key: Base.encode64(public_key)
+    }
+
+    csr_json = Jason.encode!(csr_data)
+    digest = :crypto.hash(:sha3_256, csr_json)
+
+    case PkiOqsNif.sign(oqs_algo, private_key, digest) do
+      {:ok, signature} ->
+        signed_csr = Map.put(csr_data, :signature, Base.encode64(signature))
+        csr_full_json = Jason.encode!(signed_csr)
+        csr_pem = "-----BEGIN PKI CERTIFICATE REQUEST-----\n#{Base.encode64(csr_full_json)}\n-----END PKI CERTIFICATE REQUEST-----\n"
+        {:ok, csr_pem}
+
+      {:error, reason} ->
+        {:error, {:ml_dsa_csr_failed, reason}}
+    end
+  rescue
+    e -> {:error, {:csr_failed, e}}
+  end
+
+  defp classify_algorithm(algorithm) do
+    case String.downcase(algorithm) |> String.replace("-", "_") do
+      "kaz_sign_128" -> {:kaz_sign, 128}
+      "kaz_sign_192" -> {:kaz_sign, 192}
+      "kaz_sign_256" -> {:kaz_sign, 256}
+      "ml_dsa_44" -> {:ml_dsa, "ML-DSA-44"}
+      "ml_dsa_65" -> {:ml_dsa, "ML-DSA-65"}
+      "ml_dsa_87" -> {:ml_dsa, "ML-DSA-87"}
+      _ -> :classical
     end
   end
 

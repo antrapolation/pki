@@ -137,16 +137,23 @@ defmodule PkiPlatformPortal.SessionStore do
 
   @impl true
   def init(_opts) do
-    table = :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
+    table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
     schedule_sweep()
     {:ok, %{table: table}}
   end
 
   @impl true
   def handle_call({:delete_by_user, user_id}, _from, state) do
-    match_spec = [{{:"$1", %{user_id: user_id}}, [], [true]}]
-    count = :ets.select_delete(@table, match_spec)
-    {:reply, {:ok, count}, state}
+    sessions =
+      :ets.tab2list(@table)
+      |> Enum.filter(fn {_id, record} -> record.user_id == user_id end)
+
+    Enum.each(sessions, fn {session_id, record} ->
+      :ets.delete(@table, session_id)
+      broadcast(:session_deleted, record)
+    end)
+
+    {:reply, {:ok, length(sessions)}, state}
   end
 
   @impl true

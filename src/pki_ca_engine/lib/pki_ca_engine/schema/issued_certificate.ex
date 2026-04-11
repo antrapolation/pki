@@ -18,6 +18,7 @@ defmodule PkiCaEngine.Schema.IssuedCertificate do
     field :revoked_at, :utc_datetime
     field :revocation_reason, :string
     field :cert_profile_id, :string
+    field :csr_fingerprint, :string
 
     belongs_to :issuer_key, PkiCaEngine.Schema.IssuerKey
 
@@ -29,12 +30,16 @@ defmodule PkiCaEngine.Schema.IssuedCertificate do
     |> cast(attrs, [
       :serial_number, :issuer_key_id, :subject_dn, :cert_der, :cert_pem,
       :not_before, :not_after, :status, :revoked_at, :revocation_reason,
-      :cert_profile_id
+      :cert_profile_id, :csr_fingerprint
     ])
     |> validate_required([:serial_number, :issuer_key_id, :subject_dn, :not_before, :not_after])
     |> validate_inclusion(:status, @statuses)
     |> foreign_key_constraint(:issuer_key_id)
     |> unique_constraint(:serial_number)
+    |> unique_constraint([:issuer_key_id, :csr_fingerprint],
+      name: :issued_certificates_issuer_csr_fingerprint_active_idx,
+      message: "certificate already issued for this CSR"
+    )
     |> maybe_generate_id()
   end
 

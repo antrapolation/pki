@@ -52,8 +52,12 @@ defmodule PkiValidation.Api.Router do
   post "/ocsp" do
     case conn.body_params do
       %{"serial_number" => serial_number} when is_binary(serial_number) ->
-        {:ok, response} = PkiValidation.OcspResponder.check_status(serial_number)
-        send_json(conn, 200, response)
+        case PkiValidation.OcspResponder.check_status(serial_number) do
+          {:ok, response} -> send_json(conn, 200, response)
+          {:error, reason} ->
+            Logger.error("OCSP check failed for serial #{serial_number}: #{inspect(reason)}")
+            send_json(conn, 500, %{error: "OCSP check failed"})
+        end
 
       _ ->
         send_json(conn, 400, %{error: "missing or invalid serial_number"})
@@ -61,8 +65,12 @@ defmodule PkiValidation.Api.Router do
   end
 
   get "/crl" do
-    {:ok, crl} = PkiValidation.CrlPublisher.get_current_crl()
-    send_json(conn, 200, crl)
+    case PkiValidation.CrlPublisher.get_current_crl() do
+      {:ok, crl} -> send_json(conn, 200, crl)
+      {:error, reason} ->
+        Logger.error("CRL generation failed: #{inspect(reason)}")
+        send_json(conn, 500, %{error: "CRL generation failed"})
+    end
   end
 
   post "/notify/issuance" do
