@@ -50,6 +50,7 @@ defmodule PkiSystem.MixProject do
       # Runs: CA Engine API (4001), RA Engine API (4003), Validation (4005)
       # Manages: DB migrations, background jobs, tenant provisioning
       pki_engines: [
+        validate_compile_env: false,
         applications: [
           pki_platform_engine: :permanent,
           pki_ca_engine: :permanent,
@@ -64,6 +65,7 @@ defmodule PkiSystem.MixProject do
       # Engine HTTP APIs NOT started (gated by start_http config)
       # Portals call engine modules in-process (ENGINE_CLIENT_MODE=direct)
       pki_portals: [
+        validate_compile_env: false,
         applications: [
           pki_platform_engine: :permanent,
           pki_ca_engine: :transient,
@@ -78,6 +80,7 @@ defmodule PkiSystem.MixProject do
 
       # Release 3: Audit trail service (lightweight)
       pki_audit: [
+        validate_compile_env: false,
         applications: [
           pki_platform_engine: :permanent,
           pki_audit_trail: :permanent
