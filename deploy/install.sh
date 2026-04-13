@@ -56,6 +56,16 @@ apt-get install -y --no-install-recommends \
   argon2 \
   libssl-dev
 
+# Rust toolchain (needed by strap_softhsm_priv_key_store_provider NIF via Rustler)
+if ! command -v cargo &>/dev/null; then
+  info "Installing Rust toolchain..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  source "$HOME/.cargo/env"
+  info "Rust $(rustc --version) installed"
+else
+  info "Rust already installed ($(rustc --version)), skipping."
+fi
+
 # liboqs (Post-Quantum Cryptography library — needed by pki_oqs_nif)
 if [[ ! -f /usr/local/include/oqs/oqs.h ]]; then
   info "Building liboqs from source..."
