@@ -49,7 +49,7 @@ info "Installing system packages..."
 apt-get update -qq
 apt-get install -y --no-install-recommends \
   curl ca-certificates gnupg wget unzip \
-  erlang-nox \
+  erlang-nox erlang-dev erlang-public-key erlang-ssl erlang-crypto erlang-asn1 \
   postgresql postgresql-client \
   softhsm2 \
   argon2 \
