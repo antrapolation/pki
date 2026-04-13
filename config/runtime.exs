@@ -24,6 +24,8 @@ platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || database_url
 ca_engine_db_url = System.get_env("CA_ENGINE_DATABASE_URL") || database_url
 ra_engine_db_url = System.get_env("RA_ENGINE_DATABASE_URL") || database_url
 validation_db_url = System.get_env("VALIDATION_DATABASE_URL") || database_url
+# Audit trail defaults to CA engine DB for backward compat (audit_events table lives there)
+audit_trail_db_url = System.get_env("AUDIT_TRAIL_DATABASE_URL") || ca_engine_db_url
 
 # ─── Platform Engine (all releases) ────────────────────────────────────
 
@@ -61,9 +63,11 @@ if ca_engine_db_url do
     url: ca_engine_db_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
     prepare: :unnamed
+end
 
+if audit_trail_db_url do
   config :pki_audit_trail, PkiAuditTrail.Repo,
-    url: ca_engine_db_url,
+    url: audit_trail_db_url,
     pool_size: String.to_integer(System.get_env("AUDIT_POOL_SIZE", "5")),
     prepare: :unnamed
 end
@@ -138,9 +142,11 @@ if config_env() == :prod do
     internal_api_secret: internal_api_secret,
     ca_engine_module: ca_engine_module
 
-  # ── Rate limiting (Mnesia in prod) ──
+  # ── Rate limiting (ETS — in-memory, per-node, no Mnesia setup needed) ──
+  # Mnesia backend requires schema init and caused "Service temporarily unavailable"
+  # errors when Mnesia wasn't ready. ETS is simpler and sufficient for single-node.
   config :hammer,
-    backend: {Hammer.Backend.Mnesia, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
+    backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
 
   # ── Portal endpoints (only if PHX_SERVER=true) ──
   if System.get_env("PHX_SERVER") do

@@ -33,7 +33,47 @@ if [[ ! -f /opt/pki/.env ]]; then
 fi
 
 # ── Database names (shared DB, schema-per-tenant) ────────────────────────────
+# All databases — ensure pki_audit_trail is included for PkiAuditTrail.Repo
 PKI_DATABASES=(pki_ca_engine pki_ra_engine pki_validation pki_audit_trail pki_platform)
+
+ensure_pg_connections() {
+  info "Checking PostgreSQL max_connections..."
+  local max_conn
+  max_conn=$(sudo -u postgres psql -tAc "SHOW max_connections;" 2>/dev/null || echo "100")
+  if [[ "$max_conn" -lt 300 ]]; then
+    warn "PostgreSQL max_connections is ${max_conn} (< 300) — increasing..."
+    sudo -u postgres psql -qc "ALTER SYSTEM SET max_connections = 300;" 2>/dev/null
+    systemctl restart postgresql
+    info "  ✓ PostgreSQL restarted with max_connections = 300"
+  else
+    info "  ✓ max_connections = ${max_conn}"
+  fi
+}
+
+wait_for_pg() {
+  info "Waiting for PostgreSQL to accept connections..."
+  local retries=10
+  while ! sudo -u postgres psql -qc "SELECT 1" &>/dev/null; do
+    retries=$((retries - 1))
+    if [[ $retries -le 0 ]]; then
+      die "PostgreSQL not accepting connections after 10 attempts"
+    fi
+    sleep 1
+  done
+  info "  ✓ PostgreSQL is ready"
+}
+
+drain_stale_connections() {
+  # Terminate idle connections from crashed/restarting services to free slots
+  local count
+  count=$(sudo -u postgres psql -tAc "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle' AND pid <> pg_backend_pid();" 2>/dev/null || echo "0")
+  if [[ "$count" -gt 100 ]]; then
+    warn "Found ${count} idle connections — draining stale ones..."
+    sudo -u postgres psql -qc "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND pid <> pg_backend_pid() AND state_change < now() - interval '30 seconds';" 2>/dev/null || true
+    sleep 2
+    info "  ✓ Stale connections drained"
+  fi
+}
 
 ensure_databases() {
   info "Ensuring PostgreSQL databases exist..."
@@ -130,9 +170,12 @@ deploy_service() {
 
   # Stop service (|| true: service may be in restart cycle, stop job gets cancelled)
   if systemctl is-active --quiet "$systemd_name" 2>/dev/null || \
-     systemctl is-activating "$systemd_name" 2>/dev/null; then
+     systemctl is-activating "$systemd_name" 2>/dev/null || \
+     systemctl is-failed --quiet "$systemd_name" 2>/dev/null; then
     info "  Stopping $systemd_name..."
     systemctl stop "$systemd_name" 2>/dev/null || true
+    # Reset failed state so subsequent start succeeds cleanly
+    systemctl reset-failed "$systemd_name" 2>/dev/null || true
     # Wait for OS to release ports — BEAM sockets can linger briefly after process exit
     sleep 3
   fi
@@ -192,11 +235,31 @@ TARGET="${1:-all}"
 
 case "$TARGET" in
   all)
-    # Ensure PostgreSQL databases exist before deploying
+    # Stop all services first to release DB connections and avoid exhaustion
+    info "Stopping all PKI services before deploy..."
+    for svc in audit portals engines; do
+      sname="${SVC_SYSTEMD[$svc]}"
+      if systemctl is-active --quiet "$sname" 2>/dev/null || \
+         systemctl is-activating "$sname" 2>/dev/null || \
+         systemctl is-failed --quiet "$sname" 2>/dev/null; then
+        systemctl stop "$sname" 2>/dev/null || true
+        systemctl reset-failed "$sname" 2>/dev/null || true
+      fi
+    done
+    sleep 3
+
+    # Ensure PostgreSQL has enough connection slots and is ready
+    ensure_pg_connections
+    wait_for_pg
+    drain_stale_connections
+
+    # Ensure databases exist before deploying
     ensure_databases
 
     # Deploy in dependency order: engines first (owns DBs), then portals, then audit
     deploy_service engines
+    # Wait for engines to be fully up before starting portals (avoids DB contention)
+    sleep 5
     deploy_service portals
     deploy_service audit
 
@@ -237,6 +300,11 @@ case "$TARGET" in
   setup)
     # First-run setup: create DBs, deploy all services, start Caddy
     info "=== First-run setup ==="
+
+    # Ensure PostgreSQL has enough connection slots for all BEAM nodes
+    ensure_pg_connections
+    wait_for_pg
+
     ensure_databases
 
     # Init SoftHSM2 token if not already done
@@ -260,6 +328,8 @@ case "$TARGET" in
     fi
 
     deploy_service engines
+    # Wait for engines to be fully up before starting portals (avoids DB contention)
+    sleep 5
     deploy_service portals
     deploy_service audit
     ensure_caddy
@@ -273,8 +343,42 @@ case "$TARGET" in
     echo "  systemctl status 'pki-*' caddy"
     ;;
 
+  status)
+    echo ""
+    info "=== Service Status ==="
+    for svc in engines portals audit; do
+      sname="${SVC_SYSTEMD[$svc]}"
+      if systemctl is-active --quiet "$sname" 2>/dev/null; then
+        info "  ✓ $sname is running"
+      elif systemctl is-failed --quiet "$sname" 2>/dev/null; then
+        warn "  ✗ $sname FAILED — check: journalctl -u $sname -n 50"
+      else
+        warn "  - $sname is stopped"
+      fi
+    done
+    if systemctl is-active --quiet caddy 2>/dev/null; then
+      info "  ✓ caddy is running"
+    else
+      warn "  - caddy is stopped"
+    fi
+    echo ""
+    info "=== PostgreSQL ==="
+    pg_conn=$(sudo -u postgres psql -tAc "SELECT count(*) FROM pg_stat_activity;" 2>/dev/null || echo "?")
+    pg_max=$(sudo -u postgres psql -tAc "SHOW max_connections;" 2>/dev/null || echo "?")
+    info "  Connections: ${pg_conn} / ${pg_max}"
+    echo ""
+    info "=== Port Check ==="
+    for port in 4001 4002 4003 4004 4005 4006; do
+      if curl -sI "http://localhost:${port}" -o /dev/null --connect-timeout 2 2>/dev/null; then
+        info "  ✓ Port ${port} responding"
+      else
+        warn "  - Port ${port} not responding"
+      fi
+    done
+    ;;
+
   *)
-    echo "Usage: $0 [all|engines|portals|audit|migrate|setup|rollback <svc>]"
+    echo "Usage: $0 [all|engines|portals|audit|migrate|setup|status|rollback <svc>]"
     exit 1
     ;;
 esac

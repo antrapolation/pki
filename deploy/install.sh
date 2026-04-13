@@ -151,6 +151,19 @@ info "Starting PostgreSQL..."
 systemctl enable postgresql
 systemctl start postgresql
 
+# Tune max_connections — default 100 is too low for 2 BEAM nodes with multiple repos.
+# Each node opens pools for ~7 repos × pool_size ≈ 70 connections per node.
+# With 2 nodes (engines + portals) that's ~140 idle + headroom needed.
+PG_MAX_CONN=$(sudo -u postgres psql -tAc "SHOW max_connections;" 2>/dev/null || echo "100")
+if [[ "$PG_MAX_CONN" -lt 300 ]]; then
+  info "Increasing PostgreSQL max_connections from ${PG_MAX_CONN} to 300..."
+  sudo -u postgres psql -qc "ALTER SYSTEM SET max_connections = 300;" 2>/dev/null
+  systemctl restart postgresql
+  info "  ✓ PostgreSQL restarted with max_connections = 300"
+else
+  info "PostgreSQL max_connections already ${PG_MAX_CONN} (≥300), no change needed."
+fi
+
 # ── 7. Caddy ─────────────────────────────────────────────────────────────────
 info "Copying Caddyfile..."
 if [[ -f "${SCRIPT_DIR}/../Caddyfile" ]]; then

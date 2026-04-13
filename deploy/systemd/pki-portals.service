@@ -1,8 +1,9 @@
 [Unit]
 Description=PKI Portals (CA Portal, RA Portal, Platform Portal + engines in direct mode)
 Documentation=https://github.com/straptrust/pki
-After=network.target postgresql.service
+After=network.target postgresql.service pki-engines.service
 Requires=postgresql.service
+Wants=pki-engines.service
 
 [Service]
 Type=exec
@@ -22,8 +23,11 @@ ExecStart=/opt/pki/releases/portals/bin/pki_portals start
 ExecStop=/opt/pki/releases/portals/bin/pki_portals stop
 
 Restart=on-failure
-RestartSec=5
-TimeoutStartSec=60
+RestartSec=15
+RestartMaxDelaySec=120
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStartSec=90
 TimeoutStopSec=30
 
 NoNewPrivileges=true

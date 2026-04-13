@@ -179,6 +179,17 @@ CA_ENGINE_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_c
 RA_ENGINE_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_ra_engine
 VALIDATION_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_validation
 PLATFORM_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
+AUDIT_TRAIL_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_audit_trail
+
+# ── Connection pool sizes ────────────────────────────────────────────────
+# Total connections across 2 BEAM nodes must stay under PostgreSQL max_connections (300).
+# Engines node: POOL_SIZE(10) x 2 repos + PLATFORM_POOL_SIZE(5) + AUDIT_POOL_SIZE(5) + VALIDATION_POOL_SIZE(15) = 45
+# Portals node: same repos loaded in direct mode = 45
+# Total: ~90 active + headroom for tenant dynamic repos
+POOL_SIZE=10
+PLATFORM_POOL_SIZE=5
+AUDIT_POOL_SIZE=5
+VALIDATION_POOL_SIZE=15
 ENVFILE
 
 # Inject argon2 hash safely (contains $ signs that break heredoc and bash source)

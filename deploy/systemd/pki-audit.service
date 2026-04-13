@@ -20,8 +20,11 @@ ExecStart=/opt/pki/releases/audit/bin/pki_audit start
 ExecStop=/opt/pki/releases/audit/bin/pki_audit stop
 
 Restart=on-failure
-RestartSec=5
-TimeoutStartSec=60
+RestartSec=10
+RestartMaxDelaySec=120
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStartSec=90
 TimeoutStopSec=30
 
 NoNewPrivileges=true
