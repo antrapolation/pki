@@ -102,12 +102,30 @@ deploy_service() {
   local tarball_prefix="${SVC_TARBALL[$svc]}"
   local install_dir="${INSTALL_BASE}/${svc}"
 
-  # Find latest tarball
-  local tarball
-  tarball=$(ls -t "${RELEASES_DIR}/${tarball_prefix}-"*.tar.gz 2>/dev/null | head -1)
-  [[ -n "$tarball" ]] || { warn "No tarball found for $svc in $RELEASES_DIR — skipping"; return; }
+  # Find source: tarball (from build.sh) or local _build (built on server)
+  local tarball=""
+  local local_build=""
+  tarball=$(ls -t "${RELEASES_DIR}/${tarball_prefix}-"*.tar.gz 2>/dev/null | head -1) || true
 
-  info "Deploying $svc from $(basename "$tarball")..."
+  # Also check for locally-built release (when building on the server directly)
+  local repo_root
+  repo_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+  if [[ -d "${repo_root}/_build/prod/rel/${tarball_prefix}" ]]; then
+    local_build="${repo_root}/_build/prod/rel/${tarball_prefix}"
+  fi
+
+  if [[ -z "$tarball" && -z "$local_build" ]]; then
+    warn "No tarball in $RELEASES_DIR and no local build in _build/prod/rel/${tarball_prefix} — skipping $svc"
+    return
+  fi
+
+  local source_desc
+  if [[ -n "$tarball" ]]; then
+    source_desc="tarball $(basename "$tarball")"
+  else
+    source_desc="local build ${local_build}"
+  fi
+  info "Deploying $svc from ${source_desc}..."
 
   # Stop service (|| true: service may be in restart cycle, stop job gets cancelled)
   if systemctl is-active --quiet "$systemd_name" 2>/dev/null || \
@@ -126,12 +144,16 @@ deploy_service() {
     info "  Backup saved to ${backup}"
   fi
 
-  # Extract new release
+  # Install new release
   rm -rf "$install_dir"
   mkdir -p "$install_dir"
-  tar -xzf "$tarball" -C "$install_dir"
+  if [[ -n "$tarball" ]]; then
+    tar -xzf "$tarball" -C "$install_dir"
+  else
+    cp -a "${local_build}/." "$install_dir/"
+  fi
   chown -R pki:pki "$install_dir"
-  info "  Extracted to $install_dir"
+  info "  Installed to $install_dir"
 
   # Inject Erlang cookie from /opt/pki/.cookies/ into the release
   local cookie_file="/opt/pki/.cookies/${svc}"
