@@ -88,16 +88,16 @@ Create three A records pointing to your server's public IP:
 
 | Record | Type | Value |
 |---|---|---|
-| `ca.straptrust.com` | A | `<your server IP>` |
-| `ra.straptrust.com` | A | `<your server IP>` |
-| `admin.straptrust.com` | A | `<your server IP>` |
+| `ca.straptrust.com` | A | `217.15.161.93` |
+| `ra.straptrust.com` | A | `217.15.161.93` |
+| `admin.straptrust.com` | A | `217.15.161.93` |
 
 Verify propagation before continuing:
 ```bash
 dig +short ca.straptrust.com
 dig +short ra.straptrust.com
 dig +short admin.straptrust.com
-# All three should return your server IP
+# All three should return 217.15.161.93
 ```
 
 ---
@@ -113,7 +113,7 @@ important for a PKI/CA system that handles cryptographic keys.
 
 ```bash
 # SSH into the VPS as root (first and last time)
-ssh root@your-server
+ssh root@217.15.161.93
 
 # Create deploy user
 adduser deploy
@@ -127,7 +127,7 @@ chmod 700 /home/deploy/.ssh
 chmod 600 /home/deploy/.ssh/authorized_keys
 
 # Verify you can SSH as deploy (from another terminal!)
-# ssh deploy@your-server
+# ssh deploy@217.15.161.93
 # Only proceed after confirming this works
 ```
 
@@ -135,7 +135,7 @@ chmod 600 /home/deploy/.ssh/authorized_keys
 
 ```bash
 # As the deploy user
-ssh deploy@your-server
+ssh deploy@217.15.161.93
 cd ~/pki
 
 # Harden the VPS (runs as root via sudo)
@@ -169,8 +169,8 @@ sudo ufw status
 sudo fail2ban-client status sshd
 
 # Verify SSH (from another terminal — don't disconnect yet!)
-ssh deploy@your-server          # default port
-ssh -p 2222 deploy@your-server  # if you changed SSH port
+ssh deploy@217.15.161.93          # default port
+ssh -p 2222 deploy@217.15.161.93  # if you changed SSH port
 ```
 
 > **If locked out:** Use your VPS provider's web console to fix SSH config.
@@ -183,7 +183,7 @@ Run once on the hardened server. This installs system packages, creates the
 `pki` OS user, sets up directory structure, and auto-generates all secrets.
 
 ```bash
-ssh deploy@your-server
+ssh deploy@217.15.161.93
 
 # Clone the repo with submodules (Gitea self-hosted, SSL disabled for internal cert)
 git clone -c http.sslVerify=false --recurse-submodules \
@@ -352,7 +352,7 @@ deploy/releases/
 
 ```bash
 # From build machine
-scp deploy/releases/*.tar.gz user@your-server:~/pki/deploy/releases/
+scp deploy/releases/*.tar.gz deploy@217.15.161.93:~/pki/deploy/releases/
 ```
 
 ---
@@ -580,7 +580,7 @@ IEX
 For **zero-downtime upgrades** (building on server):
 
 ```bash
-ssh deploy@your-server
+ssh deploy@217.15.161.93
 cd ~/pki
 git pull --recurse-submodules   # sslVerify already disabled per-repo
 source /opt/pki/.env

@@ -107,8 +107,12 @@ if ! grep -q "^Include /etc/ssh/sshd_config.d" "$SSHD_CONFIG" 2>/dev/null; then
 fi
 
 # Validate config before restarting
+# Ubuntu uses 'ssh', other distros use 'sshd'
+SSH_SVC="ssh"
+systemctl list-unit-files sshd.service &>/dev/null && SSH_SVC="sshd"
+
 if sshd -t 2>/dev/null; then
-  systemctl restart sshd
+  systemctl restart "$SSH_SVC"
   info "  SSH hardened: port=$SSH_PORT, root=no, password=no, key-only"
 else
   rm -f "$SSHD_HARDENING"
