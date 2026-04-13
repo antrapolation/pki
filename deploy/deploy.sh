@@ -91,8 +91,9 @@ run_migrations() {
   [[ -x "$bin" ]] || { warn "Binary not found: $bin — skipping migrations"; return; }
 
   info "  Running migrations for $svc..."
-  sudo -u pki env $(grep -v '^#' /opt/pki/.env | xargs) \
-    "$bin" eval "PkiSystem.Release.migrate()" 2>&1 \
+  # Use bash source instead of grep|xargs — handles values with spaces and special chars
+  sudo bash -c "set -a && source /opt/pki/.env && set +a && \
+    sudo -u pki -E \"$bin\" eval \"PkiSystem.Release.migrate()\"" 2>&1 \
     || warn "Migration returned non-zero for $svc (may be normal if already applied)"
 }
 
@@ -239,7 +240,10 @@ case "$TARGET" in
     ensure_databases
 
     # Init SoftHSM2 token if not already done
+    # Temporarily disable nounset — .env values may reference undefined vars during expansion
+    set +u
     source /opt/pki/.env
+    set -u
     if sudo -u pki softhsm2-util --show-slots 2>/dev/null | grep -q "Label:.*${SOFTHSM_TOKEN_LABEL:-PkiCA}"; then
       info "SoftHSM2 token already initialised"
     else
