@@ -95,9 +95,13 @@ defmodule PkiPlatformEngine.TenantRepo do
 
   def execute_sql(database_name, schema_prefix, sql, params)
       when is_binary(database_name) and schema_prefix in @valid_prefixes do
-    with_tenant(database_name, schema_prefix, fn ->
+    case with_tenant(database_name, schema_prefix, fn ->
       __MODULE__.query(sql, params)
-    end)
+    end) do
+      {:ok, {:ok, result}} -> {:ok, result}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp build_config(database_name, schema_prefix) when schema_prefix in @valid_prefixes do

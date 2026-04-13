@@ -5,7 +5,7 @@ defmodule PkiPlatformPortalWeb.Endpoint do
     store: :cookie,
     key: "_pki_platform_portal_key",
     signing_salt: Application.compile_env(:pki_platform_portal, :signing_salt, "Pk7mQ3xN"),
-    encryption_salt: "pki_platform_enc",
+    encryption_salt: Application.compile_env(:pki_platform_portal, :encryption_salt, "pki_platform_enc"),
     same_site: "Lax",
     secure: Application.compile_env(:pki_platform_portal, :cookie_secure, false),
     http_only: true

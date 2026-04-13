@@ -253,7 +253,14 @@ defmodule PkiCaPortalWeb.CertificatesLive do
     assign(socket, certificates: certs)
   end
 
-  defp tenant_opts(socket), do: [tenant_id: socket.assigns[:tenant_id]]
+  defp tenant_opts(socket) do
+    opts = [tenant_id: socket.assigns[:tenant_id]]
+
+    case get_in(socket.assigns, [:current_user, :role]) do
+      nil -> opts
+      role -> [{:user_role, role} | opts]
+    end
+  end
 
   defp parse_x509(nil), do: %{}
   defp parse_x509(cert_data) do

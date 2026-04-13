@@ -51,14 +51,20 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   end
 
   def handle_event("delete_tenant", %{"id" => id}, socket) do
-    case PkiPlatformEngine.Provisioner.delete_tenant(id) do
-      {:ok, _tenant} ->
-        tenants = list_tenants()
-        {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant deleted.")}
+    tenant = Enum.find(socket.assigns.tenants, &(to_string(&1.id) == to_string(id)))
 
-      {:error, reason} ->
-        Logger.error("[tenants] Failed to delete tenant #{id}: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete", reason))}
+    if is_nil(tenant) || tenant.status != "suspended" do
+      {:noreply, put_flash(socket, :error, "Tenant must be suspended before deletion.")}
+    else
+      case PkiPlatformEngine.Provisioner.delete_tenant(id) do
+        {:ok, _tenant} ->
+          tenants = list_tenants()
+          {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant deleted.")}
+
+        {:error, reason} ->
+          Logger.error("[tenants] Failed to delete tenant #{id}: #{inspect(reason)}")
+          {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete", reason))}
+      end
     end
   end
 

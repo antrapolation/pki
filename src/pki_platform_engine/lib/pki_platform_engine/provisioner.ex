@@ -1,33 +1,35 @@
 defmodule PkiPlatformEngine.Provisioner do
-  @moduledoc "Provisions and manages tenant databases."
+  @moduledoc """
+  Provisions and manages tenant databases/schemas.
 
-  alias PkiPlatformEngine.{PlatformRepo, Tenant, TenantRepo}
+  Supports two modes:
+  - **schema mode** (default for new tenants): Creates PostgreSQL schemas in the
+    shared platform database and runs Ecto migrations with `prefix:`.
+  - **database mode** (legacy): Creates a dedicated database per tenant with raw SQL.
+  """
+
+  alias PkiPlatformEngine.{PlatformRepo, Tenant, TenantPrefix, TenantRepo}
   import Ecto.Query
 
+  require Logger
+
   def create_tenant(name, slug, opts \\ []) do
+    schema_mode = Keyword.get(opts, :schema_mode, "schema")
+
     attrs = %{
       name: name,
       slug: slug,
-      email: Keyword.get(opts, :email)
+      email: Keyword.get(opts, :email),
+      schema_mode: schema_mode
     }
 
     changeset = Tenant.changeset(%Tenant{}, attrs)
 
     case Ecto.Changeset.apply_action(changeset, :validate) do
       {:ok, _tenant_data} ->
-        db_name = Ecto.Changeset.get_field(changeset, :database_name)
-
-        with :ok <- create_database(db_name),
-             :ok <- create_tenant_tables(db_name),
-             {:ok, tenant} <- PlatformRepo.insert(changeset) do
-          # Apply any tenant migrations beyond the base schema
-          PkiPlatformEngine.TenantMigrator.migrate_tenant(tenant.id, db_name)
-          {:ok, tenant}
-        else
-          {:error, reason} ->
-            # Cleanup on failure
-            drop_database(db_name)
-            {:error, reason}
+        case schema_mode do
+          "schema" -> create_schema_mode_tenant(changeset)
+          "database" -> create_database_mode_tenant(changeset)
         end
 
       {:error, changeset} ->
@@ -41,7 +43,6 @@ defmodule PkiPlatformEngine.Provisioner do
         {:error, :not_found}
 
       tenant ->
-        # Stop tenant engine processes
         PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant_id)
 
         tenant
@@ -56,9 +57,8 @@ defmodule PkiPlatformEngine.Provisioner do
         {:error, :not_found}
 
       tenant ->
-        # Start tenant engine processes (registration happens after repos are ready)
         case PkiPlatformEngine.TenantSupervisor.start_tenant(tenant) do
-          {:ok, _pid} ->
+          {:ok, _} ->
             tenant
             |> Tenant.status_changeset(%{status: "active"})
             |> PlatformRepo.update()
@@ -81,18 +81,11 @@ defmodule PkiPlatformEngine.Provisioner do
       nil ->
         {:error, :not_found}
 
+      %{schema_mode: "schema"} = tenant ->
+        delete_schema_mode_tenant(tenant)
+
       tenant ->
-        # Stop engine processes before dropping database
-        PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant_id)
-
-        case PlatformRepo.delete(tenant) do
-          {:ok, deleted} ->
-            drop_database(deleted.database_name)
-            {:ok, deleted}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        delete_database_mode_tenant(tenant)
     end
   end
 
@@ -113,7 +106,204 @@ defmodule PkiPlatformEngine.Provisioner do
     _ -> false
   end
 
-  # --- Private ---
+  # ── Schema-mode provisioning ──────────────────────────────────────────
+
+  defp create_schema_mode_tenant(changeset) do
+    tenant_id = Ecto.Changeset.get_field(changeset, :id)
+    prefixes = TenantPrefix.all_prefixes(tenant_id)
+
+    with {:ok, tenant} <- PlatformRepo.insert(changeset),
+         :ok <- create_tenant_schemas(prefixes),
+         :ok <- run_tenant_migrations(prefixes) do
+      {:ok, tenant}
+    else
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:error, cs}
+
+      {:error, reason} ->
+        Logger.error("tenant_provisioning_failed tenant_id=#{tenant_id} reason=#{inspect(reason)}, cleaning up...")
+        cleanup_failed_provisioning(tenant_id, prefixes)
+        {:error, reason}
+    end
+  end
+
+  defp cleanup_failed_provisioning(tenant_id, prefixes) do
+    try do
+      PlatformRepo.delete_all(from t in Tenant, where: t.id == ^tenant_id)
+    rescue
+      e -> Logger.error("cleanup_db_record_failed tenant_id=#{tenant_id} error=#{Exception.message(e)}")
+    end
+
+    try do
+      drop_tenant_schemas(prefixes)
+    rescue
+      e -> Logger.error("cleanup_schemas_failed tenant_id=#{tenant_id} error=#{Exception.message(e)}")
+    end
+  end
+
+  defp create_tenant_schemas(prefixes) do
+    # Use direct Postgrex connection so schemas are committed immediately.
+    # Ecto.Migrator bypasses Sandbox, so it needs actually-committed schemas.
+    with_platform_conn(fn conn ->
+      Enum.reduce_while(prefixes, :ok, fn {_key, prefix}, :ok ->
+        case Postgrex.query(conn, "CREATE SCHEMA IF NOT EXISTS \"#{TenantPrefix.validate_prefix!(prefix)}\"", []) do
+          {:ok, _} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, {:schema_creation_failed, prefix, reason}}}
+        end
+      end)
+    end)
+  end
+
+  defp run_tenant_migrations(prefixes) do
+    # Start a temporary non-sandboxed repo per prefix.
+    # Uses after_connect to SET search_path so raw SQL in `execute` blocks
+    # automatically targets the correct schema.
+    base_config = platform_repo_config()
+
+    try do
+      run_prefixed_migrations(base_config, prefixes.ca_prefix, ca_migrations_path())
+      run_prefixed_migrations(base_config, prefixes.ra_prefix, ra_migrations_path())
+      :ok
+    rescue
+      e -> {:error, {:migration_failed, Exception.message(e)}}
+    end
+  end
+
+  defp run_prefixed_migrations(base_config, prefix, migrations_path) do
+    config =
+      base_config
+      |> Keyword.put(:after_connect, {Postgrex, :query!, ["SET search_path TO \"#{TenantPrefix.validate_prefix!(prefix)}\"", []]})
+
+    {:ok, repo} = PkiPlatformEngine.MigrationRepo.start_link(config)
+
+    try do
+      Ecto.Migrator.run(PkiPlatformEngine.MigrationRepo, migrations_path, :up,
+        all: true, prefix: prefix, log: false)
+    after
+      Supervisor.stop(repo)
+    end
+  end
+
+  defp platform_repo_config do
+    config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
+    # Strip sandbox pool — use standard Postgrex pool for migrations
+    config
+    |> Keyword.delete(:pool)
+    |> Keyword.put_new(:pool_size, 2)
+  end
+
+  defp drop_tenant_schemas(prefixes) do
+    with_platform_conn(fn conn ->
+      for {_key, prefix} <- prefixes do
+        Postgrex.query(conn, "DROP SCHEMA IF EXISTS \"#{TenantPrefix.validate_prefix!(prefix)}\" CASCADE", [])
+      end
+      :ok
+    end)
+  end
+
+  defp delete_schema_mode_tenant(tenant) do
+    PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant.id)
+    prefixes = TenantPrefix.all_prefixes(tenant.id)
+
+    case PlatformRepo.delete(tenant) do
+      {:ok, deleted} ->
+        drop_tenant_schemas(prefixes)
+        {:ok, deleted}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Direct connection to the platform database (not through Ecto Sandbox).
+  defp with_platform_conn(fun) do
+    config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
+    {hostname, port, username, password} = parse_conn_config(config)
+
+    database = case Keyword.get(config, :url) do
+      nil -> Keyword.get(config, :database, "pki_platform_engine_dev")
+      url -> URI.parse(url).path |> String.trim_leading("/")
+    end
+
+    case Postgrex.start_link(
+           hostname: hostname,
+           port: port,
+           username: username,
+           password: password,
+           database: database
+         ) do
+      {:ok, conn} ->
+        try do
+          fun.(conn)
+        after
+          GenServer.stop(conn)
+        end
+
+      {:error, reason} ->
+        {:error, {:platform_conn_failed, reason}}
+    end
+  end
+
+  # ── Database-mode provisioning (legacy) ───────────────────────────────
+
+  defp create_database_mode_tenant(changeset) do
+    db_name = Ecto.Changeset.get_field(changeset, :database_name)
+
+    with :ok <- create_database(db_name),
+         :ok <- create_tenant_tables(db_name),
+         {:ok, tenant} <- PlatformRepo.insert(changeset) do
+      PkiPlatformEngine.TenantMigrator.migrate_tenant(tenant.id, db_name)
+      {:ok, tenant}
+    else
+      {:error, reason} ->
+        drop_database(db_name)
+        {:error, reason}
+    end
+  end
+
+  defp delete_database_mode_tenant(tenant) do
+    PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant.id)
+
+    case PlatformRepo.delete(tenant) do
+      {:ok, deleted} ->
+        drop_database(deleted.database_name)
+        {:ok, deleted}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # ── Migration paths ───────────────────────────────────────────────────
+
+  defp ca_migrations_path do
+    resolve_migrations_path(:pki_ca_engine, "priv/repo/migrations")
+  end
+
+  defp ra_migrations_path do
+    resolve_migrations_path(:pki_ra_engine, "priv/repo/migrations")
+  end
+
+  defp resolve_migrations_path(app, relative_path) do
+    # Try Application.app_dir first (works in releases and when app is loaded)
+    try do
+      path = Application.app_dir(app, relative_path)
+      if File.dir?(path), do: path, else: raise(ArgumentError)
+    rescue
+      ArgumentError ->
+        # Fallback: resolve from sibling source directory (dev/test)
+        # priv_dir is at: src/pki_platform_engine/_build/{env}/lib/pki_platform_engine/priv
+        # Go up 6 levels to reach src/, then into sibling app
+        platform_priv = :code.priv_dir(:pki_platform_engine) |> to_string()
+        src_dir =
+          platform_priv
+          |> Path.join(String.duplicate("/..", 6))
+          |> Path.expand()
+        Path.join([src_dir, to_string(app), relative_path])
+    end
+  end
+
+  # ── Database-mode helpers (unchanged) ─────────────────────────────────
 
   defp validate_db_name!(db_name) do
     unless db_name =~ ~r/\Apki_tenant_[0-9a-f]{32}\z/ do
@@ -123,13 +313,8 @@ defmodule PkiPlatformEngine.Provisioner do
     db_name
   end
 
-  # Uses a direct Postgrex connection to the "postgres" maintenance database
-  # because CREATE/DROP DATABASE cannot run inside a transaction block
-  # (which Ecto.Adapters.SQL.Sandbox uses).
   defp with_admin_conn(fun) do
     config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
-
-    # Parse DATABASE_URL if config uses :url instead of individual fields
     {hostname, port, username, password} = parse_conn_config(config)
 
     case Postgrex.start_link(
@@ -188,18 +373,23 @@ defmodule PkiPlatformEngine.Provisioner do
   defp create_tenant_tables(db_name) do
     safe = validate_db_name!(db_name)
 
-    # Apply CA engine schema (includes audit_events, ca_instances, issuer_keys, etc.)
     ca_sql = read_schema_sql("tenant_ca_schema.sql")
     case apply_schema_sql(safe, ca_sql) do
       :ok -> :ok
       {:error, reason} -> throw {:error, {:ca_schema_failed, reason}}
     end
 
-    # Apply RA engine schema (includes ra_users, cert_profiles, csr_requests, etc.)
     ra_sql = read_schema_sql("tenant_ra_schema.sql")
     case apply_schema_sql(safe, ra_sql) do
       :ok -> :ok
       {:error, reason} -> throw {:error, {:ra_schema_failed, reason}}
+    end
+
+    for schema <- ["validation", "audit"] do
+      case apply_schema_sql(safe, "CREATE SCHEMA IF NOT EXISTS #{schema}") do
+        :ok -> :ok
+        {:error, reason} -> throw {:error, {:"#{schema}_schema_failed", reason}}
+      end
     end
 
     :ok
@@ -226,8 +416,6 @@ defmodule PkiPlatformEngine.Provisioner do
          ) do
       {:ok, conn} ->
         try do
-          # Split SQL into individual statements and execute each one.
-          # Postgrex extended protocol doesn't support multi-statement queries.
           statements =
             sql
             |> String.split(";")
@@ -241,7 +429,6 @@ defmodule PkiPlatformEngine.Provisioner do
 
               {:error, %{postgres: %{code: code}}}
               when code in [:duplicate_table, :duplicate_object, :duplicate_column, :invalid_table_definition] ->
-                # Ignore duplicate errors — idempotent schema application
                 {:cont, :ok}
 
               {:error, reason} ->
@@ -261,7 +448,6 @@ defmodule PkiPlatformEngine.Provisioner do
     safe = validate_db_name!(db_name)
 
     with_admin_conn(fn conn ->
-      # Use WITH (FORCE) to terminate connections and drop in one step (PG >= 13)
       Postgrex.query(conn, "DROP DATABASE IF EXISTS \"#{safe}\" WITH (FORCE)", [])
       :ok
     end)

@@ -60,11 +60,21 @@ defmodule PkiValidation.OcspResponder do
         }
 
       %CertificateStatus{status: "active"} = cert ->
-        %{
-          status: "good",
-          serial_number: cert.serial_number,
-          not_after: cert.not_after
-        }
+        now = DateTime.utc_now()
+        if cert.not_after && DateTime.compare(now, cert.not_after) != :lt do
+          %{
+            status: "revoked",
+            revoked_at: cert.not_after,
+            reason: "certificate_expired",
+            serial_number: cert.serial_number
+          }
+        else
+          %{
+            status: "good",
+            serial_number: cert.serial_number,
+            not_after: cert.not_after
+          }
+        end
     end
   end
 end

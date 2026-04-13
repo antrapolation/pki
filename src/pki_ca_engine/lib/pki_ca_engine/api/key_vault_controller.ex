@@ -5,6 +5,7 @@ defmodule PkiCaEngine.Api.KeyVaultController do
   """
 
   import Plug.Conn
+  require Logger
   alias PkiCaEngine.KeyVault
   alias PkiCaEngine.Api.Helpers
 
@@ -52,7 +53,8 @@ defmodule PkiCaEngine.Api.KeyVaultController do
         json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
 
       {:error, reason} ->
-        json(conn, 422, %{error: inspect(reason)})
+        Logger.error("KeyVault registration failed: #{inspect(reason)}")
+        json(conn, 422, %{error: "registration_failed"})
     end
     end  # closes is_nil guard
   end
@@ -67,7 +69,8 @@ defmodule PkiCaEngine.Api.KeyVaultController do
           json(conn, 201, %{id: grant.id, managed_keypair_id: grant.managed_keypair_id, credential_id: grant.credential_id})
 
         {:error, reason} ->
-          json(conn, 422, %{error: inspect(reason)})
+          Logger.error("KeyVault grant_access failed: #{inspect(reason)}")
+          json(conn, 422, %{error: "grant_failed"})
       end
     else
       {:error, :invalid_base64} ->
@@ -104,7 +107,8 @@ defmodule PkiCaEngine.Api.KeyVaultController do
         json(conn, 404, %{error: "not_found"})
 
       {:error, reason} ->
-        json(conn, 422, %{error: inspect(reason)})
+        Logger.error("KeyVault activation failed: #{inspect(reason)}")
+        json(conn, 422, %{error: "activation_failed"})
     end
   end
 
@@ -119,7 +123,8 @@ defmodule PkiCaEngine.Api.KeyVaultController do
         json(conn, 404, %{error: "grant_not_found"})
 
       {:error, reason} ->
-        json(conn, 422, %{error: inspect(reason)})
+        Logger.error("KeyVault revoke_grant failed: #{inspect(reason)}")
+        json(conn, 422, %{error: "revoke_failed"})
     end
   end
 

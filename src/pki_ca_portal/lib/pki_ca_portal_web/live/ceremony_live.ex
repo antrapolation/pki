@@ -649,9 +649,14 @@ defmodule PkiCaPortalWeb.CeremonyLive do
   end
 
   defp tenant_opts(socket) do
-    case socket.assigns[:tenant_id] do
+    opts = case socket.assigns[:tenant_id] do
       nil -> []
       tid -> [tenant_id: tid]
+    end
+
+    case get_in(socket.assigns, [:current_user, :role]) do
+      nil -> opts
+      role -> [{:user_role, role} | opts]
     end
   end
 
@@ -669,10 +674,11 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   defp format_error({:validation_error, errors}) when is_map(errors) do
     errors
-    |> Enum.map(fn {k, v} -> "#{k}: #{inspect(v)}" end)
-    |> Enum.join(", ")
+    |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(List.wrap(v), ", ")}" end)
+    |> Enum.join("; ")
   end
-  defp format_error(reason), do: inspect(reason)
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(_reason), do: "an unexpected error occurred"
 
   defp parse_int(v) when is_integer(v), do: v
   defp parse_int(v) when is_binary(v) do

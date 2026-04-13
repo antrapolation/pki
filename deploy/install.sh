@@ -7,7 +7,7 @@
 # What this does:
 #   1. Creates the 'pki' OS user
 #   2. Sets up /opt/pki/ directory structure
-#   3. Installs system packages (Erlang/OTP 25 via apt, Elixir 1.18 via GitHub, PostgreSQL, SoftHSM2, Caddy)
+#   3. Installs system packages (Erlang/OTP via apt, Elixir 1.18 via GitHub, PostgreSQL, SoftHSM2, Caddy)
 #   4. Generates per-service Erlang cookies
 #   5. Configures SoftHSM2 token directory permissions
 #   6. Enables and starts PostgreSQL
@@ -21,6 +21,15 @@ die()     { echo -e "${RED}[install] ERROR:${NC} $*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Run as root: sudo bash deploy/install.sh"
 
+# ── 0. VPS hardening (skip if already done) ─────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -f /etc/sysctl.d/99-pki-hardening.conf ]]; then
+  info "Running VPS security hardening..."
+  bash "${SCRIPT_DIR}/secure-vps.sh"
+else
+  info "VPS already hardened (sysctl conf exists), skipping."
+fi
+
 # ── 1. Create pki user ───────────────────────────────────────────────────────
 if ! id pki &>/dev/null; then
   info "Creating 'pki' system user..."
@@ -31,7 +40,7 @@ fi
 
 # ── 2. Directory structure ───────────────────────────────────────────────────
 info "Creating /opt/pki directory structure..."
-mkdir -p /opt/pki/{releases/{ca_engine,ra_engine,ca_portal,ra_portal,platform_portal,validation},.cookies,logs}
+mkdir -p /opt/pki/{releases/{engines,portals,audit},.cookies,logs}
 chown -R pki:pki /opt/pki
 chmod 750 /opt/pki/.cookies
 
@@ -43,11 +52,12 @@ apt-get install -y --no-install-recommends \
   erlang-nox \
   postgresql postgresql-client \
   softhsm2 \
+  argon2 \
   libssl-dev
 
 # Elixir 1.18.x from GitHub releases (Ubuntu 24.04 ships Elixir 1.14 — too old)
 ELIXIR_VSN="1.18.4"
-OTP_MAJOR="25"   # matches Ubuntu 24.04's erlang-nox (OTP 25.3)
+OTP_MAJOR="25"   # matches Ubuntu 22.04 erlang-nox; releases bundle their own ERTS
 if ! command -v elixir &>/dev/null || \
    ! elixir --version 2>/dev/null | grep -q "^Elixir 1\.1[89]\|^Elixir 1\.[2-9]"; then
   info "Installing Elixir ${ELIXIR_VSN} (OTP ${OTP_MAJOR}) from GitHub releases..."
@@ -73,7 +83,7 @@ fi
 
 # ── 4. Per-service Erlang cookies ────────────────────────────────────────────
 info "Generating Erlang cookies..."
-for svc in ca_engine ra_engine ca_portal ra_portal platform_portal validation; do
+for svc in engines portals audit; do
   cookie_file="/opt/pki/.cookies/${svc}"
   if [[ ! -f "$cookie_file" ]]; then
     openssl rand -hex 32 > "$cookie_file"
@@ -115,7 +125,6 @@ systemctl start postgresql
 
 # ── 7. Caddy ─────────────────────────────────────────────────────────────────
 info "Copying Caddyfile..."
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "${SCRIPT_DIR}/../Caddyfile" ]]; then
   cp "${SCRIPT_DIR}/../Caddyfile" /etc/caddy/Caddyfile
   chown root:caddy /etc/caddy/Caddyfile
@@ -132,24 +141,20 @@ for svc_file in "${SCRIPT_DIR}/systemd/"*.service; do
 done
 systemctl daemon-reload
 
-# ── 9. .env file ─────────────────────────────────────────────────────────────
+# ── 9. Generate .env file ────────────────────────────────────────────────────
 if [[ ! -f /opt/pki/.env ]]; then
-  if [[ -f "${SCRIPT_DIR}/.env.production" ]]; then
-    cp "${SCRIPT_DIR}/.env.production" /opt/pki/.env
-    chown pki:pki /opt/pki/.env
-    chmod 600 /opt/pki/.env
-    warn "Copied .env.production to /opt/pki/.env — EDIT IT before starting services!"
-  fi
+  info "Generating .env with fresh secrets..."
+  bash "${SCRIPT_DIR}/generate-env.sh"
 else
-  info "/opt/pki/.env already exists, skipping."
+  info "/opt/pki/.env already exists, skipping. Use 'bash deploy/generate-env.sh --force' to regenerate."
 fi
 
 echo ""
 echo -e "${GREEN}Installation complete.${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Edit /opt/pki/.env with your actual secrets"
-echo "  2. Run: sudo -u postgres psql -f scripts/init-databases.sh"
-echo "  3. Run: bash deploy/build.sh   (on build machine)"
-echo "  4. Run: bash deploy/deploy.sh  (on this server)"
-echo "  5. Run: systemctl start caddy"
+echo "  1. Review /opt/pki/.env:  sudo cat /opt/pki/.env"
+echo "  2. (Optional) Re-generate interactively:  sudo bash deploy/generate-env.sh --force --interactive"
+echo "  3. Build releases on build machine:  source .env && bash deploy/build.sh"
+echo "  4. Copy tarballs:  scp deploy/releases/*.tar.gz pki@server:~/pki/deploy/releases/"
+echo "  5. Deploy:  sudo bash deploy/deploy.sh setup"

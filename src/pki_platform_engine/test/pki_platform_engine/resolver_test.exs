@@ -13,6 +13,7 @@ defmodule PkiPlatformEngine.ResolverTest do
     defaults = %{
       name: "Test Tenant #{System.unique_integer([:positive])}",
       slug: "test-slug-#{System.unique_integer([:positive])}",
+      email: "test#{System.unique_integer([:positive])}@example.com",
       database_name: "pki_tenant_fake_#{System.unique_integer([:positive])}",
       status: "active"
     }

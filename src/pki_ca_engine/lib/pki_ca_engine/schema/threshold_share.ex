@@ -29,7 +29,7 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     |> validate_number(:share_index, greater_than: 0)
     |> validate_length(:key_label, max: 64)
     |> foreign_key_constraint(:issuer_key_id)
-    |> unique_constraint([:issuer_key_id, :custodian_user_id, :share_index])
+    |> unique_constraint([:issuer_key_id, :custodian_user_id], name: :threshold_shares_issuer_key_id_custodian_user_id_index)
     |> maybe_generate_id()
   end
 
@@ -40,7 +40,7 @@ defmodule PkiCaEngine.Schema.ThresholdShare do
     |> validate_number(:share_index, greater_than: 0)
     |> validate_length(:key_label, max: 64)
     |> foreign_key_constraint(:issuer_key_id)
-    |> unique_constraint([:issuer_key_id, :custodian_user_id, :share_index])
+    |> unique_constraint([:issuer_key_id, :custodian_user_id], name: :threshold_shares_issuer_key_id_custodian_user_id_index)
     |> maybe_generate_id()
   end
 

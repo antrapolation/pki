@@ -22,13 +22,14 @@ defmodule PkiCaEngine.KeyVaultIntegrationTest do
     # Create an admin user with credentials
     {:ok, admin} =
       CredentialManager.create_user_with_credentials(
+        nil,
         ca.id,
         %{username: "integ-admin-#{System.unique_integer([:positive])}", display_name: "Admin", role: "ca_admin"},
         @admin_password
       )
 
-    admin_kem_cred = CredentialManager.get_kem_credential(admin.id)
-    admin_signing_cred = CredentialManager.get_signing_credential(admin.id)
+    admin_kem_cred = CredentialManager.get_kem_credential(nil, admin.id)
+    admin_signing_cred = CredentialManager.get_signing_credential(nil, admin.id)
 
     # Initialize ACL with admin's KEM public key
     {:ok, acl_result} = KeypairACL.initialize(ca.id, admin_kem_cred.public_key)

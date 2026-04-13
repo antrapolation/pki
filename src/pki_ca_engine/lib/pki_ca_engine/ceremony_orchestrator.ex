@@ -313,10 +313,15 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     encrypt_result =
       Enum.zip(db_shares, raw_shares)
       |> Enum.reduce_while({:ok, []}, fn {db_share, raw_share}, {:ok, acc} ->
-        password = Map.fetch!(passwords, db_share.custodian_user_id)
-        case ShareEncryption.encrypt_share(raw_share, password) do
-          {:ok, encrypted} -> {:cont, {:ok, [{db_share, encrypted} | acc]}}
-          {:error, reason} -> {:halt, {:error, {:share_encryption_failed, reason}}}
+        case Map.fetch(passwords, db_share.custodian_user_id) do
+          {:ok, password} ->
+            case ShareEncryption.encrypt_share(raw_share, password) do
+              {:ok, encrypted} -> {:cont, {:ok, [{db_share, encrypted} | acc]}}
+              {:error, reason} -> {:halt, {:error, {:share_encryption_failed, reason}}}
+            end
+
+          :error ->
+            {:halt, {:error, {:missing_password, db_share.custodian_user_id}}}
         end
       end)
 
@@ -339,10 +344,13 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           # Activate issuer key if root CA
           if is_root and cert_der do
             issuer_key = repo.get!(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id)
-            IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
+            case IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
               certificate_der: cert_der,
               certificate_pem: cert_pem
-            })
+            }) do
+              {:ok, _} -> :ok
+              {:error, reason} -> repo.rollback({:activate_key_failed, reason})
+            end
           end
 
           # Update ceremony to completed
@@ -506,9 +514,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     case PkiOqsNif.sign(oqs_algo, private_key, digest) do
       {:ok, signature} ->
         cert_map = Map.put(tbs, :signature, Base.encode64(signature))
-        cert_json = Jason.encode!(cert_map)
-        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_json)}\n-----END PKI CERTIFICATE-----\n"
-        {:ok, cert_json, cert_pem}
+        # PQC certs use JSON encoding (no ASN.1 encoder yet); stored in cert_der column as bytes
+        cert_bytes = Jason.encode!(cert_map)
+        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_bytes)}\n-----END PKI CERTIFICATE-----\n"
+        {:ok, cert_bytes, cert_pem}
 
       {:error, reason} ->
         {:error, {:ml_dsa_sign_failed, reason}}

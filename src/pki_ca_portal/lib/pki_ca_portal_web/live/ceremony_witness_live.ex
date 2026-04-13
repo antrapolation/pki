@@ -385,7 +385,14 @@ defmodule PkiCaPortalWeb.CeremonyWitnessLive do
     update(socket, :activity_log, fn log -> [entry | log] |> Enum.take(50) end)
   end
 
-  defp tenant_opts(socket), do: [tenant_id: socket.assigns[:tenant_id]]
+  defp tenant_opts(socket) do
+    opts = [tenant_id: socket.assigns[:tenant_id]]
+
+    case get_in(socket.assigns, [:current_user, :role]) do
+      nil -> opts
+      role -> [{:user_role, role} | opts]
+    end
+  end
 
   defp format_error({:validation_error, errors}) when is_map(errors) do
     errors

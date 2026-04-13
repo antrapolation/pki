@@ -565,13 +565,24 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   defp auth_headers(opts) do
-    [{"authorization", "Bearer #{api_secret()}"} | tenant_headers(opts)]
+    [{"authorization", "Bearer #{api_secret()}"} | context_headers(opts)]
+  end
+
+  defp context_headers(opts) do
+    tenant_headers(opts) ++ role_headers(opts)
   end
 
   defp tenant_headers(opts) do
     case Keyword.get(opts, :tenant_id) do
       nil -> []
       tenant_id -> [{"x-tenant-id", to_string(tenant_id)}]
+    end
+  end
+
+  defp role_headers(opts) do
+    case Keyword.get(opts, :user_role) do
+      nil -> []
+      role -> [{"x-user-role", to_string(role)}]
     end
   end
 

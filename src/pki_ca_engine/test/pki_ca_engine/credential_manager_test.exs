@@ -25,7 +25,7 @@ defmodule PkiCaEngine.CredentialManagerTest do
       role: "ca_admin"
     }
 
-    CredentialManager.create_user_with_credentials(ca.id, attrs, @password, opts)
+    CredentialManager.create_user_with_credentials(nil, ca.id, attrs, @password, opts)
   end
 
   # -- create_user_with_credentials --
@@ -81,7 +81,7 @@ defmodule PkiCaEngine.CredentialManagerTest do
     test "rolls back all records on invalid user attrs", %{ca: ca} do
       # Missing required username
       attrs = %{display_name: "Bad User", role: "ca_admin"}
-      assert {:error, _changeset} = CredentialManager.create_user_with_credentials(ca.id, attrs, @password)
+      assert {:error, _changeset} = CredentialManager.create_user_with_credentials(nil, ca.id, attrs, @password)
 
       # Verify no credentials were left behind
       assert Repo.all(from c in Credential) == []
@@ -94,7 +94,7 @@ defmodule PkiCaEngine.CredentialManagerTest do
     test "succeeds with correct password", %{ca: ca} do
       {:ok, user} = create_user_with_creds(ca)
 
-      assert {:ok, authed_user, session_info} = CredentialManager.authenticate(user.username, @password)
+      assert {:ok, authed_user, session_info} = CredentialManager.authenticate(nil, user.username, @password)
       assert authed_user.id == user.id
       assert is_binary(session_info.session_key)
       assert byte_size(session_info.session_key) == 32
@@ -104,17 +104,17 @@ defmodule PkiCaEngine.CredentialManagerTest do
     test "fails with wrong password", %{ca: ca} do
       {:ok, _user} = create_user_with_creds(ca)
 
-      assert {:error, :invalid_credentials} = CredentialManager.authenticate("testuser-wrong", "wrong-password")
+      assert {:error, :invalid_credentials} = CredentialManager.authenticate(nil, "testuser-wrong", "wrong-password")
     end
 
     test "fails with nonexistent user" do
-      assert {:error, :invalid_credentials} = CredentialManager.authenticate("nonexistent-user", "any-password")
+      assert {:error, :invalid_credentials} = CredentialManager.authenticate(nil, "nonexistent-user", "any-password")
     end
 
     test "fails with correct password but wrong username", %{ca: ca} do
       {:ok, _user} = create_user_with_creds(ca)
 
-      assert {:error, :invalid_credentials} = CredentialManager.authenticate("wrong-username", @password)
+      assert {:error, :invalid_credentials} = CredentialManager.authenticate(nil, "wrong-username", @password)
     end
   end
 
@@ -124,14 +124,14 @@ defmodule PkiCaEngine.CredentialManagerTest do
     test "returns signing credential for user", %{ca: ca} do
       {:ok, user} = create_user_with_creds(ca)
 
-      cred = CredentialManager.get_signing_credential(user.id)
+      cred = CredentialManager.get_signing_credential(nil, user.id)
       assert %Credential{} = cred
       assert cred.credential_type == "signing"
       assert cred.user_id == user.id
     end
 
     test "returns nil for nonexistent user" do
-      assert is_nil(CredentialManager.get_signing_credential(Uniq.UUID.uuid7()))
+      assert is_nil(CredentialManager.get_signing_credential(nil, Uniq.UUID.uuid7()))
     end
   end
 
@@ -141,14 +141,14 @@ defmodule PkiCaEngine.CredentialManagerTest do
     test "returns KEM credential for user", %{ca: ca} do
       {:ok, user} = create_user_with_creds(ca)
 
-      cred = CredentialManager.get_kem_credential(user.id)
+      cred = CredentialManager.get_kem_credential(nil, user.id)
       assert %Credential{} = cred
       assert cred.credential_type == "kem"
       assert cred.user_id == user.id
     end
 
     test "returns nil for nonexistent user" do
-      assert is_nil(CredentialManager.get_kem_credential(Uniq.UUID.uuid7()))
+      assert is_nil(CredentialManager.get_kem_credential(nil, Uniq.UUID.uuid7()))
     end
   end
 
@@ -159,18 +159,18 @@ defmodule PkiCaEngine.CredentialManagerTest do
       {:ok, user} = create_user_with_creds(ca)
       data = "important message to sign"
 
-      assert {:ok, signature} = CredentialManager.sign_with_credential(user.id, @password, data)
+      assert {:ok, signature} = CredentialManager.sign_with_credential(nil, user.id, @password, data)
       assert is_binary(signature)
 
       # Verify with public key
-      signing_cred = CredentialManager.get_signing_credential(user.id)
+      signing_cred = CredentialManager.get_signing_credential(nil, user.id)
       algo = PkiCrypto.Registry.get(signing_cred.algorithm)
       assert :ok = PkiCrypto.Algorithm.verify(algo, signing_cred.public_key, signature, data)
     end
 
     test "returns error for nonexistent user" do
       assert {:error, :credential_not_found} =
-               CredentialManager.sign_with_credential(Uniq.UUID.uuid7(), @password, "data")
+               CredentialManager.sign_with_credential(nil, Uniq.UUID.uuid7(), @password, "data")
     end
   end
 end

@@ -409,7 +409,14 @@ defmodule PkiCaPortalWeb.CeremonyCustodianLive do
   # Helpers
   # ---------------------------------------------------------------------------
 
-  defp tenant_opts(socket), do: [tenant_id: socket.assigns[:tenant_id]]
+  defp tenant_opts(socket) do
+    opts = [tenant_id: socket.assigns[:tenant_id]]
+
+    case get_in(socket.assigns, [:current_user, :role]) do
+      nil -> opts
+      role -> [{:user_role, role} | opts]
+    end
+  end
 
   defp reload_shares(socket) do
     user_id = socket.assigns.current_user[:id]

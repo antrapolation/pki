@@ -185,8 +185,22 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     {:noreply, assign(socket, user_management: user_management)}
   end
 
+  @ca_roles ~w(ca_admin key_manager auditor)
+  @ra_roles ~w(ra_admin ra_officer auditor)
+
   def handle_event("create_user", %{"portal" => portal, "username" => username, "display_name" => display_name, "email" => email, "role" => role}, socket) do
     tenant = socket.assigns.tenant
+    allowed_roles = if portal == "ca", do: @ca_roles, else: @ra_roles
+
+    if role not in allowed_roles do
+      user_management = %{socket.assigns.user_management | form_error: "Invalid role."}
+      {:noreply, assign(socket, user_management: user_management)}
+    else
+      do_create_user(tenant, portal, username, display_name, email, role, socket)
+    end
+  end
+
+  defp do_create_user(tenant, portal, username, display_name, email, role, socket) do
     ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
     ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
 
@@ -211,7 +225,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         {:noreply, assign(socket, user_management: user_management)}
 
       {:error, reason} ->
-        user_management = %{socket.assigns.user_management | form_error: inspect(reason)}
+        user_management = %{socket.assigns.user_management | form_error: sanitize_error("Failed to create user", reason)}
         {:noreply, assign(socket, user_management: user_management)}
     end
   end
@@ -225,7 +239,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             send(self(), :load_users)
             {:noreply, put_flash(socket, :info, "User suspended.")}
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to suspend user: #{inspect(reason)}")}
+            {:noreply, put_flash(socket, :error, sanitize_error("Failed to suspend user", reason))}
         end
       {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "User role not found for this tenant.")}
@@ -241,7 +255,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             send(self(), :load_users)
             {:noreply, put_flash(socket, :info, "User activated.")}
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to activate user: #{inspect(reason)}")}
+            {:noreply, put_flash(socket, :error, sanitize_error("Failed to activate user", reason))}
         end
       {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "User role not found for this tenant.")}
@@ -257,7 +271,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
             send(self(), :load_users)
             {:noreply, put_flash(socket, :info, "User removed.")}
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to remove user: #{inspect(reason)}")}
+            {:noreply, put_flash(socket, :error, sanitize_error("Failed to remove user", reason))}
         end
       {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "User role not found for this tenant.")}

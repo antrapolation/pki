@@ -1,13 +1,9 @@
 defmodule PkiPlatformEngine.ProvisionerTest do
   use ExUnit.Case, async: false
 
-  alias PkiPlatformEngine.{Provisioner, PlatformRepo, TenantRepo}
+  alias PkiPlatformEngine.{Provisioner, PlatformRepo, TenantPrefix, TenantRepo}
 
   setup do
-    # Checkout sandbox for PlatformRepo but use shared mode so
-    # the Provisioner's raw SQL (CREATE DATABASE) can see tenant records.
-    # Since CREATE/DROP DATABASE cannot run inside a transaction, we use
-    # :manual mode and clean up explicitly in each test.
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(PlatformRepo)
     Ecto.Adapters.SQL.Sandbox.mode(PlatformRepo, :auto)
     :ok
@@ -19,20 +15,83 @@ defmodule PkiPlatformEngine.ProvisionerTest do
     Provisioner.delete_tenant(tenant.id)
   end
 
-  describe "create_tenant/3" do
-    test "creates database, schemas, and inserts tenant record" do
-      {:ok, tenant} = Provisioner.create_tenant("Test Org", "test-org")
+  # ── Schema-mode provisioning (default) ────────────────────────────────
+
+  describe "create_tenant/3 (schema mode)" do
+    test "creates schemas in shared DB and inserts tenant record" do
+      {:ok, tenant} = Provisioner.create_tenant("Schema Org", "schema-org", email: "test@example.com")
 
       try do
         assert tenant.id != nil
-        assert tenant.name == "Test Org"
-        assert tenant.slug == "test-org"
+        assert tenant.name == "Schema Org"
+        assert tenant.slug == "schema-org"
+        assert tenant.schema_mode == "schema"
         assert tenant.status == "initialized"
-        assert tenant.database_name =~ ~r/^pki_tenant_[a-f0-9]+$/
-        assert tenant.signing_algorithm == "ECC-P256"
-        assert tenant.kem_algorithm == "ECDH-P256"
 
-        # Verify tenant record exists in PlatformRepo
+        # Verify schemas were created in the platform DB
+        prefixes = TenantPrefix.all_prefixes(tenant.id)
+
+        for {_key, prefix} <- prefixes do
+          {:ok, result} = PlatformRepo.query(
+            "SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1",
+            [prefix]
+          )
+          assert result.num_rows == 1, "Expected schema '#{prefix}' to exist"
+        end
+
+        # Verify CA tables exist in the tenant CA schema
+        {:ok, result} = PlatformRepo.query(
+          "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name",
+          [prefixes.ca_prefix]
+        )
+        table_names = Enum.map(result.rows, fn [name] -> name end)
+        assert "ca_instances" in table_names
+        assert "issuer_keys" in table_names
+        assert "keystores" in table_names
+
+        # Verify RA tables exist in the tenant RA schema
+        {:ok, result} = PlatformRepo.query(
+          "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name",
+          [prefixes.ra_prefix]
+        )
+        table_names = Enum.map(result.rows, fn [name] -> name end)
+        assert "csr_requests" in table_names
+        assert "cert_profiles" in table_names
+      after
+        cleanup_tenant(tenant)
+      end
+    end
+
+    test "delete removes schemas from shared DB" do
+      {:ok, tenant} = Provisioner.create_tenant("Del Schema", "del-schema", email: "test@example.com")
+      prefixes = TenantPrefix.all_prefixes(tenant.id)
+
+      {:ok, _} = Provisioner.delete_tenant(tenant.id)
+
+      # Schemas should be gone
+      for {_key, prefix} <- prefixes do
+        {:ok, result} = PlatformRepo.query(
+          "SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1",
+          [prefix]
+        )
+        assert result.num_rows == 0, "Expected schema '#{prefix}' to be dropped"
+      end
+
+      assert Provisioner.get_tenant(tenant.id) == nil
+    end
+  end
+
+  # ── Database-mode provisioning (legacy) ───────────────────────────────
+
+  describe "create_tenant/3 (database mode)" do
+    test "creates database, schemas, and inserts tenant record" do
+      {:ok, tenant} = Provisioner.create_tenant("DB Org", "db-org",
+        email: "test@example.com", schema_mode: "database")
+
+      try do
+        assert tenant.schema_mode == "database"
+        assert tenant.database_name =~ ~r/^pki_tenant_[a-f0-9]+$/
+
         assert PlatformRepo.get(PkiPlatformEngine.Tenant, tenant.id) != nil
       after
         cleanup_tenant(tenant)
@@ -40,7 +99,8 @@ defmodule PkiPlatformEngine.ProvisionerTest do
     end
 
     test "creates all 4 schemas (ca, ra, validation, audit)" do
-      {:ok, tenant} = Provisioner.create_tenant("Schema Test", "schema-test")
+      {:ok, tenant} = Provisioner.create_tenant("DB Schema Test", "db-schema-test",
+        email: "test@example.com", schema_mode: "database")
 
       try do
         for schema <- ["ca", "ra", "validation", "audit"] do
@@ -59,11 +119,42 @@ defmodule PkiPlatformEngine.ProvisionerTest do
       end
     end
 
-    test "returns changeset error for duplicate slug without creating database" do
-      {:ok, tenant} = Provisioner.create_tenant("First Org", "dup-slug")
+    test "delete drops database and removes tenant record" do
+      {:ok, tenant} = Provisioner.create_tenant("DB Del Test", "db-del-test",
+        email: "test@example.com", schema_mode: "database")
+      db_name = tenant.database_name
+
+      {:ok, _} = Provisioner.delete_tenant(tenant.id)
+
+      assert Provisioner.get_tenant(tenant.id) == nil
+
+      {:ok, admin_conn} = Postgrex.start_link(
+        hostname: "localhost",
+        port: 5434,
+        username: "postgres",
+        password: "postgres",
+        database: "postgres"
+      )
+
+      {:ok, result} = Postgrex.query(
+        admin_conn,
+        "SELECT 1 FROM pg_database WHERE datname = $1",
+        [db_name]
+      )
+
+      GenServer.stop(admin_conn)
+      assert result.num_rows == 0, "Expected database #{db_name} to be dropped"
+    end
+  end
+
+  # ── Shared behavior ───────────────────────────────────────────────────
+
+  describe "create_tenant/3 (validation)" do
+    test "returns changeset error for duplicate slug without side effects" do
+      {:ok, tenant} = Provisioner.create_tenant("First Org", "dup-slug", email: "test@example.com")
 
       try do
-        {:error, changeset} = Provisioner.create_tenant("Second Org", "dup-slug")
+        {:error, changeset} = Provisioner.create_tenant("Second Org", "dup-slug", email: "test2@example.com")
         assert %{slug: ["has already been taken"]} = errors_on(changeset)
       after
         cleanup_tenant(tenant)
@@ -71,42 +162,26 @@ defmodule PkiPlatformEngine.ProvisionerTest do
     end
 
     test "returns changeset error for invalid slug" do
-      {:error, changeset} = Provisioner.create_tenant("Bad Slug", "INVALID!")
+      {:error, changeset} = Provisioner.create_tenant("Bad Slug", "INVALID!", email: "test@example.com")
       assert %{slug: _} = errors_on(changeset)
     end
 
     test "returns changeset error for missing name" do
-      {:error, changeset} = Provisioner.create_tenant(nil, "valid-slug")
+      {:error, changeset} = Provisioner.create_tenant(nil, "valid-slug", email: "test@example.com")
       assert %{name: ["can't be blank"]} = errors_on(changeset)
-    end
-
-    test "accepts custom signing and kem algorithms" do
-      {:ok, tenant} = Provisioner.create_tenant(
-        "PQC Org", "pqc-org",
-        signing_algorithm: "ML-DSA-65",
-        kem_algorithm: "ML-KEM-768"
-      )
-
-      try do
-        assert tenant.signing_algorithm == "ML-DSA-65"
-        assert tenant.kem_algorithm == "ML-KEM-768"
-      after
-        cleanup_tenant(tenant)
-      end
     end
   end
 
   describe "list_tenants/0" do
     test "returns all tenants ordered by inserted_at desc" do
-      {:ok, t1} = Provisioner.create_tenant("List Org A", "list-org-a")
-      {:ok, t2} = Provisioner.create_tenant("List Org B", "list-org-b")
+      {:ok, t1} = Provisioner.create_tenant("List Org A", "list-org-a", email: "test@example.com")
+      {:ok, t2} = Provisioner.create_tenant("List Org B", "list-org-b", email: "test2@example.com")
 
       try do
         tenants = Provisioner.list_tenants()
         slugs = Enum.map(tenants, & &1.slug)
         assert "list-org-a" in slugs
         assert "list-org-b" in slugs
-        # Most recent first
         assert length(tenants) >= 2
       after
         cleanup_tenant(t2)
@@ -117,7 +192,7 @@ defmodule PkiPlatformEngine.ProvisionerTest do
 
   describe "get_tenant/1 and get_tenant_by_slug/1" do
     test "get_tenant returns tenant by id" do
-      {:ok, tenant} = Provisioner.create_tenant("Get Test", "get-test")
+      {:ok, tenant} = Provisioner.create_tenant("Get Test", "get-test", email: "test@example.com")
 
       try do
         found = Provisioner.get_tenant(tenant.id)
@@ -133,7 +208,7 @@ defmodule PkiPlatformEngine.ProvisionerTest do
     end
 
     test "get_tenant_by_slug returns tenant by slug" do
-      {:ok, tenant} = Provisioner.create_tenant("Slug Test", "slug-test")
+      {:ok, tenant} = Provisioner.create_tenant("Slug Test", "slug-test", email: "test@example.com")
 
       try do
         found = Provisioner.get_tenant_by_slug("slug-test")
@@ -150,13 +225,12 @@ defmodule PkiPlatformEngine.ProvisionerTest do
 
   describe "suspend_tenant/1" do
     test "changes status to suspended" do
-      {:ok, tenant} = Provisioner.create_tenant("Suspend Test", "suspend-test")
+      {:ok, tenant} = Provisioner.create_tenant("Suspend Test", "suspend-test", email: "test@example.com")
 
       try do
         {:ok, suspended} = Provisioner.suspend_tenant(tenant.id)
         assert suspended.status == "suspended"
 
-        # Verify in database
         reloaded = Provisioner.get_tenant(tenant.id)
         assert reloaded.status == "suspended"
       after
@@ -171,7 +245,7 @@ defmodule PkiPlatformEngine.ProvisionerTest do
 
   describe "activate_tenant/1" do
     test "changes status to active" do
-      {:ok, tenant} = Provisioner.create_tenant("Activate Test", "activate-test")
+      {:ok, tenant} = Provisioner.create_tenant("Activate Test", "activate-test", email: "test@example.com")
 
       try do
         {:ok, active} = Provisioner.activate_tenant(tenant.id)
@@ -190,34 +264,6 @@ defmodule PkiPlatformEngine.ProvisionerTest do
   end
 
   describe "delete_tenant/1" do
-    test "drops database and removes tenant record" do
-      {:ok, tenant} = Provisioner.create_tenant("Delete Test", "delete-test")
-      db_name = tenant.database_name
-
-      {:ok, _} = Provisioner.delete_tenant(tenant.id)
-
-      # Tenant record should be gone
-      assert Provisioner.get_tenant(tenant.id) == nil
-
-      # Database should be gone — verify by querying pg_database
-      {:ok, admin_conn} = Postgrex.start_link(
-        hostname: "localhost",
-        port: 5434,
-        username: "postgres",
-        password: "postgres",
-        database: "postgres"
-      )
-
-      {:ok, result} = Postgrex.query(
-        admin_conn,
-        "SELECT 1 FROM pg_database WHERE datname = $1",
-        [db_name]
-      )
-
-      GenServer.stop(admin_conn)
-      assert result.num_rows == 0, "Expected database #{db_name} to be dropped"
-    end
-
     test "returns error for unknown tenant" do
       assert {:error, :not_found} = Provisioner.delete_tenant(Uniq.UUID.uuid7())
     end

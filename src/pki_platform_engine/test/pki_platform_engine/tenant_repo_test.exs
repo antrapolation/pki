@@ -131,7 +131,7 @@ defmodule PkiPlatformEngine.TenantRepoTest do
 
   describe "with_tenant/3" do
     test "executes function in tenant context and returns result" do
-      result = TenantRepo.with_tenant(@test_db, "ca", fn ->
+      {:ok, result} = TenantRepo.with_tenant(@test_db, "ca", fn ->
         TenantRepo.query!("SELECT name FROM users ORDER BY name")
       end)
 
@@ -140,11 +140,11 @@ defmodule PkiPlatformEngine.TenantRepoTest do
     end
 
     test "switches schema prefix correctly" do
-      ca_result = TenantRepo.with_tenant(@test_db, "ca", fn ->
+      {:ok, ca_result} = TenantRepo.with_tenant(@test_db, "ca", fn ->
         TenantRepo.query!("SELECT count(*) FROM users")
       end)
 
-      ra_result = TenantRepo.with_tenant(@test_db, "ra", fn ->
+      {:ok, ra_result} = TenantRepo.with_tenant(@test_db, "ra", fn ->
         TenantRepo.query!("SELECT count(*) FROM users")
       end)
 
@@ -160,7 +160,7 @@ defmodule PkiPlatformEngine.TenantRepoTest do
         slug: "test"
       }
 
-      result = TenantRepo.with_tenant(tenant, "ra", fn ->
+      {:ok, result} = TenantRepo.with_tenant(tenant, "ra", fn ->
         TenantRepo.query!("SELECT name FROM users")
       end)
 
@@ -168,11 +168,11 @@ defmodule PkiPlatformEngine.TenantRepoTest do
     end
 
     test "can write and read data within tenant context" do
-      TenantRepo.with_tenant(@test_db, "ra", fn ->
+      {:ok, _} = TenantRepo.with_tenant(@test_db, "ra", fn ->
         TenantRepo.query!("INSERT INTO users (name, role) VALUES ('Dave', 'auditor')")
       end)
 
-      result = TenantRepo.with_tenant(@test_db, "ra", fn ->
+      {:ok, result} = TenantRepo.with_tenant(@test_db, "ra", fn ->
         TenantRepo.query!("SELECT name FROM users WHERE role = 'auditor'")
       end)
 
@@ -185,7 +185,7 @@ defmodule PkiPlatformEngine.TenantRepoTest do
     end
 
     test "cleans up dynamic repo after execution" do
-      _result = TenantRepo.with_tenant(@test_db, "ca", fn ->
+      {:ok, _result} = TenantRepo.with_tenant(@test_db, "ca", fn ->
         TenantRepo.query!("SELECT 1")
       end)
 

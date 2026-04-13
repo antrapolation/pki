@@ -119,7 +119,7 @@ defmodule PkiCaEngine.EngineTest do
         end
 
       {:ok, {ceremony, issuer_key}} =
-        SyncCeremony.initiate(ctx.ca.id, %{
+        SyncCeremony.initiate(nil, ctx.ca.id, %{
           algorithm: "RSA-4096",
           keystore_id: keystore.id,
           threshold_k: 2,
@@ -133,12 +133,16 @@ defmodule PkiCaEngine.EngineTest do
         Enum.map(custodians, fn user -> {user.id, "password-#{user.id}"} end)
 
       {:ok, 3} =
-        SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
+        SyncCeremony.distribute_shares(nil, ceremony, keypair.private_key, custodian_passwords)
 
       # Complete ceremony as root with real self-signed certificate
       {cert_der, cert_pem} =
         PkiCaEngine.IntegrationHelpers.generate_self_signed_root_cert(keypair.private_key)
-      {:ok, _completed} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
+      {:ok, _completed} = SyncCeremony.complete_as_root(nil, ceremony, cert_der, cert_pem)
+
+      # Bring CA back online (auto-offlined after root ceremony)
+      ca = Repo.get!(CaInstance, ctx.ca.id)
+      ca |> CaInstance.changeset(%{is_offline: false}) |> Repo.update!()
 
       # Start KeyActivation and activate key
       activation_name = :"test_engine_activation_#{System.unique_integer([:positive])}"
@@ -169,7 +173,7 @@ defmodule PkiCaEngine.EngineTest do
 
       assert {:ok, cert} =
                Engine.sign_certificate(
-                 "default",
+                 nil,
                  ctx.ca.id,
                  ctx.issuer_key.id,
                  csr_data,

@@ -41,7 +41,7 @@ defmodule PkiCaEngine.KeyCeremony.AsyncCeremonyTest do
 
     # Create a ceremony + issuer_key via SyncCeremony.initiate (reuse existing logic)
     {:ok, {ceremony, _issuer_key}} =
-      SyncCeremony.initiate(ca.id, %{
+      SyncCeremony.initiate(nil, ca.id, %{
         algorithm: "ECC-P256",
         keystore_id: keystore.id,
         threshold_k: 2,

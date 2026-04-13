@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# deploy/build.sh — Build all Mix releases for production
+# deploy/build.sh — Build 3 consolidated Mix releases for production
 #
 # Run on your build machine (or CI) from the repo root:
 #   bash deploy/build.sh
 #
 # Outputs tarballs to deploy/releases/:
-#   deploy/releases/pki_ca_engine-<vsn>.tar.gz
-#   deploy/releases/pki_ra_engine-<vsn>.tar.gz
-#   ...
+#   deploy/releases/pki_engines-<vsn>.tar.gz
+#   deploy/releases/pki_portals-<vsn>.tar.gz
+#   deploy/releases/pki_audit-<vsn>.tar.gz
 #
 # The signing salts are baked in at compile time — source your .env first:
 #   source .env && bash deploy/build.sh
@@ -15,7 +15,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$REPO_ROOT/src"
 OUT="$REPO_ROOT/deploy/releases"
 mkdir -p "$OUT"
 
@@ -25,38 +24,37 @@ warn()  { echo -e "${YELLOW}[build]${NC} $*"; }
 die()   { echo -e "${RED}[build] ERROR:${NC} $*" >&2; exit 1; }
 
 # Ensure signing salts are available at compile time
-[[ -n "${CA_PORTAL_SIGNING_SALT:-}" ]]   || warn "CA_PORTAL_SIGNING_SALT not set — using hardcoded default"
-[[ -n "${RA_PORTAL_SIGNING_SALT:-}" ]]   || warn "RA_PORTAL_SIGNING_SALT not set — using hardcoded default"
-[[ -n "${PLATFORM_SIGNING_SALT:-}" ]]    || warn "PLATFORM_SIGNING_SALT not set — using hardcoded default"
+[[ -n "${CA_PORTAL_SIGNING_SALT:-}" ]]   || die "CA_PORTAL_SIGNING_SALT not set — set it in .env before building"
+[[ -n "${RA_PORTAL_SIGNING_SALT:-}" ]]   || die "RA_PORTAL_SIGNING_SALT not set — set it in .env before building"
+[[ -n "${PLATFORM_SIGNING_SALT:-}" ]]    || die "PLATFORM_SIGNING_SALT not set — set it in .env before building"
+[[ -n "${CA_PORTAL_ENCRYPTION_SALT:-}" ]]   || die "CA_PORTAL_ENCRYPTION_SALT not set — set it in .env before building"
+[[ -n "${RA_PORTAL_ENCRYPTION_SALT:-}" ]]   || die "RA_PORTAL_ENCRYPTION_SALT not set — set it in .env before building"
+[[ -n "${PLATFORM_ENCRYPTION_SALT:-}" ]]    || die "PLATFORM_ENCRYPTION_SALT not set — set it in .env before building"
 
-build_service() {
-  local name="$1"      # pki_ca_engine
-  local dir="$2"       # src/pki_ca_engine
+cd "$REPO_ROOT"
 
-  info "Building $name..."
-  cd "$REPO_ROOT/$dir"
+# ── Fetch deps and compile assets ────────────────────────────────────────────
+info "Fetching dependencies..."
+MIX_ENV=prod mix deps.get --only prod
 
-  MIX_ENV=prod mix deps.get --only prod
-  MIX_ENV=prod mix assets.deploy 2>/dev/null || true   # portals only
-  MIX_ENV=prod mix release --overwrite
+info "Deploying assets (portals)..."
+MIX_ENV=prod mix assets.deploy 2>/dev/null || true
 
-  # Find the generated release tarball or create one
-  local rel_dir="_build/prod/rel/${name}"
-  local vsn
-  vsn=$(cat "${rel_dir}/releases/start_erl.data" | awk '{print $2}' 2>/dev/null || echo "0.1.0")
+# ── Build releases ───────────────────────────────────────────────────────────
+RELEASES=(pki_engines pki_portals pki_audit)
 
-  local tarball="${OUT}/${name}-${vsn}.tar.gz"
-  tar -czf "$tarball" -C "${rel_dir}" .
+for release in "${RELEASES[@]}"; do
+  info "Building release: $release..."
+  MIX_ENV=prod mix release "$release" --overwrite
+
+  # Package the release as a tarball
+  local_rel_dir="_build/prod/rel/${release}"
+  vsn=$(cat "${local_rel_dir}/releases/start_erl.data" | awk '{print $2}' 2>/dev/null || echo "0.2.0")
+
+  tarball="${OUT}/${release}-${vsn}.tar.gz"
+  tar -czf "$tarball" -C "${local_rel_dir}" .
   info "  → ${tarball}"
-}
-
-# Services in dependency order
-build_service pki_ca_engine   src/pki_ca_engine
-build_service pki_ra_engine   src/pki_ra_engine
-build_service pki_validation  src/pki_validation
-build_service pki_ca_portal   src/pki_ca_portal
-build_service pki_ra_portal   src/pki_ra_portal
-build_service pki_platform_portal src/pki_platform_portal
+done
 
 echo ""
 info "All releases built in deploy/releases/"

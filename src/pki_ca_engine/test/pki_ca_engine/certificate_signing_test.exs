@@ -42,7 +42,7 @@ defmodule PkiCaEngine.CertificateSigningTest do
       end
 
     {:ok, {ceremony, issuer_key}} =
-      SyncCeremony.initiate(ca.id, %{
+      SyncCeremony.initiate(nil, ca.id, %{
         algorithm: "RSA-4096",
         keystore_id: keystore.id,
         threshold_k: 2,
@@ -56,12 +56,16 @@ defmodule PkiCaEngine.CertificateSigningTest do
       Enum.map(custodians, fn user -> {user.id, "password-#{user.id}"} end)
 
     {:ok, 3} =
-      SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
+      SyncCeremony.distribute_shares(nil, ceremony, keypair.private_key, custodian_passwords)
 
     # Complete ceremony as root with a real self-signed certificate
     {cert_der, cert_pem} =
       PkiCaEngine.IntegrationHelpers.generate_self_signed_root_cert(keypair.private_key)
-    {:ok, _completed} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
+    {:ok, _completed} = SyncCeremony.complete_as_root(nil, ceremony, cert_der, cert_pem)
+
+    # Bring CA back online (auto-offlined after root ceremony)
+    ca = Repo.get!(CaInstance, ca.id)
+    ca |> CaInstance.changeset(%{is_offline: false}) |> Repo.update!()
 
     # Start a KeyActivation server and activate the key
     activation_name = :"test_signing_activation_#{System.unique_integer([:positive])}"
@@ -132,18 +136,19 @@ defmodule PkiCaEngine.CertificateSigningTest do
     end
 
     test "generates unique serial numbers for each certificate", ctx do
-      csr_data = ctx.csr_pem
       cert_profile = %{validity_days: 365, subject_dn: "CN=test.example.com,O=Test"}
 
+      {csr_pem1, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr("/CN=serial1.example.com/O=Test")
       {:ok, cert1} =
         CertificateSigning.sign_certificate(
-          nil, ctx.issuer_key.id, csr_data, cert_profile,
+          nil, ctx.issuer_key.id, csr_pem1, cert_profile,
           activation_server: ctx.activation_server
         )
 
+      {csr_pem2, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr("/CN=serial2.example.com/O=Test")
       {:ok, cert2} =
         CertificateSigning.sign_certificate(
-          nil, ctx.issuer_key.id, csr_data, cert_profile,
+          nil, ctx.issuer_key.id, csr_pem2, cert_profile,
           activation_server: ctx.activation_server
         )
 
@@ -242,19 +247,19 @@ defmodule PkiCaEngine.CertificateSigningTest do
 
   describe "list_certificates/2" do
     test "lists certificates by issuer_key_id", ctx do
-      csr_data = ctx.csr_pem
-
+      {csr1, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr("/CN=list1.example.com/O=Test")
       {:ok, _cert1} =
         CertificateSigning.sign_certificate(
-          nil, ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn:"CN=list1.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr1,
+          %{validity_days: 365, subject_dn: "CN=list1.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 
+      {csr2, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr("/CN=list2.example.com/O=Test")
       {:ok, _cert2} =
         CertificateSigning.sign_certificate(
-          nil, ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn:"CN=list2.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr2,
+          %{validity_days: 365, subject_dn: "CN=list2.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 
@@ -263,21 +268,21 @@ defmodule PkiCaEngine.CertificateSigningTest do
     end
 
     test "filters certificates by status", ctx do
-      csr_data = ctx.csr_pem
-
+      {csr1, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr("/CN=active.example.com/O=Test")
       # This cert has DN "active" but will be revoked below
       {:ok, cert_to_revoke} =
         CertificateSigning.sign_certificate(
-          nil, ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn:"CN=active.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr1,
+          %{validity_days: 365, subject_dn: "CN=active.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 
+      {csr2, _} = PkiCaEngine.IntegrationHelpers.generate_test_csr("/CN=revoked.example.com/O=Test")
       # This cert has DN "revoked" but actually stays active (never revoked)
       {:ok, _cert_stays_active} =
         CertificateSigning.sign_certificate(
-          nil, ctx.issuer_key.id, csr_data,
-          %{validity_days: 365, subject_dn:"CN=revoked.example.com,O=Test"},
+          nil, ctx.issuer_key.id, csr2,
+          %{validity_days: 365, subject_dn: "CN=revoked.example.com,O=Test"},
           activation_server: ctx.activation_server
         )
 

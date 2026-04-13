@@ -21,9 +21,18 @@ defmodule PkiPlatformPortalWeb.SetupLive do
 
   @impl true
   def handle_event("create_admin", params, socket) do
-    %{"username" => username, "display_name" => display_name, "password" => password, "password_confirmation" => confirmation} = params
+    username = String.trim(Map.get(params, "username", ""))
+    display_name = String.trim(Map.get(params, "display_name", ""))
+    password = Map.get(params, "password", "")
+    confirmation = Map.get(params, "password_confirmation", "")
 
     cond do
+      username == "" ->
+        {:noreply, assign(socket, form_error: "Username is required.")}
+
+      display_name == "" ->
+        {:noreply, assign(socket, form_error: "Display name is required.")}
+
       String.length(password) < 8 ->
         {:noreply, assign(socket, form_error: "Password must be at least 8 characters.")}
 

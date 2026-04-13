@@ -66,7 +66,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
         {:ok, root} ->
           {log ++ [{:ok, "Created Root CA: #{root_name} (#{root["id"] || root[:id]})"}], root["id"] || root[:id]}
         {:error, reason} ->
-          {log ++ [{:error, "Failed to create Root CA: #{inspect(reason)}"}], nil}
+          {log ++ [{:error, "Failed to create Root CA: #{safe_error(reason)}"}], nil}
       end
 
     # Step 2: Configure keystore for Root CA
@@ -76,7 +76,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
           {:ok, ks} ->
             {log ++ [{:ok, "Configured software keystore for Root CA"}], ks["id"] || ks[:id]}
           {:error, reason} ->
-            {log ++ [{:error, "Failed to configure Root keystore: #{inspect(reason)}"}], nil}
+            {log ++ [{:error, "Failed to configure Root keystore: #{safe_error(reason)}"}], nil}
         end
       else
         {log ++ [{:skip, "Skipped Root keystore (no Root CA)"}], nil}
@@ -98,7 +98,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
             key_info = result["issuer_key"] || result[:issuer_key] || %{}
             {log ++ [{:ok, "Root CA key ceremony complete — #{root_algo}, key: #{key_info["key_alias"] || key_info[:key_alias]}"}], key_info}
           {:error, reason} ->
-            {log ++ [{:error, "Root key ceremony failed: #{inspect(reason)}"}], nil}
+            {log ++ [{:error, "Root key ceremony failed: #{safe_error(reason)}"}], nil}
         end
       else
         {log ++ [{:skip, "Skipped Root ceremony"}], nil}
@@ -111,7 +111,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
           {:ok, sub} ->
             {log ++ [{:ok, "Created Sub-CA: #{sub_name} under #{root_name}"}], sub["id"] || sub[:id]}
           {:error, reason} ->
-            {log ++ [{:error, "Failed to create Sub-CA: #{inspect(reason)}"}], nil}
+            {log ++ [{:error, "Failed to create Sub-CA: #{safe_error(reason)}"}], nil}
         end
       else
         {log ++ [{:skip, "Skipped Sub-CA (no Root CA)"}], nil}
@@ -124,7 +124,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
           {:ok, ks} ->
             {log ++ [{:ok, "Configured software keystore for Sub-CA"}], ks["id"] || ks[:id]}
           {:error, reason} ->
-            {log ++ [{:error, "Failed to configure Sub-CA keystore: #{inspect(reason)}"}], nil}
+            {log ++ [{:error, "Failed to configure Sub-CA keystore: #{safe_error(reason)}"}], nil}
         end
       else
         {log ++ [{:skip, "Skipped Sub-CA keystore"}], nil}
@@ -146,7 +146,7 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
             key_info = result["issuer_key"] || result[:issuer_key] || %{}
             log ++ [{:ok, "Sub-CA key ceremony complete — #{sub_algo}, key: #{key_info["key_alias"] || key_info[:key_alias]}"}]
           {:error, reason} ->
-            log ++ [{:error, "Sub-CA key ceremony failed: #{inspect(reason)}"}]
+            log ++ [{:error, "Sub-CA key ceremony failed: #{safe_error(reason)}"}]
         end
       else
         log ++ [{:skip, "Skipped Sub-CA ceremony"}]
@@ -171,10 +171,21 @@ defmodule PkiCaPortalWeb.QuickSetupLive do
     {:noreply, assign(socket, log: log, running: false, done: true)}
   end
 
+  defp safe_error(reason) when is_binary(reason), do: reason
+  defp safe_error({:validation_error, errors}) when is_map(errors) do
+    Enum.map_join(errors, "; ", fn {k, v} -> "#{k}: #{Enum.join(List.wrap(v), ", ")}" end)
+  end
+  defp safe_error(_reason), do: "an unexpected error occurred"
+
   defp tenant_opts(socket) do
-    case socket.assigns[:tenant_id] do
+    opts = case socket.assigns[:tenant_id] do
       nil -> []
       tid -> [tenant_id: tid]
+    end
+
+    case get_in(socket.assigns, [:current_user, :role]) do
+      nil -> opts
+      role -> [{:user_role, role} | opts]
     end
   end
 

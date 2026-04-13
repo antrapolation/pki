@@ -1,0 +1,41 @@
+[Unit]
+Description=PKI Engines (CA Engine, RA Engine, Validation, Audit Trail)
+Documentation=https://github.com/straptrust/pki
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=pki
+Group=pki
+WorkingDirectory=/opt/pki/releases/engines
+
+EnvironmentFile=/opt/pki/.env
+Environment=CA_ENGINE_START_HTTP=true
+Environment=RA_ENGINE_START_HTTP=true
+Environment=VALIDATION_START_HTTP=true
+Environment=RELEASE_DISTRIBUTION=name
+Environment=RELEASE_NODE=pki_engines@127.0.0.1
+# All engine backends share one VM — give it more schedulers
+Environment="ELIXIR_ERL_OPTIONS=+S 4:4 +SDcpu 4:4"
+
+ExecStart=/opt/pki/releases/engines/bin/pki_engines start
+ExecStop=/opt/pki/releases/engines/bin/pki_engines stop
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Basic hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pki/releases/engines /var/lib/softhsm /tmp
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pki-engines
+
+[Install]
+WantedBy=multi-user.target

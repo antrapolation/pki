@@ -111,18 +111,9 @@ defmodule PkiPlatformEngine.TenantMigrator do
          ) do
       {:ok, conn} ->
         try do
-          # Split multi-statement SQL and execute each individually, wrapped in a transaction
-          statements =
-            sql
-            |> String.split(~r/;\s*\n/)
-            |> Enum.map(fn stmt ->
-              stmt
-              |> String.split("\n")
-              |> Enum.reject(&String.match?(&1, ~r/^\s*--/))
-              |> Enum.join("\n")
-              |> String.trim()
-            end)
-            |> Enum.reject(&(&1 == ""))
+          # Split multi-statement SQL and execute each individually, wrapped in a transaction.
+          # Respects $$ delimited blocks (PL/pgSQL DO blocks) by not splitting inside them.
+          statements = split_sql_statements(sql)
 
           # Begin transaction for atomicity
           Postgrex.query!(conn, "BEGIN", [])
@@ -219,5 +210,50 @@ defmodule PkiPlatformEngine.TenantMigrator do
     username = config[:username] || "postgres"
     password = config[:password] || "postgres"
     {hostname, port, username, password}
+  end
+
+  @doc false
+  # Splits SQL into executable statements, respecting $$ delimited blocks.
+  # Inside a $$ block, semicolons are part of PL/pgSQL and must not be split.
+  def split_sql_statements(sql) do
+    sql
+    |> split_respecting_dollar_blocks()
+    |> Enum.map(fn stmt ->
+      stmt
+      |> String.split("\n")
+      |> Enum.reject(&String.match?(&1, ~r/^\s*--/))
+      |> Enum.join("\n")
+      |> String.trim()
+    end)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp split_respecting_dollar_blocks(sql) do
+    # Split on $$ boundaries, alternating between outside/inside blocks
+    parts = String.split(sql, "$$")
+
+    {statements, _inside} =
+      Enum.reduce(parts, {[], false}, fn part, {acc, inside} ->
+        if inside do
+          # Inside $$ block — rejoin with preceding statement
+          prev = List.first(acc, "")
+          rest = Enum.drop(acc, 1)
+          {[prev <> "$$" <> part <> "$$" | rest], false}
+        else
+          # Outside $$ block — split on ; at end of line
+          new_stmts = String.split(part, ~r/;\s*\n/)
+
+          case {acc, new_stmts} do
+            {[], stmts} ->
+              {stmts, false}
+
+            {[prev | rest], [first | tail]} ->
+              # Join first fragment with previous accumulated statement
+              {Enum.reverse(tail) ++ [prev <> first | rest], false}
+          end
+        end
+      end)
+
+    Enum.reverse(statements)
   end
 end

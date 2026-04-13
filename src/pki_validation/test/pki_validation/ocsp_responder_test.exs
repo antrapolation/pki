@@ -52,10 +52,10 @@ defmodule PkiValidation.OcspResponderTest do
       assert {:ok, %{status: "unknown"}} = OcspResponder.check_status_uncached("NONEXISTENT")
     end
 
-    test "returns good for expired active certificate per RFC 6960" do
+    test "returns revoked with certificate_expired reason for expired active certificate" do
       insert_cert(@expired_cert_attrs)
 
-      assert {:ok, %{status: "good"}} =
+      assert {:ok, %{status: "revoked", reason: "certificate_expired"}} =
                OcspResponder.check_status_uncached("OCSP003")
     end
   end

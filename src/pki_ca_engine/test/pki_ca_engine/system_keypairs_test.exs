@@ -21,12 +21,13 @@ defmodule PkiCaEngine.SystemKeypairsTest do
     # Create an admin user with credentials
     {:ok, admin} =
       CredentialManager.create_user_with_credentials(
+        nil,
         ca.id,
         %{username: "syskp-admin-#{System.unique_integer([:positive])}", display_name: "Admin", role: "ca_admin"},
         @admin_password
       )
 
-    admin_kem_cred = CredentialManager.get_kem_credential(admin.id)
+    admin_kem_cred = CredentialManager.get_kem_credential(nil, admin.id)
 
     # Initialize the ACL
     {:ok, _acl_result} = KeypairACL.initialize(ca.id, admin_kem_cred.public_key)

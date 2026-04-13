@@ -28,31 +28,31 @@ defmodule PkiCaEngine.BootstrapTest do
 
   describe "setup_tenant/4" do
     test "creates admin user with credentials", %{ca: ca, admin_attrs: attrs} do
-      assert {:ok, result} = Bootstrap.setup_tenant(ca.id, attrs, @password)
+      assert {:ok, result} = Bootstrap.setup_tenant(nil, ca.id, attrs, @password)
       assert %CaUser{} = result.admin
       assert result.admin.username == attrs.username
       assert result.admin.role == "ca_admin"
     end
 
     test "admin has signing + KEM credentials", %{ca: ca, admin_attrs: attrs} do
-      assert {:ok, result} = Bootstrap.setup_tenant(ca.id, attrs, @password)
+      assert {:ok, result} = Bootstrap.setup_tenant(nil, ca.id, attrs, @password)
 
       types = Enum.map(result.admin.credentials, & &1.credential_type) |> Enum.sort()
       assert types == ["kem", "signing"]
     end
 
     test "ACL is initialized after setup", %{ca: ca, admin_attrs: attrs} do
-      assert {:ok, _result} = Bootstrap.setup_tenant(ca.id, attrs, @password)
+      assert {:ok, _result} = Bootstrap.setup_tenant(nil, ca.id, attrs, @password)
       assert KeypairACL.initialized?(ca.id)
     end
 
     test "4 system keypairs created", %{ca: ca, admin_attrs: attrs} do
-      assert {:ok, result} = Bootstrap.setup_tenant(ca.id, attrs, @password)
+      assert {:ok, result} = Bootstrap.setup_tenant(nil, ca.id, attrs, @password)
       assert length(result.system_keypairs) == 4
     end
 
     test "full result contains admin, acl, and system_keypairs", %{ca: ca, admin_attrs: attrs} do
-      assert {:ok, result} = Bootstrap.setup_tenant(ca.id, attrs, @password)
+      assert {:ok, result} = Bootstrap.setup_tenant(nil, ca.id, attrs, @password)
 
       assert Map.has_key?(result, :admin)
       assert Map.has_key?(result, :acl)
@@ -68,7 +68,7 @@ defmodule PkiCaEngine.BootstrapTest do
       invalid_attrs = %{username: nil, display_name: nil, role: "ca_admin"}
 
       assert {:error, {:admin_creation_failed, _reason}} =
-               Bootstrap.setup_tenant(ca.id, invalid_attrs, @password)
+               Bootstrap.setup_tenant(nil, ca.id, invalid_attrs, @password)
 
       # Nothing should exist
       refute KeypairACL.initialized?(ca.id)
@@ -77,7 +77,7 @@ defmodule PkiCaEngine.BootstrapTest do
 
     test "after setup, KeypairACL.initialized? returns true", %{ca: ca, admin_attrs: attrs} do
       refute KeypairACL.initialized?(ca.id)
-      assert {:ok, _result} = Bootstrap.setup_tenant(ca.id, attrs, @password)
+      assert {:ok, _result} = Bootstrap.setup_tenant(nil, ca.id, attrs, @password)
       assert KeypairACL.initialized?(ca.id)
     end
   end

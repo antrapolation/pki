@@ -20,12 +20,13 @@ defmodule PkiCaEngine.KeyCeremonyManagerTest do
     # Create an admin user with credentials so we can initialize the ACL
     {:ok, admin_user} =
       CredentialManager.create_user_with_credentials(
+        nil,
         ca.id,
         %{username: "acl-admin-#{System.unique_integer([:positive])}", display_name: "ACL Admin", role: "ca_admin"},
         @password
       )
 
-    admin_kem_cred = CredentialManager.get_kem_credential(admin_user.id)
+    admin_kem_cred = CredentialManager.get_kem_credential(nil, admin_user.id)
 
     # Initialize the ACL (required for credential_own protection mode)
     {:ok, _acl_result} = KeypairACL.initialize(ca.id, admin_kem_cred.public_key)

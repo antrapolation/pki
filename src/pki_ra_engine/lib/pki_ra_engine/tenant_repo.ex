@@ -3,6 +3,12 @@ defmodule PkiRaEngine.TenantRepo do
   Resolves the correct Ecto Repo for an RA tenant.
   Falls back to PkiRaEngine.Repo when no tenant context is provided (nil).
   Raises when a non-nil tenant_id is not found in the registry.
+
+  Supports two modes:
+  - **schema mode**: Sets a prefix in the process dictionary and returns
+    PkiRaEngine.Repo (shared pool). Repo.default_options/1 picks up the prefix.
+  - **database mode** (legacy): Uses put_dynamic_repo to route DynamicRepo
+    to the correct named process, then returns DynamicRepo.
   """
 
   alias PkiPlatformEngine.DynamicRepo
@@ -11,6 +17,10 @@ defmodule PkiRaEngine.TenantRepo do
   def ra_repo(nil), do: PkiRaEngine.Repo
   def ra_repo(tenant_id) do
     case lookup_or_start(tenant_id) do
+      {:ok, %{schema_mode: "schema", ra_prefix: prefix}} ->
+        Process.put(:pki_ecto_prefix, prefix)
+        PkiRaEngine.Repo
+
       {:ok, %{ra_repo: name}} ->
         DynamicRepo.put_dynamic_repo(name)
         DynamicRepo
@@ -24,6 +34,10 @@ defmodule PkiRaEngine.TenantRepo do
   def ra_repo_safe(nil), do: {:ok, PkiRaEngine.Repo}
   def ra_repo_safe(tenant_id) do
     case lookup_or_start(tenant_id) do
+      {:ok, %{schema_mode: "schema", ra_prefix: prefix}} ->
+        Process.put(:pki_ecto_prefix, prefix)
+        {:ok, PkiRaEngine.Repo}
+
       {:ok, %{ra_repo: name}} ->
         DynamicRepo.put_dynamic_repo(name)
         {:ok, DynamicRepo}
@@ -43,6 +57,7 @@ defmodule PkiRaEngine.TenantRepo do
           %{status: "active"} = tenant ->
             case PkiPlatformEngine.TenantSupervisor.start_tenant(tenant) do
               {:ok, _pid} -> PkiPlatformEngine.TenantRegistry.lookup(tenant_id)
+              {:ok, :schema_mode} -> PkiPlatformEngine.TenantRegistry.lookup(tenant_id)
               {:error, reason} -> {:error, {:engine_start_failed, reason}}
             end
 

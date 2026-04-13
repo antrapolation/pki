@@ -107,8 +107,7 @@ defmodule PkiRaEngine.Api.UserController do
     |> maybe_put(:password, params["password"])
     |> maybe_put(:display_name, params["display_name"])
     |> maybe_put(:role, params["role"])
-    |> maybe_put(:status, params["status"])
-    |> maybe_put(:tenant_id, params["tenant_id"])
+    # NOTE: :status and :tenant_id intentionally excluded — set by engine, not caller
     |> maybe_put(:must_change_password, params["must_change_password"])
     |> maybe_put(:credential_expires_at, params["credential_expires_at"])
   end

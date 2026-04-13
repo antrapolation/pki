@@ -53,7 +53,7 @@ defmodule PkiCaEngine.FullFlowIntegrationTest do
       end
 
     {:ok, {ceremony, issuer_key}} =
-      SyncCeremony.initiate(ca.id, %{
+      SyncCeremony.initiate(nil, ca.id, %{
         algorithm: "RSA-4096",
         keystore_id: keystore.id,
         threshold_k: 2,
@@ -67,11 +67,15 @@ defmodule PkiCaEngine.FullFlowIntegrationTest do
       Enum.map(custodians, fn user -> {user.id, "password-#{user.id}"} end)
 
     {:ok, 3} =
-      SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
+      SyncCeremony.distribute_shares(nil, ceremony, keypair.private_key, custodian_passwords)
 
     {cert_der, cert_pem} =
       PkiCaEngine.IntegrationHelpers.generate_self_signed_root_cert(keypair.private_key)
-    {:ok, _completed} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
+    {:ok, _completed} = SyncCeremony.complete_as_root(nil, ceremony, cert_der, cert_pem)
+
+    # Bring CA back online (auto-offlined after root ceremony)
+    ca = Repo.get!(PkiCaEngine.Schema.CaInstance, ca.id)
+    ca |> PkiCaEngine.Schema.CaInstance.changeset(%{is_offline: false}) |> Repo.update!()
 
     activation_name = :"fullflow_activation_#{System.unique_integer([:positive])}"
 

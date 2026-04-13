@@ -67,6 +67,7 @@ defmodule PkiCaEngine.KeyActivation do
        active_keys: %{},
        pending_shares: %{},
        custodians_submitted: %{},
+       min_shares_cache: %{},
        timeout_ms: timeout_ms
      }}
   end
@@ -109,12 +110,16 @@ defmodule PkiCaEngine.KeyActivation do
               pending = Map.get(state.pending_shares, issuer_key_id, [])
               new_pending = [decrypted_share | pending]
 
-              # Use min_shares from DB — consistent across all shares for this key
-              min_shares = repo.one(
-                from ts in ThresholdShare,
-                  where: ts.issuer_key_id == ^issuer_key_id,
-                  select: min(ts.min_shares)
-              ) || record.min_shares
+              # Cache min_shares to avoid re-querying DB on every share submission
+              min_shares = case Map.get(state.min_shares_cache, issuer_key_id) do
+                nil ->
+                  repo.one(
+                    from ts in ThresholdShare,
+                      where: ts.issuer_key_id == ^issuer_key_id,
+                      select: min(ts.min_shares)
+                  ) || record.min_shares
+                cached -> cached
+              end
 
               if length(new_pending) >= min_shares do
                 # Threshold met - reconstruct secret
@@ -130,7 +135,8 @@ defmodule PkiCaEngine.KeyActivation do
                             timer_ref: timer_ref
                           }),
                         pending_shares: Map.delete(state.pending_shares, issuer_key_id),
-                        custodians_submitted: new_submitted
+                        custodians_submitted: Map.delete(state.custodians_submitted, issuer_key_id),
+                        min_shares_cache: Map.delete(state.min_shares_cache, issuer_key_id)
                     }
 
                     {:reply, {:ok, :key_activated}, new_state}
@@ -142,7 +148,8 @@ defmodule PkiCaEngine.KeyActivation do
                 new_state = %{
                   state
                   | pending_shares: Map.put(state.pending_shares, issuer_key_id, new_pending),
-                    custodians_submitted: new_submitted
+                    custodians_submitted: new_submitted,
+                    min_shares_cache: Map.put(state.min_shares_cache, issuer_key_id, min_shares)
                 }
 
                 {:reply, {:ok, :share_accepted}, new_state}
@@ -165,7 +172,12 @@ defmodule PkiCaEngine.KeyActivation do
 
       {%{timer_ref: ref}, new_active} ->
         Process.cancel_timer(ref)
-        {:reply, :ok, %{state | active_keys: new_active}}
+        {:reply, :ok, %{state |
+          active_keys: new_active,
+          pending_shares: Map.delete(state.pending_shares, issuer_key_id),
+          custodians_submitted: Map.delete(state.custodians_submitted, issuer_key_id),
+          min_shares_cache: Map.delete(state.min_shares_cache, issuer_key_id)
+        }}
     end
   end
 
@@ -195,7 +207,11 @@ defmodule PkiCaEngine.KeyActivation do
 
   @impl true
   def handle_info({:timeout, issuer_key_id}, state) do
-    new_active = Map.delete(state.active_keys, issuer_key_id)
-    {:noreply, %{state | active_keys: new_active}}
+    {:noreply, %{state |
+      active_keys: Map.delete(state.active_keys, issuer_key_id),
+      pending_shares: Map.delete(state.pending_shares, issuer_key_id),
+      custodians_submitted: Map.delete(state.custodians_submitted, issuer_key_id),
+      min_shares_cache: Map.delete(state.min_shares_cache, issuer_key_id)
+    }}
   end
 end

@@ -25,17 +25,23 @@ defmodule PkiRaEngine.Api.ApiKeyController do
     tenant_id = conn.assigns[:tenant_id]
     attrs = build_attrs(conn.body_params)
 
-    case ApiKeyManagement.create_api_key(tenant_id, attrs) do
-      {:ok, %{raw_key: raw_key, api_key: api_key}} ->
-        result =
-          api_key
-          |> serialize_key()
-          |> Map.put(:raw_key, raw_key)
+    case validate_webhook_url_if_present(attrs) do
+      :ok ->
+        case ApiKeyManagement.create_api_key(tenant_id, attrs) do
+          {:ok, %{raw_key: raw_key, api_key: api_key}} ->
+            result =
+              api_key
+              |> serialize_key()
+              |> Map.put(:raw_key, raw_key)
 
-        json(conn, 201, result)
+            json(conn, 201, result)
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+          {:error, %Ecto.Changeset{} = changeset} ->
+            json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+        end
+
+      {:error, reason} ->
+        json(conn, 422, %{error: "invalid_webhook_url", message: reason})
     end
   end
 
@@ -43,15 +49,21 @@ defmodule PkiRaEngine.Api.ApiKeyController do
     tenant_id = conn.assigns[:tenant_id]
     attrs = build_attrs(conn.body_params)
 
-    case ApiKeyManagement.update_key(tenant_id, id, attrs) do
-      {:ok, api_key} ->
-        json(conn, 200, serialize_key(api_key))
+    case validate_webhook_url_if_present(attrs) do
+      :ok ->
+        case ApiKeyManagement.update_key(tenant_id, id, attrs) do
+          {:ok, api_key} ->
+            json(conn, 200, serialize_key(api_key))
 
-      {:error, :not_found} ->
-        json(conn, 404, %{error: "not_found"})
+          {:error, :not_found} ->
+            json(conn, 404, %{error: "not_found"})
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+          {:error, %Ecto.Changeset{} = changeset} ->
+            json(conn, 422, %{error: "validation_error", details: changeset_errors(changeset)})
+        end
+
+      {:error, reason} ->
+        json(conn, 422, %{error: "invalid_webhook_url", message: reason})
     end
   end
 
@@ -105,6 +117,11 @@ defmodule PkiRaEngine.Api.ApiKeyController do
       updated_at: api_key.updated_at
     }
   end
+
+  defp validate_webhook_url_if_present(%{webhook_url: url}) when is_binary(url) and url != "" do
+    PkiRaEngine.WebhookDelivery.validate_webhook_url(url)
+  end
+  defp validate_webhook_url_if_present(_), do: :ok
 
   defp changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->

@@ -8,6 +8,7 @@ defmodule PkiPlatformEngine.Tenant do
     field :name, :string
     field :slug, :string
     field :database_name, :string
+    field :schema_mode, :string, default: "schema"
     field :status, :string, default: "initialized"
     field :max_ca_depth, :integer, default: 2
     field :email, :string
@@ -16,13 +17,15 @@ defmodule PkiPlatformEngine.Tenant do
   end
 
   @statuses ["initialized", "active", "suspended"]
+  @schema_modes ["schema", "database"]
 
   def changeset(tenant, attrs) do
     tenant
-    |> cast(attrs, [:name, :slug, :status, :max_ca_depth, :email, :metadata])
+    |> cast(attrs, [:name, :slug, :status, :max_ca_depth, :email, :metadata, :schema_mode])
     |> validate_required([:name, :slug, :email])
     |> validate_format(:email, ~r/@/)
     |> validate_inclusion(:status, @statuses)
+    |> validate_inclusion(:schema_mode, @schema_modes)
     |> validate_number(:max_ca_depth, greater_than: 0)
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, message: "must be lowercase alphanumeric with hyphens")
     |> unique_constraint(:slug)

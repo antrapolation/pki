@@ -186,16 +186,22 @@ defmodule PkiCaPortalWeb.UsersLive do
       actor_username: user[:username] || user["username"]
     ]
 
-    case socket.assigns[:tenant_id] do
+    opts = case socket.assigns[:tenant_id] do
       nil -> base
       tid -> [{:tenant_id, tid} | base]
+    end
+
+    case user[:role] || user["role"] do
+      nil -> opts
+      role -> [{:user_role, role} | opts]
     end
   end
 
   defp format_validation_errors(errors) when is_map(errors) do
     Enum.map_join(errors, ", ", fn {field, msgs} -> "#{field}: #{Enum.join(List.wrap(msgs), ", ")}" end)
   end
-  defp format_validation_errors(errors), do: inspect(errors)
+  defp format_validation_errors(errors) when is_binary(errors), do: errors
+  defp format_validation_errors(_errors), do: "invalid input"
 
   defp role_badge_class(role) do
     case role do

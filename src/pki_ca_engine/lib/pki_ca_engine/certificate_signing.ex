@@ -61,7 +61,11 @@ defmodule PkiCaEngine.CertificateSigning do
 
           case result do
             {:ok, cert} ->
-              Task.start(fn -> ValidationNotifier.notify_issuance(cert) end)
+              prefix = Process.get(:pki_ecto_prefix)
+              Task.start(fn ->
+                if prefix, do: Process.put(:pki_ecto_prefix, prefix)
+                ValidationNotifier.notify_issuance(cert)
+              end)
               {:ok, cert}
 
             error ->
@@ -84,6 +88,9 @@ defmodule PkiCaEngine.CertificateSigning do
     repo = TenantRepo.ca_repo(tenant_id)
 
     case get_certificate(tenant_id, serial_number) do
+      {:ok, %{status: "revoked"}} ->
+        {:error, :already_revoked}
+
       {:ok, cert} ->
         result =
           cert
@@ -96,7 +103,11 @@ defmodule PkiCaEngine.CertificateSigning do
 
         case result do
           {:ok, revoked_cert} ->
-            Task.start(fn -> ValidationNotifier.notify_revocation(serial_number, reason) end)
+            prefix = Process.get(:pki_ecto_prefix)
+            Task.start(fn ->
+              if prefix, do: Process.put(:pki_ecto_prefix, prefix)
+              ValidationNotifier.notify_revocation(serial_number, reason)
+            end)
             {:ok, revoked_cert}
 
           error ->
@@ -219,9 +230,10 @@ defmodule PkiCaEngine.CertificateSigning do
     case KazSign.sign(level, digest, key_bytes) do
       {:ok, signature} ->
         cert_map = Map.put(tbs, :signature, Base.encode64(signature))
-        cert_json = Jason.encode!(cert_map)
-        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_json)}\n-----END PKI CERTIFICATE-----\n"
-        {:ok, cert_json, cert_pem}
+        # PQC certs use JSON encoding (no ASN.1 encoder yet); stored in cert_der column as bytes
+        cert_bytes = Jason.encode!(cert_map)
+        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_bytes)}\n-----END PKI CERTIFICATE-----\n"
+        {:ok, cert_bytes, cert_pem}
 
       {:error, reason} ->
         Logger.error("KAZ-SIGN certificate signing failed: #{inspect(reason)}")
@@ -256,9 +268,10 @@ defmodule PkiCaEngine.CertificateSigning do
     case PkiOqsNif.sign(oqs_algo, key_bytes, digest) do
       {:ok, signature} ->
         cert_map = Map.put(tbs, :signature, Base.encode64(signature))
-        cert_json = Jason.encode!(cert_map)
-        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_json)}\n-----END PKI CERTIFICATE-----\n"
-        {:ok, cert_json, cert_pem}
+        # PQC certs use JSON encoding (no ASN.1 encoder yet); stored in cert_der column as bytes
+        cert_bytes = Jason.encode!(cert_map)
+        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_bytes)}\n-----END PKI CERTIFICATE-----\n"
+        {:ok, cert_bytes, cert_pem}
 
       {:error, reason} ->
         Logger.error("ML-DSA certificate signing failed (#{oqs_algo}): #{inspect(reason)}")

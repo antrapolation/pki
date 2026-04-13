@@ -100,40 +100,51 @@ defmodule PkiValidation.Api.Router do
   post "/notify/revocation" do
     with :ok <- verify_internal_auth(conn),
          {:ok, serial_number, reason} <- validate_revocation_params(conn.body_params) do
-      query = from(cs in CertificateStatus, where: cs.serial_number == ^serial_number)
+      # Use transaction + FOR UPDATE to prevent TOCTOU race on concurrent revocations
+      result =
+        Repo.transaction(fn ->
+          query = from(cs in CertificateStatus, where: cs.serial_number == ^serial_number, lock: "FOR UPDATE")
 
-      case Repo.one(query) do
-        nil ->
+          case Repo.one(query) do
+            nil -> {:not_found}
+            %CertificateStatus{status: "revoked"} -> {:already_revoked}
+            %CertificateStatus{} = cert ->
+              now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+              changeset =
+                CertificateStatus.changeset(cert, %{
+                  status: "revoked",
+                  revoked_at: now,
+                  revocation_reason: reason
+                })
+
+              case Repo.update(changeset) do
+                {:ok, updated} -> {:revoked, updated}
+                {:error, changeset} -> {:validation_error, changeset}
+              end
+          end
+        end)
+
+      case result do
+        {:ok, {:not_found}} ->
           send_json(conn, 404, %{error: "certificate_not_found"})
 
-        %CertificateStatus{status: "revoked"} ->
+        {:ok, {:already_revoked}} ->
           send_json(conn, 409, %{error: "already_revoked"})
 
-        %CertificateStatus{} = cert ->
-          now = DateTime.utc_now() |> DateTime.truncate(:second)
+        {:ok, {:revoked, _updated}} ->
+          OcspCache.invalidate(serial_number)
+          Logger.info("Certificate revocation recorded: serial=#{serial_number} reason=#{reason}")
+          send_json(conn, 200, %{status: "ok", serial_number: serial_number})
 
-          changeset =
-            CertificateStatus.changeset(cert, %{
-              status: "revoked",
-              revoked_at: now,
-              revocation_reason: reason
-            })
+        {:ok, {:validation_error, changeset}} ->
+          errors = format_changeset_errors(changeset)
+          Logger.warning("Certificate revocation notification rejected: #{inspect(errors)}")
+          send_json(conn, 422, %{error: "validation_failed", details: errors})
 
-          case Repo.update(changeset) do
-            {:ok, _updated} ->
-              OcspCache.invalidate(serial_number)
-
-              Logger.info(
-                "Certificate revocation recorded: serial=#{serial_number} reason=#{reason}"
-              )
-
-              send_json(conn, 200, %{status: "ok", serial_number: serial_number})
-
-            {:error, changeset} ->
-              errors = format_changeset_errors(changeset)
-              Logger.warning("Certificate revocation notification rejected: #{inspect(errors)}")
-              send_json(conn, 422, %{error: "validation_failed", details: errors})
-          end
+        {:error, reason} ->
+          Logger.error("Certificate revocation transaction failed: #{inspect(reason)}")
+          send_json(conn, 500, %{error: "internal_error"})
       end
     else
       {:error, :unauthorized} ->
@@ -231,26 +242,45 @@ defmodule PkiValidation.Api.Router do
 
     case check_required(params, required) do
       :ok ->
-        {:ok,
-         %{
-           serial_number: params["serial_number"],
-           issuer_key_id: params["issuer_key_id"],
-           subject_dn: params["subject_dn"],
-           status: "active",
-           not_before: parse_datetime(params["not_before"]),
-           not_after: parse_datetime(params["not_after"])
-         }}
+        not_before = parse_datetime(params["not_before"])
+        not_after = parse_datetime(params["not_after"])
+
+        with {:not_before, %DateTime{}} <- {:not_before, not_before},
+             {:not_after, %DateTime{}} <- {:not_after, not_after} do
+          {:ok,
+           %{
+             serial_number: params["serial_number"],
+             issuer_key_id: params["issuer_key_id"],
+             subject_dn: params["subject_dn"],
+             status: "active",
+             not_before: not_before,
+             not_after: not_after
+           }}
+        else
+          {:not_before, _} -> {:error, :invalid_params, "not_before is not a valid ISO 8601 datetime"}
+          {:not_after, _} -> {:error, :invalid_params, "not_after is not a valid ISO 8601 datetime"}
+        end
 
       {:error, missing} ->
         {:error, :invalid_params, "missing required fields: #{Enum.join(missing, ", ")}"}
     end
   end
 
+  @valid_revocation_reasons ~w(
+    unspecified key_compromise ca_compromise affiliation_changed
+    superseded cessation_of_operation certificate_hold
+    remove_from_crl privilege_withdrawn aa_compromise certificate_expired
+  )
+
   defp validate_revocation_params(params) do
     case {params["serial_number"], params["reason"]} do
       {serial, reason}
       when is_binary(serial) and serial != "" and is_binary(reason) and reason != "" ->
-        {:ok, serial, reason}
+        if reason in @valid_revocation_reasons do
+          {:ok, serial, reason}
+        else
+          {:error, :invalid_params, "invalid revocation reason: #{reason}"}
+        end
 
       _ ->
         {:error, :invalid_params, "missing required fields: serial_number, reason"}
@@ -270,11 +300,12 @@ defmodule PkiValidation.Api.Router do
   defp parse_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} -> dt
-      _ -> value
+      _ -> {:error, :invalid_datetime}
     end
   end
 
-  defp parse_datetime(value), do: value
+  defp parse_datetime(%DateTime{} = value), do: value
+  defp parse_datetime(_), do: {:error, :invalid_datetime}
 
   defp handle_der_ocsp_body(conn, body) do
     case PkiValidation.Ocsp.RequestDecoder.decode(body) do

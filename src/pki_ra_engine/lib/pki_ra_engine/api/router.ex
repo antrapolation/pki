@@ -5,6 +5,7 @@ defmodule PkiRaEngine.Api.Router do
 
   use Plug.Router
 
+  plug PkiPlatformEngine.Plugs.ClearTenantPrefix
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:pki, :ra, :endpoint]
   plug :match

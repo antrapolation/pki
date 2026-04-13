@@ -32,6 +32,10 @@ defmodule PkiCaEngine.KeystoreManagement do
     end
   end
 
+  defp resolve_hsm_config("hsm", nil, attrs) do
+    # Single-tenant / dev mode — no platform HSM registry, accept config as-is
+    {:ok, Map.put_new(attrs, :provider_name, "StrapSofthsmPrivKeyStoreProvider")}
+  end
   defp resolve_hsm_config("hsm", tenant_id, attrs) do
     hsm_device_id = attrs[:hsm_device_id] || attrs["hsm_device_id"]
 

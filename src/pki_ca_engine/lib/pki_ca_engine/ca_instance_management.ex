@@ -121,22 +121,24 @@ defmodule PkiCaEngine.CaInstanceManagement do
     actor = Keyword.get(opts, :actor, %{actor_did: "system", actor_role: "system"})
     repo = TenantRepo.ca_repo(tenant_id)
 
-    case repo.get(CaInstance, id) do
-      nil ->
-        {:error, :not_found}
+    repo.transaction(fn ->
+      case repo.get(CaInstance, id) do
+        nil ->
+          repo.rollback(:not_found)
 
-      ca ->
-        case ca |> CaInstance.changeset(%{status: "suspended"}) |> repo.update() do
-          {:ok, updated} ->
-            Audit.log(tenant_id, actor, "ca_instance_status_changed",
-              %{resource_type: "ca_instance", resource_id: id, ca_instance_id: id, details: %{name: ca.name, from: ca.status, to: "suspended"}})
-            suspend_children(tenant_id, repo, id, actor)
-            {:ok, updated}
+        ca ->
+          case ca |> CaInstance.changeset(%{status: "suspended"}) |> repo.update() do
+            {:ok, updated} ->
+              Audit.log(tenant_id, actor, "ca_instance_status_changed",
+                %{resource_type: "ca_instance", resource_id: id, ca_instance_id: id, details: %{name: ca.name, from: ca.status, to: "suspended"}})
+              suspend_children(tenant_id, repo, id, actor)
+              updated
 
-          error ->
-            error
-        end
-    end
+            {:error, reason} ->
+              repo.rollback(reason)
+          end
+      end
+    end)
   end
 
   def update_status(tenant_id, id, "active", opts) do

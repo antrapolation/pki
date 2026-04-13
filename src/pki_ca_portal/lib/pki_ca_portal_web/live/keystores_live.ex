@@ -145,9 +145,14 @@ defmodule PkiCaPortalWeb.KeystoresLive do
   defp parse_int(_), do: nil
 
   defp tenant_opts(socket) do
-    case socket.assigns[:tenant_id] do
+    opts = case socket.assigns[:tenant_id] do
       nil -> []
       tid -> [tenant_id: tid]
+    end
+
+    case get_in(socket.assigns, [:current_user, :role]) do
+      nil -> opts
+      role -> [{:user_role, role} | opts]
     end
   end
 

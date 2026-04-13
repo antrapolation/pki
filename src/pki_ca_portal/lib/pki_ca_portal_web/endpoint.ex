@@ -12,7 +12,7 @@ defmodule PkiCaPortalWeb.Endpoint do
     store: :cookie,
     key: "_pki_ca_portal_key",
     signing_salt: @signing_salt,
-    encryption_salt: "pki_ca_enc",
+    encryption_salt: Application.compile_env(:pki_ca_portal, :encryption_salt, "pki_ca_enc"),
     same_site: "Lax",
     secure: Application.compile_env(:pki_ca_portal, :cookie_secure, false),
     http_only: true

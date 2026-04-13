@@ -76,6 +76,8 @@ defmodule PkiCaEngine.Api.CeremonyController do
     end
   end
 
+  @valid_ceremony_roles ["key_manager"]
+
   def start_ceremony(conn) do
     sessions = conn.body_params["sessions"] || []
     ca_instance_id = Helpers.resolve_instance_id(conn.body_params)
@@ -86,14 +88,26 @@ defmodule PkiCaEngine.Api.CeremonyController do
         %{username: s["username"], role: s["role"]}
       end)
 
-    case KeyCeremonyManager.start_ceremony(ca_instance_id, parsed_sessions) do
-      {:ok, pid} ->
-        ceremony_id = Ecto.UUID.generate()
-        register_ceremony(ceremony_id, pid)
-        json(conn, 201, %{ceremony_id: ceremony_id})
+    cond do
+      parsed_sessions == [] ->
+        json(conn, 422, %{error: "sessions_required", message: "At least one session is required"})
 
-      {:error, reason} ->
-        json(conn, 422, %{error: format_error(reason)})
+      not Enum.all?(parsed_sessions, &(&1.role in @valid_ceremony_roles)) ->
+        json(conn, 403, %{error: "unauthorized", message: "All sessions must have 'key_manager' role"})
+
+      Enum.any?(parsed_sessions, &(is_nil(&1.username) or &1.username == "")) ->
+        json(conn, 422, %{error: "invalid_session", message: "All sessions must have a username"})
+
+      true ->
+        case KeyCeremonyManager.start_ceremony(ca_instance_id, parsed_sessions) do
+          {:ok, pid} ->
+            ceremony_id = Ecto.UUID.generate()
+            register_ceremony(ceremony_id, pid)
+            json(conn, 201, %{ceremony_id: ceremony_id})
+
+          {:error, reason} ->
+            json(conn, 422, %{error: format_error(reason)})
+        end
     end
   end
 
@@ -158,18 +172,26 @@ defmodule PkiCaEngine.Api.CeremonyController do
 
   def assign_custodians(conn, ceremony_id) do
     with {:ok, pid} <- lookup_ceremony(ceremony_id) do
-      custodians =
-        (conn.body_params["custodians"] || [])
-        |> Enum.map(fn c -> %{password: c["password"]} end)
+      raw_custodians = conn.body_params["custodians"] || []
 
-      threshold_k = conn.body_params["threshold_k"] || 2
+      if raw_custodians == [] do
+        json(conn, 422, %{error: "custodians_required", message: "At least one custodian is required"})
+      else
+        custodians = Enum.map(raw_custodians, fn c -> %{password: c["password"]} end)
 
-      case KeyCeremonyManager.assign_custodians(pid, custodians, threshold_k) do
-        {:ok, _encrypted_shares} ->
-          json(conn, 200, %{status: "custodians_assigned"})
+        if Enum.any?(custodians, fn c -> is_nil(c.password) or c.password == "" end) do
+          json(conn, 422, %{error: "invalid_custodian", message: "All custodians must have a non-empty password"})
+        else
+          threshold_k = conn.body_params["threshold_k"] || 2
 
-        {:error, reason} ->
-          json(conn, 422, %{error: format_error(reason)})
+          case KeyCeremonyManager.assign_custodians(pid, custodians, threshold_k) do
+            {:ok, _encrypted_shares} ->
+              json(conn, 200, %{status: "custodians_assigned"})
+
+            {:error, reason} ->
+              json(conn, 422, %{error: format_error(reason)})
+          end
+        end
       end
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
@@ -178,18 +200,27 @@ defmodule PkiCaEngine.Api.CeremonyController do
 
   def finalize(conn, ceremony_id) do
     with {:ok, pid} <- lookup_ceremony(ceremony_id) do
-      auditor_session = %{
-        username: conn.body_params["auditor_username"],
-        role: conn.body_params["auditor_role"] || "auditor"
-      }
+      auditor_role = conn.body_params["auditor_role"]
+      auditor_username = conn.body_params["auditor_username"]
 
-      case KeyCeremonyManager.finalize(pid, auditor_session) do
-        {:ok, audit_trail} ->
-          unregister_ceremony(ceremony_id)
-          json(conn, 200, %{status: "finalized", audit_trail_count: length(audit_trail)})
+      cond do
+        auditor_role != "auditor" ->
+          json(conn, 403, %{error: "unauthorized", message: "Finalization requires an auditor role"})
 
-        {:error, reason} ->
-          json(conn, 422, %{error: format_error(reason)})
+        is_nil(auditor_username) or auditor_username == "" ->
+          json(conn, 422, %{error: "invalid_auditor", message: "Auditor username is required"})
+
+        true ->
+          auditor_session = %{username: auditor_username, role: auditor_role}
+
+          case KeyCeremonyManager.finalize(pid, auditor_session) do
+            {:ok, audit_trail} ->
+              unregister_ceremony(ceremony_id)
+              json(conn, 200, %{status: "finalized", audit_trail_count: length(audit_trail)})
+
+            {:error, reason} ->
+              json(conn, 422, %{error: format_error(reason)})
+          end
       end
     else
       {:error, :not_found} -> json(conn, 404, %{error: "ceremony_not_found"})
@@ -245,8 +276,8 @@ defmodule PkiCaEngine.Api.CeremonyController do
   defp parse_protection_mode(_), do: {:error, :invalid_protection_mode}
 
   defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_error({key, details}), do: "#{key}: #{inspect(details)}"
-  defp format_error(reason), do: inspect(reason)
+  defp format_error({key, _details}), do: to_string(key)
+  defp format_error(_reason), do: "internal_error"
 
   defp changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->

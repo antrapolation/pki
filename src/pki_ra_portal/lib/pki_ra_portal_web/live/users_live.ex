@@ -190,7 +190,8 @@ defmodule PkiRaPortalWeb.UsersLive do
   defp format_validation_errors(errors) when is_map(errors) do
     Enum.map_join(errors, ", ", fn {field, msgs} -> "#{field}: #{Enum.join(List.wrap(msgs), ", ")}" end)
   end
-  defp format_validation_errors(errors), do: inspect(errors)
+  defp format_validation_errors(errors) when is_binary(errors), do: errors
+  defp format_validation_errors(_errors), do: "invalid input"
 
   defp role_badge_class(role) do
     case role do

@@ -5,7 +5,15 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
 
   require Logger
 
-  @steps [
+  @schema_steps [
+    {:database, "Tenant schemas created"},
+    {:engines, "Tenant registered"},
+    {:instances, "CA and RA instances created"},
+    {:tenant_admin, "Tenant admin account created"},
+    {:credentials, "Credentials sent"}
+  ]
+
+  @database_steps [
     {:database, "Database created"},
     {:engines, "Engines started"},
     {:instances, "CA and RA instances created"},
@@ -22,8 +30,9 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
        name: "",
        slug: "",
        email: "",
+       schema_mode: "schema",
        form_error: nil,
-       progress: Enum.map(@steps, fn {key, label} -> {key, label, :pending} end),
+       progress: Enum.map(steps_for("schema"), fn {key, label} -> {key, label, :pending} end),
        tenant: nil
      )}
   end
@@ -33,6 +42,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     name = String.trim(params["name"] || "")
     slug = String.trim(params["slug"] || "")
     email = String.trim(params["email"] || "")
+    schema_mode = if params["schema_mode"] == "database", do: "database", else: "schema"
 
     with :ok <- validate_name(name),
          :ok <- validate_slug(slug),
@@ -43,8 +53,9 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
           name: name,
           slug: slug,
           email: email,
+          schema_mode: schema_mode,
           form_error: nil,
-          progress: Enum.map(@steps, fn {key, label} -> {key, label, :pending} end)
+          progress: Enum.map(steps_for(schema_mode), fn {key, label} -> {key, label, :pending} end)
         )
 
       send(self(), :run_provision)
@@ -81,7 +92,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   def handle_info(:run_provision, socket) do
     socket = update_step(socket, :database, :in_progress)
 
-    case TenantOnboarding.create_database(socket.assigns.name, socket.assigns.slug, socket.assigns.email) do
+    case TenantOnboarding.create_database(socket.assigns.name, socket.assigns.slug, socket.assigns.email, schema_mode: socket.assigns.schema_mode) do
       {:ok, tenant} ->
         socket = socket |> assign(tenant: tenant) |> update_step(:database, :done)
         send(self(), :run_activate)
@@ -164,6 +175,9 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
     |> Enum.join("; ")
   end
+
+  defp steps_for("database"), do: @database_steps
+  defp steps_for(_), do: @schema_steps
 
   defp validate_name(""), do: {:error, "Name is required."}
   defp validate_name(_), do: :ok
@@ -266,6 +280,25 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                   placeholder="admin@acme-corp.com"
                 />
                 <p class="text-xs text-base-content/50 mt-1">Tenant admin credentials will be sent to this email.</p>
+              </div>
+
+              <div>
+                <label for="tenant-schema-mode" class="block text-xs font-medium text-base-content/60 mb-1">
+                  Isolation Mode
+                </label>
+                <select
+                  name="schema_mode"
+                  id="tenant-schema-mode"
+                  class="select select-bordered w-full"
+                >
+                  <option value="schema" selected={@schema_mode == "schema"}>
+                    Schema (recommended) — shared database, isolated schema
+                  </option>
+                  <option value="database" selected={@schema_mode == "database"}>
+                    Database — dedicated database per tenant
+                  </option>
+                </select>
+                <p class="text-xs text-base-content/50 mt-1">Schema mode uses PostgreSQL schemas for lightweight isolation. Database mode creates a separate database.</p>
               </div>
 
               <div class="flex justify-end gap-3 pt-2">

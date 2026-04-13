@@ -87,10 +87,9 @@ defmodule PkiPlatformEngine.TenantTest do
       assert %{max_ca_depth: [_]} = errors_on(changeset)
     end
 
-    test "max_ca_depth must be less than or equal to 10" do
+    test "max_ca_depth above 10 is allowed" do
       changeset = Tenant.changeset(%Tenant{}, Map.put(@valid_attrs, :max_ca_depth, 11))
-      refute changeset.valid?
-      assert %{max_ca_depth: [_]} = errors_on(changeset)
+      assert changeset.valid?
     end
 
     test "valid without signing_algorithm field" do

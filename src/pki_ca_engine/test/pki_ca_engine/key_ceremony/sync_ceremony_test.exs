@@ -49,7 +49,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         initiated_by: ctx.initiator.id
       }
 
-      assert {:ok, {ceremony, issuer_key}} = SyncCeremony.initiate(ctx.ca.id, params)
+      assert {:ok, {ceremony, issuer_key}} = SyncCeremony.initiate(nil, ctx.ca.id, params)
 
       assert ceremony.ca_instance_id == ctx.ca.id
       assert ceremony.ceremony_type == "sync"
@@ -73,7 +73,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         initiated_by: ctx.initiator.id
       }
 
-      assert {:error, :not_found} = SyncCeremony.initiate(ctx.ca.id, params)
+      assert {:error, :not_found} = SyncCeremony.initiate(nil, ctx.ca.id, params)
     end
 
     test "returns error when k < 2", ctx do
@@ -85,7 +85,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         initiated_by: ctx.initiator.id
       }
 
-      assert {:error, :invalid_threshold} = SyncCeremony.initiate(ctx.ca.id, params)
+      assert {:error, :invalid_threshold} = SyncCeremony.initiate(nil, ctx.ca.id, params)
     end
 
     test "returns error when k > n", ctx do
@@ -97,7 +97,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         initiated_by: ctx.initiator.id
       }
 
-      assert {:error, :invalid_threshold} = SyncCeremony.initiate(ctx.ca.id, params)
+      assert {:error, :invalid_threshold} = SyncCeremony.initiate(nil, ctx.ca.id, params)
     end
   end
 
@@ -114,7 +114,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
       }
 
       # Pass a non-existent ca_instance_id to trigger FK error in the transaction
-      assert {:error, _reason} = SyncCeremony.initiate(Uniq.UUID.uuid7(), params)
+      assert {:error, _reason} = SyncCeremony.initiate(nil, Uniq.UUID.uuid7(), params)
     end
   end
 
@@ -142,7 +142,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         initiated_by: ctx.initiator.id
       }
 
-      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(ctx.ca.id, params)
+      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(nil, ctx.ca.id, params)
       {:ok, %{public_key: _pub, private_key: priv}} = SyncCeremony.generate_keypair("ECC-P256")
 
       Map.merge(ctx, %{ceremony: ceremony, private_key: priv})
@@ -154,6 +154,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
 
       assert {:ok, 3} =
                SyncCeremony.distribute_shares(
+                 nil,
                  ctx.ceremony,
                  ctx.private_key,
                  custodian_passwords
@@ -180,6 +181,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
 
       assert {:error, :wrong_custodian_count} =
                SyncCeremony.distribute_shares(
+                 nil,
                  ctx.ceremony,
                  ctx.private_key,
                  custodian_passwords
@@ -192,6 +194,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
 
       {:ok, 3} =
         SyncCeremony.distribute_shares(
+          nil,
           ctx.ceremony,
           ctx.private_key,
           custodian_passwords
@@ -310,7 +313,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         domain_info: %{"subject_dn" => "/CN=Test-Sub-CA/O=Test Corp"}
       }
 
-      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(ctx.ca.id, params)
+      {:ok, {ceremony, _issuer_key}} = SyncCeremony.initiate(nil, ctx.ca.id, params)
 
       # Generate a real RSA key for CSR generation
       private_key = X509.PrivateKey.new_rsa(2048)
@@ -320,7 +323,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
 
     test "marks ceremony completed and generates valid PEM CSR", ctx do
       assert {:ok, {updated_ceremony, csr_pem}} =
-               SyncCeremony.complete_as_sub_ca(ctx.ceremony, ctx.private_key)
+               SyncCeremony.complete_as_sub_ca(nil, ctx.ceremony, ctx.private_key)
 
       assert updated_ceremony.status == "completed"
       assert is_binary(csr_pem)
@@ -339,6 +342,7 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
     test "uses custom subject from opts", ctx do
       assert {:ok, {_ceremony, csr_pem}} =
                SyncCeremony.complete_as_sub_ca(
+                 nil,
                  ctx.ceremony,
                  ctx.private_key,
                  subject: "/CN=Custom-Sub-CA/O=Custom Org"
@@ -360,10 +364,10 @@ defmodule PkiCaEngine.KeyCeremony.SyncCeremonyTest do
         is_root: false
       }
 
-      {:ok, {ceremony, _}} = SyncCeremony.initiate(ctx.ca.id, params)
+      {:ok, {ceremony, _}} = SyncCeremony.initiate(nil, ctx.ca.id, params)
 
       assert {:ok, {_updated, csr_pem}} =
-               SyncCeremony.complete_as_sub_ca(ceremony, ctx.private_key)
+               SyncCeremony.complete_as_sub_ca(nil, ceremony, ctx.private_key)
 
       assert String.contains?(csr_pem, "-----BEGIN CERTIFICATE REQUEST-----")
     end

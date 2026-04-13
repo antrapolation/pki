@@ -10,8 +10,9 @@ defmodule PkiPlatformEngine.TenantOnboarding do
 
   alias PkiPlatformEngine.{Provisioner, PlatformAuth}
 
-  def create_database(name, slug, email) do
-    Provisioner.create_tenant(name, slug, email: email)
+  def create_database(name, slug, email, opts \\ []) do
+    schema_mode = Keyword.get(opts, :schema_mode, "schema")
+    Provisioner.create_tenant(name, slug, email: email, schema_mode: schema_mode)
   end
 
   def activate(tenant_id) do

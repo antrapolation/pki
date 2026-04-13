@@ -62,7 +62,7 @@ defmodule PkiValidation.E2ETest do
       assert Enum.any?(updated_crl.revoked_certificates, fn rc -> rc.serial_number == serial end)
     end
 
-    test "expired cert returns good (not unknown) per RFC 6960" do
+    test "expired cert returns revoked with certificate_expired reason" do
       serial = "E2E_EXPIRED_001"
 
       insert_cert(%{
@@ -75,8 +75,8 @@ defmodule PkiValidation.E2ETest do
       })
 
       {:ok, response} = OcspResponder.check_status_uncached(serial)
-      # expired but not revoked = good per RFC 6960
-      assert response.status == "good"
+      assert response.status == "revoked"
+      assert response.reason == "certificate_expired"
     end
 
     test "unknown cert -> OCSP unknown, then insert -> OCSP good (unknown not cached)" do

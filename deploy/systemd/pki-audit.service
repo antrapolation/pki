@@ -1,5 +1,5 @@
 [Unit]
-Description=PKI Validation Service
+Description=PKI Audit Trail Service
 Documentation=https://github.com/straptrust/pki
 After=network.target postgresql.service
 Requires=postgresql.service
@@ -8,16 +8,16 @@ Requires=postgresql.service
 Type=exec
 User=pki
 Group=pki
-WorkingDirectory=/opt/pki/releases/validation
+WorkingDirectory=/opt/pki/releases/audit
 
 EnvironmentFile=/opt/pki/.env
-Environment=PHX_SERVER=true
 Environment=RELEASE_DISTRIBUTION=name
-Environment=RELEASE_NODE=pki_validation@127.0.0.1
-Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
+Environment=RELEASE_NODE=pki_audit@127.0.0.1
+# Lightweight service — minimal schedulers
+Environment="ELIXIR_ERL_OPTIONS=+S 1:1 +SDcpu 1:1"
 
-ExecStart=/opt/pki/releases/validation/bin/pki_validation start
-ExecStop=/opt/pki/releases/validation/bin/pki_validation stop
+ExecStart=/opt/pki/releases/audit/bin/pki_audit start
+ExecStop=/opt/pki/releases/audit/bin/pki_audit stop
 
 Restart=on-failure
 RestartSec=5
@@ -27,11 +27,11 @@ TimeoutStopSec=30
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pki/releases/validation /tmp
+ReadWritePaths=/opt/pki/releases/audit /tmp
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=pki-validation
+SyslogIdentifier=pki-audit
 
 [Install]
 WantedBy=multi-user.target

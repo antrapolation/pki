@@ -5,6 +5,7 @@ defmodule PkiCaEngine.Api.Router do
 
   use Plug.Router
 
+  plug PkiPlatformEngine.Plugs.ClearTenantPrefix
   plug :match
   plug Plug.Parsers, parsers: [:json], json_decoder: Jason
   plug :dispatch

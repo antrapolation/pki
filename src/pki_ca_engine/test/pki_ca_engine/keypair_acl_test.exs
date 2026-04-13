@@ -19,12 +19,13 @@ defmodule PkiCaEngine.KeypairACLTest do
     # Create an admin user with credentials (to get a KEM public key)
     {:ok, admin} =
       CredentialManager.create_user_with_credentials(
+        nil,
         ca.id,
         %{username: "acl-admin-#{System.unique_integer([:positive])}", display_name: "Admin", role: "ca_admin"},
         @admin_password
       )
 
-    admin_kem_cred = CredentialManager.get_kem_credential(admin.id)
+    admin_kem_cred = CredentialManager.get_kem_credential(nil, admin.id)
 
     %{ca: ca, admin: admin, admin_kem_cred: admin_kem_cred}
   end

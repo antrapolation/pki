@@ -42,7 +42,7 @@ defmodule PkiCaEngine.KeyActivationTest do
 
     # Create ceremony + issuer key
     {:ok, {ceremony, issuer_key}} =
-      SyncCeremony.initiate(ca.id, %{
+      SyncCeremony.initiate(nil, ca.id, %{
         algorithm: "ECC-P256",
         keystore_id: keystore.id,
         threshold_k: 2,
@@ -57,7 +57,7 @@ defmodule PkiCaEngine.KeyActivationTest do
       Enum.map(custodians, fn user -> {user.id, "password-#{user.id}"} end)
 
     {:ok, 3} =
-      SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
+      SyncCeremony.distribute_shares(nil, ceremony, keypair.private_key, custodian_passwords)
 
     %{
       ca: ca,

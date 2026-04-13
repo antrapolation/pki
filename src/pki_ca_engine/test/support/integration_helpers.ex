@@ -88,7 +88,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
     [km1 | _] = setup.key_managers
 
     {:ok, {ceremony, issuer_key}} =
-      SyncCeremony.initiate(setup.ca.id, %{
+      SyncCeremony.initiate(nil, setup.ca.id, %{
         algorithm: "RSA-4096",
         keystore_id: setup.keystore.id,
         threshold_k: threshold_k,
@@ -105,6 +105,7 @@ defmodule PkiCaEngine.IntegrationHelpers do
 
     {:ok, ^threshold_n} =
       SyncCeremony.distribute_shares(
+        nil,
         ceremony,
         keypair.private_key,
         custodian_passwords
@@ -112,7 +113,11 @@ defmodule PkiCaEngine.IntegrationHelpers do
 
     # Generate a real self-signed root CA certificate
     {cert_der, cert_pem} = generate_self_signed_root_cert(keypair.private_key)
-    {:ok, completed_ceremony} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
+    {:ok, completed_ceremony} = SyncCeremony.complete_as_root(nil, ceremony, cert_der, cert_pem)
+
+    # Bring CA back online (auto-offlined after root ceremony completion)
+    ca = Repo.get!(PkiCaEngine.Schema.CaInstance, setup.ca.id)
+    ca |> PkiCaEngine.Schema.CaInstance.changeset(%{is_offline: false}) |> Repo.update!()
 
     %{
       ceremony: completed_ceremony,

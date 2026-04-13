@@ -3,7 +3,7 @@
 #
 # Run on the server from the repo root:
 #   bash deploy/deploy.sh              # deploy all services
-#   bash deploy/deploy.sh ca-engine    # deploy one service
+#   bash deploy/deploy.sh engines      # deploy one service
 #   bash deploy/deploy.sh migrate      # run DB migrations only
 #
 # Expects tarballs in deploy/releases/ (produced by build.sh).
@@ -21,49 +21,83 @@ warn()  { echo -e "${YELLOW}[deploy]${NC} $*"; }
 die()   { echo -e "${RED}[deploy] ERROR:${NC} $*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Run as root: sudo bash deploy/deploy.sh"
-[[ -f /opt/pki/.env ]] || die "/opt/pki/.env not found — run install.sh first"
+
+# Generate .env if missing (setup mode) or require it (other modes)
+if [[ ! -f /opt/pki/.env ]]; then
+  if [[ "${1:-}" == "setup" && -f "$SCRIPT_DIR/generate-env.sh" ]]; then
+    info "No .env found — generating with fresh secrets..."
+    bash "$SCRIPT_DIR/generate-env.sh"
+  else
+    die "/opt/pki/.env not found — run: sudo bash deploy/generate-env.sh"
+  fi
+fi
+
+# ── Database names (shared DB, schema-per-tenant) ────────────────────────────
+PKI_DATABASES=(pki_ca_engine pki_ra_engine pki_validation pki_audit_trail pki_platform)
+
+ensure_databases() {
+  info "Ensuring PostgreSQL databases exist..."
+
+  # Load POSTGRES_PASSWORD from .env
+  local pg_pass
+  pg_pass=$(grep '^POSTGRES_PASSWORD=' /opt/pki/.env | cut -d= -f2-)
+  [[ -n "$pg_pass" ]] || die "POSTGRES_PASSWORD not set in /opt/pki/.env"
+
+  # Set the postgres user password (idempotent)
+  sudo -u postgres psql -qc "ALTER USER postgres PASSWORD '${pg_pass}';" 2>/dev/null || true
+
+  for db in "${PKI_DATABASES[@]}"; do
+    if sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${db}'" | grep -q 1; then
+      info "  ✓ $db exists"
+    else
+      sudo -u postgres createdb "$db"
+      info "  Created $db"
+    fi
+  done
+}
+
+ensure_caddy() {
+  if command -v caddy &>/dev/null; then
+    info "Starting Caddy (TLS termination)..."
+    systemctl enable caddy 2>/dev/null || true
+    systemctl reload-or-restart caddy
+    if systemctl is-active --quiet caddy; then
+      info "  ✓ Caddy is running"
+    else
+      warn "  Caddy failed to start — check: journalctl -u caddy -n 50"
+    fi
+  else
+    warn "Caddy not installed — skipping TLS setup"
+  fi
+}
 
 # Map: internal_name → systemd_service_name, tarball_prefix, install_dir
 declare -A SVC_SYSTEMD=(
-  [ca_engine]=pki-ca-engine
-  [ra_engine]=pki-ra-engine
-  [ca_portal]=pki-ca-portal
-  [ra_portal]=pki-ra-portal
-  [platform_portal]=pki-platform-portal
-  [validation]=pki-validation
+  [engines]=pki-engines
+  [portals]=pki-portals
+  [audit]=pki-audit
 )
 
 declare -A SVC_TARBALL=(
-  [ca_engine]=pki_ca_engine
-  [ra_engine]=pki_ra_engine
-  [ca_portal]=pki_ca_portal
-  [ra_portal]=pki_ra_portal
-  [platform_portal]=pki_platform_portal
-  [validation]=pki_validation
+  [engines]=pki_engines
+  [portals]=pki_portals
+  [audit]=pki_audit
 )
 
-svc_to_module() {
-  # pki_ca_engine → PkiCaEngine
-  python3 -c "print(''.join(w.capitalize() for w in '${1}'.split('_')))"
-}
-
 run_migrations() {
-  local svc="$1"       # e.g. ca_engine
+  local svc="$1"       # e.g. engines
   local bin="${INSTALL_BASE}/${svc}/bin/${SVC_TARBALL[$svc]}"
 
   [[ -x "$bin" ]] || { warn "Binary not found: $bin — skipping migrations"; return; }
 
-  local module
-  module=$(svc_to_module "${SVC_TARBALL[$svc]}")
-
   info "  Running migrations for $svc..."
   sudo -u pki env $(grep -v '^#' /opt/pki/.env | xargs) \
-    "$bin" eval "${module}.Release.migrate()" 2>&1 \
+    "$bin" eval "PkiSystem.Release.migrate()" 2>&1 \
     || warn "Migration returned non-zero for $svc (may be normal if already applied)"
 }
 
 deploy_service() {
-  local svc="$1"   # internal name, e.g. ca_engine
+  local svc="$1"   # internal name, e.g. engines
   local systemd_name="${SVC_SYSTEMD[$svc]}"
   local tarball_prefix="${SVC_TARBALL[$svc]}"
   local install_dir="${INSTALL_BASE}/${svc}"
@@ -110,10 +144,10 @@ deploy_service() {
     warn "  No cookie file at $cookie_file — release will use build-time cookie"
   fi
 
-  # Run migrations (skip portals — they share engine databases)
+  # Run migrations (only engines release owns the databases)
   case "$svc" in
-    ca_portal|ra_portal) info "  Skipping migrations for $svc (no own database)" ;;
-    *) run_migrations "$svc" ;;
+    engines) run_migrations "$svc" ;;
+    *) info "  Skipping migrations for $svc (engines release handles DB)" ;;
   esac
 
   # Start service
@@ -135,41 +169,38 @@ TARGET="${1:-all}"
 
 case "$TARGET" in
   all)
-    # Deploy in dependency order
-    deploy_service ca_engine
-    deploy_service validation
-    deploy_service ra_engine
-    deploy_service ca_portal
-    deploy_service ra_portal
-    deploy_service platform_portal
+    # Ensure PostgreSQL databases exist before deploying
+    ensure_databases
+
+    # Deploy in dependency order: engines first (owns DBs), then portals, then audit
+    deploy_service engines
+    deploy_service portals
+    deploy_service audit
+
+    # Start Caddy for TLS termination
+    ensure_caddy
 
     echo ""
     info "All services deployed."
     echo ""
-    echo "Check status:  systemctl status 'pki-*'"
-    echo "Tail logs:     journalctl -u pki-ca-engine -f"
-    echo "Remote shell:  /opt/pki/releases/ca_engine/bin/pki_ca_engine remote"
+    echo "Check status:  systemctl status 'pki-*' caddy"
+    echo "Tail logs:     journalctl -u pki-engines -f"
+    echo "Remote shell:  /opt/pki/releases/engines/bin/pki_engines remote"
     ;;
 
-  ca-engine)    deploy_service ca_engine ;;
-  ra-engine)    deploy_service ra_engine ;;
-  ca-portal)    deploy_service ca_portal ;;
-  ra-portal)    deploy_service ra_portal ;;
-  platform)     deploy_service platform_portal ;;
-  validation)   deploy_service validation ;;
+  engines)  deploy_service engines ;;
+  portals)  deploy_service portals ;;
+  audit)    deploy_service audit ;;
 
   migrate)
     info "Running all DB migrations..."
-    # Only services that own a database — portals share the engine DBs
-    for svc in ca_engine ra_engine validation platform_portal; do
-      run_migrations "$svc"
-    done
+    # Only the engines release owns databases
+    run_migrations engines
     ;;
 
   rollback)
     svc="${2:-}"
     [[ -n "$svc" ]] || die "Usage: deploy.sh rollback <service>"
-    svc="${svc//-/_}"
     backup="${INSTALL_BASE}/${svc}.bak"
     [[ -d "$backup" ]] || die "No backup found at $backup"
     systemctl stop "${SVC_SYSTEMD[$svc]}"
@@ -180,8 +211,44 @@ case "$TARGET" in
     info "Rolled back $svc"
     ;;
 
+  setup)
+    # First-run setup: create DBs, deploy all services, start Caddy
+    info "=== First-run setup ==="
+    ensure_databases
+
+    # Init SoftHSM2 token if not already done
+    source /opt/pki/.env
+    if sudo -u pki softhsm2-util --show-slots 2>/dev/null | grep -q "Label:.*${SOFTHSM_TOKEN_LABEL:-PkiCA}"; then
+      info "SoftHSM2 token already initialised"
+    else
+      if [[ -n "${SOFTHSM_TOKEN_LABEL:-}" && -n "${SOFTHSM_SO_PIN:-}" && -n "${SOFTHSM_USER_PIN:-}" ]]; then
+        info "Initialising SoftHSM2 token..."
+        sudo -u pki softhsm2-util --init-token --free \
+          --label "$SOFTHSM_TOKEN_LABEL" \
+          --so-pin "$SOFTHSM_SO_PIN" \
+          --pin "$SOFTHSM_USER_PIN"
+        info "  ✓ Token initialised"
+      else
+        warn "SoftHSM vars not set in .env — skipping token init"
+      fi
+    fi
+
+    deploy_service engines
+    deploy_service portals
+    deploy_service audit
+    ensure_caddy
+
+    echo ""
+    info "=== Setup complete ==="
+    echo ""
+    echo "Verify:"
+    echo "  curl -s http://localhost:4001/health"
+    echo "  curl -s https://ca.straptrust.com"
+    echo "  systemctl status 'pki-*' caddy"
+    ;;
+
   *)
-    echo "Usage: $0 [all|ca-engine|ra-engine|ca-portal|ra-portal|platform|validation|migrate|rollback <svc>]"
+    echo "Usage: $0 [all|engines|portals|audit|migrate|setup|rollback <svc>]"
     exit 1
     ;;
 esac

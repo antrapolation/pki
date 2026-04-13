@@ -15,6 +15,9 @@ defmodule PkiRaEngine.WebhookDelivery do
   @backoff_ms [1_000, 5_000, 30_000]
   @timeout_ms 10_000
 
+  @blocked_hosts ~w(localhost 127.0.0.1 ::1 0.0.0.0 metadata.google.internal)
+  @blocked_ports [5432, 6379, 11211, 27017, 9200, 2379, 8500]
+
   @doc """
   Deliver a webhook event for a CSR.
   Looks up the API key's webhook_url from submitted_by_key_id.
@@ -83,7 +86,19 @@ defmodule PkiRaEngine.WebhookDelivery do
 
   # ── Private ──────────────────────────────────────────────────────────
 
-  defp deliver_with_retry(url, secret, event, payload, tenant_id, attempt, record \\ nil) do
+  defp deliver_with_retry(url, secret, event, payload, tenant_id, attempt, record) do
+    case validate_webhook_url(url) do
+      :ok ->
+        do_deliver(url, secret, event, payload, tenant_id, attempt, record)
+
+      {:error, reason} ->
+        Logger.warning("webhook_blocked url=#{url} reason=#{reason}")
+        update_record(record, tenant_id, %{status: "blocked", attempts: 1, last_error: "blocked: #{reason}"})
+        audit_webhook("webhook_blocked", tenant_id, %{event: event, url: url, reason: reason})
+    end
+  end
+
+  defp do_deliver(url, secret, event, payload, tenant_id, attempt, record) do
     body = Jason.encode!(payload)
     timestamp = PkiRaEngine.Api.ConnHelpers.format_datetime(DateTime.utc_now())
     signature = compute_signature(secret, timestamp, body)
@@ -127,6 +142,47 @@ defmodule PkiRaEngine.WebhookDelivery do
       PkiRaEngine.Telemetry.webhook_exhausted(%{event: event, url: url})
       Logger.error("webhook_exhausted event=#{event} url=#{url} attempts=#{@max_retries}")
       audit_webhook("webhook_failed", tenant_id, %{event: event, url: url, error: error, attempts_exhausted: true})
+    end
+  end
+
+  @doc """
+  Validates a webhook URL to prevent SSRF attacks.
+  Blocks private/internal IPs, dangerous ports, and non-HTTP(S) schemes.
+  """
+  def validate_webhook_url(url) do
+    uri = URI.parse(url)
+
+    cond do
+      uri.scheme not in ["http", "https"] ->
+        {:error, "scheme must be http or https"}
+
+      is_nil(uri.host) or uri.host == "" ->
+        {:error, "missing host"}
+
+      uri.host in @blocked_hosts ->
+        {:error, "blocked host"}
+
+      private_ip?(uri.host) ->
+        {:error, "private/internal IP address"}
+
+      uri.port in @blocked_ports ->
+        {:error, "blocked port"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp private_ip?(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, {10, _, _, _}} -> true
+      {:ok, {172, b, _, _}} when b >= 16 and b <= 31 -> true
+      {:ok, {192, 168, _, _}} -> true
+      {:ok, {169, 254, _, _}} -> true
+      {:ok, {127, _, _, _}} -> true
+      {:ok, {0, 0, 0, 0, 0, 0, 0, 1}} -> true
+      {:ok, {0xFE80, _, _, _, _, _, _, _}} -> true
+      _ -> false
     end
   end
 

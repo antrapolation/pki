@@ -2,6 +2,7 @@ defmodule PkiCaPortalWeb.Router do
   use PkiCaPortalWeb, :router
 
   pipeline :browser do
+    plug PkiPlatformEngine.Plugs.ClearTenantPrefix
     plug :accepts, ["html"]
     plug :fetch_session
     plug :fetch_live_flash

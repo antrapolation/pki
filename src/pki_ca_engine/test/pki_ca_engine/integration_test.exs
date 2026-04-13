@@ -33,20 +33,20 @@ defmodule PkiCaEngine.IntegrationTest do
       [km1, km2, km3] = setup.key_managers
 
       # 2. Verify users were created with correct roles
-      assert {:ok, admin} = UserManagement.get_user(setup.ca_admin.id)
+      assert {:ok, admin} = UserManagement.get_user(nil, setup.ca_admin.id)
       assert admin.role == "ca_admin"
 
-      users = UserManagement.list_users(ca.id)
+      users = UserManagement.list_users(nil, ca.id)
       assert length(users) == 5
 
       # 3. Keystore is configured
-      keystores = KeystoreManagement.list_keystores(ca.id)
+      keystores = KeystoreManagement.list_keystores(nil, ca.id)
       assert length(keystores) == 1
       assert hd(keystores).type == "software"
 
       # 4. Initiate sync ceremony (2-of-3)
       {:ok, {ceremony, issuer_key}} =
-        SyncCeremony.initiate(ca.id, %{
+        SyncCeremony.initiate(nil, ca.id, %{
           algorithm: "RSA-4096",
           keystore_id: setup.keystore.id,
           threshold_k: 2,
@@ -79,7 +79,7 @@ defmodule PkiCaEngine.IntegrationTest do
       ]
 
       {:ok, 3} =
-        SyncCeremony.distribute_shares(ceremony, keypair.private_key, custodian_passwords)
+        SyncCeremony.distribute_shares(nil, ceremony, keypair.private_key, custodian_passwords)
 
       # Verify shares stored in DB
       shares =
@@ -94,7 +94,11 @@ defmodule PkiCaEngine.IntegrationTest do
       # 8. Complete ceremony as root with real self-signed certificate
       {cert_der, cert_pem} =
         PkiCaEngine.IntegrationHelpers.generate_self_signed_root_cert(keypair.private_key)
-      {:ok, completed_ceremony} = SyncCeremony.complete_as_root(ceremony, cert_der, cert_pem)
+      {:ok, completed_ceremony} = SyncCeremony.complete_as_root(nil, ceremony, cert_der, cert_pem)
+
+      # Bring CA back online (auto-offlined after root ceremony)
+      ca = Repo.get!(PkiCaEngine.Schema.CaInstance, ca.id)
+      ca |> PkiCaEngine.Schema.CaInstance.changeset(%{is_offline: false}) |> Repo.update!()
 
       # 9. Verify: issuer key status is "active", ceremony status is "completed"
       assert completed_ceremony.status == "completed"
@@ -173,7 +177,7 @@ defmodule PkiCaEngine.IntegrationTest do
 
       # Initiate ceremony via SyncCeremony.initiate (creates DB records)
       {:ok, {ceremony, _issuer_key}} =
-        SyncCeremony.initiate(setup.ca.id, %{
+        SyncCeremony.initiate(nil, setup.ca.id, %{
           algorithm: "RSA-4096",
           keystore_id: setup.keystore.id,
           threshold_k: 2,
@@ -223,7 +227,7 @@ defmodule PkiCaEngine.IntegrationTest do
       [km1 | _] = setup.key_managers
 
       {:ok, {ceremony, _issuer_key}} =
-        SyncCeremony.initiate(setup.ca.id, %{
+        SyncCeremony.initiate(nil, setup.ca.id, %{
           algorithm: "RSA-4096",
           keystore_id: setup.keystore.id,
           threshold_k: 2,
@@ -327,12 +331,12 @@ defmodule PkiCaEngine.IntegrationTest do
       assert {:error, :unauthorized} = UserManagement.authorize(ca_admin, :manage_keystores)
 
       # Suspend user and verify they cannot do anything
-      {:ok, suspended_admin} = UserManagement.update_user(ca_admin.id, %{status: "suspended"})
+      {:ok, suspended_admin} = UserManagement.update_user(nil, ca_admin.id, %{status: "suspended"})
       assert {:error, :unauthorized} = UserManagement.authorize(suspended_admin, :manage_ca_admins)
       assert {:error, :unauthorized} = UserManagement.authorize(suspended_admin, :view_audit_log)
 
       # Suspended key manager also blocked
-      {:ok, suspended_km} = UserManagement.update_user(km1.id, %{status: "suspended"})
+      {:ok, suspended_km} = UserManagement.update_user(nil, km1.id, %{status: "suspended"})
       assert {:error, :unauthorized} = UserManagement.authorize(suspended_km, :manage_keystores)
       assert {:error, :unauthorized} = UserManagement.authorize(suspended_km, :manage_keys)
     end
