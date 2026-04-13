@@ -56,8 +56,7 @@ defmodule PkiSystem.MixProject do
           pki_ra_engine: :permanent,
           pki_validation: :permanent,
           pki_audit_trail: :permanent
-        ],
-        config_providers: [{Config.Reader, {:system, "RELEASE_ROOT", "/config/runtime.exs"}}]
+        ]
       ],
 
       # Release 2: All web portals + engines in direct mode
@@ -74,8 +73,7 @@ defmodule PkiSystem.MixProject do
           pki_ca_portal: :permanent,
           pki_ra_portal: :permanent,
           pki_platform_portal: :permanent
-        ],
-        config_providers: [{Config.Reader, {:system, "RELEASE_ROOT", "/config/runtime.exs"}}]
+        ]
       ],
 
       # Release 3: Audit trail service (lightweight)
@@ -83,8 +81,7 @@ defmodule PkiSystem.MixProject do
         applications: [
           pki_platform_engine: :permanent,
           pki_audit_trail: :permanent
-        ],
-        config_providers: [{Config.Reader, {:system, "RELEASE_ROOT", "/config/runtime.exs"}}]
+        ]
       ]
     ]
   end
