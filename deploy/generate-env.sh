@@ -38,9 +38,10 @@ if [[ -f "$ENV_FILE" && "$FORCE" != true ]]; then
 fi
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-rand_base64()  { openssl rand -base64 "$1" 2>/dev/null | tr -d '\n'; }
+# URL-safe base64: no +, /, or = (safe for unquoted shell .env values)
+rand_base64()  { openssl rand -base64 "$1" 2>/dev/null | tr '+/' '-_' | tr -d '=\n'; }
 rand_hex()     { openssl rand -hex "$1" 2>/dev/null | tr -d '\n'; }
-rand_password(){ openssl rand -base64 18 2>/dev/null | tr -d '\n/+='; }
+rand_password(){ openssl rand -base64 18 2>/dev/null | tr '+/' '-_' | tr -d '=\n'; }
 
 prompt_or_default() {
   local var_name="$1" default="$2" prompt_text="$3"
@@ -128,7 +129,7 @@ INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
 
 # ── Platform admin ───────────────────────────────────────────────────────────
 PLATFORM_ADMIN_USERNAME=${PLATFORM_ADMIN_USERNAME}
-PLATFORM_ADMIN_PASSWORD_HASH=${PLATFORM_ADMIN_PASSWORD_HASH}
+PLATFORM_ADMIN_PASSWORD_HASH=PLACEHOLDER_HASH
 
 # ── Portal hostnames ─────────────────────────────────────────────────────────
 CA_PORTAL_HOST=${CA_PORTAL_HOST}
@@ -137,7 +138,7 @@ PLATFORM_HOST=${PLATFORM_HOST}
 
 # ── Email (Resend) ───────────────────────────────────────────────────────────
 RESEND_API_KEY=${RESEND_API_KEY}
-MAILER_FROM=${MAILER_FROM}
+MAILER_FROM="${MAILER_FROM}"
 
 # ── Caddy ACME ───────────────────────────────────────────────────────────────
 CADDY_ACME_EMAIL=${CADDY_ACME_EMAIL}
@@ -179,6 +180,9 @@ RA_ENGINE_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_r
 VALIDATION_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_validation
 PLATFORM_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
 ENVFILE
+
+# Inject argon2 hash safely (contains $ signs that break heredoc expansion)
+PKI_HASH="$PLATFORM_ADMIN_PASSWORD_HASH" perl -pi -e 's/PLACEHOLDER_HASH/$ENV{PKI_HASH}/' "$ENV_FILE"
 
 # ── Set permissions ──────────────────────────────────────────────────────────
 chown pki:pki "$ENV_FILE"
