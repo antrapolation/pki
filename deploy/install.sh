@@ -49,11 +49,29 @@ info "Installing system packages..."
 apt-get update -qq
 apt-get install -y --no-install-recommends \
   curl ca-certificates gnupg wget unzip \
+  build-essential cmake ninja-build \
   erlang-nox erlang-dev erlang-public-key erlang-ssl erlang-crypto erlang-asn1 \
   postgresql postgresql-client \
   softhsm2 \
   argon2 \
   libssl-dev
+
+# liboqs (Post-Quantum Cryptography library — needed by pki_oqs_nif)
+if [[ ! -f /usr/local/include/oqs/oqs.h ]]; then
+  info "Building liboqs from source..."
+  LIBOQS_TMP=$(mktemp -d)
+  git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git "$LIBOQS_TMP/liboqs"
+  mkdir -p "$LIBOQS_TMP/liboqs/build"
+  cd "$LIBOQS_TMP/liboqs/build"
+  cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=OFF .. >/dev/null 2>&1
+  ninja >/dev/null 2>&1
+  ninja install >/dev/null 2>&1
+  cd /
+  rm -rf "$LIBOQS_TMP"
+  info "liboqs installed to /usr/local"
+else
+  info "liboqs already installed, skipping."
+fi
 
 # Elixir 1.18.x from GitHub releases (Ubuntu 24.04 ships Elixir 1.14 — too old)
 ELIXIR_VSN="1.18.4"
