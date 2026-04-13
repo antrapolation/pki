@@ -181,8 +181,9 @@ VALIDATION_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_
 PLATFORM_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
 ENVFILE
 
-# Inject argon2 hash safely (contains $ signs that break heredoc expansion)
-PKI_HASH="$PLATFORM_ADMIN_PASSWORD_HASH" perl -pi -e 's/PLACEHOLDER_HASH/$ENV{PKI_HASH}/' "$ENV_FILE"
+# Inject argon2 hash safely (contains $ signs that break heredoc and bash source)
+# Wrap in single quotes so `source .env` doesn't expand $argon2id, $v, $m etc.
+PKI_HASH="$PLATFORM_ADMIN_PASSWORD_HASH" perl -pi -e "s/PLACEHOLDER_HASH/'\$ENV{PKI_HASH}'/" "$ENV_FILE"
 
 # ── Set permissions ──────────────────────────────────────────────────────────
 chown pki:pki "$ENV_FILE"
