@@ -63,6 +63,53 @@ config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
   pubsub_server: PkiRaPortal.PubSub,
   live_view: [signing_salt: "FeWYPwyL"]
 
+# ── esbuild (asset bundling for all 3 portals) ─────────────────────────────
+config :esbuild,
+  version: "0.25.4",
+  pki_ca_portal: [
+    args:
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+    cd: Path.expand("../src/pki_ca_portal/assets", __DIR__),
+    env: %{"NODE_PATH" => [Path.expand("../src/pki_ca_portal/deps", __DIR__), Mix.Project.build_path()]}
+  ],
+  pki_ra_portal: [
+    args:
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+    cd: Path.expand("../src/pki_ra_portal/assets", __DIR__),
+    env: %{"NODE_PATH" => [Path.expand("../src/pki_ra_portal/deps", __DIR__), Mix.Project.build_path()]}
+  ],
+  pki_platform_portal: [
+    args:
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+    cd: Path.expand("../src/pki_platform_portal/assets", __DIR__),
+    env: %{"NODE_PATH" => [Path.expand("../src/pki_platform_portal/deps", __DIR__), Mix.Project.build_path()]}
+  ]
+
+# ── tailwind (CSS compilation for all 3 portals) ───────────────────────────
+config :tailwind,
+  version: "4.1.12",
+  pki_ca_portal: [
+    args: ~w(
+      --input=assets/css/app.css
+      --output=priv/static/assets/css/app.css
+    ),
+    cd: Path.expand("../src/pki_ca_portal", __DIR__)
+  ],
+  pki_ra_portal: [
+    args: ~w(
+      --input=assets/css/app.css
+      --output=priv/static/assets/css/app.css
+    ),
+    cd: Path.expand("../src/pki_ra_portal", __DIR__)
+  ],
+  pki_platform_portal: [
+    args: ~w(
+      --input=assets/css/app.css
+      --output=priv/static/assets/css/app.css
+    ),
+    cd: Path.expand("../src/pki_platform_portal", __DIR__)
+  ]
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 # JSON logging in production (LoggerJSON 6.x uses formatter API, not backends)
 if config_env() == :prod do
