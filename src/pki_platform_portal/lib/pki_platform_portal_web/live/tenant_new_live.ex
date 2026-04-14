@@ -371,24 +371,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                 <p class="text-xs text-base-content/50 mt-1">Tenant admin credentials will be sent to this email.</p>
               </div>
 
-              <div>
-                <label for="tenant-schema-mode" class="block text-xs font-medium text-base-content/60 mb-1">
-                  Isolation Mode
-                </label>
-                <select
-                  name="schema_mode"
-                  id="tenant-schema-mode"
-                  class="select select-bordered w-full"
-                >
-                  <option value="schema" selected={@schema_mode == "schema"}>
-                    Schema (recommended) — shared database, isolated schema
-                  </option>
-                  <option value="database" selected={@schema_mode == "database"}>
-                    Database — dedicated database per tenant
-                  </option>
-                </select>
-                <p class="text-xs text-base-content/50 mt-1">Schema mode uses PostgreSQL schemas for lightweight isolation. Database mode creates a separate database.</p>
-              </div>
+              <%!-- Isolation mode: schema-only for now. Database mode is legacy/not fully tested. --%>
+              <input type="hidden" name="schema_mode" value="schema" />
 
               <div class="flex justify-end gap-3 pt-2">
                 <.link navigate="/tenants" class="btn btn-ghost btn-sm">
