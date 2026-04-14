@@ -70,19 +70,19 @@ config :esbuild,
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../src/pki_ca_portal/assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../src/pki_ca_portal/deps", __DIR__), Mix.Project.build_path()]}
+    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ],
   pki_ra_portal: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../src/pki_ra_portal/assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../src/pki_ra_portal/deps", __DIR__), Mix.Project.build_path()]}
+    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ],
   pki_platform_portal: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../src/pki_platform_portal/assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../src/pki_platform_portal/deps", __DIR__), Mix.Project.build_path()]}
+    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
 # ── tailwind (CSS compilation for all 3 portals) ───────────────────────────
