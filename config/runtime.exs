@@ -189,10 +189,13 @@ if config_env() == :prod do
       _ -> PkiCaPortal.CaEngineClient.Http
     end
 
+  ca_portal_url = System.get_env("CA_PORTAL_URL", "https://#{System.get_env("CA_PORTAL_HOST", "localhost")}")
+
   config :pki_ca_portal,
     ca_engine_client: ca_portal_client,
     ca_engine_url: ca_engine_url,
-    internal_api_secret: internal_api_secret
+    internal_api_secret: internal_api_secret,
+    portal_url: ca_portal_url
 
   # ── RA Portal engine client ──
   ra_portal_client =
@@ -201,10 +204,13 @@ if config_env() == :prod do
       _ -> PkiRaPortal.RaEngineClient.Http
     end
 
+  ra_portal_url = System.get_env("RA_PORTAL_URL", "https://#{System.get_env("RA_PORTAL_HOST", "localhost")}")
+
   config :pki_ra_portal,
     ra_engine_client: ra_portal_client,
     ra_engine_url: ra_engine_url,
-    internal_api_secret: internal_api_secret
+    internal_api_secret: internal_api_secret,
+    portal_url: ra_portal_url
 
   # ── Platform Portal admin credentials ──
   admin_username = System.get_env("PLATFORM_ADMIN_USERNAME") ||

@@ -168,6 +168,11 @@ RA_PORTAL_PORT=4004
 PLATFORM_PORTAL_PORT=4006
 VALIDATION_PORT=4005
 
+# ── Public portal URLs (used in emails, links) ──────────────────────────────
+CA_PORTAL_URL=https://${CA_PORTAL_HOST}
+RA_PORTAL_URL=https://${RA_PORTAL_HOST}
+PLATFORM_PORTAL_URL=https://${PLATFORM_HOST}
+
 # ── Internal service URLs (localhost — no containers) ────────────────────────
 CA_ENGINE_URL=http://127.0.0.1:4001
 RA_ENGINE_URL=http://127.0.0.1:4003
