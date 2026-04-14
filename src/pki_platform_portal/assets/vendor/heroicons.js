@@ -3,7 +3,11 @@ const fs = require("fs")
 const path = require("path")
 
 module.exports = plugin(function({matchComponents, theme}) {
+  // Try child app deps first (standalone build), then umbrella root deps
   let iconsDir = path.join(__dirname, "../../deps/heroicons/optimized")
+  if (!fs.existsSync(iconsDir)) {
+    iconsDir = path.join(__dirname, "../../../../deps/heroicons/optimized")
+  }
   let values = {}
   let icons = [
     ["", "/24/outline"],
