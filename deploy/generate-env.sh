@@ -179,12 +179,15 @@ RA_ENGINE_URL=http://127.0.0.1:4003
 VALIDATION_URL=http://127.0.0.1:4005
 
 # ── Database URLs (PostgreSQL on localhost:5432) ─────────────────────────────
-DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_ca_engine
-CA_ENGINE_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_ca_engine
-RA_ENGINE_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_ra_engine
-VALIDATION_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_validation
+# Schema-per-tenant: all engines share pki_platform. Tenant schemas (t_<id>_ca,
+# t_<id>_ra, t_<id>_audit) are created inside pki_platform by the Provisioner,
+# so every engine repo must connect to the same database.
+DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
+CA_ENGINE_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
+RA_ENGINE_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
+VALIDATION_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
 PLATFORM_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
-AUDIT_TRAIL_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_audit_trail
+AUDIT_TRAIL_DATABASE_URL=ecto://postgres:${POSTGRES_PASSWORD}@localhost:5432/pki_platform
 
 # ── Connection pool sizes ────────────────────────────────────────────────
 # Total connections across 2 BEAM nodes must stay under PostgreSQL max_connections (300).

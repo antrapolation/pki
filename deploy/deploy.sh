@@ -33,8 +33,9 @@ if [[ ! -f /opt/pki/.env ]]; then
 fi
 
 # ── Database names (shared DB, schema-per-tenant) ────────────────────────────
-# All databases — ensure pki_audit_trail is included for PkiAuditTrail.Repo
-PKI_DATABASES=(pki_ca_engine pki_ra_engine pki_validation pki_audit_trail pki_platform)
+# Schema-per-tenant: everything lives in pki_platform. Tenant schemas
+# (t_<id>_ca, t_<id>_ra, t_<id>_audit) are created inside pki_platform.
+PKI_DATABASES=(pki_platform)
 
 ensure_pg_connections() {
   info "Checking PostgreSQL max_connections..."

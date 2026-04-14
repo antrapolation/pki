@@ -291,11 +291,9 @@ If you prefer to do it manually:
 
 ```bash
 # As postgres superuser
+# Schema-per-tenant: only one database is needed. All tenant schemas
+# (t_<id>_ca, t_<id>_ra, t_<id>_audit) live inside pki_platform.
 sudo -u postgres psql << 'SQL'
-CREATE DATABASE pki_ca_engine;
-CREATE DATABASE pki_ra_engine;
-CREATE DATABASE pki_validation;
-CREATE DATABASE pki_audit_trail;
 CREATE DATABASE pki_platform;
 SQL
 

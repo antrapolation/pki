@@ -174,9 +174,12 @@ defmodule PkiPlatformEngine.TenantMigrator do
 
   defp list_active_tenants do
     try do
-      # Migrate ALL tenants (including suspended) so schemas are ready on reactivation
+      # Only database-mode tenants need the raw SQL migrations in priv/tenant_migrations/.
+      # Those files use hardcoded `ca.` / `ra.` schema names that only exist in per-tenant DBs.
+      # Schema-mode tenants have their schemas (t_<id>_ca / t_<id>_ra) migrated via
+      # Ecto.Migrator with :prefix by Provisioner.run_tenant_migrations at creation time.
       rows = PlatformRepo.query!(
-        "SELECT id, database_name FROM tenants WHERE status IN ('active', 'suspended')",
+        "SELECT id, database_name FROM tenants WHERE status IN ('active', 'suspended') AND schema_mode = 'database'",
         []
       ).rows
 
