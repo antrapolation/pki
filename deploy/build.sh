@@ -38,7 +38,7 @@ info "Fetching dependencies..."
 MIX_ENV=prod mix deps.get --only prod
 
 info "Deploying assets (portals)..."
-MIX_ENV=prod mix assets.deploy 2>/dev/null || true
+MIX_ENV=prod mix assets.deploy
 
 # ── Build releases ───────────────────────────────────────────────────────────
 RELEASES=(pki_engines pki_portals pki_audit)
