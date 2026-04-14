@@ -33,7 +33,8 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
        schema_mode: "schema",
        form_error: nil,
        progress: Enum.map(steps_for("schema"), fn {key, label} -> {key, label, :pending} end),
-       tenant: nil
+       tenant: nil,
+       task_ref: nil
      )}
   end
 
@@ -58,7 +59,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
           progress: Enum.map(steps_for(schema_mode), fn {key, label} -> {key, label, :pending} end)
         )
 
-      send(self(), :run_provision)
+      send(self(), :start_database_step)
       {:noreply, socket}
     else
       {:error, msg} ->
@@ -78,7 +79,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
           other -> other
         end)
 
-        send(self(), step_message(key))
+        send(self(), step_start_message(key))
         {:noreply, assign(socket, progress: progress, form_error: nil)}
 
       nil ->
@@ -86,16 +87,107 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     end
   end
 
-  # --- Provisioning chain ---
+  # --- Async provisioning chain ---
+  # Each step: set :in_progress → return socket (pushes spinner to client) → run Task
 
+  # Step 1: Create database/schemas
   @impl true
-  def handle_info(:run_provision, socket) do
+  def handle_info(:start_database_step, socket) do
     socket = update_step(socket, :database, :in_progress)
+    name = socket.assigns.name
+    slug = socket.assigns.slug
+    email = socket.assigns.email
+    schema_mode = socket.assigns.schema_mode
 
-    case TenantOnboarding.create_database(socket.assigns.name, socket.assigns.slug, socket.assigns.email, schema_mode: socket.assigns.schema_mode) do
+    task = Task.async(fn ->
+      TenantOnboarding.create_database(name, slug, email, schema_mode: schema_mode)
+    end)
+
+    {:noreply, assign(socket, task_ref: {:database, task.ref})}
+  end
+
+  # Step 2: Activate tenant
+  def handle_info(:start_activate_step, socket) do
+    socket = update_step(socket, :engines, :in_progress)
+    tenant_id = socket.assigns.tenant.id
+
+    task = Task.async(fn ->
+      TenantOnboarding.activate(tenant_id)
+    end)
+
+    {:noreply, assign(socket, task_ref: {:engines, task.ref})}
+  end
+
+  # Step 3: Create instances
+  def handle_info(:start_instances_step, socket) do
+    socket = update_step(socket, :instances, :in_progress)
+    tenant = socket.assigns.tenant
+
+    task = Task.async(fn ->
+      TenantOnboarding.create_instances(tenant)
+    end)
+
+    {:noreply, assign(socket, task_ref: {:instances, task.ref})}
+  end
+
+  # Step 4: Create tenant admin + send credentials
+  def handle_info(:start_tenant_admin_step, socket) do
+    socket = update_step(socket, :tenant_admin, :in_progress)
+    tenant = socket.assigns.tenant
+
+    task = Task.async(fn ->
+      TenantOnboarding.create_tenant_admin(tenant)
+    end)
+
+    {:noreply, assign(socket, task_ref: {:tenant_admin, task.ref})}
+  end
+
+  # --- Task result handlers ---
+
+  def handle_info({ref, result}, socket) when is_reference(ref) do
+    # Flush the DOWN message from the Task
+    Process.demonitor(ref, [:flush])
+
+    case socket.assigns.task_ref do
+      {:database, ^ref} ->
+        handle_database_result(result, socket)
+
+      {:engines, ^ref} ->
+        handle_activate_result(result, socket)
+
+      {:instances, ^ref} ->
+        handle_instances_result(result, socket)
+
+      {:tenant_admin, ^ref} ->
+        handle_tenant_admin_result(result, socket)
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  # Handle Task crashes
+  def handle_info({:DOWN, ref, :process, _pid, reason}, socket) when is_reference(ref) do
+    case socket.assigns.task_ref do
+      {step, ^ref} ->
+        Logger.error("[tenant_new] Task crashed during #{step}: #{inspect(reason)}")
+        {:noreply, update_step(socket, step, {:error, "Unexpected error. Check server logs."})}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  # Catch-all for unmatched messages
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # --- Result handlers ---
+
+  defp handle_database_result(result, socket) do
+    case result do
       {:ok, tenant} ->
         socket = socket |> assign(tenant: tenant) |> update_step(:database, :done)
-        send(self(), :run_activate)
+        send(self(), :start_activate_step)
         {:noreply, socket}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -107,13 +199,11 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     end
   end
 
-  def handle_info(:run_activate, socket) do
-    socket = update_step(socket, :engines, :in_progress)
-
-    case TenantOnboarding.activate(socket.assigns.tenant.id) do
+  defp handle_activate_result(result, socket) do
+    case result do
       {:ok, tenant} ->
         socket = socket |> assign(tenant: tenant) |> update_step(:engines, :done)
-        send(self(), :run_instances)
+        send(self(), :start_instances_step)
         {:noreply, socket}
 
       {:error, reason} ->
@@ -121,13 +211,11 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     end
   end
 
-  def handle_info(:run_instances, socket) do
-    socket = update_step(socket, :instances, :in_progress)
-
-    case TenantOnboarding.create_instances(socket.assigns.tenant) do
+  defp handle_instances_result(result, socket) do
+    case result do
       :ok ->
         socket = update_step(socket, :instances, :done)
-        send(self(), :run_tenant_admin)
+        send(self(), :start_tenant_admin_step)
         {:noreply, socket}
 
       {:error, reason} ->
@@ -135,14 +223,15 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     end
   end
 
-  def handle_info(:run_tenant_admin, socket) do
-    socket = update_step(socket, :tenant_admin, :in_progress)
-
-    case TenantOnboarding.create_tenant_admin(socket.assigns.tenant) do
+  defp handle_tenant_admin_result(result, socket) do
+    case result do
       {:ok, _user} ->
-        socket = update_step(socket, :tenant_admin, :done)
-        # Credentials are sent automatically by create_user_for_portal
-        {:noreply, update_step(socket, :credentials, :done)}
+        socket =
+          socket
+          |> update_step(:tenant_admin, :done)
+          |> update_step(:credentials, :done)
+
+        {:noreply, socket}
 
       {:error, reason} ->
         {:noreply, update_step(socket, :tenant_admin, {:error, inspect(reason)})}
@@ -151,11 +240,11 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
 
   # --- Helpers ---
 
-  defp step_message(:database), do: :run_provision
-  defp step_message(:engines), do: :run_activate
-  defp step_message(:instances), do: :run_instances
-  defp step_message(:tenant_admin), do: :run_tenant_admin
-  defp step_message(:credentials), do: :run_tenant_admin
+  defp step_start_message(:database), do: :start_database_step
+  defp step_start_message(:engines), do: :start_activate_step
+  defp step_start_message(:instances), do: :start_instances_step
+  defp step_start_message(:tenant_admin), do: :start_tenant_admin_step
+  defp step_start_message(:credentials), do: :start_tenant_admin_step
 
   defp update_step(socket, key, status) do
     progress = Enum.map(socket.assigns.progress, fn
@@ -320,7 +409,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
           <div class="card-body p-6 space-y-5">
             <div>
               <h2 class="text-base font-semibold text-base-content">Creating {@name}</h2>
-              <p class="text-sm text-base-content/60 mt-0.5">Setting up the tenant environment...</p>
+              <p class="text-sm text-base-content/60 mt-0.5">Setting up the tenant environment. This may take up to a minute...</p>
             </div>
 
             <%!-- Progress checklist --%>
@@ -334,7 +423,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                     <span class="text-sm text-base-content">{label}</span>
                   <% :in_progress -> %>
                     <span class="loading loading-spinner loading-sm text-primary"></span>
-                    <span class="text-sm text-base-content">{label}</span>
+                    <span class="text-sm text-base-content font-medium">{label}</span>
                   <% {:error, _msg} -> %>
                     <div class="flex items-center justify-center w-6 h-6 rounded-full bg-error/10">
                       <.icon name="hero-x-mark" class="size-4 text-error" />

@@ -112,9 +112,14 @@ defmodule PkiPlatformEngine.Provisioner do
     tenant_id = Ecto.Changeset.get_field(changeset, :id)
     prefixes = TenantPrefix.all_prefixes(tenant_id)
 
+    Logger.info("tenant_provisioning tenant_id=#{tenant_id} step=insert")
+
     with {:ok, tenant} <- PlatformRepo.insert(changeset),
+         _ = Logger.info("tenant_provisioning tenant_id=#{tenant_id} step=create_schemas"),
          :ok <- create_tenant_schemas(prefixes),
+         _ = Logger.info("tenant_provisioning tenant_id=#{tenant_id} step=run_migrations"),
          :ok <- run_tenant_migrations(prefixes) do
+      Logger.info("tenant_provisioning tenant_id=#{tenant_id} step=complete")
       {:ok, tenant}
     else
       {:error, %Ecto.Changeset{} = cs} ->
@@ -161,28 +166,64 @@ defmodule PkiPlatformEngine.Provisioner do
     base_config = platform_repo_config()
 
     try do
+      Logger.info("tenant_migration_start prefix=#{prefixes.ca_prefix} engine=ca")
       run_prefixed_migrations(base_config, prefixes.ca_prefix, ca_migrations_path())
+      Logger.info("tenant_migration_done prefix=#{prefixes.ca_prefix} engine=ca")
+
+      Logger.info("tenant_migration_start prefix=#{prefixes.ra_prefix} engine=ra")
       run_prefixed_migrations(base_config, prefixes.ra_prefix, ra_migrations_path())
+      Logger.info("tenant_migration_done prefix=#{prefixes.ra_prefix} engine=ra")
       :ok
     rescue
-      e -> {:error, {:migration_failed, Exception.message(e)}}
+      e ->
+        Logger.error("tenant_migration_failed error=#{Exception.message(e)}")
+        {:error, {:migration_failed, Exception.message(e)}}
     end
   end
 
   defp run_prefixed_migrations(base_config, prefix, migrations_path) do
+    Logger.info("tenant_migration migrations_path=#{migrations_path} exists=#{File.dir?(migrations_path)}")
+
+    unless File.dir?(migrations_path) do
+      Logger.warning("tenant_migration skipping — path does not exist: #{migrations_path}")
+      # Not an error — just no migrations to run (e.g. empty priv dir in release)
+      return_no_migrations()
+    end
+
     config =
       base_config
       |> Keyword.put(:after_connect, {Postgrex, :query!, ["SET search_path TO \"#{TenantPrefix.validate_prefix!(prefix)}\"", []]})
+      |> Keyword.put(:connect_timeout, 15_000)
 
-    {:ok, repo} = PkiPlatformEngine.MigrationRepo.start_link(config)
+    # Stop any lingering MigrationRepo from a previous run
+    case GenServer.whereis(PkiPlatformEngine.MigrationRepo) do
+      nil -> :ok
+      _pid ->
+        Logger.warning("tenant_migration stopping lingering MigrationRepo")
+        Supervisor.stop(PkiPlatformEngine.MigrationRepo, :normal, 5_000)
+        Process.sleep(500)
+    end
 
-    try do
-      Ecto.Migrator.run(PkiPlatformEngine.MigrationRepo, migrations_path, :up,
-        all: true, prefix: prefix, log: false)
-    after
-      Supervisor.stop(repo)
+    Logger.info("tenant_migration starting MigrationRepo for prefix=#{prefix}")
+
+    case PkiPlatformEngine.MigrationRepo.start_link(config) do
+      {:ok, repo} ->
+        try do
+          Logger.info("tenant_migration running Ecto.Migrator for prefix=#{prefix}")
+          Ecto.Migrator.run(PkiPlatformEngine.MigrationRepo, migrations_path, :up,
+            all: true, prefix: prefix, log: false)
+          Logger.info("tenant_migration completed for prefix=#{prefix}")
+        after
+          Supervisor.stop(repo, :normal, 10_000)
+        end
+
+      {:error, reason} ->
+        Logger.error("tenant_migration MigrationRepo start failed: #{inspect(reason)}")
+        raise "MigrationRepo failed to start: #{inspect(reason)}"
     end
   end
+
+  defp return_no_migrations, do: :ok
 
   defp platform_repo_config do
     config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
