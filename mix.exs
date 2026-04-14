@@ -98,6 +98,16 @@ defmodule PkiSystem.MixProject do
       "ecto.reset": [
         "ecto.drop",
         "ecto.setup"
+      ],
+      # Build and digest assets for all 3 portals (called by deploy/build.sh)
+      "assets.deploy": [
+        "tailwind pki_ca_portal --minify",
+        "esbuild pki_ca_portal --minify",
+        "tailwind pki_ra_portal --minify",
+        "esbuild pki_ra_portal --minify",
+        "tailwind pki_platform_portal --minify",
+        "esbuild pki_platform_portal --minify",
+        "phx.digest"
       ]
     ]
   end
