@@ -15,8 +15,8 @@ defmodule PkiValidation.Crypto.Signer.KazSignTest do
       assert :ok = PkiCrypto.Algorithm.verify(algo, pk, signature, tbs)
     end
 
-    test "algorithm_identifier_record uses placeholder OID" do
-      assert {:AlgorithmIdentifier, {1, 3, 6, 1, 4, 1, 99999, 1, 1, 1}, :asn1_NOVALUE} =
+    test "algorithm_identifier_record uses KAZ-SIGN reference OID" do
+      assert {:AlgorithmIdentifier, {1, 3, 6, 1, 4, 1, 62395, 2, 2, 1}, :asn1_NOVALUE} =
                KazSign128.algorithm_identifier_record()
     end
 
@@ -35,8 +35,8 @@ defmodule PkiValidation.Crypto.Signer.KazSignTest do
       assert :ok = PkiCrypto.Algorithm.verify(algo, pk, signature, "tbs-192")
     end
 
-    test "algorithm_identifier_record uses placeholder OID .2" do
-      assert {:AlgorithmIdentifier, {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2}, :asn1_NOVALUE} =
+    test "algorithm_identifier_record uses KAZ-SIGN reference OID .2" do
+      assert {:AlgorithmIdentifier, {1, 3, 6, 1, 4, 1, 62395, 2, 2, 2}, :asn1_NOVALUE} =
                KazSign192.algorithm_identifier_record()
     end
   end
@@ -51,8 +51,8 @@ defmodule PkiValidation.Crypto.Signer.KazSignTest do
       assert :ok = PkiCrypto.Algorithm.verify(algo, pk, signature, "tbs-256")
     end
 
-    test "algorithm_identifier_record uses placeholder OID .3" do
-      assert {:AlgorithmIdentifier, {1, 3, 6, 1, 4, 1, 99999, 1, 1, 3}, :asn1_NOVALUE} =
+    test "algorithm_identifier_record uses KAZ-SIGN reference OID .3" do
+      assert {:AlgorithmIdentifier, {1, 3, 6, 1, 4, 1, 62395, 2, 2, 3}, :asn1_NOVALUE} =
                KazSign256.algorithm_identifier_record()
     end
   end

@@ -135,7 +135,7 @@ defmodule PkiCrypto.X509BuilderTest do
       {alg_body, <<>>} = PkiCrypto.Asn1.read_sequence(sig_alg)
       [alg_oid_der] = PkiCrypto.Asn1.read_sequence_items(alg_body)
       {oid, <<>>} = PkiCrypto.Asn1.read_oid(alg_oid_der)
-      assert oid == {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2}
+      assert oid == {1, 3, 6, 1, 4, 1, 62395, 2, 2, 2}
 
       {signature, <<>>} = PkiCrypto.Asn1.read_bit_string(sig_bits)
       assert :ok = PkiCrypto.Algorithm.verify(algo, root_pub, signature, tbs)

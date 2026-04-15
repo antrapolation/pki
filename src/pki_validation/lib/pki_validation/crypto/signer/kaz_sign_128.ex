@@ -9,9 +9,10 @@ defmodule PkiValidation.Crypto.Signer.KazSign128 do
   """
   @behaviour PkiValidation.Crypto.Signer
 
-  @oid {1, 3, 6, 1, 4, 1, 99999, 1, 1, 1}
-  @algorithm_identifier_der <<0x30, 0x0D, 0x06, 0x0B, 0x2B, 0x06, 0x01, 0x04, 0x01, 0x86, 0x8D,
-                              0x1F, 0x01, 0x01, 0x01>>
+  @oid {1, 3, 6, 1, 4, 1, 62395, 2, 2, 1}
+  # SEQUENCE(OID 1.3.6.1.4.1.62395.2.2.1) — KAZ-SIGN-128 reference impl OID
+  @algorithm_identifier_der <<0x30, 0x0D, 0x06, 0x0B, 0x2B, 0x06, 0x01, 0x04, 0x01, 0x83, 0xE7,
+                              0x3B, 0x02, 0x02, 0x01>>
 
   @impl true
   def decode_private_key(raw) when is_binary(raw), do: raw

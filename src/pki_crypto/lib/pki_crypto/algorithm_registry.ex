@@ -73,22 +73,24 @@ defmodule PkiCrypto.AlgorithmRegistry do
       sig_alg_oid: {2, 16, 840, 1, 101, 3, 4, 3, 19},
       public_key_oid: {2, 16, 840, 1, 101, 3, 4, 3, 19}
     },
-    # KAZ-SIGN — PLACEHOLDER PEN (99999). Replace before production via
-    # config :pki_crypto, :oid_overrides, %{"KAZ-SIGN-192" => %{...}}
+    # KAZ-SIGN — Malaysia PQC. OID arc 1.3.6.1.4.1.62395.2.2 is the assigned
+    # arc matching the KAZ-SIGN reference implementation (see
+    # PQC-KAZ/SIGN/src/internal/x509.c). Levels map to the final arc:
+    # 128 -> .1, 192 -> .2, 256 -> .3.
     "KAZ-SIGN-128" => %{
       family: :kaz_sign,
-      sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 1},
-      public_key_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 1}
+      sig_alg_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 1},
+      public_key_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 1}
     },
     "KAZ-SIGN-192" => %{
       family: :kaz_sign,
-      sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2},
-      public_key_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2}
+      sig_alg_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 2},
+      public_key_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 2}
     },
     "KAZ-SIGN-256" => %{
       family: :kaz_sign,
-      sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 3},
-      public_key_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 3}
+      sig_alg_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 3},
+      public_key_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 3}
     }
   }
 

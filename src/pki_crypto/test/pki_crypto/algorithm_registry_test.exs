@@ -51,19 +51,19 @@ defmodule PkiCrypto.AlgorithmRegistryTest do
                AlgorithmRegistry.by_id("ML-DSA-87")
     end
 
-    test "returns metadata for KAZ-SIGN-128 with placeholder OID" do
+    test "returns metadata for KAZ-SIGN-128 with reference impl OID" do
       assert {:ok, %{id: "KAZ-SIGN-128", family: :kaz_sign,
-                     sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 1}}} =
+                     sig_alg_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 1}}} =
                AlgorithmRegistry.by_id("KAZ-SIGN-128")
     end
 
-    test "returns metadata for KAZ-SIGN-192 with placeholder OID" do
-      assert {:ok, %{id: "KAZ-SIGN-192", sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2}}} =
+    test "returns metadata for KAZ-SIGN-192 with reference impl OID" do
+      assert {:ok, %{id: "KAZ-SIGN-192", sig_alg_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 2}}} =
                AlgorithmRegistry.by_id("KAZ-SIGN-192")
     end
 
-    test "returns metadata for KAZ-SIGN-256 with placeholder OID" do
-      assert {:ok, %{id: "KAZ-SIGN-256", sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 3}}} =
+    test "returns metadata for KAZ-SIGN-256 with reference impl OID" do
+      assert {:ok, %{id: "KAZ-SIGN-256", sig_alg_oid: {1, 3, 6, 1, 4, 1, 62395, 2, 2, 3}}} =
                AlgorithmRegistry.by_id("KAZ-SIGN-256")
     end
   end
