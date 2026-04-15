@@ -674,11 +674,29 @@ defmodule PkiCaPortalWeb.CeremonyLive do
 
   defp format_error({:validation_error, errors}) when is_map(errors) do
     errors
-    |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(List.wrap(v), ", ")}" end)
+    |> Enum.map(fn {k, v} -> "#{humanize_field(k)}: #{Enum.join(List.wrap(v), ", ")}" end)
+    |> Enum.join("; ")
+  end
+  defp format_error(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {k, v}, acc -> String.replace(acc, "%{#{k}}", to_string(v)) end)
+    end)
+    |> Enum.map(fn {field, msgs} -> "#{humanize_field(field)} #{Enum.join(List.wrap(msgs), ", ")}" end)
     |> Enum.join("; ")
   end
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(_reason), do: "an unexpected error occurred"
+
+  defp humanize_field(:key_alias), do: "Key alias"
+  defp humanize_field(:ca_instance_id), do: "CA instance"
+  defp humanize_field(:algorithm), do: "Algorithm"
+  defp humanize_field(:keystore_id), do: "Keystore"
+  defp humanize_field(:threshold_k), do: "Threshold (k)"
+  defp humanize_field(:threshold_n), do: "Threshold (n)"
+  defp humanize_field(field) when is_atom(field) or is_binary(field) do
+    field |> to_string() |> String.replace("_", " ") |> String.capitalize()
+  end
 
   defp parse_int(v) when is_integer(v), do: v
   defp parse_int(v) when is_binary(v) do
