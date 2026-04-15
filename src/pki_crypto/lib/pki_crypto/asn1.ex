@@ -1,16 +1,16 @@
 defmodule PkiCrypto.Asn1 do
   @moduledoc """
-  DER primitive encoder for X.509/PKCS#10 fields the `:public_key` library
-  does not expose directly — specifically for emitting structures that
-  carry non-classical algorithm OIDs in `subjectPublicKeyInfo` and
-  `signatureAlgorithm`.
+  DER primitive encoder AND parser for X.509/PKCS#10 fields the `:public_key`
+  library does not expose directly — specifically for emitting and reading
+  structures that carry non-classical algorithm OIDs in `subjectPublicKeyInfo`
+  and `signatureAlgorithm`.
 
   Only the subset of ASN.1 DER needed by X.509 v3 + PKCS#10 is covered:
   INTEGER, OCTET STRING, BIT STRING, OBJECT IDENTIFIER, BOOLEAN, NULL,
   UTCTime, GeneralizedTime, SEQUENCE, SET, and context-tagged wrappers.
 
   All encoders return DER bytes suitable for concatenation into parent
-  structures. Parsers (`read_*`) are added in Task 2.
+  structures. Parsers (`read_*`) decode DER back to Elixir terms.
   """
 
   import Bitwise
@@ -146,25 +146,102 @@ defmodule PkiCrypto.Asn1 do
   def encode_length(n) when n < 65_536, do: <<0x82, n::16>>
   def encode_length(n) when n < 16_777_216, do: <<0x83, n::24>>
 
-  defp take_length_prefixed(<<n, rest::binary>>) when n < 128 do
+  @doc false
+  def decode_length(<<n, rest::binary>>) when n < 128 do
     <<body::binary-size(n), after_body::binary>> = rest
+    {n, body, after_body}
+  end
+
+  def decode_length(<<0x81, n, rest::binary>>) do
+    <<body::binary-size(n), after_body::binary>> = rest
+    {n, body, after_body}
+  end
+
+  def decode_length(<<0x82, n::16, rest::binary>>) do
+    <<body::binary-size(n), after_body::binary>> = rest
+    {n, body, after_body}
+  end
+
+  def decode_length(<<0x83, n::24, rest::binary>>) do
+    <<body::binary-size(n), after_body::binary>> = rest
+    {n, body, after_body}
+  end
+
+  defp take_length_prefixed(bytes) do
+    {_len, body, after_body} = decode_length(bytes)
     {body, after_body}
   end
 
-  defp take_length_prefixed(<<0x81, n, rest::binary>>) do
-    <<body::binary-size(n), after_body::binary>> = rest
+  # --- Decoders ---
+
+  @doc "Decode DER INTEGER. Returns `{non_neg_integer, rest}`."
+  @spec read_integer(binary()) :: {non_neg_integer(), binary()}
+  def read_integer(<<0x02, rest::binary>>) do
+    {_len, body, after_body} = decode_length(rest)
+    {:binary.decode_unsigned(body), after_body}
+  end
+
+  @doc "Decode DER OID. Returns `{arcs_tuple, rest}`."
+  @spec read_oid(binary()) :: {tuple(), binary()}
+  def read_oid(<<0x06, rest::binary>>) do
+    {_len, body, after_body} = decode_length(rest)
+    <<first, subs::binary>> = body
+    a1 = div(first, 40)
+    a2 = rem(first, 40)
+    tail = decode_subidentifiers(subs, 0, [])
+    {List.to_tuple([a1, a2 | tail]), after_body}
+  end
+
+  defp decode_subidentifiers(<<>>, _acc, out), do: Enum.reverse(out)
+
+  defp decode_subidentifiers(<<b, rest::binary>>, acc, out) when b >= 0x80 do
+    decode_subidentifiers(rest, (acc <<< 7) ||| (b &&& 0x7F), out)
+  end
+
+  defp decode_subidentifiers(<<b, rest::binary>>, acc, out) do
+    decode_subidentifiers(rest, 0, [((acc <<< 7) ||| b) | out])
+  end
+
+  @doc "Decode DER BIT STRING (assumes unused_bits=0). Returns `{bytes, rest}`."
+  @spec read_bit_string(binary()) :: {binary(), binary()}
+  def read_bit_string(<<0x03, rest::binary>>) do
+    {_len, body, after_body} = decode_length(rest)
+    <<0x00, content::binary>> = body
+    {content, after_body}
+  end
+
+  @doc "Decode DER OCTET STRING. Returns `{bytes, rest}`."
+  @spec read_octet_string(binary()) :: {binary(), binary()}
+  def read_octet_string(<<0x04, rest::binary>>) do
+    {_len, body, after_body} = decode_length(rest)
     {body, after_body}
   end
 
-  defp take_length_prefixed(<<0x82, n::16, rest::binary>>) do
-    <<body::binary-size(n), after_body::binary>> = rest
+  @doc "Decode DER SEQUENCE. Returns `{body_bytes, rest}`. Caller re-parses the body."
+  @spec read_sequence(binary()) :: {binary(), binary()}
+  def read_sequence(<<0x30, rest::binary>>) do
+    {_len, body, after_body} = decode_length(rest)
     {body, after_body}
   end
 
-  defp take_length_prefixed(<<0x83, n::24, rest::binary>>) do
-    <<body::binary-size(n), after_body::binary>> = rest
-    {body, after_body}
+  @doc """
+  Split a SEQUENCE body into its constituent DER elements.
+  Each element retains its own tag+length prefix.
+  """
+  @spec read_sequence_items(binary()) :: [binary()]
+  def read_sequence_items(<<>>), do: []
+
+  def read_sequence_items(<<tag, rest::binary>>) do
+    {len_header_size, len} = peek_length(rest)
+    total = 1 + len_header_size + len
+    <<item::binary-size(total), more::binary>> = <<tag, rest::binary>>
+    [item | read_sequence_items(more)]
   end
+
+  defp peek_length(<<n, _::binary>>) when n < 128, do: {1, n}
+  defp peek_length(<<0x81, n, _::binary>>), do: {2, n}
+  defp peek_length(<<0x82, n::16, _::binary>>), do: {3, n}
+  defp peek_length(<<0x83, n::24, _::binary>>), do: {4, n}
 
   # --- base-128 encoding for OID sub-identifiers ---
   # Produces 7-bit groups MSB-first. All but the last byte get the continuation bit (0x80).
