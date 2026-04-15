@@ -33,6 +33,7 @@ defmodule PkiValidation.MixProject do
       {:plug, "~> 1.16"},
       {:plug_cowboy, "~> 2.7"},
       {:uniq, "~> 0.6"},
+      {:kaz_sign, path: "../../../PQC-KAZ/SIGN/bindings/elixir"},
       {:pki_crypto, path: "../pki_crypto"},
       {:pki_platform_engine, path: "../pki_platform_engine"}
     ]
