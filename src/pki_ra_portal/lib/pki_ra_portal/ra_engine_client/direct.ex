@@ -199,6 +199,20 @@ defmodule PkiRaPortal.RaEngineClient.Direct do
   # --- CSR management ---
 
   @impl true
+  def submit_csr(csr_pem, cert_profile_id, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    case PkiRaEngine.CsrValidation.submit_csr(tenant_id, csr_pem, cert_profile_id) do
+      {:ok, csr} ->
+        PkiRaEngine.CsrValidation.validate_csr(tenant_id, csr.id)
+        {:ok, to_map(csr)}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @impl true
   def list_csrs(filters, opts \\ []) do
     tenant_id = opts[:tenant_id]
 

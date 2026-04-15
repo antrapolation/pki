@@ -329,6 +329,21 @@ defmodule PkiRaPortal.RaEngineClient.Mock do
   end
 
   @impl true
+  def submit_csr(csr_pem, cert_profile_id, _opts \\ []) do
+    csr = %{
+      id: Ecto.UUID.generate(),
+      csr_pem: csr_pem,
+      cert_profile_id: cert_profile_id,
+      subject: "CN=mock.example.com",
+      status: "pending",
+      submitted_at: DateTime.utc_now()
+    }
+
+    update_state(:csrs, fn list -> [csr | list] end)
+    {:ok, csr}
+  end
+
+  @impl true
   def list_csrs(filters, _opts \\ []) do
     csrs = get_state(:csrs)
 

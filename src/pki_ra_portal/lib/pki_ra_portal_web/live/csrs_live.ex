@@ -15,12 +15,14 @@ defmodule PkiRaPortalWeb.CsrsLive do
        page_title: "CSR Management",
        csrs: [],
        ra_instances: [],
+       cert_profiles: [],
        loading: true,
        selected_ra_instance_id: "",
        status_filter: "all",
        selected_csr: nil,
        dcv_challenge: nil,
        reject_reason: "",
+       show_submit_modal: false,
        page: 1,
        per_page: 10
      )
@@ -45,11 +47,18 @@ defmodule PkiRaPortalWeb.CsrsLive do
           {:error, _} -> []
         end
 
+      cert_profiles =
+        case RaEngineClient.list_cert_profiles(opts) do
+          {:ok, profiles} -> profiles
+          {:error, _} -> []
+        end
+
       {:noreply,
        socket
        |> assign(
          csrs: csrs,
          ra_instances: ra_instances,
+         cert_profiles: cert_profiles,
          loading: false
        )
        |> apply_pagination()}
@@ -109,6 +118,52 @@ defmodule PkiRaPortalWeb.CsrsLive do
   @impl true
   def handle_event("close_detail", _params, socket) do
     {:noreply, assign(socket, selected_csr: nil, dcv_challenge: nil)}
+  end
+
+  @impl true
+  def handle_event("open_submit_modal", _params, socket) do
+    {:noreply, assign(socket, show_submit_modal: true)}
+  end
+
+  @impl true
+  def handle_event("close_submit_modal", _params, socket) do
+    {:noreply, assign(socket, show_submit_modal: false)}
+  end
+
+  @impl true
+  def handle_event("submit_csr", %{"csr_pem" => csr_pem, "cert_profile_id" => cert_profile_id}, socket) do
+    cond do
+      get_role(socket) not in ["ra_admin", "ra_officer"] ->
+        {:noreply, put_flash(socket, :error, "Unauthorized")}
+
+      cert_profile_id == "" ->
+        {:noreply, put_flash(socket, :error, "Select a certificate profile.")}
+
+      String.trim(csr_pem) == "" ->
+        {:noreply, put_flash(socket, :error, "Paste a CSR PEM.")}
+
+      true ->
+        case RaEngineClient.submit_csr(csr_pem, cert_profile_id, tenant_opts(socket)) do
+          {:ok, csr} ->
+            audit_log(socket, "csr_submitted_via_portal", "csr", csr.id, %{cert_profile_id: cert_profile_id})
+
+            filters = build_filters(socket.assigns.status_filter, socket.assigns.selected_ra_instance_id)
+            csrs = case RaEngineClient.list_csrs(filters, tenant_opts(socket)) do
+              {:ok, c} -> c
+              {:error, _} -> []
+            end
+
+            {:noreply,
+             socket
+             |> assign(csrs: csrs, show_submit_modal: false)
+             |> apply_pagination()
+             |> put_flash(:info, "CSR submitted")}
+
+          {:error, reason} ->
+            Logger.error("[csrs] Failed to submit CSR: #{inspect(reason)}")
+            {:noreply, put_flash(socket, :error, PkiRaPortalWeb.ErrorHelpers.sanitize_error("Failed to submit CSR", reason))}
+        end
+    end
   end
 
   @impl true
@@ -287,7 +342,42 @@ defmodule PkiRaPortalWeb.CsrsLive do
   def render(assigns) do
     ~H"""
     <div id="csrs-page" class="space-y-6">
-      <h1 class="text-2xl font-bold tracking-tight">CSR Management</h1>
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold tracking-tight">CSR Management</h1>
+        <button phx-click="open_submit_modal" class="btn btn-primary btn-sm">
+          <.icon name="hero-plus" class="size-4" /> Submit CSR
+        </button>
+      </div>
+
+      <%!-- Submit CSR Modal --%>
+      <div :if={@show_submit_modal} class="modal modal-open">
+        <div class="modal-box max-w-2xl">
+          <h3 class="font-bold text-lg mb-4">Submit CSR</h3>
+          <form phx-submit="submit_csr" class="space-y-4">
+            <div>
+              <label class="label text-xs font-medium">Certificate Profile</label>
+              <select name="cert_profile_id" required class="select select-bordered w-full">
+                <option value="">Select profile…</option>
+                <option :for={p <- @cert_profiles} value={p.id}>{p.name}</option>
+              </select>
+            </div>
+            <div>
+              <label class="label text-xs font-medium">CSR (PEM)</label>
+              <textarea
+                name="csr_pem"
+                required
+                rows="12"
+                class="textarea textarea-bordered w-full font-mono text-xs"
+                placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;...&#10;-----END CERTIFICATE REQUEST-----"
+              ></textarea>
+            </div>
+            <div class="modal-action">
+              <button type="button" phx-click="close_submit_modal" class="btn btn-ghost btn-sm">Cancel</button>
+              <button type="submit" class="btn btn-primary btn-sm">Submit</button>
+            </div>
+          </form>
+        </div>
+      </div>
 
       <%!-- Filters --%>
       <section id="csr-filter" class="flex items-center gap-6">

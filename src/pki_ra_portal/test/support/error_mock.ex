@@ -26,6 +26,9 @@ defmodule PkiRaPortal.RaEngineClient.ErrorMock do
   @impl true
   def list_api_keys(filters), do: PkiRaPortal.RaEngineClient.Mock.list_api_keys(filters)
 
+  @impl true
+  def submit_csr(_csr_pem, _cert_profile_id, _opts \\ []), do: {:error, :submit_failed}
+
   # Mutating operations return errors
   @impl true
   def create_user(_attrs), do: {:error, :permission_denied}

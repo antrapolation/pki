@@ -234,6 +234,22 @@ defmodule PkiRaPortal.RaEngineClient.Http do
   # --- CSR management (implemented on RA Engine) ---
 
   @impl true
+  def submit_csr(csr_pem, cert_profile_id, opts \\ []) do
+    payload = %{"csr_pem" => csr_pem, "cert_profile_id" => cert_profile_id}
+
+    case auth_post("/api/v1/csr", payload, opts) do
+      {:ok, %{status: 201, body: body}} ->
+        {:ok, atomize_keys(body)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:unexpected_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  end
+
+  @impl true
   def list_csrs(filters, opts \\ []) do
     params =
       filters

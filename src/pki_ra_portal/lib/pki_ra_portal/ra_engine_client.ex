@@ -15,6 +15,7 @@ defmodule PkiRaPortal.RaEngineClient do
   @callback create_user(map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback create_user(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback delete_user(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback submit_csr(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback list_csrs(keyword(), keyword()) :: {:ok, [map()]} | {:error, term()}
   @callback get_csr(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback approve_csr(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -67,6 +68,7 @@ defmodule PkiRaPortal.RaEngineClient do
   def create_user(attrs, opts \\ []), do: impl().create_user(attrs, opts)
   def create_user(attrs, admin_context, opts), do: impl().create_user(attrs, admin_context, opts)
   def delete_user(id, opts \\ []), do: impl().delete_user(id, opts)
+  def submit_csr(csr_pem, cert_profile_id, opts \\ []), do: impl().submit_csr(csr_pem, cert_profile_id, opts)
   def list_csrs(filters \\ [], opts \\ []), do: impl().list_csrs(filters, opts)
   def get_csr(id, opts \\ []), do: impl().get_csr(id, opts)
   def approve_csr(id, meta \\ %{}, opts \\ []), do: impl().approve_csr(id, meta, opts)
