@@ -56,6 +56,39 @@ defmodule PkiCrypto.AlgorithmRegistry do
       family: :ecdsa,
       sig_alg_oid: {1, 2, 840, 10045, 4, 3, 3},
       public_key_oid: {1, 2, 840, 10045, 2, 1}
+    },
+    # NIST ML-DSA — FIPS 204 OIDs
+    "ML-DSA-44" => %{
+      family: :ml_dsa,
+      sig_alg_oid: {2, 16, 840, 1, 101, 3, 4, 3, 17},
+      public_key_oid: {2, 16, 840, 1, 101, 3, 4, 3, 17}
+    },
+    "ML-DSA-65" => %{
+      family: :ml_dsa,
+      sig_alg_oid: {2, 16, 840, 1, 101, 3, 4, 3, 18},
+      public_key_oid: {2, 16, 840, 1, 101, 3, 4, 3, 18}
+    },
+    "ML-DSA-87" => %{
+      family: :ml_dsa,
+      sig_alg_oid: {2, 16, 840, 1, 101, 3, 4, 3, 19},
+      public_key_oid: {2, 16, 840, 1, 101, 3, 4, 3, 19}
+    },
+    # KAZ-SIGN — PLACEHOLDER PEN (99999). Replace before production via
+    # config :pki_crypto, :oid_overrides, %{"KAZ-SIGN-192" => %{...}}
+    "KAZ-SIGN-128" => %{
+      family: :kaz_sign,
+      sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 1},
+      public_key_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 1}
+    },
+    "KAZ-SIGN-192" => %{
+      family: :kaz_sign,
+      sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2},
+      public_key_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2}
+    },
+    "KAZ-SIGN-256" => %{
+      family: :kaz_sign,
+      sig_alg_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 3},
+      public_key_oid: {1, 3, 6, 1, 4, 1, 99999, 1, 1, 3}
     }
   }
 
