@@ -20,7 +20,7 @@ defmodule PkiCrypto.AlgorithmRegistry do
   """
 
   @type algorithm_id :: String.t()
-  @type oid :: :erlang.tuple()
+  @type oid :: tuple()
   @type family :: :rsa | :ecdsa | :ml_dsa | :kaz_sign | :slh_dsa
 
   @type entry :: %{
@@ -32,6 +32,11 @@ defmodule PkiCrypto.AlgorithmRegistry do
 
   # Defaults. OIDs here can be overridden per-id via config — see oid/1.
   @defaults %{
+    # RSA-2048 and RSA-4096 share the same sig_alg_oid — RFC 4055's
+    # sha256WithRSAEncryption OID encodes the hash only. Key size is
+    # carried in the SubjectPublicKeyInfo bit length at cert-emission time.
+    # `by_oid/1` may return either RSA entry for this OID; callers that
+    # need the key-size label must use `by_id/1` with the algorithm string.
     "RSA-2048" => %{
       family: :rsa,
       sig_alg_oid: {1, 2, 840, 113549, 1, 1, 11},
@@ -66,9 +71,11 @@ defmodule PkiCrypto.AlgorithmRegistry do
   @doc "Look up an algorithm entry by the signatureAlgorithm OID."
   @spec by_oid(oid()) :: {:ok, entry()} | :error
   def by_oid(oid) when is_tuple(oid) do
-    Enum.find_value(@defaults, :error, fn {id, _base} ->
-      {:ok, entry} = by_id(id)
-      if entry.sig_alg_oid == oid, do: {:ok, entry}, else: nil
+    Enum.find_value(Map.keys(@defaults), :error, fn id ->
+      case by_id(id) do
+        {:ok, %{sig_alg_oid: ^oid} = entry} -> {:ok, entry}
+        _ -> nil
+      end
     end)
   end
 
