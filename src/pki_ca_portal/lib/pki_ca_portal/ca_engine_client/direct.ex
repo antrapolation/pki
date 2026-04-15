@@ -495,17 +495,23 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     else
       subject_dn = opts[:subject_dn] || get_in(ceremony.domain_info, ["subject_dn"]) || "/CN=Sub-CA-#{ceremony.ca_instance_id}"
 
-      with :ok <- KazSign.init(level),
-           {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn) do
-      csr_b64 = Base.encode64(csr_der, padding: true)
-      csr_pem = "-----BEGIN CERTIFICATE REQUEST-----\n#{wrap_pem(csr_b64)}\n-----END CERTIFICATE REQUEST-----\n"
+      algorithm_id = "KAZ-SIGN-#{level}"
 
-      # Mark ceremony completed
-      case ceremony |> Ecto.Changeset.change(status: "completed") |> repo.update() do
-        {:ok, updated} -> {:ok, {to_map(updated), csr_pem}}
-        {:error, reason} -> {:error, {:completion_failed, reason}}
+      case PkiCrypto.Csr.generate(
+             algorithm_id,
+             %{public_key: public_key, private_key: private_key},
+             subject_dn
+           ) do
+        {:ok, csr_pem} ->
+          # Mark ceremony completed
+          case ceremony |> Ecto.Changeset.change(status: "completed") |> repo.update() do
+            {:ok, updated} -> {:ok, {to_map(updated), csr_pem}}
+            {:error, reason} -> {:error, {:completion_failed, reason}}
+          end
+
+        {:error, _} = err ->
+          err
       end
-    end
     end
   rescue
     e ->
@@ -1477,9 +1483,17 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   defp do_self_sign_kaz(private_key, public_key, algorithm, subject_dn) do
     {:ok, level} = kaz_sign_level(algorithm)
 
-    with :ok <- KazSign.init(level),
+    algorithm_id = "KAZ-SIGN-#{level}"
+
+    with {:ok, csr_pem} <-
+           PkiCrypto.Csr.generate(
+             algorithm_id,
+             %{public_key: public_key, private_key: private_key},
+             subject_dn
+           ),
          # Generate a self-signed CSR first, then issue a self-signed cert
-         {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn),
+         csr_der = pem_to_der(csr_pem),
+         :ok <- KazSign.init(level),
          {:ok, cert_der} <-
            KazSign.issue_certificate(level, private_key, public_key, csr_der,
              issuer_name: subject_dn,
@@ -1495,6 +1509,11 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     e ->
       Logger.error("[ca_engine_client] KAZ-SIGN self-sign failed: #{Exception.message(e)}")
       {:error, {:kaz_sign_self_sign_failed, "self-sign operation failed"}}
+  end
+
+  defp pem_to_der(pem) do
+    [{_, der, _}] = :public_key.pem_decode(pem)
+    der
   end
 
   defp wrap_pem(b64) do
