@@ -69,6 +69,42 @@ defmodule PkiCrypto.X509Builder do
     end
   end
 
+  @doc """
+  Sign a TBS DER with the issuer's private key in the given algorithm.
+  Wraps `(tbs, sigAlg, signature)` into a final X.509 Certificate DER.
+
+  Classical issuers use `:public_key.sign/3` with the algorithm-appropriate
+  hash (sha256 for RSA, sha256/sha384 for ECDSA). PQC issuers will be
+  implemented in Phase 3.
+  """
+  @spec sign_tbs(binary(), String.t(), term()) :: {:ok, binary()} | {:error, term()}
+  def sign_tbs(tbs_der, issuer_algorithm_id, issuer_private_key) do
+    case AlgorithmRegistry.by_id(issuer_algorithm_id) do
+      {:ok, %{family: :ecdsa} = meta} ->
+        hash = ecdsa_hash_for(issuer_algorithm_id)
+        signature = :public_key.sign(tbs_der, hash, issuer_private_key)
+        {:ok, wrap_cert(tbs_der, meta.sig_alg_oid, signature)}
+
+      {:ok, %{family: :rsa} = meta} ->
+        signature = :public_key.sign(tbs_der, :sha256, issuer_private_key)
+        {:ok, wrap_cert(tbs_der, meta.sig_alg_oid, signature)}
+
+      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+        {:error, {:pqc_issuer_not_yet_supported, family}}
+
+      :error ->
+        {:error, :unknown_issuer_algorithm}
+    end
+  end
+
+  defp ecdsa_hash_for("ECC-P256"), do: :sha256
+  defp ecdsa_hash_for("ECC-P384"), do: :sha384
+
+  defp wrap_cert(tbs_der, sig_alg_oid, signature) do
+    sig_alg = Asn1.sequence([Asn1.oid(sig_alg_oid)])
+    Asn1.sequence([tbs_der, sig_alg, Asn1.bit_string(signature)])
+  end
+
   # --- Extensions ---
 
   defp build_sub_ca_extensions(subject_pub, issuer_cert_der) do
