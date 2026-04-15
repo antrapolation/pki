@@ -169,9 +169,25 @@ defmodule PkiValidation.SigningKeyStore do
   end
 
   defp load_keys(password) do
-    SigningKeyConfig
-    |> where([c], c.status == "active")
-    |> Repo.all()
+    try do
+      SigningKeyConfig
+      |> where([c], c.status == "active")
+      |> Repo.all()
+    rescue
+      e in Postgrex.Error ->
+        case e do
+          %Postgrex.Error{postgres: %{code: :undefined_table}} ->
+            Logger.warning(
+              "SigningKeyStore: signing_key_config table not found in current DB — " <>
+                "schema-mode deployment likely needs per-tenant signing keys (Phase 2). " <>
+                "Starting empty."
+            )
+            []
+
+          other ->
+            reraise other, __STACKTRACE__
+        end
+    end
     |> Enum.reduce({%{}, 0, []}, fn config, {keys, loaded, failed} ->
       # Resolve the signer FIRST so a row with an unknown algorithm fails
       # fast without doing wasted crypto work.
