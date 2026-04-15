@@ -12,12 +12,10 @@ defmodule PkiValidation.Schema.SigningKeyConfig do
 
   # Single source of truth: the set of algorithm strings we accept is
   # exactly the set of algorithm strings for which a concrete Signer
-  # module is registered. Deriving this from Registry.algorithms/0 at
-  # compile time guarantees the schema and the dispatch table cannot
-  # drift apart — adding a signer to the Registry automatically makes
-  # its algorithm string storable; removing one makes stored rows with
-  # that string fail validation on the next insert.
-  @valid_algorithms PkiValidation.Crypto.Signer.Registry.algorithms()
+  # module is registered. Looking up Registry.algorithms/0 at runtime
+  # (rather than via a module attribute) avoids compile-order issues —
+  # SigningKeyConfig may be compiled before Registry in the same pass —
+  # while still ensuring the schema and dispatch table cannot drift apart.
   @valid_statuses ~w(active pending_rotation expired)
 
   @primary_key {:id, :binary_id, autogenerate: false}
@@ -41,7 +39,7 @@ defmodule PkiValidation.Schema.SigningKeyConfig do
     |> cast(attrs, @required_fields)
     |> maybe_generate_id()
     |> validate_required(@required_fields)
-    |> validate_inclusion(:algorithm, @valid_algorithms)
+    |> validate_inclusion(:algorithm, PkiValidation.Crypto.Signer.Registry.algorithms())
     |> validate_inclusion(:status, @valid_statuses)
     |> unique_constraint(:issuer_key_id,
       name: :signing_key_config_one_active_per_issuer,

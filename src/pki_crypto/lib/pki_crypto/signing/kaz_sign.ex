@@ -20,8 +20,22 @@ defimpl PkiCrypto.Algorithm, for: PkiCrypto.Signing.KazSign128 do
       {:ok, %{public_key: kp.public_key, private_key: kp.private_key}}
     end
   end
-  def sign(_, private_key, data), do: KazSign.sign(128, private_key, data)
-  def verify(_, public_key, signature, data), do: KazSign.verify(128, public_key, signature, data)
+
+  def sign(_, private_key, data) do
+    case KazSign.sign_detached(128, data, private_key) do
+      {:ok, sig} -> {:ok, sig}
+      {:error, _} = err -> err
+    end
+  end
+
+  def verify(_, public_key, signature, data) do
+    case KazSign.verify_detached(128, data, signature, public_key) do
+      {:ok, true} -> :ok
+      {:ok, false} -> {:error, :invalid_signature}
+      {:error, _} -> {:error, :invalid_signature}
+    end
+  end
+
   def kem_encapsulate(_, _), do: {:error, :not_supported}
   def kem_decapsulate(_, _, _), do: {:error, :not_supported}
   def identifier(_), do: "KAZ-SIGN-128"
@@ -35,8 +49,22 @@ defimpl PkiCrypto.Algorithm, for: PkiCrypto.Signing.KazSign192 do
       {:ok, %{public_key: kp.public_key, private_key: kp.private_key}}
     end
   end
-  def sign(_, private_key, data), do: KazSign.sign(192, private_key, data)
-  def verify(_, public_key, signature, data), do: KazSign.verify(192, public_key, signature, data)
+
+  def sign(_, private_key, data) do
+    case KazSign.sign_detached(192, data, private_key) do
+      {:ok, sig} -> {:ok, sig}
+      {:error, _} = err -> err
+    end
+  end
+
+  def verify(_, public_key, signature, data) do
+    case KazSign.verify_detached(192, data, signature, public_key) do
+      {:ok, true} -> :ok
+      {:ok, false} -> {:error, :invalid_signature}
+      {:error, _} -> {:error, :invalid_signature}
+    end
+  end
+
   def kem_encapsulate(_, _), do: {:error, :not_supported}
   def kem_decapsulate(_, _, _), do: {:error, :not_supported}
   def identifier(_), do: "KAZ-SIGN-192"
@@ -50,8 +78,22 @@ defimpl PkiCrypto.Algorithm, for: PkiCrypto.Signing.KazSign256 do
       {:ok, %{public_key: kp.public_key, private_key: kp.private_key}}
     end
   end
-  def sign(_, private_key, data), do: KazSign.sign(256, private_key, data)
-  def verify(_, public_key, signature, data), do: KazSign.verify(256, public_key, signature, data)
+
+  def sign(_, private_key, data) do
+    case KazSign.sign_detached(256, data, private_key) do
+      {:ok, sig} -> {:ok, sig}
+      {:error, _} = err -> err
+    end
+  end
+
+  def verify(_, public_key, signature, data) do
+    case KazSign.verify_detached(256, data, signature, public_key) do
+      {:ok, true} -> :ok
+      {:ok, false} -> {:error, :invalid_signature}
+      {:error, _} -> {:error, :invalid_signature}
+    end
+  end
+
   def kem_encapsulate(_, _), do: {:error, :not_supported}
   def kem_decapsulate(_, _, _), do: {:error, :not_supported}
   def identifier(_), do: "KAZ-SIGN-256"
