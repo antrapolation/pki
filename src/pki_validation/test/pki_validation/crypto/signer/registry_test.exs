@@ -12,7 +12,6 @@ defmodule PkiValidation.Crypto.Signer.RegistryTest do
   end
 
   test "fetch/1 returns :error for an unknown algorithm string" do
-    assert Registry.fetch("ml_dsa_65") == :error
     assert Registry.fetch("bogus") == :error
     assert Registry.fetch("") == :error
   end
@@ -30,7 +29,13 @@ defmodule PkiValidation.Crypto.Signer.RegistryTest do
     assert "ecc_p384" in algorithms
     assert "rsa2048" in algorithms
     assert "rsa4096" in algorithms
-    assert length(algorithms) == 4
+    assert "ml_dsa_44" in algorithms
+    assert "ml_dsa_65" in algorithms
+    assert "ml_dsa_87" in algorithms
+    assert "kaz_sign_128" in algorithms
+    assert "kaz_sign_192" in algorithms
+    assert "kaz_sign_256" in algorithms
+    assert length(algorithms) == 10
   end
 
   test "SigningKeyConfig @valid_algorithms stays in sync with Registry" do

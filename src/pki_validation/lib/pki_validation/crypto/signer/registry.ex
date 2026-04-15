@@ -12,13 +12,30 @@ defmodule PkiValidation.Crypto.Signer.Registry do
     3. Add one line to `@mapping` below
   """
 
-  alias PkiValidation.Crypto.Signer.{EcdsaP256, EcdsaP384, Rsa2048, Rsa4096}
+  alias PkiValidation.Crypto.Signer.{
+    EcdsaP256,
+    EcdsaP384,
+    Rsa2048,
+    Rsa4096,
+    MlDsa44,
+    MlDsa65,
+    MlDsa87,
+    KazSign128,
+    KazSign192,
+    KazSign256
+  }
 
   @mapping %{
     "ecc_p256" => EcdsaP256,
     "ecc_p384" => EcdsaP384,
     "rsa2048" => Rsa2048,
-    "rsa4096" => Rsa4096
+    "rsa4096" => Rsa4096,
+    "ml_dsa_44" => MlDsa44,
+    "ml_dsa_65" => MlDsa65,
+    "ml_dsa_87" => MlDsa87,
+    "kaz_sign_128" => KazSign128,
+    "kaz_sign_192" => KazSign192,
+    "kaz_sign_256" => KazSign256
   }
 
   @algorithms Map.keys(@mapping)
