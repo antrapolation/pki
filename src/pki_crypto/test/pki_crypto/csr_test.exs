@@ -67,4 +67,41 @@ defmodule PkiCrypto.CsrTest do
       assert {:error, :unknown_algorithm_oid} = Csr.parse(pem)
     end
   end
+
+  describe "generate/3 for classical" do
+    test "produces a CSR that parses back to the same algorithm and subject" do
+      private_key = X509.PrivateKey.new_ec(:secp256r1)
+
+      {:ok, pem} = Csr.generate("ECC-P256", private_key, "/CN=Classical Gen Test")
+
+      assert {:ok, parsed} = Csr.parse(pem)
+      assert parsed.algorithm_id == "ECC-P256"
+      assert parsed.subject_dn =~ "CN=Classical Gen Test"
+    end
+  end
+
+  describe "generate/3 for PQC" do
+    test "KAZ-SIGN-192 CSR parses back correctly" do
+      algo = PkiCrypto.Registry.get("KAZ-SIGN-192")
+      {:ok, %{public_key: pub, private_key: priv}} = PkiCrypto.Algorithm.generate_keypair(algo)
+
+      {:ok, pem} = Csr.generate("KAZ-SIGN-192", %{public_key: pub, private_key: priv}, "/CN=PQC Sub CA")
+
+      assert {:ok, parsed} = Csr.parse(pem)
+      assert parsed.algorithm_id == "KAZ-SIGN-192"
+      assert parsed.subject_dn =~ "CN=PQC Sub CA"
+      assert parsed.subject_public_key == pub
+    end
+
+    test "ML-DSA-44 CSR parses back correctly" do
+      algo = PkiCrypto.Registry.get("ML-DSA-44")
+      {:ok, %{public_key: pub, private_key: priv}} = PkiCrypto.Algorithm.generate_keypair(algo)
+
+      {:ok, pem} = Csr.generate("ML-DSA-44", %{public_key: pub, private_key: priv}, "/CN=ML-DSA Test")
+
+      assert {:ok, parsed} = Csr.parse(pem)
+      assert parsed.algorithm_id == "ML-DSA-44"
+      assert parsed.subject_public_key == pub
+    end
+  end
 end

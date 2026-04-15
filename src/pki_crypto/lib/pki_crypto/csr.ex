@@ -47,6 +47,93 @@ defmodule PkiCrypto.Csr do
     :throw, reason when is_atom(reason) -> {:error, reason}
   end
 
+  @doc """
+  Generate a PKCS#10 CSR for the given algorithm, key, and subject DN.
+
+  Classical algorithms delegate to `X509.CSR.new` with a `:public_key`
+  private-key record. PQC algorithms hand-roll the PKCS#10 structure and
+  self-sign via the PQC signer. For PQC, the `key` argument must be a
+  `%{public_key: binary, private_key: binary}` map.
+
+  The `subject_dn` string is slash-separated: `"/CN=Foo/O=Bar"`.
+  """
+  @spec generate(String.t(), term(), String.t()) :: {:ok, binary()} | {:error, term()}
+  def generate(algorithm_id, key, subject_dn)
+
+  def generate(algorithm_id, private_key, subject_dn)
+      when algorithm_id in ["ECC-P256", "ECC-P384", "RSA-2048", "RSA-4096"] do
+    csr = X509.CSR.new(private_key, subject_dn)
+    {:ok, X509.CSR.to_pem(csr)}
+  end
+
+  def generate(algorithm_id, %{public_key: pub, private_key: priv}, subject_dn) do
+    with {:ok, %{family: family, public_key_oid: pk_oid, sig_alg_oid: sig_oid}} <-
+           AlgorithmRegistry.by_id(algorithm_id),
+         true <- family in [:ml_dsa, :kaz_sign, :slh_dsa] do
+      cri_der = build_cri(pk_oid, pub, subject_dn)
+
+      algo = PkiCrypto.Registry.get(algorithm_id)
+      {:ok, signature} = PkiCrypto.Algorithm.sign(algo, priv, cri_der)
+
+      sig_alg_der = Asn1.sequence([Asn1.oid(sig_oid)])
+      csr_der = Asn1.sequence([cri_der, sig_alg_der, Asn1.bit_string(signature)])
+
+      pem = :public_key.pem_encode([{:CertificationRequest, csr_der, :not_encrypted}])
+      {:ok, pem}
+    else
+      :error -> {:error, :unknown_algorithm}
+      false -> {:error, :algorithm_not_pqc}
+    end
+  end
+
+  # Build CertificationRequestInfo body.
+  defp build_cri(pk_oid, public_key, subject_dn) do
+    version = Asn1.integer(0)
+    subject = encode_name(subject_dn)
+
+    spki =
+      Asn1.sequence([
+        Asn1.sequence([Asn1.oid(pk_oid)]),
+        Asn1.bit_string(public_key)
+      ])
+
+    # attributes [0] IMPLICIT SET OF Attribute — empty
+    attrs = Asn1.tagged(0, :explicit, <<>>)
+
+    Asn1.sequence([version, subject, spki, attrs])
+  end
+
+  defp encode_name(dn_string) do
+    parts =
+      dn_string
+      |> String.split("/", trim: true)
+      |> Enum.map(fn part ->
+        [key, value] = String.split(part, "=", parts: 2)
+        {dn_key_to_oid(key), value}
+      end)
+
+    rdns =
+      Enum.map(parts, fn {oid, value} ->
+        atv =
+          Asn1.sequence([
+            Asn1.oid(oid),
+            # UTF8String tag 0x0C
+            <<0x0C, byte_size(value)>> <> value
+          ])
+
+        Asn1.set([atv])
+      end)
+
+    Asn1.sequence(rdns)
+  end
+
+  defp dn_key_to_oid("CN"), do: {2, 5, 4, 3}
+  defp dn_key_to_oid("C"), do: {2, 5, 4, 6}
+  defp dn_key_to_oid("L"), do: {2, 5, 4, 7}
+  defp dn_key_to_oid("ST"), do: {2, 5, 4, 8}
+  defp dn_key_to_oid("O"), do: {2, 5, 4, 10}
+  defp dn_key_to_oid("OU"), do: {2, 5, 4, 11}
+
   # --- Private ---
 
   defp decode_pem(pem) do
