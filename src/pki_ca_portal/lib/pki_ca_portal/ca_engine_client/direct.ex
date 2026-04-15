@@ -495,17 +495,23 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     else
       subject_dn = opts[:subject_dn] || get_in(ceremony.domain_info, ["subject_dn"]) || "/CN=Sub-CA-#{ceremony.ca_instance_id}"
 
-      with :ok <- KazSign.init(level),
-           {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn) do
-      csr_b64 = Base.encode64(csr_der, padding: true)
-      csr_pem = "-----BEGIN CERTIFICATE REQUEST-----\n#{wrap_pem(csr_b64)}\n-----END CERTIFICATE REQUEST-----\n"
+      algorithm_id = "KAZ-SIGN-#{level}"
 
-      # Mark ceremony completed
-      case ceremony |> Ecto.Changeset.change(status: "completed") |> repo.update() do
-        {:ok, updated} -> {:ok, {to_map(updated), csr_pem}}
-        {:error, reason} -> {:error, {:completion_failed, reason}}
+      case PkiCrypto.Csr.generate(
+             algorithm_id,
+             %{public_key: public_key, private_key: private_key},
+             subject_dn
+           ) do
+        {:ok, csr_pem} ->
+          # Mark ceremony completed
+          case ceremony |> Ecto.Changeset.change(status: "completed") |> repo.update() do
+            {:ok, updated} -> {:ok, {to_map(updated), csr_pem}}
+            {:error, reason} -> {:error, {:completion_failed, reason}}
+          end
+
+        {:error, _} = err ->
+          err
       end
-    end
     end
   rescue
     e ->
@@ -672,161 +678,70 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     repo = TenantRepo.ca_repo(tenant_id)
 
     case repo.get(PkiCaEngine.Schema.IssuerKey, issuer_key_id) do
-      nil ->
-        {:error, :issuer_key_not_found}
-
-      issuer_key ->
-        algorithm = issuer_key.algorithm
-
-        case kaz_sign_level(algorithm) do
-          {:ok, level} ->
-            sign_csr_kaz(level, issuer_key, private_key, csr_pem, cert_profile, opts)
-
-          :error ->
-            sign_csr_classical(tenant_id, issuer_key, private_key, csr_pem, cert_profile, opts)
-        end
+      nil -> {:error, :issuer_key_not_found}
+      issuer_key -> do_sign_csr(issuer_key, private_key, csr_pem, cert_profile)
     end
   end
 
-  defp sign_csr_kaz(level, issuer_key, private_key, csr_pem, cert_profile, _opts) do
-    # Parse CSR from PEM to DER
-    csr_b64 =
-      csr_pem
-      |> String.replace("-----BEGIN CERTIFICATE REQUEST-----", "")
-      |> String.replace("-----END CERTIFICATE REQUEST-----", "")
-      |> String.replace(~r/\s/, "")
-
-    case Base.decode64(csr_b64) do
-      :error -> {:error, :invalid_csr_pem}
-      {:ok, csr_der} ->
-
-    issuer_name = cert_profile[:issuer_name] || cert_profile["issuer_name"] || "/CN=Root-CA"
+  defp do_sign_csr(issuer_key, private_key, csr_pem, cert_profile) do
     validity_days = cert_profile[:validity_days] || cert_profile["validity_days"] || 3650
-    serial = :crypto.strong_rand_bytes(8) |> :binary.decode_unsigned()
-    is_ca = cert_profile[:is_ca] || cert_profile["is_ca"] || false
-
-    # Extract public key from issuer's certificate for the issuer_pk param
-    issuer_pk =
-      if issuer_key.certificate_der do
-        case KazSign.extract_pubkey(level, issuer_key.certificate_der) do
-          {:ok, pk} -> pk
-          _ -> nil
-        end
-      end
-
-    # If no issuer public key from cert, we can't sign
-    unless issuer_pk do
-      {:error, "Issuer key has no certificate — cannot determine public key for signing."}
-    else
-      with :ok <- KazSign.init(level),
-           {:ok, cert_der} <-
-             KazSign.issue_certificate(level, private_key, issuer_pk, csr_der,
-               issuer_name: issuer_name,
-               serial: serial,
-               days: validity_days
-             ) do
-        cert_b64 = Base.encode64(cert_der, padding: true)
-        cert_pem = "-----BEGIN CERTIFICATE-----\n#{wrap_pem(cert_b64)}\n-----END CERTIFICATE-----\n"
-
-        {:ok, %{
-          certificate_der: cert_der,
-          certificate_pem: cert_pem,
-          serial: Integer.to_string(serial, 16) |> String.downcase(),
-          algorithm: issuer_key.algorithm,
-          is_ca: is_ca
-        }}
-      end
-    end
-    end
-  rescue
-    e ->
-      Logger.error("[ca_engine_client] KAZ-SIGN CSR signing failed: #{Exception.message(e)}")
-      {:error, "KAZ-SIGN CSR signing failed"}
-  end
-
-  defp sign_csr_classical(tenant_id, issuer_key, private_key_der, csr_pem, cert_profile, _opts) do
-    # Use the existing CertificateSigning module for classical algorithms
-    # But we need to temporarily make the key available via KeyActivation
-    # Instead, do it directly with X509
-    algorithm = issuer_key.algorithm
-    validity_days = cert_profile[:validity_days] || cert_profile["validity_days"] || 3650
-    subject_dn = cert_profile[:subject_dn] || cert_profile["subject_dn"]
+    subject_dn_override = cert_profile[:subject_dn] || cert_profile["subject_dn"]
     is_ca = cert_profile[:is_ca] || cert_profile["is_ca"] || false
     serial = :crypto.strong_rand_bytes(8) |> :binary.decode_unsigned()
 
-    algo = String.downcase(algorithm)
-    native_key =
-      cond do
-        algo in ["rsa-2048", "rsa-4096"] -> :public_key.der_decode(:RSAPrivateKey, private_key_der)
-        algo in ["ecc-p256", "ecc-p384"] -> :public_key.der_decode(:ECPrivateKey, private_key_der)
-        true -> nil
-      end
+    cond do
+      is_nil(issuer_key.certificate_der) ->
+        {:error, "Issuer key has no certificate — ceremony not completed?"}
 
-    unless native_key do
-      {:error, {:unsupported_algorithm, algorithm}}
-    else
-      case X509.CSR.from_pem(csr_pem) do
-        {:ok, csr} ->
-          unless X509.CSR.valid?(csr) do
-            {:error, :invalid_csr}
+      true ->
+        try do
+          decoded_issuer = decode_issuer_key_bytes(issuer_key.algorithm, private_key)
+
+          with {:ok, csr} <- PkiCrypto.Csr.parse(csr_pem),
+               :ok <- PkiCrypto.Csr.verify_pop(csr),
+               subject_dn = subject_dn_override || csr.subject_dn,
+               {:ok, tbs, _} <-
+                 PkiCrypto.X509Builder.build_tbs_cert(
+                   csr,
+                   %{cert_der: issuer_key.certificate_der, algorithm_id: issuer_key.algorithm},
+                   subject_dn,
+                   validity_days,
+                   serial
+                 ),
+               {:ok, cert_der} <-
+                 PkiCrypto.X509Builder.sign_tbs(tbs, issuer_key.algorithm, decoded_issuer) do
+            cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+
+            {:ok,
+             %{
+               certificate_der: cert_der,
+               certificate_pem: cert_pem,
+               serial: Integer.to_string(serial, 16) |> String.downcase(),
+               algorithm: issuer_key.algorithm,
+               is_ca: is_ca
+             }}
           else
-            public_key = X509.CSR.public_key(csr)
-            subject = subject_dn || X509.RDNSequence.to_string(X509.CSR.subject(csr))
-
-            extensions =
-              if is_ca do
-                [
-                  basic_constraints: X509.Certificate.Extension.basic_constraints(true, 0),
-                  key_usage: X509.Certificate.Extension.key_usage([:digitalSignature, :keyCertSign, :cRLSign]),
-                  subject_key_identifier: true,
-                  authority_key_identifier: true
-                ]
-              else
-                [
-                  basic_constraints: X509.Certificate.Extension.basic_constraints(false),
-                  key_usage: X509.Certificate.Extension.key_usage([:digitalSignature, :keyEncipherment]),
-                  subject_key_identifier: true,
-                  authority_key_identifier: true
-                ]
-              end
-
-            issuer_cert =
-              if issuer_key.certificate_der do
-                X509.Certificate.from_der!(issuer_key.certificate_der)
-              else
-                nil
-              end
-
-            cert =
-              if issuer_cert do
-                X509.Certificate.new(public_key, subject, issuer_cert, native_key,
-                  serial: serial, hash: :sha256, validity: validity_days, extensions: extensions)
-              else
-                X509.Certificate.self_signed(native_key, subject,
-                  serial: serial, hash: :sha256, validity: validity_days, extensions: extensions)
-              end
-
-            cert_der = X509.Certificate.to_der(cert)
-            cert_pem = X509.Certificate.to_pem(cert)
-
-            {:ok, %{
-              certificate_der: cert_der,
-              certificate_pem: cert_pem,
-              serial: Integer.to_string(serial, 16) |> String.downcase(),
-              algorithm: algorithm,
-              is_ca: is_ca
-            }}
+            {:error, reason} ->
+              Logger.error("[ca_engine_client] Certificate signing failed: #{inspect(reason)}")
+              {:error, {:signing_failed, reason}}
           end
-
-        _ ->
-          {:error, :invalid_csr_pem}
-      end
+        rescue
+          e ->
+            Logger.error("[ca_engine_client] Certificate signing failed: #{Exception.message(e)}")
+            {:error, "Certificate signing failed"}
+        end
     end
-  rescue
-    e ->
-      Logger.error("[ca_engine_client] Certificate signing failed: #{Exception.message(e)}")
-      {:error, "Certificate signing failed"}
   end
+
+  defp decode_issuer_key_bytes(algorithm_id, der) when algorithm_id in ["ECC-P256", "ECC-P384"] do
+    :public_key.der_decode(:ECPrivateKey, der)
+  end
+
+  defp decode_issuer_key_bytes(algorithm_id, der) when algorithm_id in ["RSA-2048", "RSA-4096"] do
+    :public_key.der_decode(:RSAPrivateKey, der)
+  end
+
+  defp decode_issuer_key_bytes(_algorithm_id, bytes) when is_binary(bytes), do: bytes
 
   @impl true
   def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []) do
@@ -1477,9 +1392,17 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   defp do_self_sign_kaz(private_key, public_key, algorithm, subject_dn) do
     {:ok, level} = kaz_sign_level(algorithm)
 
-    with :ok <- KazSign.init(level),
+    algorithm_id = "KAZ-SIGN-#{level}"
+
+    with {:ok, csr_pem} <-
+           PkiCrypto.Csr.generate(
+             algorithm_id,
+             %{public_key: public_key, private_key: private_key},
+             subject_dn
+           ),
          # Generate a self-signed CSR first, then issue a self-signed cert
-         {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn),
+         csr_der = pem_to_der(csr_pem),
+         :ok <- KazSign.init(level),
          {:ok, cert_der} <-
            KazSign.issue_certificate(level, private_key, public_key, csr_der,
              issuer_name: subject_dn,
@@ -1495,6 +1418,11 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     e ->
       Logger.error("[ca_engine_client] KAZ-SIGN self-sign failed: #{Exception.message(e)}")
       {:error, {:kaz_sign_self_sign_failed, "self-sign operation failed"}}
+  end
+
+  defp pem_to_der(pem) do
+    [{_, der, _}] = :public_key.pem_decode(pem)
+    der
   end
 
   defp wrap_pem(b64) do

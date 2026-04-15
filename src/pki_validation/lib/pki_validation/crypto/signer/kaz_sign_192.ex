@@ -2,9 +2,10 @@ defmodule PkiValidation.Crypto.Signer.KazSign192 do
   @moduledoc "KAZ-SIGN-192 OCSP/CRL signer. See `KazSign128` for placeholder OID details."
   @behaviour PkiValidation.Crypto.Signer
 
-  @oid {1, 3, 6, 1, 4, 1, 99999, 1, 1, 2}
-  @algorithm_identifier_der <<0x30, 0x0D, 0x06, 0x0B, 0x2B, 0x06, 0x01, 0x04, 0x01, 0x86, 0x8D,
-                              0x1F, 0x01, 0x01, 0x02>>
+  @oid {1, 3, 6, 1, 4, 1, 62395, 2, 2, 2}
+  # SEQUENCE(OID 1.3.6.1.4.1.62395.2.2.2) — KAZ-SIGN-192 reference impl OID
+  @algorithm_identifier_der <<0x30, 0x0D, 0x06, 0x0B, 0x2B, 0x06, 0x01, 0x04, 0x01, 0x83, 0xE7,
+                              0x3B, 0x02, 0x02, 0x02>>
 
   @impl true
   def decode_private_key(raw) when is_binary(raw), do: raw

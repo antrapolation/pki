@@ -107,7 +107,9 @@ defmodule PkiSystem.MixProject do
         "esbuild pki_ra_portal --minify",
         "tailwind pki_platform_portal --minify",
         "esbuild pki_platform_portal --minify",
-        "phx.digest"
+        "phx.digest src/pki_ca_portal/priv/static -o src/pki_ca_portal/priv/static",
+        "phx.digest src/pki_ra_portal/priv/static -o src/pki_ra_portal/priv/static",
+        "phx.digest src/pki_platform_portal/priv/static -o src/pki_platform_portal/priv/static"
       ]
     ]
   end

@@ -179,220 +179,58 @@ defmodule PkiCaEngine.CertificateSigning do
   # -- Private --
 
   defp do_sign(issuer_key_record, private_key_der, csr_pem, subject_dn, validity_days, serial) do
-    algorithm = issuer_key_record.algorithm
+    issuer_alg_id = issuer_key_record.algorithm
+    issuer_cert_der = issuer_key_record.certificate_der
+    serial_int = hex_serial_to_integer(serial)
 
-    case normalize_algo(algorithm) do
-      kaz when kaz in [:kaz_sign_128, :kaz_sign_192, :kaz_sign_256] ->
-        issuer_dn = issuer_dn_string(issuer_key_record)
-        do_sign_kaz(private_key_der, kaz, csr_pem, subject_dn, issuer_dn, validity_days, serial)
+    cond do
+      issuer_cert_der == nil ->
+        Logger.error(
+          "Cannot sign: issuer key #{issuer_key_record.id} has no certificate (ceremony not completed?)"
+        )
 
-      ml_dsa when ml_dsa in [:ml_dsa_44, :ml_dsa_65, :ml_dsa_87] ->
-        issuer_dn = issuer_dn_string(issuer_key_record)
-        do_sign_ml_dsa(private_key_der, ml_dsa, csr_pem, subject_dn, issuer_dn, validity_days, serial)
+        {:error, :issuer_certificate_not_available}
 
-      _ ->
-        with {:ok, native_private_key} <- decode_private_key(private_key_der, algorithm) do
-          serial_int = hex_serial_to_integer(serial)
+      true ->
+        issuer_key = decode_issuer_key(issuer_alg_id, private_key_der)
 
-          case issuer_key_record.certificate_der do
-            nil ->
-              Logger.error("Cannot sign: issuer key #{issuer_key_record.id} has no certificate (ceremony not completed?)")
-              {:error, :issuer_certificate_not_available}
-
-            issuer_cert_der when is_binary(issuer_cert_der) ->
-              issuer_cert = X509.Certificate.from_der!(issuer_cert_der)
-              sign_with_issuer(native_private_key, issuer_cert, csr_pem, subject_dn, validity_days, serial_int)
-          end
+        with {:ok, csr} <- PkiCrypto.Csr.parse(csr_pem),
+             :ok <- PkiCrypto.Csr.verify_pop(csr),
+             {:ok, tbs, _sig_alg_oid} <-
+               PkiCrypto.X509Builder.build_tbs_cert(
+                 csr,
+                 %{cert_der: issuer_cert_der, algorithm_id: issuer_alg_id},
+                 subject_dn,
+                 validity_days,
+                 serial_int
+               ),
+             {:ok, cert_der} <- PkiCrypto.X509Builder.sign_tbs(tbs, issuer_alg_id, issuer_key) do
+          cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+          {:ok, cert_der, cert_pem}
+        else
+          {:error, reason} ->
+            Logger.error("Certificate signing failed: #{inspect(reason)}")
+            {:error, {:signing_failed, reason}}
         end
     end
   end
 
-  defp do_sign_kaz(key_bytes, variant, csr_pem, subject_dn, issuer_dn, validity_days, serial) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-    not_after = DateTime.add(now, validity_days * 86400, :second)
-
-    tbs = %{
-      version: 3,
-      serial: serial,
-      algorithm: to_string(variant),
-      issuer: issuer_dn,
-      not_before: DateTime.to_iso8601(now),
-      not_after: DateTime.to_iso8601(not_after),
-      subject: subject_dn,
-      public_key: extract_public_key_bytes_from_csr(csr_pem)
-    }
-
-    tbs_json = Jason.encode!(tbs)
-    digest = :crypto.hash(:sha3_256, tbs_json)
-
-    level = kaz_level(variant)
-
-    case KazSign.sign(level, digest, key_bytes) do
-      {:ok, signature} ->
-        cert_map = Map.put(tbs, :signature, Base.encode64(signature))
-        # PQC certs use JSON encoding (no ASN.1 encoder yet); stored in cert_der column as bytes
-        cert_bytes = Jason.encode!(cert_map)
-        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_bytes)}\n-----END PKI CERTIFICATE-----\n"
-        {:ok, cert_bytes, cert_pem}
-
-      {:error, reason} ->
-        Logger.error("KAZ-SIGN certificate signing failed: #{inspect(reason)}")
-        {:error, {:kaz_sign_failed, reason}}
-    end
-  rescue
-    e ->
-      Logger.error("KAZ-SIGN signing raised: #{inspect(e)}")
-      {:error, {:signing_failed, e}}
+  # Decode at-rest private key bytes into the form the signer expects.
+  # Classical: :public_key record. PQC: raw bytes (pass-through).
+  defp decode_issuer_key(algorithm_id, der) when algorithm_id in ["ECC-P256", "ECC-P384"] do
+    :public_key.der_decode(:ECPrivateKey, der)
   end
 
-  defp do_sign_ml_dsa(key_bytes, variant, csr_pem, subject_dn, issuer_dn, validity_days, serial) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-    not_after = DateTime.add(now, validity_days * 86400, :second)
-
-    oqs_algo = ml_dsa_oqs_name(variant)
-
-    tbs = %{
-      version: 3,
-      serial: serial,
-      algorithm: oqs_algo,
-      issuer: issuer_dn,
-      not_before: DateTime.to_iso8601(now),
-      not_after: DateTime.to_iso8601(not_after),
-      subject: subject_dn,
-      public_key: extract_public_key_bytes_from_csr(csr_pem)
-    }
-
-    tbs_json = Jason.encode!(tbs)
-    digest = :crypto.hash(:sha3_256, tbs_json)
-
-    case PkiOqsNif.sign(oqs_algo, key_bytes, digest) do
-      {:ok, signature} ->
-        cert_map = Map.put(tbs, :signature, Base.encode64(signature))
-        # PQC certs use JSON encoding (no ASN.1 encoder yet); stored in cert_der column as bytes
-        cert_bytes = Jason.encode!(cert_map)
-        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_bytes)}\n-----END PKI CERTIFICATE-----\n"
-        {:ok, cert_bytes, cert_pem}
-
-      {:error, reason} ->
-        Logger.error("ML-DSA certificate signing failed (#{oqs_algo}): #{inspect(reason)}")
-        {:error, {:ml_dsa_sign_failed, reason}}
-    end
-  rescue
-    e ->
-      Logger.error("ML-DSA signing raised: #{inspect(e)}")
-      {:error, {:signing_failed, e}}
+  defp decode_issuer_key(algorithm_id, der) when algorithm_id in ["RSA-2048", "RSA-4096"] do
+    :public_key.der_decode(:RSAPrivateKey, der)
   end
 
-  defp ml_dsa_oqs_name(:ml_dsa_44), do: "ML-DSA-44"
-  defp ml_dsa_oqs_name(:ml_dsa_65), do: "ML-DSA-65"
-  defp ml_dsa_oqs_name(:ml_dsa_87), do: "ML-DSA-87"
-
-  defp extract_public_key_bytes_from_csr(csr_pem) when is_binary(csr_pem) do
-    case X509.CSR.from_pem(csr_pem) do
-      {:ok, csr} -> csr |> X509.CSR.public_key() |> encode_public_key_bytes()
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp extract_public_key_bytes_from_csr(_), do: nil
-
-  defp encode_public_key_bytes(nil), do: nil
-
-  defp encode_public_key_bytes(pub_key) do
-    :public_key.der_encode(:SubjectPublicKeyInfo, pub_key) |> Base.encode64()
-  rescue
-    _ -> nil
-  end
-
-  defp issuer_dn_string(issuer_key_record) do
-    case issuer_key_record.certificate_der do
-      nil ->
-        "CN=#{issuer_key_record.id}"
-
-      cert_der when is_binary(cert_der) ->
-        cert_der
-        |> X509.Certificate.from_der!()
-        |> X509.Certificate.subject()
-        |> X509.RDNSequence.to_string()
-    end
-  rescue
-    _ -> "CN=#{issuer_key_record.id}"
-  end
-
-  defp sign_with_issuer(issuer_key, issuer_cert, csr_pem, subject_dn, validity_days, serial)
-       when is_integer(serial) do
-    issuer_cert_der = X509.Certificate.to_der(issuer_cert)
-    issuer_alg_id = issuer_algorithm_id(issuer_cert)
-
-    with {:ok, csr} <- PkiCrypto.Csr.parse(csr_pem),
-         :ok <- PkiCrypto.Csr.verify_pop(csr),
-         {:ok, tbs, _sig_alg_oid} <-
-           PkiCrypto.X509Builder.build_tbs_cert(
-             csr,
-             %{cert_der: issuer_cert_der, algorithm_id: issuer_alg_id},
-             subject_dn,
-             validity_days,
-             serial
-           ),
-         {:ok, cert_der} <- PkiCrypto.X509Builder.sign_tbs(tbs, issuer_alg_id, issuer_key) do
-      cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
-      {:ok, cert_der, cert_pem}
-    else
-      {:error, reason} ->
-        Logger.error("Certificate signing failed via X509Builder: #{inspect(reason)}")
-        {:error, {:signing_failed, reason}}
+  defp decode_issuer_key(algorithm_id, bytes) do
+    case PkiCrypto.AlgorithmRegistry.by_id(algorithm_id) do
+      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] -> bytes
+      _ -> raise "unknown issuer algorithm: #{algorithm_id}"
     end
   end
-
-  defp issuer_algorithm_id(issuer_cert) do
-    case X509.Certificate.public_key(issuer_cert) do
-      {{:ECPoint, _}, {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}} -> "ECC-P256"
-      {{:ECPoint, _}, {:namedCurve, {1, 3, 132, 0, 34}}} -> "ECC-P384"
-      {%{} = _rsa_public_key, _} -> "RSA-4096"
-      rsa when is_tuple(rsa) and elem(rsa, 0) == :RSAPublicKey -> "RSA-4096"
-      other -> raise "unsupported issuer key shape: #{inspect(other)}"
-    end
-  end
-
-  defp decode_private_key(der, algorithm) do
-    case normalize_algo(algorithm) do
-      :rsa ->
-        {:ok, :public_key.der_decode(:RSAPrivateKey, der)}
-
-      :ec ->
-        {:ok, :public_key.der_decode(:ECPrivateKey, der)}
-
-      :unknown ->
-        {:error, {:unsupported_algorithm, algorithm}}
-    end
-  rescue
-    e -> {:error, {:key_decode_failed, e}}
-  end
-
-  defp kaz_level(:kaz_sign_128), do: 128
-  defp kaz_level(:kaz_sign_192), do: 192
-  defp kaz_level(:kaz_sign_256), do: 256
-
-  defp normalize_algo(algo) when is_binary(algo) do
-    normalized = algo |> String.downcase() |> String.replace("-", "_")
-
-    case normalized do
-      a when a in ["rsa", "rsa_2048", "rsa_4096"] -> :rsa
-      a when a in ["ecc", "ec_p256", "ec_p384", "ecdsa"] -> :ec
-      "kaz_sign_128" -> :kaz_sign_128
-      "kaz_sign_192" -> :kaz_sign_192
-      "kaz_sign_256" -> :kaz_sign_256
-      "kaz_sign" -> :kaz_sign_128
-      "ml_dsa_44" -> :ml_dsa_44
-      "ml_dsa_65" -> :ml_dsa_65
-      "ml_dsa_87" -> :ml_dsa_87
-      _ -> :unknown
-    end
-  end
-
-  defp normalize_algo(_), do: :unknown
 
   defp generate_serial do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)

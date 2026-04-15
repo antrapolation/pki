@@ -29,7 +29,8 @@ config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
     layout: false
   ],
   pubsub_server: PkiPlatformPortal.PubSub,
-  live_view: [signing_salt: "Xk9pR2wM"]
+  live_view: [signing_salt: "Xk9pR2wM"],
+  cache_static_manifest: "priv/static/cache_manifest.json"
 
 # ── CA Portal endpoint ───────────────────────────────────────────────────────
 config :pki_ca_portal,
@@ -45,7 +46,8 @@ config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
     layout: false
   ],
   pubsub_server: PkiCaPortal.PubSub,
-  live_view: [signing_salt: "a/Jpy5T4"]
+  live_view: [signing_salt: "a/Jpy5T4"],
+  cache_static_manifest: "priv/static/cache_manifest.json"
 
 # ── RA Portal endpoint ───────────────────────────────────────────────────────
 config :pki_ra_portal,
@@ -61,7 +63,8 @@ config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
     layout: false
   ],
   pubsub_server: PkiRaPortal.PubSub,
-  live_view: [signing_salt: "FeWYPwyL"]
+  live_view: [signing_salt: "FeWYPwyL"],
+  cache_static_manifest: "priv/static/cache_manifest.json"
 
 # ── esbuild (asset bundling for all 3 portals) ─────────────────────────────
 config :esbuild,

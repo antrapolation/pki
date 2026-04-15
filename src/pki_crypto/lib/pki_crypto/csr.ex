@@ -78,9 +78,16 @@ defmodule PkiCrypto.Csr do
 
   def generate(algorithm_id, private_key, subject_dn)
       when algorithm_id in ["ECC-P256", "ECC-P384", "RSA-2048", "RSA-4096"] do
-    csr = X509.CSR.new(private_key, subject_dn)
+    # X509.CSR.new defaults to hash: :sha256. Override for algorithms where our
+    # PkiCrypto signer expects a different hash, so the CSR's self-signature is
+    # verifiable by `verify_pop/1`.
+    hash = classical_hash_for(algorithm_id)
+    csr = X509.CSR.new(private_key, subject_dn, hash: hash)
     {:ok, X509.CSR.to_pem(csr)}
   end
+
+  defp classical_hash_for("ECC-P384"), do: :sha384
+  defp classical_hash_for(_), do: :sha256
 
   def generate(algorithm_id, %{public_key: pub, private_key: priv}, subject_dn) do
     with {:ok, %{family: family, public_key_oid: pk_oid, sig_alg_oid: sig_oid}} <-
