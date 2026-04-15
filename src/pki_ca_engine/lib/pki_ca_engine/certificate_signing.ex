@@ -321,61 +321,40 @@ defmodule PkiCaEngine.CertificateSigning do
     _ -> "CN=#{issuer_key_record.id}"
   end
 
-  defp sign_with_issuer(issuer_key, issuer_cert, csr_pem, subject_dn, validity_days, serial) do
-    case extract_public_key_from_csr(csr_pem) do
-      nil ->
-        Logger.error("Cannot issue certificate: CSR is invalid or missing public key")
-        {:error, :invalid_csr_no_public_key}
+  defp sign_with_issuer(issuer_key, issuer_cert, csr_pem, subject_dn, validity_days, serial)
+       when is_integer(serial) do
+    issuer_cert_der = X509.Certificate.to_der(issuer_cert)
+    issuer_alg_id = issuer_algorithm_id(issuer_cert)
 
-      public_key ->
-        do_sign_with_issuer(issuer_key, issuer_cert, public_key, subject_dn, validity_days, serial)
+    with {:ok, csr} <- PkiCrypto.Csr.parse(csr_pem),
+         :ok <- PkiCrypto.Csr.verify_pop(csr),
+         {:ok, tbs, _sig_alg_oid} <-
+           PkiCrypto.X509Builder.build_tbs_cert(
+             csr,
+             %{cert_der: issuer_cert_der, algorithm_id: issuer_alg_id},
+             subject_dn,
+             validity_days,
+             serial
+           ),
+         {:ok, cert_der} <- PkiCrypto.X509Builder.sign_tbs(tbs, issuer_alg_id, issuer_key) do
+      cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+      {:ok, cert_der, cert_pem}
+    else
+      {:error, reason} ->
+        Logger.error("Certificate signing failed via X509Builder: #{inspect(reason)}")
+        {:error, {:signing_failed, reason}}
     end
   end
 
-  defp do_sign_with_issuer(issuer_key, issuer_cert, public_key, subject_dn, validity_days, serial) do
-    cert =
-      X509.Certificate.new(
-        public_key,
-        subject_dn,
-        issuer_cert,
-        issuer_key,
-        serial: serial,
-        hash: :sha256,
-        validity: validity_days,
-        extensions: [
-          basic_constraints: X509.Certificate.Extension.basic_constraints(false),
-          key_usage: X509.Certificate.Extension.key_usage([:digitalSignature, :keyEncipherment]),
-          subject_key_identifier: true,
-          authority_key_identifier: true
-        ]
-      )
-
-    cert_der = X509.Certificate.to_der(cert)
-    cert_pem_str = X509.Certificate.to_pem(cert)
-    {:ok, cert_der, cert_pem_str}
-  rescue
-    e ->
-      Logger.error("Certificate signing failed: #{inspect(e)}")
-      {:error, {:signing_failed, e}}
-  end
-
-  defp extract_public_key_from_csr(csr_pem) when is_binary(csr_pem) do
-    case X509.CSR.from_pem(csr_pem) do
-      {:ok, csr} ->
-        if X509.CSR.valid?(csr) do
-          X509.CSR.public_key(csr)
-        else
-          nil
-        end
-
-      _ ->
-        nil
+  defp issuer_algorithm_id(issuer_cert) do
+    case X509.Certificate.public_key(issuer_cert) do
+      {{:ECPoint, _}, {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}} -> "ECC-P256"
+      {{:ECPoint, _}, {:namedCurve, {1, 3, 132, 0, 34}}} -> "ECC-P384"
+      {%{} = _rsa_public_key, _} -> "RSA-4096"
+      rsa when is_tuple(rsa) and elem(rsa, 0) == :RSAPublicKey -> "RSA-4096"
+      other -> raise "unsupported issuer key shape: #{inspect(other)}"
     end
-  rescue
-    _ -> nil
   end
-
-  defp extract_public_key_from_csr(_), do: nil
 
   defp decode_private_key(der, algorithm) do
     case normalize_algo(algorithm) do

@@ -39,13 +39,14 @@ defmodule PkiCrypto.AlgorithmIntegrationTest do
 
     test "registry contains expected total count" do
       all = Registry.all()
-      # 12 signing + 1 KEM = 13
-      assert map_size(all) == 13
+      # 16 signing + 1 KEM = 17 (RSA-2048 + RSA-4096 + ECC-P256/P384 + 3 ML-DSA
+      # + 3 KAZ-SIGN + 6 SLH-DSA = 16 signing; ECDH-P256 = 1 KEM)
+      assert map_size(all) == 17
     end
 
     test "signing_algorithms returns only signing type" do
       signing = Registry.signing_algorithms()
-      assert map_size(signing) == 12
+      assert map_size(signing) == 16
 
       for {_name, algo} <- signing do
         assert Algorithm.algorithm_type(algo) == :signing

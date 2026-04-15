@@ -3,6 +3,7 @@ defmodule PkiCrypto.Registry do
 
   @algorithms %{
     # Classical
+    "RSA-2048"  => %PkiCrypto.Signing.RSA2048{},
     "RSA-4096"  => %PkiCrypto.Signing.RSA4096{},
     "ECC-P256"  => %PkiCrypto.Signing.ECCP256{},
     "ECC-P384"  => %PkiCrypto.Signing.ECCP384{},
