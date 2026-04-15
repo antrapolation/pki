@@ -825,17 +825,19 @@ defmodule PkiCaPortalWeb.CeremonyLive do
           <table class="table table-sm table-fixed w-full">
             <thead>
               <tr class="text-xs uppercase text-base-content/50">
-                <th class="w-[15%]">ID</th>
-                <th class="w-[15%]">Type</th>
-                <th class="w-[20%]">Algorithm</th>
-                <th class="w-[12%]">Status</th>
-                <th class="w-[20%]">Created</th>
+                <th class="w-[10%]">ID</th>
+                <th class="w-[18%]">Key Alias</th>
+                <th class="w-[10%]">Type</th>
+                <th class="w-[16%]">Algorithm</th>
+                <th class="w-[10%]">Status</th>
+                <th class="w-[18%]">Created</th>
                 <th class="w-[18%]"></th>
               </tr>
             </thead>
             <tbody>
               <tr :for={c <- paginated} class="hover">
                 <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{String.slice(c[:id] || "", 0..7)}</td>
+                <td class="text-sm overflow-hidden text-ellipsis whitespace-nowrap" title={c[:key_alias]}>{c[:key_alias] || "—"}</td>
                 <td class="text-sm">{c[:ceremony_type]}</td>
                 <td class="font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap">{c[:algorithm]}</td>
                 <td>

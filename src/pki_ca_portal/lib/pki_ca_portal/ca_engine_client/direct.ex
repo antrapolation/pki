@@ -916,11 +916,19 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
     ceremonies =
       from(c in KeyCeremony,
         where: c.ca_instance_id == ^ca_instance_id,
-        order_by: [desc: c.inserted_at]
+        order_by: [desc: c.inserted_at],
+        preload: [:issuer_key]
       )
       |> repo.all()
 
-    {:ok, Enum.map(ceremonies, &to_map/1)}
+    mapped =
+      Enum.map(ceremonies, fn c ->
+        c
+        |> to_map()
+        |> Map.put(:key_alias, c.issuer_key && c.issuer_key.key_alias)
+      end)
+
+    {:ok, mapped}
   end
 
   # ---------------------------------------------------------------------------
