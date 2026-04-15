@@ -321,6 +321,14 @@ defmodule PkiRaPortalWeb.CsrsLive do
   defp dcv_status_class("failed"), do: "badge-error"
   defp dcv_status_class(_), do: "badge-ghost"
 
+  defp profile_name_for(_profiles, nil), do: "—"
+  defp profile_name_for(profiles, profile_id) do
+    case Enum.find(profiles, fn p -> (p[:id] || Map.get(p, "id")) == profile_id end) do
+      nil -> profile_id
+      p -> p[:name] || Map.get(p, "name")
+    end
+  end
+
   defp build_filters(status, ra_instance_id) do
     filters = if status == "all", do: [], else: [status: status]
     if ra_instance_id != "", do: filters ++ [ra_instance_id: ra_instance_id], else: filters
@@ -423,8 +431,8 @@ defmodule PkiRaPortalWeb.CsrsLive do
               <tbody id="csr-list">
                 <tr :for={csr <- @paged_csrs} id={"csr-#{csr.id}"} class="hover:bg-base-200/50 border-base-300">
                   <td class="font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">{csr.id}</td>
-                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{csr.subject}</td>
-                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{csr.profile_name}</td>
+                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{csr[:subject] || csr[:subject_dn]}</td>
+                  <td class="overflow-hidden text-ellipsis whitespace-nowrap">{csr[:profile_name] || profile_name_for(@cert_profiles, csr[:cert_profile_id])}</td>
                   <td>
                     <span class={[
                       "badge badge-sm",
@@ -486,7 +494,7 @@ defmodule PkiRaPortalWeb.CsrsLive do
             </div>
             <div>
               <span class="text-xs font-medium text-base-content/50 uppercase">Subject</span>
-              <p class="text-sm">{@selected_csr.subject}</p>
+              <p class="text-sm">{@selected_csr[:subject] || @selected_csr[:subject_dn]}</p>
             </div>
             <div>
               <span class="text-xs font-medium text-base-content/50 uppercase">Status</span>
@@ -503,15 +511,15 @@ defmodule PkiRaPortalWeb.CsrsLive do
             </div>
             <div>
               <span class="text-xs font-medium text-base-content/50 uppercase">Profile</span>
-              <p class="text-sm">{@selected_csr.profile_name}</p>
+              <p class="text-sm">{@selected_csr[:profile_name] || profile_name_for(@cert_profiles, @selected_csr[:cert_profile_id])}</p>
             </div>
             <div>
               <span class="text-xs font-medium text-base-content/50 uppercase">Public Key Algorithm</span>
-              <p class="font-mono text-sm">{@selected_csr.public_key_algorithm}</p>
+              <p class="font-mono text-sm">{@selected_csr[:public_key_algorithm] || "—"}</p>
             </div>
             <div>
               <span class="text-xs font-medium text-base-content/50 uppercase">Requestor</span>
-              <p class="text-sm">{@selected_csr.requestor}</p>
+              <p class="text-sm">{@selected_csr[:requestor] || "—"}</p>
             </div>
           </div>
 
