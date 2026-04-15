@@ -10,21 +10,17 @@ defmodule PkiAuditTrail.Application do
     ensure_mnesia_schema()
     PkiAuditTrail.WalBuffer.init()
 
+    # PkiAuditTrail.Logger (global hash-chained singleton) is disabled —
+    # in schema mode audit_events has no global home; it lives per-tenant
+    # under audit_prefix. Tenant-scoped audit writing goes through
+    # PkiCaEngine.Audit. Phase 2 wires per-tenant prefix + hash chain.
     children = [
-      PkiAuditTrail.Repo,
-      PkiAuditTrail.Logger
+      PkiAuditTrail.Repo
     ]
 
     opts = [strategy: :one_for_one, name: PkiAuditTrail.Supervisor]
 
-    case Supervisor.start_link(children, opts) do
-      {:ok, pid} ->
-        replay_wal()
-        {:ok, pid}
-
-      error ->
-        error
-    end
+    Supervisor.start_link(children, opts)
   end
 
   defp ensure_mnesia_schema do

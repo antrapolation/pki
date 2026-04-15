@@ -3,9 +3,9 @@ defmodule PkiCaEngine.Audit do
   Audit logging for CA engine operations. Writes events to the tenant's
   audit_events table via the dynamic repo.
 
-  For single-tenant mode (nil tenant_id), delegates to PkiAuditTrail.Logger
-  which maintains the hash chain. For multi-tenant mode, writes directly
-  to the tenant's ca schema (hash chain per tenant is a future enhancement).
+  In schema mode there is no global audit table, so nil tenant_id is a
+  no-op (logged as a warning). For tenant-scoped calls, writes to the
+  tenant's ca schema (hash chain per tenant is a future enhancement).
   """
 
   alias PkiCaEngine.TenantRepo
@@ -20,13 +20,14 @@ defmodule PkiCaEngine.Audit do
   - `action` — string (must be in PkiAuditTrail.Actions)
   - `resource` — map with :resource_type, :resource_id, optional :details, :ca_instance_id
   """
-  def log(nil, actor, action, resource) do
-    # Single-tenant: use the hash-chained Logger
-    try do
-      PkiAuditTrail.Logger.log(actor, action, resource)
-    catch
-      :exit, _ -> :ok
-    end
+  def log(nil, _actor, action, resource) do
+    require Logger
+
+    Logger.warning(
+      "[Audit] dropping event action=#{action} resource=#{inspect(resource[:resource_type])}/#{inspect(resource[:resource_id])} reason=no_tenant_context"
+    )
+
+    :ok
   end
 
   def log(tenant_id, actor, action, resource) do
