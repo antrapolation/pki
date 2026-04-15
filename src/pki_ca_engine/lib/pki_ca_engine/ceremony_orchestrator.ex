@@ -470,25 +470,20 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   end
 
   defp generate_csr(algorithm, private_key, public_key, subject_dn) do
-    case classify_algorithm(algorithm) do
-      {:kaz_sign, level} ->
-        with :ok <- KazSign.init(level),
-             {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn) do
-          csr_pem = pem_encode("CERTIFICATE REQUEST", csr_der)
-          {:ok, csr_pem}
-        end
+    case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+        PkiCrypto.Csr.generate(algorithm, %{public_key: public_key, private_key: private_key}, subject_dn)
 
-      {:ml_dsa, oqs_algo} ->
-        generate_pqc_csr(oqs_algo, private_key, public_key, subject_dn)
-
-      :classical ->
+      {:ok, %{family: _classical}} ->
         try do
           native_key = decode_private_key(private_key)
-          csr = X509.CSR.new(native_key, subject_dn)
-          {:ok, X509.CSR.to_pem(csr)}
+          PkiCrypto.Csr.generate(algorithm, native_key, subject_dn)
         rescue
           e -> {:error, e}
         end
+
+      :error ->
+        {:error, {:unknown_algorithm, algorithm}}
     end
   end
 
@@ -524,30 +519,6 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   rescue
     e -> {:error, {:signing_failed, e}}
-  end
-
-  defp generate_pqc_csr(oqs_algo, private_key, public_key, subject_dn) do
-    csr_data = %{
-      algorithm: oqs_algo,
-      subject: subject_dn,
-      public_key: Base.encode64(public_key)
-    }
-
-    csr_json = Jason.encode!(csr_data)
-    digest = :crypto.hash(:sha3_256, csr_json)
-
-    case PkiOqsNif.sign(oqs_algo, private_key, digest) do
-      {:ok, signature} ->
-        signed_csr = Map.put(csr_data, :signature, Base.encode64(signature))
-        csr_full_json = Jason.encode!(signed_csr)
-        csr_pem = "-----BEGIN PKI CERTIFICATE REQUEST-----\n#{Base.encode64(csr_full_json)}\n-----END PKI CERTIFICATE REQUEST-----\n"
-        {:ok, csr_pem}
-
-      {:error, reason} ->
-        {:error, {:ml_dsa_csr_failed, reason}}
-    end
-  rescue
-    e -> {:error, {:csr_failed, e}}
   end
 
   defp classify_algorithm(algorithm) do
