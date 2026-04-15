@@ -58,6 +58,8 @@ defmodule PkiCaPortal.CaEngineClient do
   @callback get_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
   @callback list_threshold_shares(String.t(), opts()) :: {:ok, [map()]} | {:error, term()}
   @callback reconstruct_key(String.t(), [{String.t(), String.t()}], opts()) :: {:ok, binary()} | {:error, term()}
+  @callback unlock_key(String.t(), [{String.t(), String.t()}], opts()) :: {:ok, :key_activated} | {:error, term()}
+  @callback is_key_active?(String.t(), opts()) :: boolean()
   @callback sign_csr(String.t(), binary(), String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
   @callback activate_issuer_key(String.t(), map(), opts()) :: {:ok, map()} | {:error, term()}
   @callback suspend_issuer_key(String.t(), opts()) :: {:ok, map()} | {:error, term()}
@@ -118,6 +120,8 @@ defmodule PkiCaPortal.CaEngineClient do
   def get_issuer_key(id, opts \\ []), do: impl().get_issuer_key(id, opts)
   def list_threshold_shares(issuer_key_id, opts \\ []), do: impl().list_threshold_shares(issuer_key_id, opts)
   def reconstruct_key(issuer_key_id, custodian_passwords, opts \\ []), do: impl().reconstruct_key(issuer_key_id, custodian_passwords, opts)
+  def unlock_key(issuer_key_id, custodian_passwords, opts \\ []), do: impl().unlock_key(issuer_key_id, custodian_passwords, opts)
+  def is_key_active?(issuer_key_id, opts \\ []), do: impl().is_key_active?(issuer_key_id, opts)
   def sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts \\ []), do: impl().sign_csr(issuer_key_id, private_key, csr_pem, cert_profile, opts)
   def activate_issuer_key(issuer_key_id, cert_attrs, opts \\ []), do: impl().activate_issuer_key(issuer_key_id, cert_attrs, opts)
   def suspend_issuer_key(issuer_key_id, opts \\ []), do: impl().suspend_issuer_key(issuer_key_id, opts)

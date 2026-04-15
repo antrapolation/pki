@@ -415,6 +415,12 @@ defmodule PkiCaPortal.CaEngineClient.StatefulMock do
   end
 
   @impl true
+  def unlock_key(_issuer_key_id, _custodian_passwords, _opts \\ []), do: {:ok, :key_activated}
+
+  @impl true
+  def is_key_active?(_issuer_key_id, _opts \\ []), do: true
+
+  @impl true
   def sign_csr(_issuer_key_id, _private_key, _csr_pem, _cert_profile, _opts \\ []) do
     {:ok, %{certificate_der: "mock", certificate_pem: "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n", serial: "0001", algorithm: "ECC-P256"}}
   end

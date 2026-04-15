@@ -136,6 +136,77 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
     end
   end
 
+  def handle_event("open_unlock", %{"id" => key_id}, socket) do
+    opts = tenant_opts(socket)
+
+    with {:ok, key} <- CaEngineClient.get_issuer_key(key_id, opts),
+         {:ok, shares} <- CaEngineClient.list_threshold_shares(key_id, opts) do
+      tc = key[:threshold_config] || %{}
+      k = tc["k"] || tc[:k] || 2
+      custodian_ids = shares |> Enum.map(& &1[:custodian_user_id]) |> Enum.uniq()
+
+      {:noreply,
+       assign(socket,
+         modal: :unlock,
+         modal_key: key,
+         modal_shares: shares,
+         modal_custodians: custodian_ids,
+         modal_passwords: List.duplicate("", k),
+         modal_result: nil,
+         modal_error: nil,
+         modal_busy: false
+       )}
+    else
+      {:error, reason} ->
+        Logger.error("[issuer_keys] Failed to load key for unlock: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to load key", reason))}
+    end
+  end
+
+  def handle_event("unlock_key", _params, %{assigns: %{modal_busy: true}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event("unlock_key", params, socket) do
+    unless socket.assigns.current_user[:role] in ["ca_admin", "key_manager"] do
+      {:noreply, put_flash(socket, :error, "Unauthorized")}
+    else
+      key = socket.assigns.modal_key
+      k = threshold_k(key)
+      custodian_ids = socket.assigns.modal_custodians |> Enum.take(k)
+      opts = tenant_opts(socket)
+
+      passwords =
+        Enum.with_index(custodian_ids)
+        |> Enum.map(fn {_uid, idx} -> params["password_#{idx}"] || "" end)
+
+      cond do
+        Enum.any?(passwords, &(String.trim(&1) == "")) ->
+          {:noreply, assign(socket, modal_error: "All custodian passwords are required.")}
+
+        true ->
+          socket = assign(socket, modal_busy: true, modal_error: nil)
+          custodian_tuples = Enum.zip(custodian_ids, passwords)
+
+          case CaEngineClient.unlock_key(key[:id], custodian_tuples, opts) do
+            {:ok, :key_activated} ->
+              audit_log(socket, "issuer_key_unlocked", "issuer_key", key[:id], %{key_alias: key[:key_alias]})
+
+              {:noreply,
+               socket
+               |> reset_modal()
+               |> put_flash(:info, "Key unlocked. Available for signing for the next hour.")}
+
+            {:error, reason} ->
+              {:noreply,
+               assign(socket,
+                 modal_busy: false,
+                 modal_error: "Unlock failed: #{format_error(reason)}"
+               )}
+          end
+      end
+    end
+  end
+
   def handle_event("open_activate", %{"id" => key_id}, socket) do
     opts = tenant_opts(socket)
 
@@ -560,6 +631,16 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
                     >
                       <.icon name="hero-pencil-square" class="size-4" />
                     </button>
+                    <%!-- Unlock: active keys, makes key available to RA-driven signing for 1h --%>
+                    <button
+                      :if={k[:status] == "active" and k[:certificate_pem]}
+                      phx-click="open_unlock"
+                      phx-value-id={k[:id]}
+                      title="Unlock for RA Signing (1h)"
+                      class="btn btn-ghost btn-xs text-cyan-400"
+                    >
+                      <.icon name="hero-lock-open" class="size-4" />
+                    </button>
                     <%!-- View CSR: for pending sub-CA keys --%>
                     <button
                       :if={k[:status] == "pending" and not k[:is_root]}
@@ -673,8 +754,61 @@ defmodule PkiCaPortalWeb.IssuerKeysLive do
       <%= if @modal == :activate do %>
         {render_activate_modal(assigns)}
       <% end %>
+
+      <%!-- Unlock Modal --%>
+      <%= if @modal == :unlock do %>
+        {render_unlock_modal(assigns)}
+      <% end %>
     </div>
     """
+  end
+
+  defp render_unlock_modal(assigns) do
+    assigns = assign(assigns, :k, threshold_k(assigns.modal_key))
+
+    ~H"""
+    <div class="modal modal-open">
+      <div class="modal-box max-w-2xl">
+        <h3 class="font-bold text-lg mb-2">Unlock Key for RA Signing</h3>
+        <p class="text-sm text-base-content/60 mb-4">
+          Reconstruct <span class="font-mono">{@modal_key[:key_alias]}</span> from {@k} of {length(@modal_shares)} threshold shares.
+          The key stays in memory for 1 hour, allowing the RA engine to issue certificates.
+        </p>
+
+        <div :if={@modal_error} class="alert alert-error text-sm mb-3">{@modal_error}</div>
+
+        <form phx-submit="unlock_key" class="space-y-3">
+          <div :for={{uid, idx} <- Enum.with_index(Enum.take(@modal_custodians, @k))}>
+            <label class="label text-xs font-medium">
+              Custodian #{idx + 1} — <span class="font-mono">{custodian_label(@modal_shares, uid)}</span>
+            </label>
+            <input
+              type="password"
+              name={"password_#{idx}"}
+              required
+              autocomplete="off"
+              class="input input-bordered w-full"
+              placeholder="Custodian password"
+            />
+          </div>
+
+          <div class="modal-action">
+            <button type="button" phx-click="close_modal" class="btn btn-ghost btn-sm">Cancel</button>
+            <button type="submit" disabled={@modal_busy} class="btn btn-primary btn-sm">
+              {if @modal_busy, do: "Unlocking…", else: "Unlock"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    """
+  end
+
+  defp custodian_label(shares, user_id) do
+    case Enum.find(shares, fn s -> s[:custodian_user_id] == user_id end) do
+      nil -> user_id
+      s -> s[:custodian_username] || user_id
+    end
   end
 
   defp render_sign_csr_modal(assigns) do

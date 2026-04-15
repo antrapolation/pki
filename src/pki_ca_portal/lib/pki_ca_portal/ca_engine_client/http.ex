@@ -838,6 +838,12 @@ defmodule PkiCaPortal.CaEngineClient.Http do
   end
 
   @impl true
+  def unlock_key(_issuer_key_id, _custodian_shares, _opts \\ []), do: {:error, :not_implemented}
+
+  @impl true
+  def is_key_active?(_issuer_key_id, _opts \\ []), do: false
+
+  @impl true
   def sign_csr(_issuer_key_id, _csr_pem, _subject_dn, _cert_profile, _opts \\ []) do
     # TODO: implement HTTP endpoint
     {:error, :not_implemented}

@@ -634,6 +634,24 @@ defmodule PkiCaPortal.CaEngineClient.Direct do
   end
 
   @impl true
+  def unlock_key(issuer_key_id, custodian_passwords, opts \\ []) do
+    tenant_id = opts[:tenant_id]
+
+    Enum.reduce_while(custodian_passwords, {:error, :no_shares_submitted}, fn {user_id, password}, _acc ->
+      case PkiCaEngine.KeyActivation.submit_share(tenant_id, issuer_key_id, user_id, password) do
+        {:ok, :key_activated} -> {:halt, {:ok, :key_activated}}
+        {:ok, :share_accepted} -> {:cont, {:ok, :share_accepted}}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  @impl true
+  def is_key_active?(issuer_key_id, _opts \\ []) do
+    PkiCaEngine.KeyActivation.is_active?(issuer_key_id)
+  end
+
+  @impl true
   def reconstruct_key(issuer_key_id, custodian_passwords, opts \\ []) do
     tenant_id = opts[:tenant_id]
     repo = TenantRepo.ca_repo(tenant_id)
