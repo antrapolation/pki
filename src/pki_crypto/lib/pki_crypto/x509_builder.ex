@@ -89,8 +89,13 @@ defmodule PkiCrypto.X509Builder do
         signature = :public_key.sign(tbs_der, :sha256, issuer_private_key)
         {:ok, wrap_cert(tbs_der, meta.sig_alg_oid, signature)}
 
-      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
-        {:error, {:pqc_issuer_not_yet_supported, family}}
+      {:ok, %{family: family} = meta} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+        algo = PkiCrypto.Registry.get(issuer_algorithm_id)
+
+        case PkiCrypto.Algorithm.sign(algo, issuer_private_key, tbs_der) do
+          {:ok, signature} -> {:ok, wrap_cert(tbs_der, meta.sig_alg_oid, signature)}
+          other -> {:error, {:pqc_sign_failed, other}}
+        end
 
       :error ->
         {:error, :unknown_issuer_algorithm}
