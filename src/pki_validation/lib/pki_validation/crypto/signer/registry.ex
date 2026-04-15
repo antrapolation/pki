@@ -5,11 +5,12 @@ defmodule PkiValidation.Crypto.Signer.Registry do
 
   To add a new signer:
 
-    1. Add the algorithm string to
-       `PkiValidation.Schema.SigningKeyConfig` `@valid_algorithms`
-    2. Create the new module under `PkiValidation.Crypto.Signer.*`
+    1. Create the new module under `PkiValidation.Crypto.Signer.*`
        implementing the `PkiValidation.Crypto.Signer` behaviour
-    3. Add one line to `@mapping` below
+    2. Add one line to `@mapping` below
+
+  `SigningKeyConfig` looks up `algorithms/0` at runtime, so the schema
+  automatically accepts any algorithm added here without further changes.
   """
 
   alias PkiValidation.Crypto.Signer.{
@@ -54,8 +55,8 @@ defmodule PkiValidation.Crypto.Signer.Registry do
   Return the list of algorithm strings with a registered signer.
 
   This is the single source of truth for which algorithm strings the
-  validation service can sign with. `SigningKeyConfig.@valid_algorithms`
-  is derived from this list at compile time, so the schema and the
+  validation service can sign with. `SigningKeyConfig` calls this
+  function at runtime inside its changeset, so the schema and the
   dispatch table cannot drift apart — adding an entry to `@mapping`
   automatically extends the schema's allowed set.
   """
