@@ -443,29 +443,45 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}
 
   defp generate_self_signed(algorithm, private_key, public_key, subject_dn) do
-    case classify_algorithm(algorithm) do
-      {:kaz_sign, level} ->
-        with :ok <- KazSign.init(level),
-             {:ok, csr_der} <- KazSign.generate_csr(level, private_key, public_key, subject_dn),
-             {:ok, cert_der} <- KazSign.self_sign(level, private_key, public_key, csr_der, 365 * 25) do
-          cert_pem = pem_encode("CERTIFICATE", cert_der)
-          {:ok, cert_der, cert_pem}
+    case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+        case PkiCrypto.X509Builder.self_sign(
+               algorithm,
+               %{public_key: public_key, private_key: private_key},
+               subject_dn,
+               365 * 25
+             ) do
+          {:ok, cert_der} ->
+            cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+            {:ok, cert_der, cert_pem}
+
+          {:error, _} = error ->
+            error
         end
 
-      {:ml_dsa, oqs_algo} ->
-        generate_pqc_self_signed(oqs_algo, private_key, public_key, subject_dn)
-
-      :classical ->
+      {:ok, %{family: _classical}} ->
         try do
           native_key = decode_private_key(private_key)
-          root_cert = X509.Certificate.self_signed(native_key, subject_dn,
-            template: :root_ca, hash: :sha256, serial: {:random, 8}, validity: 365 * 25)
+
+          root_cert =
+            X509.Certificate.self_signed(
+              native_key,
+              subject_dn,
+              template: :root_ca,
+              hash: :sha256,
+              serial: {:random, 8},
+              validity: 365 * 25
+            )
+
           cert_der = X509.Certificate.to_der(root_cert)
           cert_pem = X509.Certificate.to_pem(root_cert)
           {:ok, cert_der, cert_pem}
         rescue
           e -> {:error, e}
         end
+
+      :error ->
+        {:error, {:unknown_algorithm, algorithm}}
     end
   end
 
@@ -485,58 +501,6 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
       :error ->
         {:error, {:unknown_algorithm, algorithm}}
     end
-  end
-
-  defp generate_pqc_self_signed(oqs_algo, private_key, public_key, subject_dn) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-    not_after = DateTime.add(now, 365 * 25 * 86400, :second)
-    serial = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-
-    tbs = %{
-      version: 3,
-      serial: serial,
-      algorithm: oqs_algo,
-      issuer: subject_dn,
-      not_before: DateTime.to_iso8601(now),
-      not_after: DateTime.to_iso8601(not_after),
-      subject: subject_dn,
-      public_key: Base.encode64(public_key)
-    }
-
-    tbs_json = Jason.encode!(tbs)
-    digest = :crypto.hash(:sha3_256, tbs_json)
-
-    case PkiOqsNif.sign(oqs_algo, private_key, digest) do
-      {:ok, signature} ->
-        cert_map = Map.put(tbs, :signature, Base.encode64(signature))
-        # PQC certs use JSON encoding (no ASN.1 encoder yet); stored in cert_der column as bytes
-        cert_bytes = Jason.encode!(cert_map)
-        cert_pem = "-----BEGIN PKI CERTIFICATE-----\n#{Base.encode64(cert_bytes)}\n-----END PKI CERTIFICATE-----\n"
-        {:ok, cert_bytes, cert_pem}
-
-      {:error, reason} ->
-        {:error, {:ml_dsa_sign_failed, reason}}
-    end
-  rescue
-    e -> {:error, {:signing_failed, e}}
-  end
-
-  defp classify_algorithm(algorithm) do
-    case String.downcase(algorithm) |> String.replace("-", "_") do
-      "kaz_sign_128" -> {:kaz_sign, 128}
-      "kaz_sign_192" -> {:kaz_sign, 192}
-      "kaz_sign_256" -> {:kaz_sign, 256}
-      "ml_dsa_44" -> {:ml_dsa, "ML-DSA-44"}
-      "ml_dsa_65" -> {:ml_dsa, "ML-DSA-65"}
-      "ml_dsa_87" -> {:ml_dsa, "ML-DSA-87"}
-      _ -> :classical
-    end
-  end
-
-  defp pem_encode(label, der) do
-    b64 = Base.encode64(der, padding: true)
-    lines = Regex.scan(~r/.{1,64}/, b64) |> Enum.map(&hd/1) |> Enum.join("\n")
-    "-----BEGIN #{label}-----\n#{lines}\n-----END #{label}-----\n"
   end
 
   defp decode_private_key(der) do
