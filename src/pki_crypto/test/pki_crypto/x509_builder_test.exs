@@ -195,4 +195,114 @@ defmodule PkiCrypto.X509BuilderTest do
   end
 
   defp stub_dn_oid("CN"), do: {2, 5, 4, 3}
+
+  describe "self_sign/4" do
+    test "classical ECDSA-P384 self-signed cert, signature verifies via :public_key" do
+      priv = X509.PrivateKey.new_ec(:secp384r1)
+      pub = X509.PublicKey.derive(priv)
+
+      {:ok, cert_der} =
+        PkiCrypto.X509Builder.self_sign(
+          "ECC-P384",
+          %{public_key: pub, private_key: priv},
+          "/CN=Classical Root",
+          3650
+        )
+
+      assert <<0x30, _::binary>> = cert_der
+
+      {outer, <<>>} = PkiCrypto.Asn1.read_sequence(cert_der)
+      [tbs, _sig_alg, sig_bits] = PkiCrypto.Asn1.read_sequence_items(outer)
+      {signature, <<>>} = PkiCrypto.Asn1.read_bit_string(sig_bits)
+
+      assert :public_key.verify(tbs, :sha384, signature, pub)
+    end
+
+    test "PQC KAZ-SIGN-192 self-signed cert, signature verifies via PkiCrypto.Algorithm" do
+      algo = PkiCrypto.Registry.get("KAZ-SIGN-192")
+      {:ok, %{public_key: pub, private_key: priv}} = PkiCrypto.Algorithm.generate_keypair(algo)
+
+      {:ok, cert_der} =
+        PkiCrypto.X509Builder.self_sign(
+          "KAZ-SIGN-192",
+          %{public_key: pub, private_key: priv},
+          "/CN=KAZ Root",
+          3650
+        )
+
+      {outer, <<>>} = PkiCrypto.Asn1.read_sequence(cert_der)
+      [tbs, _sig_alg, sig_bits] = PkiCrypto.Asn1.read_sequence_items(outer)
+      {signature, <<>>} = PkiCrypto.Asn1.read_bit_string(sig_bits)
+
+      assert :ok = PkiCrypto.Algorithm.verify(algo, pub, signature, tbs)
+      assert :binary.match(cert_der, pub) != :nomatch
+    end
+
+    test "PQC ML-DSA-65 self-signed cert, signature verifies" do
+      algo = PkiCrypto.Registry.get("ML-DSA-65")
+      {:ok, %{public_key: pub, private_key: priv}} = PkiCrypto.Algorithm.generate_keypair(algo)
+
+      {:ok, cert_der} =
+        PkiCrypto.X509Builder.self_sign(
+          "ML-DSA-65",
+          %{public_key: pub, private_key: priv},
+          "/CN=ML-DSA Root",
+          3650
+        )
+
+      {outer, <<>>} = PkiCrypto.Asn1.read_sequence(cert_der)
+      [tbs, _sig_alg, sig_bits] = PkiCrypto.Asn1.read_sequence_items(outer)
+      {signature, <<>>} = PkiCrypto.Asn1.read_bit_string(sig_bits)
+
+      assert :ok = PkiCrypto.Algorithm.verify(algo, pub, signature, tbs)
+    end
+  end
+
+  describe "cross-family PQC issuer (ML-DSA root → KAZ-SIGN leaf)" do
+    test "ML-DSA-65 root signs KAZ-SIGN-128 leaf" do
+      ml_dsa = PkiCrypto.Registry.get("ML-DSA-65")
+      kaz = PkiCrypto.Registry.get("KAZ-SIGN-128")
+
+      {:ok, %{public_key: root_pub, private_key: root_priv}} =
+        PkiCrypto.Algorithm.generate_keypair(ml_dsa)
+
+      {:ok, %{public_key: leaf_pub, private_key: leaf_priv}} =
+        PkiCrypto.Algorithm.generate_keypair(kaz)
+
+      {:ok, csr_pem} =
+        PkiCrypto.Csr.generate(
+          "KAZ-SIGN-128",
+          %{public_key: leaf_pub, private_key: leaf_priv},
+          "/CN=KAZ Leaf"
+        )
+
+      {:ok, csr} = PkiCrypto.Csr.parse(csr_pem)
+      assert :ok = PkiCrypto.Csr.verify_pop(csr)
+
+      {:ok, root_cert_der} =
+        PkiCrypto.X509Builder.self_sign(
+          "ML-DSA-65",
+          %{public_key: root_pub, private_key: root_priv},
+          "/CN=ML-DSA Root",
+          3650
+        )
+
+      {:ok, tbs, _} =
+        PkiCrypto.X509Builder.build_tbs_cert(
+          csr,
+          %{cert_der: root_cert_der, algorithm_id: "ML-DSA-65"},
+          "/CN=KAZ Leaf",
+          365,
+          6001
+        )
+
+      {:ok, cert_der} = PkiCrypto.X509Builder.sign_tbs(tbs, "ML-DSA-65", root_priv)
+
+      {outer, <<>>} = PkiCrypto.Asn1.read_sequence(cert_der)
+      [_tbs_back, _sig_alg, sig_bits] = PkiCrypto.Asn1.read_sequence_items(outer)
+      {signature, <<>>} = PkiCrypto.Asn1.read_bit_string(sig_bits)
+
+      assert :ok = PkiCrypto.Algorithm.verify(ml_dsa, root_pub, signature, tbs)
+    end
+  end
 end

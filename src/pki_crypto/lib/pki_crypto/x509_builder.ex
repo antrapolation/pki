@@ -102,6 +102,95 @@ defmodule PkiCrypto.X509Builder do
     end
   end
 
+  @doc """
+  Build and sign a self-signed X.509 root certificate.
+
+  For classical algorithms the `private_key` in the map is a `:public_key`
+  record and `public_key` is the matching record form (ECDSA: `{{:ECPoint, point}, params}`,
+  RSA: `:RSAPublicKey` record). For PQC algorithms both are raw NIF byte strings.
+
+  `subject_dn` is slash-separated (`"/CN=Root/O=Example"`). `validity_days`
+  applies from now.
+
+  Returns `{:ok, cert_der}`.
+  """
+  @spec self_sign(String.t(), map(), String.t(), pos_integer()) ::
+          {:ok, binary()} | {:error, term()}
+  def self_sign(algorithm_id, %{public_key: pub, private_key: priv}, subject_dn, validity_days) do
+    with {:ok, %{public_key_oid: pk_oid, sig_alg_oid: sig_oid}} <-
+           AlgorithmRegistry.by_id(algorithm_id) do
+      version = Asn1.tagged(0, :explicit, Asn1.integer(2))
+      serial = Asn1.integer(:crypto.strong_rand_bytes(8) |> :binary.decode_unsigned())
+      sig_alg = Asn1.sequence([Asn1.oid(sig_oid)])
+      name = encode_name_from_dn_string(subject_dn)
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      not_after = DateTime.add(now, validity_days * 86_400, :second)
+      validity = Asn1.sequence([encode_time(now), encode_time(not_after)])
+
+      spki_alg_id = build_spki_alg_id(algorithm_id, pk_oid)
+      spki_pub_bytes = extract_spki_public_bytes(algorithm_id, pub)
+      spki = Asn1.sequence([spki_alg_id, Asn1.bit_string(spki_pub_bytes)])
+
+      # Root extensions: CA:TRUE, keyCertSign|cRLSign, SKI. AKI omitted on self-signed roots.
+      bc = make_extension({2, 5, 29, 19}, true, Asn1.sequence([Asn1.boolean(true)]))
+      ku = make_extension({2, 5, 29, 15}, true, key_usage_keycertsign_crlsign())
+      ski = make_extension({2, 5, 29, 14}, false, Asn1.octet_string(sha1(spki_pub_bytes)))
+      extensions = Asn1.tagged(3, :explicit, Asn1.sequence([bc, ku, ski]))
+
+      tbs =
+        Asn1.sequence([
+          version,
+          serial,
+          sig_alg,
+          name,
+          validity,
+          name,
+          spki,
+          extensions
+        ])
+
+      sign_tbs(tbs, algorithm_id, priv)
+    else
+      :error -> {:error, :unknown_algorithm}
+    end
+  end
+
+  # SPKI AlgorithmIdentifier: ECDSA requires named-curve OID in parameters,
+  # RSA requires NULL parameters, PQC has no parameters.
+  defp build_spki_alg_id("ECC-P256", pk_oid) do
+    Asn1.sequence([Asn1.oid(pk_oid), Asn1.oid({1, 2, 840, 10045, 3, 1, 7})])
+  end
+
+  defp build_spki_alg_id("ECC-P384", pk_oid) do
+    Asn1.sequence([Asn1.oid(pk_oid), Asn1.oid({1, 3, 132, 0, 34})])
+  end
+
+  defp build_spki_alg_id(algorithm_id, pk_oid) do
+    case AlgorithmRegistry.by_id(algorithm_id) do
+      {:ok, %{family: :rsa}} -> Asn1.sequence([Asn1.oid(pk_oid), Asn1.null()])
+      _ -> Asn1.sequence([Asn1.oid(pk_oid)])
+    end
+  end
+
+  # SPKI subjectPublicKey bytes — raw public-key bytes for the bit_string.
+  defp extract_spki_public_bytes(algorithm_id, pub) do
+    case AlgorithmRegistry.by_id(algorithm_id) do
+      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+        pub
+
+      {:ok, %{family: :ecdsa}} ->
+        case pub do
+          {{:ECPoint, point}, _params} -> point
+          <<_::binary>> -> pub
+          other -> raise "unexpected ECDSA public key shape: #{inspect(other)}"
+        end
+
+      {:ok, %{family: :rsa}} ->
+        :public_key.der_encode(:RSAPublicKey, pub)
+    end
+  end
+
   defp ecdsa_hash_for("ECC-P256"), do: :sha256
   defp ecdsa_hash_for("ECC-P384"), do: :sha384
 
