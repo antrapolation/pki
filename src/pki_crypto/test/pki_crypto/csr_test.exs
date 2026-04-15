@@ -104,4 +104,43 @@ defmodule PkiCrypto.CsrTest do
       assert parsed.subject_public_key == pub
     end
   end
+
+  describe "verify_pop/1" do
+    test "accepts a valid classical ECDSA CSR" do
+      private_key = X509.PrivateKey.new_ec(:secp256r1)
+      {:ok, pem} = Csr.generate("ECC-P256", private_key, "/CN=PoP Test")
+      {:ok, parsed} = Csr.parse(pem)
+
+      assert :ok = Csr.verify_pop(parsed)
+    end
+
+    test "accepts a valid KAZ-SIGN-192 CSR" do
+      algo = PkiCrypto.Registry.get("KAZ-SIGN-192")
+      {:ok, %{public_key: pub, private_key: priv}} = PkiCrypto.Algorithm.generate_keypair(algo)
+      {:ok, pem} = Csr.generate("KAZ-SIGN-192", %{public_key: pub, private_key: priv}, "/CN=PoP KAZ")
+      {:ok, parsed} = Csr.parse(pem)
+
+      assert :ok = Csr.verify_pop(parsed)
+    end
+
+    test "accepts a valid ML-DSA-44 CSR" do
+      algo = PkiCrypto.Registry.get("ML-DSA-44")
+      {:ok, %{public_key: pub, private_key: priv}} = PkiCrypto.Algorithm.generate_keypair(algo)
+      {:ok, pem} = Csr.generate("ML-DSA-44", %{public_key: pub, private_key: priv}, "/CN=PoP ML-DSA")
+      {:ok, parsed} = Csr.parse(pem)
+
+      assert :ok = Csr.verify_pop(parsed)
+    end
+
+    test "rejects a CSR whose signature has been tampered with" do
+      algo = PkiCrypto.Registry.get("KAZ-SIGN-192")
+      {:ok, %{public_key: pub, private_key: priv}} = PkiCrypto.Algorithm.generate_keypair(algo)
+      {:ok, pem} = Csr.generate("KAZ-SIGN-192", %{public_key: pub, private_key: priv}, "/CN=Tamper")
+      {:ok, parsed} = Csr.parse(pem)
+
+      tampered = %{parsed | signature: :crypto.strong_rand_bytes(byte_size(parsed.signature))}
+
+      assert {:error, :invalid_signature} = Csr.verify_pop(tampered)
+    end
+  end
 end

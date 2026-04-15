@@ -48,6 +48,22 @@ defmodule PkiCrypto.Csr do
   end
 
   @doc """
+  Verify the Proof-of-Possession signature on a parsed CSR. Returns `:ok`
+  on valid, `{:error, :invalid_signature}` otherwise.
+
+  Every signing-path entry must call this before trusting a CSR.
+  """
+  @spec verify_pop(parsed()) :: :ok | {:error, :invalid_signature}
+  def verify_pop(%{algorithm_id: algorithm_id, subject_public_key: pub, raw_tbs: tbs, signature: sig}) do
+    algo = PkiCrypto.Registry.get(algorithm_id)
+
+    case PkiCrypto.Algorithm.verify(algo, pub, sig, tbs) do
+      :ok -> :ok
+      _ -> {:error, :invalid_signature}
+    end
+  end
+
+  @doc """
   Generate a PKCS#10 CSR for the given algorithm, key, and subject DN.
 
   Classical algorithms delegate to `X509.CSR.new` with a `:public_key`
