@@ -11,7 +11,8 @@ defmodule PkiCaEngine.EngineSupervisor do
   @impl true
   def init(_opts) do
     children = [
-      {PkiCaEngine.KeyActivation, []}
+      {PkiCaEngine.KeyActivation, []},
+      {PkiCaEngine.CeremonyWatchdog, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

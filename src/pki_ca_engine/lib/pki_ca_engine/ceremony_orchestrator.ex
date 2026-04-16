@@ -8,6 +8,30 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   - Printable transcript (CeremonyTranscript)
   - Root CA requires full ceremony; sub-CA supports full or simplified
   - Single session: initiate -> verify identities -> generate -> distribute -> complete
+
+  ## Key Material Handling
+
+  During `execute_keygen/2`, raw private key bytes exist in BEAM process memory
+  from keypair generation through Shamir splitting and share encryption. The BEAM
+  does not offer a guaranteed way to zero memory after use -- binaries may be
+  reference-counted and remain on the heap until garbage-collected.
+
+  Mitigations applied:
+  - `:erlang.garbage_collect()` is called immediately after the private key is
+    split into shares and again after the encrypted shares are committed.
+  - The raw private key is never stored in GenServer state or ETS; it lives only
+    as a local variable within `do_keygen_and_split/3`.
+
+  Residual risk: a heap dump, core dump, or `:erlang.process_info(pid, :messages)`
+  call during the brief keygen window could expose the raw key. For environments
+  requiring stronger guarantees, key generation should be delegated to an HSM or
+  a NIF that manages its own memory (see the HSM keystore provider).
+
+  ## Password Hashing
+
+  Custodian share-acceptance passwords are hashed with PBKDF2-HMAC-SHA256
+  (100 000 iterations, 16-byte random salt). The `password_hash` field stores
+  `<<salt::binary-16, hash::binary-32>>` (48 bytes total).
   """
 
   require Logger
@@ -128,18 +152,21 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   This is the identity verification gate required before key generation.
   """
   def verify_identity(ceremony_id, custodian_name, auditor_name) do
-    case Repo.where(CeremonyParticipant, fn p ->
-      p.ceremony_id == ceremony_id and p.name == custodian_name and p.role == :custodian
-    end) do
-      {:ok, []} -> {:error, :participant_not_found}
-      {:ok, [participant | _]} ->
-        now = DateTime.utc_now() |> DateTime.truncate(:second)
-        result = Repo.update(participant, %{
-          identity_verified_by: auditor_name,
-          identity_verified_at: now
-        })
-        append_transcript(ceremony_id, auditor_name, "identity_verified", %{custodian: custodian_name})
-        result
+    case Repo.get_all_by_index(CeremonyParticipant, :ceremony_id, ceremony_id) do
+      {:ok, participants} ->
+        case Enum.find(participants, fn p -> p.name == custodian_name and p.role == :custodian end) do
+          nil -> {:error, :participant_not_found}
+          participant ->
+            Repo.transaction(fn ->
+              now = DateTime.utc_now() |> DateTime.truncate(:second)
+              updated = %{participant | identity_verified_by: auditor_name, identity_verified_at: now}
+              :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(CeremonyParticipant), updated))
+
+              append_transcript_in_tx(ceremony_id, auditor_name, "identity_verified", %{custodian: custodian_name})
+
+              updated
+            end)
+        end
       {:error, _} = err -> err
     end
   end
@@ -152,21 +179,25 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     with {:ok, ceremony} <- get_ceremony(ceremony_id),
          true <- ceremony.status == "preparing" || {:error, :invalid_ceremony_status} do
 
-      case Repo.where(ThresholdShare, fn s ->
-        s.issuer_key_id == ceremony.issuer_key_id and s.custodian_name == custodian_name and s.status == "pending"
-      end) do
-        {:ok, []} -> {:error, :share_not_found}
-        {:ok, [share | _]} ->
-          password_hash = :crypto.hash(:sha256, password)
-          now = DateTime.utc_now() |> DateTime.truncate(:second)
+      case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
+        {:ok, shares} ->
+          case Enum.find(shares, fn s -> s.custodian_name == custodian_name and s.status == "pending" end) do
+            nil -> {:error, :share_not_found}
+            share ->
+              salt = :crypto.strong_rand_bytes(16)
+              password_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, 100_000, 32)
+              combined_hash = salt <> password_hash
+              now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-          result = Repo.update(share, %{
-            password_hash: password_hash,
-            status: "accepted",
-            updated_at: now
-          })
-          append_transcript(ceremony_id, custodian_name, "share_accepted", %{})
-          result
+              Repo.transaction(fn ->
+                updated = %{share | password_hash: combined_hash, status: "accepted", updated_at: now}
+                :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(ThresholdShare), updated))
+
+                append_transcript_in_tx(ceremony_id, custodian_name, "share_accepted", %{})
+
+                updated
+              end)
+          end
         {:error, _} = err -> err
       end
     end
@@ -180,12 +211,9 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     with {:ok, ceremony} <- get_ceremony(ceremony_id),
          true <- ceremony.status == "preparing" || {:error, :invalid_status} do
 
-      with {:ok, participants} <- Repo.where(CeremonyParticipant, fn p ->
-             p.ceremony_id == ceremony_id and p.role == :custodian
-           end),
-           {:ok, shares} <- Repo.where(ThresholdShare, fn s ->
-             s.issuer_key_id == ceremony.issuer_key_id
-           end) do
+      with {:ok, all_participants} <- Repo.get_all_by_index(CeremonyParticipant, :ceremony_id, ceremony_id),
+           participants = Enum.filter(all_participants, fn p -> p.role == :custodian end),
+           {:ok, shares} <- Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
 
         all_verified = Enum.all?(participants, fn p -> p.identity_verified_at != nil end)
         all_accepted = Enum.all?(shares, fn s -> s.status == "accepted" end)
@@ -206,9 +234,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
       # Claim ceremony
       {:ok, _} = Repo.update(ceremony, %{status: "generating"})
 
-      case Repo.where(ThresholdShare, fn s ->
-        s.issuer_key_id == ceremony.issuer_key_id
-      end) do
+      case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
         {:ok, db_shares} ->
           db_shares = Enum.sort_by(db_shares, & &1.share_index)
           password_map = Map.new(custodian_passwords)
@@ -234,7 +260,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
   @doc "Get the transcript for a ceremony."
   def get_transcript(ceremony_id) do
-    case Repo.where(CeremonyTranscript, fn t -> t.ceremony_id == ceremony_id end) do
+    case Repo.get_all_by_index(CeremonyTranscript, :ceremony_id, ceremony_id) do
       {:ok, []} -> {:error, :not_found}
       {:ok, [t | _]} -> {:ok, t}
       {:error, _} = err -> err
@@ -243,7 +269,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
   @doc "List participants for a ceremony."
   def list_participants(ceremony_id) do
-    Repo.where(CeremonyParticipant, fn p -> p.ceremony_id == ceremony_id end)
+    Repo.get_all_by_index(CeremonyParticipant, :ceremony_id, ceremony_id)
   end
 
   # -- Private --
@@ -363,10 +389,11 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
               :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), completed))
             [] -> :ok
           end
+
+          append_transcript_in_tx(ceremony.id, "system", "ceremony_completed", %{fingerprint: fingerprint})
         end) do
           {:ok, _} ->
             :erlang.garbage_collect()
-            append_transcript(ceremony.id, "system", "ceremony_completed", %{fingerprint: fingerprint})
 
             # Auto-offline root CA after ceremony
             case Repo.get(PkiMnesia.Structs.CaInstance, ceremony.ca_instance_id) do
@@ -386,19 +413,25 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
-  defp append_transcript(ceremony_id, actor, action, details) do
-    case Repo.where(CeremonyTranscript, fn t -> t.ceremony_id == ceremony_id end) do
-      {:ok, [transcript | _]} ->
+  # Appends a transcript entry inside an already-open :mnesia.transaction context.
+  # Safe to call from within Repo.transaction/1 or bare :mnesia.transaction/1 fns.
+  defp append_transcript_in_tx(ceremony_id, actor, action, details) do
+    table = PkiMnesia.Schema.table_name(CeremonyTranscript)
+    case :mnesia.index_read(table, ceremony_id, :ceremony_id) do
+      [record | _] ->
+        transcript = Repo.record_to_struct(CeremonyTranscript, record)
         entry = %{
           timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
           actor: actor,
           action: action,
           details: details
         }
-        Repo.update(transcript, %{entries: (transcript.entries || []) ++ [entry]})
-      _ -> :ok
+        updated = %{transcript | entries: (transcript.entries || []) ++ [entry]}
+        :mnesia.write(Repo.struct_to_record(table, updated))
+      [] -> :ok
     end
   end
+
 
   defp validate_threshold(k, n) when is_integer(k) and is_integer(n) and k >= 2 and k <= n, do: :ok
   defp validate_threshold(_, _), do: {:error, :invalid_threshold}

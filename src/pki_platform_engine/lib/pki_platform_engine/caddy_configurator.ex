@@ -34,9 +34,33 @@ defmodule PkiPlatformEngine.CaddyConfigurator do
 
   def remove_route(slug) do
     Logger.info("[caddy] Removing route for #{slug}")
-    # Caddy route removal requires knowing the route index or ID.
-    # For simplicity, we reload the full config minus this tenant.
-    :ok
+
+    case delete_config("/config/apps/http/servers/srv0/routes/#{URI.encode(slug)}") do
+      :ok ->
+        Logger.info("[caddy] Removed route for #{slug}")
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[caddy] Failed to remove route for #{slug}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp delete_config(path) do
+    url = @caddy_admin_url <> path
+
+    case :httpc.request(
+           :delete,
+           {String.to_charlist(url), []},
+           [],
+           []
+         ) do
+      {:ok, {{_, status, _}, _, _}} when status in 200..299 -> :ok
+      {:ok, {{_, status, _}, _, body}} -> {:error, {:http_error, status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    _ -> {:error, :caddy_unavailable}
   end
 
   defp post_config(path, body) do

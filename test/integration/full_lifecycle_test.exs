@@ -172,12 +172,16 @@ defmodule PkiIntegration.FullLifecycleTest do
     |> Enum.each(fn {{share, idx}, custodian} ->
       {:ok, encrypted} = ShareEncryption.encrypt_share(share, custodian.password)
 
+      salt = :crypto.strong_rand_bytes(16)
+      password_hash = :crypto.pbkdf2_hmac(:sha256, custodian.password, salt, 100_000, 32)
+      combined_hash = salt <> password_hash
+
       threshold_share = ThresholdShare.new(%{
         issuer_key_id: key.id,
         custodian_name: custodian.name,
         share_index: idx,
         encrypted_share: encrypted,
-        password_hash: :crypto.hash(:sha256, custodian.password),
+        password_hash: combined_hash,
         min_shares: 2,
         total_shares: 3,
         status: "active"

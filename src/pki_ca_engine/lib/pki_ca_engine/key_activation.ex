@@ -3,6 +3,27 @@ defmodule PkiCaEngine.KeyActivation do
   Day-to-day key activation via threshold share reconstruction.
   GenServer holds reconstructed private keys in memory.
   Share lookup now uses Mnesia instead of Ecto.
+
+  ## Security Warning -- Private Key Memory Exposure
+
+  Once a key is activated, the reconstructed private key DER bytes are held in
+  this GenServer's `state.active_keys` map until the key is deactivated or the
+  inactivity timer fires.
+
+  **`:sys.get_state/1` exposure:** Any process with a reference to this server
+  can call `:sys.get_state(pid)` and obtain the full state including raw private
+  keys. In production deployments:
+
+  - Do NOT expose this GenServer's pid or registered name outside the CA engine
+    supervision tree.
+  - Consider wrapping sensitive state fields behind an opaque accessor if the
+    OTP debug interface is a concern (e.g., implement `format_status/2` to
+    redact `active_keys`).
+  - A BEAM observer or remote shell connection has full access to process state.
+    Restrict `remsh` and Observer access in production.
+
+  The `timeout_ms` option (default 1 hour) limits the window of exposure.
+  Callers should deactivate keys explicitly when signing sessions end.
   """
   use GenServer
 
@@ -63,58 +84,62 @@ defmodule PkiCaEngine.KeyActivation do
     if MapSet.member?(submitted_set, custodian_name) do
       {:reply, {:error, :already_submitted}, state}
     else
-      # Look up share from Mnesia by issuer_key_id + custodian_name
-      case Repo.where(ThresholdShare, fn s ->
-        s.issuer_key_id == issuer_key_id and s.custodian_name == custodian_name
-      end) do
+      # Look up shares from Mnesia by issuer_key_id (indexed), then filter by custodian_name
+      case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, issuer_key_id) do
         {:ok, []} ->
           {:reply, {:error, :share_not_found}, state}
 
-        {:ok, [record | _]} ->
-          case ShareEncryption.decrypt_share(record.encrypted_share, password) do
-            {:error, :decryption_failed} ->
-              {:reply, {:error, :decryption_failed}, state}
+        {:ok, shares} ->
+          case Enum.find(shares, fn s -> s.custodian_name == custodian_name end) do
+            nil ->
+              {:reply, {:error, :share_not_found}, state}
 
-            {:ok, decrypted_share} ->
-              new_submitted = Map.put(
-                state.custodians_submitted,
-                issuer_key_id,
-                MapSet.put(submitted_set, custodian_name)
-              )
+            record ->
+              case ShareEncryption.decrypt_share(record.encrypted_share, password) do
+                {:error, :decryption_failed} ->
+                  {:reply, {:error, :decryption_failed}, state}
 
-              pending = Map.get(state.pending_shares, issuer_key_id, [])
-              new_pending = [decrypted_share | pending]
+                {:ok, decrypted_share} ->
+                  new_submitted = Map.put(
+                    state.custodians_submitted,
+                    issuer_key_id,
+                    MapSet.put(submitted_set, custodian_name)
+                  )
 
-              min_shares = case Map.get(state.min_shares_cache, issuer_key_id) do
-                nil -> record.min_shares
-                cached -> cached
-              end
+                  pending = Map.get(state.pending_shares, issuer_key_id, [])
+                  new_pending = [decrypted_share | pending]
 
-              if length(new_pending) >= min_shares do
-                case PkiCrypto.Shamir.recover(new_pending) do
-                  {:ok, secret} ->
-                    timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
+                  min_shares = case Map.get(state.min_shares_cache, issuer_key_id) do
+                    nil -> record.min_shares
+                    cached -> cached
+                  end
 
+                  if length(new_pending) >= min_shares do
+                    case PkiCrypto.Shamir.recover(new_pending) do
+                      {:ok, secret} ->
+                        timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
+
+                        new_state = %{state |
+                          active_keys: Map.put(state.active_keys, issuer_key_id, %{secret: secret, timer_ref: timer_ref}),
+                          pending_shares: Map.delete(state.pending_shares, issuer_key_id),
+                          custodians_submitted: Map.delete(state.custodians_submitted, issuer_key_id),
+                          min_shares_cache: Map.delete(state.min_shares_cache, issuer_key_id)
+                        }
+
+                        {:reply, {:ok, :key_activated}, new_state}
+
+                      {:error, reason} ->
+                        {:reply, {:error, {:reconstruction_failed, reason}}, state}
+                    end
+                  else
                     new_state = %{state |
-                      active_keys: Map.put(state.active_keys, issuer_key_id, %{secret: secret, timer_ref: timer_ref}),
-                      pending_shares: Map.delete(state.pending_shares, issuer_key_id),
-                      custodians_submitted: Map.delete(state.custodians_submitted, issuer_key_id),
-                      min_shares_cache: Map.delete(state.min_shares_cache, issuer_key_id)
+                      pending_shares: Map.put(state.pending_shares, issuer_key_id, new_pending),
+                      custodians_submitted: new_submitted,
+                      min_shares_cache: Map.put(state.min_shares_cache, issuer_key_id, min_shares)
                     }
 
-                    {:reply, {:ok, :key_activated}, new_state}
-
-                  {:error, reason} ->
-                    {:reply, {:error, {:reconstruction_failed, reason}}, state}
-                end
-              else
-                new_state = %{state |
-                  pending_shares: Map.put(state.pending_shares, issuer_key_id, new_pending),
-                  custodians_submitted: new_submitted,
-                  min_shares_cache: Map.put(state.min_shares_cache, issuer_key_id, min_shares)
-                }
-
-                {:reply, {:ok, :share_accepted}, new_state}
+                    {:reply, {:ok, :share_accepted}, new_state}
+                  end
               end
           end
 

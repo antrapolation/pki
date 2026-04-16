@@ -12,7 +12,10 @@ defmodule PkiRaEngine.EngineSupervisor do
 
   @impl true
   def init(_opts) do
-    children = []
+    children = [
+      {PkiRaEngine.CsrProcessor, []},
+      {PkiRaEngine.DcvPoller, []}
+    ]
     Supervisor.init(children, strategy: :one_for_one)
   end
 end

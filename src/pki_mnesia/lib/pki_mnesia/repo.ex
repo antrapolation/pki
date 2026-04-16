@@ -49,8 +49,9 @@ defmodule PkiMnesia.Repo do
 
     case :mnesia.transaction(fn ->
       case :mnesia.read(table, id) do
-        [_existing] ->
-          updated = Map.merge(struct, changes)
+        [existing_record] ->
+          existing_struct = record_to_struct(mod, existing_record)
+          updated = Map.merge(existing_struct, changes)
           record = struct_to_record(table, updated)
           :mnesia.write(record)
           updated
@@ -87,6 +88,20 @@ defmodule PkiMnesia.Repo do
       {:atomic, records} ->
         {:ok, Enum.map(records, &record_to_struct(struct_mod, &1))}
 
+      {:aborted, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc "Look up all records matching an indexed field value. Uses Mnesia index, not a table scan."
+  @spec get_all_by_index(module(), atom(), term()) :: {:ok, [struct()]} | {:error, term()}
+  def get_all_by_index(struct_mod, field, value) do
+    table = Schema.table_name(struct_mod)
+    case :mnesia.transaction(fn ->
+      :mnesia.index_read(table, value, field)
+    end) do
+      {:atomic, records} ->
+        {:ok, Enum.map(records, &record_to_struct(struct_mod, &1))}
       {:aborted, reason} ->
         {:error, reason}
     end

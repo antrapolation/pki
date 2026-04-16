@@ -4,6 +4,7 @@ defmodule PkiPlatformEngine.PortAllocator do
   Persists assignments to PostgreSQL for crash recovery.
   """
   use GenServer
+  require Logger
 
   alias PkiPlatformEngine.PlatformRepo
 
@@ -126,7 +127,9 @@ defmodule PkiPlatformEngine.PortAllocator do
         [Ecto.UUID.dump!(tenant_id), port]
       )
     rescue
-      _ -> :ok
+      e ->
+        Logger.warning("[port_allocator] Failed to persist port assignment for tenant #{tenant_id}: #{Exception.message(e)}")
+        :ok
     end
   end
 
@@ -137,7 +140,9 @@ defmodule PkiPlatformEngine.PortAllocator do
         [Ecto.UUID.dump!(tenant_id)]
       )
     rescue
-      _ -> :ok
+      e ->
+        Logger.warning("[port_allocator] Failed to remove port assignment for tenant #{tenant_id}: #{Exception.message(e)}")
+        :ok
     end
   end
 end

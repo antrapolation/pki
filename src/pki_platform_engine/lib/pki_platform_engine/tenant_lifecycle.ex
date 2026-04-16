@@ -88,19 +88,41 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   end
 
   @impl true
-  def handle_call({:restart_tenant, tenant_id}, from, state) do
+  def handle_call({:restart_tenant, tenant_id}, _from, state) do
     case Map.get(state.tenants, tenant_id) do
       nil ->
         {:reply, {:error, :not_found}, state}
 
       info ->
+        # Save the port before stopping so we can reuse it (do NOT release from PortAllocator)
+        saved_port = info.port
+        saved_slug = info.slug
+
         :peer.stop(info.peer_pid)
-        # Re-spawn with same port and slug
-        handle_call(
-          {:create_tenant, %{id: tenant_id, slug: info.slug}},
-          from,
-          %{state | tenants: Map.delete(state.tenants, tenant_id)}
-        )
+
+        # Remove old monitor ref from state but keep port in PortAllocator
+        state_without_tenant = %{state | tenants: Map.delete(state.tenants, tenant_id)}
+
+        # Respawn with the same port
+        case spawn_tenant(tenant_id, saved_slug, saved_port) do
+          {:ok, peer_pid, node_name} ->
+            ref = Process.monitor(peer_pid)
+
+            tenant_info = %{
+              peer_pid: peer_pid,
+              node: node_name,
+              port: saved_port,
+              slug: saved_slug,
+              status: :starting,
+              monitor_ref: ref
+            }
+
+            new_state = %{state_without_tenant | tenants: Map.put(state_without_tenant.tenants, tenant_id, tenant_info)}
+            {:reply, {:ok, %{tenant_id: tenant_id, port: saved_port, node: node_name}}, new_state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state_without_tenant}
+        end
     end
   end
 

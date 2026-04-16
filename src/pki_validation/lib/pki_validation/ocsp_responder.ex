@@ -82,7 +82,7 @@ defmodule PkiValidation.OcspResponder do
   # -- Private helpers --
 
   defp lookup_status(serial_number) do
-    case Repo.where(CertificateStatus, fn cs -> cs.serial_number == serial_number end) do
+    case Repo.get_all_by_index(CertificateStatus, :serial_number, serial_number) do
       {:ok, []} ->
         %{status: "unknown"}
 

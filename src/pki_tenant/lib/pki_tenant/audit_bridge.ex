@@ -3,11 +3,16 @@ defmodule PkiTenant.AuditBridge do
   Forwards audit events from tenant to platform via distributed Erlang.
   Fire-and-forget GenServer.cast. Buffers last 1000 events in a :queue
   and flushes when connection restores.
+
+  Connection state is cached as :connected | :disconnected. Node.ping is
+  only called during init and on the periodic 5-second reconnect timer, not
+  on every audit event.
   """
   use GenServer
   require Logger
 
   @max_buffer 1000
+  @reconnect_interval 5_000
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -25,15 +30,29 @@ defmodule PkiTenant.AuditBridge do
 
     platform_atom = if platform_node, do: String.to_atom(platform_node), else: nil
 
-    if platform_atom do
-      Node.connect(platform_atom)
-      send_ready(platform_atom, tenant_id)
-    end
+    connected =
+      if platform_atom do
+        case Node.ping(platform_atom) do
+          :pong ->
+            send_ready(platform_atom, tenant_id)
+            true
+
+          _ ->
+            Logger.warning("[audit_bridge] Could not connect to platform node #{platform_atom} on init")
+            false
+        end
+      else
+        false
+      end
+
+    # Schedule periodic reconnect regardless — it's a no-op when already connected
+    schedule_reconnect()
 
     {:ok,
      %{
        tenant_id: tenant_id,
        platform_node: platform_atom,
+       connected: connected,
        buffer: :queue.new(),
        buffer_size: 0
      }}
@@ -48,19 +67,49 @@ defmodule PkiTenant.AuditBridge do
         timestamp: DateTime.utc_now()
       })
 
-    case state.platform_node do
-      nil ->
+    case {state.platform_node, state.connected} do
+      {nil, _} ->
         {:noreply, buffer_event(state, event)}
 
-      node ->
-        if Node.ping(node) == :pong do
-          state = flush_buffer(state)
-          GenServer.cast({PkiPlatformEngine.AuditReceiver, node}, {:audit_event, event})
-          {:noreply, state}
-        else
-          {:noreply, buffer_event(state, event)}
-        end
+      {_node, false} ->
+        {:noreply, buffer_event(state, event)}
+
+      {node, true} ->
+        GenServer.cast({PkiPlatformEngine.AuditReceiver, node}, {:audit_event, event})
+        {:noreply, state}
     end
+  end
+
+  @impl true
+  def handle_info(:reconnect, %{platform_node: nil} = state) do
+    schedule_reconnect()
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:reconnect, state) do
+    case Node.ping(state.platform_node) do
+      :pong ->
+        if not state.connected do
+          Logger.info("[audit_bridge] Reconnected to platform node #{state.platform_node}, flushing buffer")
+        end
+
+        state = flush_buffer(%{state | connected: true})
+        schedule_reconnect()
+        {:noreply, state}
+
+      :pang ->
+        if state.connected do
+          Logger.warning("[audit_bridge] Lost connection to platform node #{state.platform_node}")
+        end
+
+        schedule_reconnect()
+        {:noreply, %{state | connected: false}}
+    end
+  end
+
+  defp schedule_reconnect do
+    Process.send_after(self(), :reconnect, @reconnect_interval)
   end
 
   defp buffer_event(state, event) do
