@@ -68,6 +68,9 @@ defmodule PkiRaPortalWeb.WelcomeLive do
               <.link navigate="/setup-wizard" class="btn btn-primary btn-block">
                 Start Setup
               </.link>
+              <.link navigate="/ra-instances" class="btn btn-outline btn-sm btn-block">
+                Manage RA Instances
+              </.link>
               <.link navigate="/" class="btn btn-ghost btn-sm text-base-content/50">
                 Skip, I'll configure manually
               </.link>

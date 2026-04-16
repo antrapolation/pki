@@ -69,7 +69,8 @@ defmodule PkiRaPortalWeb.Live.AuthHook do
         PkiRaPortalWeb.CaConnectionLive,
         PkiRaPortalWeb.CertProfilesLive,
         PkiRaPortalWeb.DashboardLive,
-        PkiRaPortalWeb.ProfileLive
+        PkiRaPortalWeb.ProfileLive,
+        PkiRaPortalWeb.RaInstancesLive
       ]
 
       if user[:role] == "ra_admin" and socket.view not in skip_modules and needs_setup?(base_socket) do
