@@ -14,6 +14,7 @@ defmodule PkiTenantWeb.MixProject do
 
   def application do
     [
+      mod: {PkiTenantWeb.Application, []},
       extra_applications: [:logger]
     ]
   end
@@ -28,7 +29,11 @@ defmodule PkiTenantWeb.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:jason, "~> 1.4"},
       {:bandit, "~> 1.5"},
+      {:gettext, "~> 0.26"},
+      {:argon2_elixir, "~> 4.0"},
+      {:bcrypt_elixir, "~> 3.0"},
       {:pki_tenant, path: "../pki_tenant"},
+      {:pki_mnesia, path: "../pki_mnesia"},
       {:pki_ca_engine, path: "../pki_ca_engine"},
       {:pki_ra_engine, path: "../pki_ra_engine"}
     ]
