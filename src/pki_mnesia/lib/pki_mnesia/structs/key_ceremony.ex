@@ -1,21 +1,12 @@
 defmodule PkiMnesia.Structs.KeyCeremony do
   @moduledoc "Key ceremony state tracking."
 
-  defstruct [
-    :id,
-    :ca_instance_id,
-    :issuer_key_id,
-    :ceremony_type,
-    :status,
-    :algorithm,
-    :threshold_k,
-    :threshold_n,
-    :domain_info,
-    :initiated_by,
-    :window_expires_at,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :ca_instance_id, :issuer_key_id, :ceremony_type, :status,
+           :algorithm, :threshold_k, :threshold_n, :domain_info, :initiated_by,
+           :window_expires_at, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

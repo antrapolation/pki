@@ -4,13 +4,10 @@ defmodule PkiMnesia.Structs.CeremonyTranscript do
   Entries are a list of maps: %{timestamp, actor, action, details}.
   """
 
-  defstruct [
-    :id,
-    :ceremony_id,
-    :entries,
-    :finalized_at,
-    :inserted_at
-  ]
+  @fields [:id, :ceremony_id, :entries, :finalized_at, :inserted_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

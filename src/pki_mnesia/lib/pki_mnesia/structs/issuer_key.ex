@@ -1,24 +1,13 @@
 defmodule PkiMnesia.Structs.IssuerKey do
   @moduledoc "Issuer key record with ceremony mode and lifecycle status."
 
-  defstruct [
-    :id,
-    :ca_instance_id,
-    :key_alias,
-    :algorithm,
-    :status,
-    :is_root,
-    :ceremony_mode,
-    :keystore_ref,
-    :certificate_der,
-    :certificate_pem,
-    :csr_pem,
-    :subject_dn,
-    :fingerprint,
-    :threshold_config,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :ca_instance_id, :key_alias, :algorithm, :status, :is_root,
+           :ceremony_mode, :keystore_ref, :certificate_der, :certificate_pem,
+           :csr_pem, :subject_dn, :fingerprint, :threshold_config,
+           :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

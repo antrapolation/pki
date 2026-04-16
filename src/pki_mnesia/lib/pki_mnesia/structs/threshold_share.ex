@@ -1,21 +1,17 @@
 defmodule PkiMnesia.Structs.ThresholdShare do
   @moduledoc """
   Custodian threshold share. Keyed by custodian_name (string), NOT a user FK.
+
+  `encrypted_share` and `password_hash` are required when status is "active".
+  They may be nil during "pending" status (before the custodian has accepted
+  and encrypted their share).
   """
 
-  defstruct [
-    :id,
-    :issuer_key_id,
-    :custodian_name,
-    :share_index,
-    :encrypted_share,
-    :password_hash,
-    :min_shares,
-    :total_shares,
-    :status,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :issuer_key_id, :custodian_name, :share_index, :encrypted_share,
+           :password_hash, :min_shares, :total_shares, :status, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

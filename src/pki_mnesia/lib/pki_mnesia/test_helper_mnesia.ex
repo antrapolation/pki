@@ -40,9 +40,17 @@ defmodule PkiMnesia.TestHelper do
   Tear down Mnesia after a test. Pass the dir from setup_mnesia/0.
   """
   def teardown_mnesia(dir) do
-    :mnesia.stop()
+    case :mnesia.stop() do
+      :stopped -> :ok
+      {:error, reason} -> raise "mnesia.stop() failed: #{inspect(reason)}"
+    end
+
     # Delete the Mnesia schema so :mnesia.create_schema works next time
-    :mnesia.delete_schema([node()])
+    case :mnesia.delete_schema([node()]) do
+      :ok -> :ok
+      {:error, reason} -> raise "mnesia.delete_schema/1 failed: #{inspect(reason)}"
+    end
+
     File.rm_rf!(dir)
     :ok
   end

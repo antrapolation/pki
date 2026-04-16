@@ -2,7 +2,7 @@ defmodule PkiMnesia.SchemaTest do
   use ExUnit.Case, async: false
 
   alias PkiMnesia.{Schema, TestHelper}
-  alias PkiMnesia.Structs.{CaInstance, IssuerKey, IssuedCertificate, CsrRequest, CertificateStatus}
+  alias PkiMnesia.Structs.{CaInstance, IssuerKey, IssuedCertificate, CsrRequest, CertificateStatus, KeyCeremony}
 
   setup do
     dir = TestHelper.setup_mnesia()
@@ -28,6 +28,11 @@ defmodule PkiMnesia.SchemaTest do
     attrs = :mnesia.table_info(table, :attributes)
     expected = Schema.struct_attributes(IssuerKey)
     assert attrs == expected
+  end
+
+  test "struct_attributes returns :id first for IssuerKey" do
+    attrs = Schema.struct_attributes(IssuerKey)
+    assert hd(attrs) == :id
   end
 
   test "issued_certificates uses disc_only_copies" do
@@ -57,7 +62,11 @@ defmodule PkiMnesia.SchemaTest do
   test "table_name converts struct module to plural snake_case atom" do
     assert Schema.table_name(CaInstance) == :ca_instances
     assert Schema.table_name(IssuerKey) == :issuer_keys
-    assert Schema.table_name(CertificateStatus) == :certificate_statuss
+    assert Schema.table_name(CertificateStatus) == :certificate_status
+  end
+
+  test "table_name applies plural overrides for key_ceremony" do
+    assert Schema.table_name(KeyCeremony) == :key_ceremonies
   end
 
   test "create_tables is idempotent (calling twice does not error)" do

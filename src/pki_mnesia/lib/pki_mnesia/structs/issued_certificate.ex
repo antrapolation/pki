@@ -1,23 +1,12 @@
 defmodule PkiMnesia.Structs.IssuedCertificate do
   @moduledoc "Signed certificate record. Stored as disc_only_copies (can grow large)."
 
-  defstruct [
-    :id,
-    :serial_number,
-    :issuer_key_id,
-    :subject_dn,
-    :cert_der,
-    :cert_pem,
-    :not_before,
-    :not_after,
-    :cert_profile_id,
-    :csr_fingerprint,
-    :status,
-    :revoked_at,
-    :revocation_reason,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :serial_number, :issuer_key_id, :subject_dn, :cert_der,
+           :cert_pem, :not_before, :not_after, :cert_profile_id, :csr_fingerprint,
+           :status, :revoked_at, :revocation_reason, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

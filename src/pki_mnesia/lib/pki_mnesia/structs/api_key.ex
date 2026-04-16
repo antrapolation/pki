@@ -1,19 +1,11 @@
 defmodule PkiMnesia.Structs.ApiKey do
   @moduledoc "External API access key with hash-based lookup."
 
-  defstruct [
-    :id,
-    :ra_instance_id,
-    :name,
-    :key_hash,
-    :key_prefix,
-    :permissions,
-    :status,
-    :last_used_at,
-    :expires_at,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :ra_instance_id, :name, :key_hash, :key_prefix, :permissions,
+           :status, :last_used_at, :expires_at, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

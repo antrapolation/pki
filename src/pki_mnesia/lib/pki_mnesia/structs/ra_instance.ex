@@ -1,14 +1,10 @@
 defmodule PkiMnesia.Structs.RaInstance do
   @moduledoc "RA instance record."
 
-  defstruct [
-    :id,
-    :name,
-    :status,
-    :metadata,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :name, :status, :metadata, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

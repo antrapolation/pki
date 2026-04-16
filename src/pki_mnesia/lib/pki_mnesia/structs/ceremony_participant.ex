@@ -4,16 +4,11 @@ defmodule PkiMnesia.Structs.CeremonyParticipant do
   Name is entered during ceremony -- NOT a portal user account FK.
   """
 
-  defstruct [
-    :id,
-    :ceremony_id,
-    :name,
-    :role,
-    :identity_verified_by,
-    :identity_verified_at,
-    :share_accepted_at,
-    :inserted_at
-  ]
+  @fields [:id, :ceremony_id, :name, :role, :identity_verified_by,
+           :identity_verified_at, :share_accepted_at, :inserted_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

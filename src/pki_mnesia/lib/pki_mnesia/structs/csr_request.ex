@@ -1,22 +1,12 @@
 defmodule PkiMnesia.Structs.CsrRequest do
   @moduledoc "CSR submission record. Stored as disc_only_copies (can grow)."
 
-  defstruct [
-    :id,
-    :csr_pem,
-    :csr_der,
-    :cert_profile_id,
-    :subject_dn,
-    :status,
-    :submitted_at,
-    :submitted_by_key_id,
-    :reviewed_by,
-    :reviewed_at,
-    :rejection_reason,
-    :issued_cert_serial,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :csr_pem, :csr_der, :cert_profile_id, :subject_dn, :status,
+           :submitted_at, :submitted_by_key_id, :reviewed_by, :reviewed_at,
+           :rejection_reason, :issued_cert_serial, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

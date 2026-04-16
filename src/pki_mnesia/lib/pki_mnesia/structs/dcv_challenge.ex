@@ -1,17 +1,11 @@
 defmodule PkiMnesia.Structs.DcvChallenge do
   @moduledoc "Domain control validation challenge."
 
-  defstruct [
-    :id,
-    :csr_request_id,
-    :domain,
-    :challenge_type,
-    :challenge_token,
-    :status,
-    :verified_at,
-    :expires_at,
-    :inserted_at
-  ]
+  @fields [:id, :csr_request_id, :domain, :challenge_type, :challenge_token,
+           :status, :verified_at, :expires_at, :inserted_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

@@ -1,25 +1,13 @@
 defmodule PkiMnesia.Structs.CertProfile do
   @moduledoc "Certificate profile configuration."
 
-  defstruct [
-    :id,
-    :ra_instance_id,
-    :name,
-    :issuer_key_id,
-    :subject_dn_policy,
-    :key_usage,
-    :extended_key_usage,
-    :validity_days,
-    :validity_policy,
-    :approval_mode,
-    :crl_policy,
-    :ocsp_policy,
-    :notification_profile,
-    :renewal_policy,
-    :status,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :ra_instance_id, :name, :issuer_key_id, :subject_dn_policy,
+           :key_usage, :extended_key_usage, :validity_days, :validity_policy,
+           :approval_mode, :crl_policy, :ocsp_policy, :notification_profile,
+           :renewal_policy, :status, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

@@ -1,18 +1,11 @@
 defmodule PkiMnesia.Structs.CaInstance do
   @moduledoc "CA instance in the CA hierarchy (root, sub-CAs)."
 
-  defstruct [
-    :id,
-    :name,
-    :parent_id,
-    :is_root,
-    :is_offline,
-    :status,
-    :max_depth,
-    :metadata,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :name, :parent_id, :is_root, :is_offline, :status,
+           :max_depth, :metadata, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

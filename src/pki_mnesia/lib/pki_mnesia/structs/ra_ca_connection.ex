@@ -1,14 +1,10 @@
 defmodule PkiMnesia.Structs.RaCaConnection do
   @moduledoc "Link between RA instance and CA issuer key."
 
-  defstruct [
-    :id,
-    :ra_instance_id,
-    :ca_instance_id,
-    :issuer_key_id,
-    :status,
-    :inserted_at
-  ]
+  @fields [:id, :ra_instance_id, :ca_instance_id, :issuer_key_id, :status, :inserted_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

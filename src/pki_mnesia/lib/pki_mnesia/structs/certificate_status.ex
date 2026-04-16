@@ -1,17 +1,11 @@
 defmodule PkiMnesia.Structs.CertificateStatus do
   @moduledoc "Certificate revocation status for OCSP/CRL. Stored as disc_only_copies."
 
-  defstruct [
-    :id,
-    :serial_number,
-    :issuer_key_id,
-    :status,
-    :not_after,
-    :revoked_at,
-    :revocation_reason,
-    :inserted_at,
-    :updated_at
-  ]
+  @fields [:id, :serial_number, :issuer_key_id, :status, :not_after,
+           :revoked_at, :revocation_reason, :inserted_at, :updated_at]
+  def fields, do: @fields
+
+  defstruct @fields
 
   @type t :: %__MODULE__{
     id: binary(),

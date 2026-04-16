@@ -11,6 +11,10 @@ defmodule PkiMnesia.Schema do
     ApiKey, DcvChallenge, CertificateStatus, PortalUser
   }
 
+  @plural_overrides %{
+    "key_ceremony" => "key_ceremonies"
+  }
+
   @doc """
   Creates all Mnesia tables. Call once on first boot or in tests.
   Returns :ok or {:error, reason}.
@@ -70,10 +74,7 @@ defmodule PkiMnesia.Schema do
 
     case result do
       {:atomic, :ok} ->
-        Enum.each(indices, fn index_field ->
-          :mnesia.add_table_index(table_name, index_field)
-        end)
-        :ok
+        add_indices(table_name, indices)
 
       {:aborted, {:already_exists, _}} ->
         :ok
@@ -83,21 +84,44 @@ defmodule PkiMnesia.Schema do
     end
   end
 
-  @doc "Convert a struct module to a Mnesia table name atom."
-  def table_name(struct_mod) do
-    struct_mod
-    |> Module.split()
-    |> List.last()
-    |> Macro.underscore()
-    |> Kernel.<>("s")
-    |> String.to_atom()
+  defp add_indices(_table_name, []), do: :ok
+
+  defp add_indices(table_name, [index_field | rest]) do
+    case :mnesia.add_table_index(table_name, index_field) do
+      {:atomic, :ok} ->
+        add_indices(table_name, rest)
+
+      {:aborted, {:already_exists, _, _}} ->
+        add_indices(table_name, rest)
+
+      {:aborted, reason} ->
+        {:error, {:index_creation_failed, table_name, index_field, reason}}
+    end
   end
 
-  @doc "Get the list of attributes (field names) for a struct, excluding :__struct__."
+  @doc "Convert a struct module to a Mnesia table name atom."
+  def table_name(struct_mod) do
+    base =
+      struct_mod
+      |> Module.split()
+      |> List.last()
+      |> Macro.underscore()
+
+    pluralized =
+      case Map.fetch(@plural_overrides, base) do
+        {:ok, override} -> override
+        :error ->
+          if String.ends_with?(base, "s"), do: base, else: base <> "s"
+      end
+
+    String.to_atom(pluralized)
+  end
+
+  @doc """
+  Get the ordered list of attributes (field names) for a struct.
+  Delegates to `struct_mod.fields/0` which guarantees :id is first.
+  """
   def struct_attributes(struct_mod) do
-    struct_mod.__struct__()
-    |> Map.keys()
-    |> Enum.reject(&(&1 == :__struct__))
-    |> Enum.sort()
+    struct_mod.fields()
   end
 end
