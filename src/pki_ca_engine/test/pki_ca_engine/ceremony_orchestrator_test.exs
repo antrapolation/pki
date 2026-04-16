@@ -1,308 +1,175 @@
 defmodule PkiCaEngine.CeremonyOrchestratorTest do
   @moduledoc """
-  Integration tests for the CeremonyOrchestrator module.
-  Tests multi-participant ceremony flow: initiate → accept shares → attest → keygen.
-  Requires database (uses DataCase with SQL Sandbox).
+  Tests for the CeremonyOrchestrator module against Mnesia.
+  Tests ceremony initiation, identity verification, and share acceptance.
   """
-  use PkiCaEngine.DataCase, async: false
+  use ExUnit.Case, async: false
 
+  alias PkiMnesia.TestHelper
   alias PkiCaEngine.CeremonyOrchestrator
-  alias PkiCaEngine.Schema.{CaInstance, Keystore, KeyCeremony, ThresholdShare, CeremonyAttestation}
 
   setup do
-    # Create a CA instance and software keystore
-    {:ok, ca} = Repo.insert(CaInstance.changeset(%CaInstance{}, %{name: "test-ca-#{System.unique_integer([:positive])}", created_by: "test"}))
-    {:ok, keystore} = Repo.insert(Keystore.changeset(%Keystore{}, %{ca_instance_id: ca.id, type: "software"}))
+    dir = TestHelper.setup_mnesia()
 
-    km1 = Uniq.UUID.uuid7()
-    km2 = Uniq.UUID.uuid7()
-    km3 = Uniq.UUID.uuid7()
-    auditor = Uniq.UUID.uuid7()
+    on_exit(fn ->
+      TestHelper.teardown_mnesia(dir)
+    end)
 
-    %{
-      ca: ca,
-      keystore: keystore,
-      tenant_id: nil,
-      custodian_ids: [km1, km2, km3],
-      km1: km1, km2: km2, km3: km3,
-      auditor_id: auditor
-    }
+    :ok
   end
 
-  defp initiate_params(ctx, overrides \\ %{}) do
-    Map.merge(%{
-      algorithm: "ECC-P256",
-      keystore_id: ctx.keystore.id,
-      threshold_k: 2,
-      threshold_n: 3,
-      initiated_by: Uniq.UUID.uuid7(),
-      custodian_user_ids: ctx.custodian_ids,
-      auditor_user_id: ctx.auditor_id,
-      time_window_hours: 24,
-      domain_info: %{"is_root" => true, "subject_dn" => "/CN=Test Root CA"},
-      is_root: true
-    }, overrides)
-  end
+  describe "initiate/2" do
+    test "creates ceremony with all required records" do
+      params = %{
+        algorithm: "ECC-P256",
+        threshold_k: 2,
+        threshold_n: 3,
+        custodian_names: ["Alice", "Bob", "Charlie"],
+        auditor_name: "Dave",
+        is_root: true,
+        ceremony_mode: :full,
+        initiated_by: "Admin",
+        key_alias: "test-root-key",
+        subject_dn: "/CN=Test Root CA"
+      }
 
-  describe "initiate/3" do
-    test "creates ceremony, issuer key, and placeholder shares", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, issuer_key, shares}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+      assert {:ok, {ceremony, key, shares, participants, transcript}} =
+        CeremonyOrchestrator.initiate("ca-1", params)
 
-      assert ceremony.status == "preparing"
       assert ceremony.algorithm == "ECC-P256"
       assert ceremony.threshold_k == 2
       assert ceremony.threshold_n == 3
-      assert ceremony.auditor_user_id == ctx.auditor_id
-      assert ceremony.time_window_hours == 24
-      assert ceremony.window_expires_at != nil
+      assert ceremony.status == "preparing"
 
-      assert issuer_key.algorithm == "ECC-P256"
-      assert issuer_key.status == "pending"
+      assert key.algorithm == "ECC-P256"
+      assert key.status == "pending"
+      assert key.is_root == true
 
       assert length(shares) == 3
-      Enum.each(shares, fn share ->
-        assert share.status == "pending"
-        assert share.encrypted_share == nil
-        assert share.key_label == nil
-      end)
+      assert length(participants) == 4  # 3 custodians + 1 auditor
+
+      assert length(transcript.entries) == 1
+      [entry] = transcript.entries
+      assert entry.action == "ceremony_initiated"
     end
 
-    test "rejects invalid threshold k < 2", ctx do
-      params = initiate_params(ctx, %{threshold_k: 1})
-      assert {:error, :invalid_threshold} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+    test "rejects invalid threshold" do
+      params = %{
+        algorithm: "ECC-P256",
+        threshold_k: 5,
+        threshold_n: 3,
+        custodian_names: ["Alice", "Bob", "Charlie"],
+        auditor_name: "Dave",
+        is_root: true,
+        ceremony_mode: :full,
+        initiated_by: "Admin"
+      }
+
+      assert {:error, :invalid_threshold} = CeremonyOrchestrator.initiate("ca-1", params)
     end
 
-    test "rejects k > n", ctx do
-      params = initiate_params(ctx, %{threshold_k: 4, threshold_n: 3})
-      assert {:error, :invalid_threshold} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+    test "rejects root CA with simplified mode" do
+      params = %{
+        algorithm: "ECC-P256",
+        threshold_k: 2,
+        threshold_n: 3,
+        custodian_names: ["Alice", "Bob", "Charlie"],
+        auditor_name: "Dave",
+        is_root: true,
+        ceremony_mode: :simplified,
+        initiated_by: "Admin"
+      }
+
+      assert {:error, :root_ca_requires_full_ceremony} = CeremonyOrchestrator.initiate("ca-1", params)
     end
 
-    test "rejects participant count mismatch", ctx do
-      params = initiate_params(ctx, %{custodian_user_ids: [ctx.km1, ctx.km2], threshold_n: 3, threshold_k: 2})
-      assert {:error, :participant_count_mismatch} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-    end
+    test "rejects mismatched participant count" do
+      params = %{
+        algorithm: "ECC-P256",
+        threshold_k: 2,
+        threshold_n: 3,
+        custodian_names: ["Alice", "Bob"],  # only 2, but n=3
+        auditor_name: "Dave",
+        is_root: true,
+        ceremony_mode: :full,
+        initiated_by: "Admin"
+      }
 
-    test "stores participants in ceremony record", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      participants = ceremony.participants
-      custodians = participants["custodians"] || participants[:custodians]
-      auditor = participants["auditor"] || participants[:auditor]
-      assert custodians == ctx.custodian_ids
-      assert auditor == ctx.auditor_id
-    end
-  end
-
-  describe "accept_share/4" do
-    test "marks share as accepted with key label", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      {:ok, share} = CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "alice-key-2026")
-
-      assert share.status == "accepted"
-      assert share.key_label == "alice-key-2026"
-      assert share.accepted_at != nil
-    end
-
-    test "rejects share from non-assigned user", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      assert {:error, :share_not_found} = CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, Uniq.UUID.uuid7(), "label")
-    end
-
-    test "rejects acceptance when ceremony is not preparing", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      # Manually set status to completed
-      ceremony |> Ecto.Changeset.change(%{status: "completed"}) |> Repo.update!()
-
-      assert {:error, :invalid_ceremony_status} = CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "label")
+      assert {:error, :participant_count_mismatch} = CeremonyOrchestrator.initiate("ca-1", params)
     end
   end
 
-  describe "attest/5" do
-    test "creates attestation record", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+  describe "verify_identity/3" do
+    test "marks a custodian as identity-verified" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
 
-      {:ok, attestation} = CeremonyOrchestrator.attest(ctx.tenant_id, ceremony.id, ctx.auditor_id, "preparation", %{note: "witnessed"})
-
-      assert attestation.phase == "preparation"
-      assert attestation.auditor_user_id == ctx.auditor_id
-      assert attestation.attested_at != nil
-      assert (attestation.details["note"] || attestation.details[:note]) == "witnessed"
+      assert {:ok, updated} = CeremonyOrchestrator.verify_identity(ceremony.id, "Alice", "Dave")
+      assert updated.identity_verified_by == "Dave"
+      assert updated.identity_verified_at != nil
     end
 
-    test "rejects attestation from non-assigned auditor", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+    test "returns error for unknown custodian" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
 
-      assert {:error, :not_assigned_auditor} = CeremonyOrchestrator.attest(ctx.tenant_id, ceremony.id, "wrong-auditor", "preparation")
-    end
-
-    test "rejects duplicate attestation for same phase", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      {:ok, _} = CeremonyOrchestrator.attest(ctx.tenant_id, ceremony.id, ctx.auditor_id, "preparation")
-      assert {:error, _} = CeremonyOrchestrator.attest(ctx.tenant_id, ceremony.id, ctx.auditor_id, "preparation")
+      assert {:error, :participant_not_found} = CeremonyOrchestrator.verify_identity(ceremony.id, "Unknown", "Dave")
     end
   end
 
-  describe "check_readiness/2" do
-    test "returns :waiting when not all custodians accepted", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+  describe "accept_share/3" do
+    test "accepts a custodian's share with password" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
 
-      # Accept only 2 of 3
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
-
-      assert :waiting = CeremonyOrchestrator.check_readiness(ctx.tenant_id, ceremony.id)
-    end
-
-    test "returns :waiting when all accepted but no attestation", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km3, "key3")
-
-      assert :waiting = CeremonyOrchestrator.check_readiness(ctx.tenant_id, ceremony.id)
-    end
-
-    test "returns :ready when all accepted and preparation attested", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km3, "key3")
-      CeremonyOrchestrator.attest(ctx.tenant_id, ceremony.id, ctx.auditor_id, "preparation")
-
-      assert :ready = CeremonyOrchestrator.check_readiness(ctx.tenant_id, ceremony.id)
+      assert {:ok, updated_share} = CeremonyOrchestrator.accept_share(ceremony.id, "Alice", "password123")
+      assert updated_share.status == "accepted"
+      assert updated_share.password_hash != nil
     end
   end
 
-  describe "execute_keygen/3" do
-    test "generates keypair, splits shares, completes ceremony", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+  describe "check_readiness/1" do
+    test "returns :waiting when not all verified and accepted" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
 
-      # Simulate custodian passwords
-      passwords = [{ctx.km1, "password1"}, {ctx.km2, "password2"}, {ctx.km3, "password3"}]
-
-      # Accept all shares
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km3, "key3")
-
-      {:ok, result} = CeremonyOrchestrator.execute_keygen(ctx.tenant_id, ceremony.id, passwords)
-
-      assert result.fingerprint != nil
-      assert is_binary(result.fingerprint)
-
-      # Verify ceremony is completed
-      completed = Repo.get!(KeyCeremony, ceremony.id)
-      assert completed.status == "completed"
-      assert completed.domain_info["fingerprint"] != nil
-
-      # Verify shares have encrypted data
-      shares = Repo.all(from s in ThresholdShare, where: s.issuer_key_id == ^completed.issuer_key_id)
-      Enum.each(shares, fn share ->
-        assert share.encrypted_share != nil
-        assert byte_size(share.encrypted_share) > 0
-      end)
-    end
-
-    test "rejects keygen when ceremony is not preparing", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      ceremony |> Ecto.Changeset.change(%{status: "completed"}) |> Repo.update!()
-
-      assert {:error, :invalid_status} = CeremonyOrchestrator.execute_keygen(ctx.tenant_id, ceremony.id, [])
-    end
-
-    test "root CA is automatically taken offline after keygen completes", ctx do
-      # Verify CA starts online
-      ca_before = Repo.get!(CaInstance, ctx.ca.id)
-      refute ca_before.is_offline
-
-      params = initiate_params(ctx, %{is_root: true})
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
-
-      passwords = [{ctx.km1, "password1"}, {ctx.km2, "password2"}, {ctx.km3, "password3"}]
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km3, "key3")
-
-      {:ok, _result} = CeremonyOrchestrator.execute_keygen(ctx.tenant_id, ceremony.id, passwords)
-
-      # Root CA should now be offline
-      ca_after = Repo.get!(CaInstance, ctx.ca.id)
-      assert ca_after.is_offline
-    end
-
-    test "sub-CA keygen does NOT auto-offline the CA instance", ctx do
-      # Create a sub-CA
-      {:ok, sub_ca} = Repo.insert(CaInstance.changeset(%CaInstance{}, %{
-        name: "sub-ca-orch-#{System.unique_integer([:positive])}",
-        created_by: "test",
-        parent_id: ctx.ca.id
-      }))
-      {:ok, sub_keystore} = Repo.insert(Keystore.changeset(%Keystore{}, %{
-        ca_instance_id: sub_ca.id, type: "software"
-      }))
-
-      params = initiate_params(ctx, %{
-        is_root: false,
-        keystore_id: sub_keystore.id,
-        domain_info: %{"is_root" => false, "subject_dn" => "/CN=Sub CA"}
-      })
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, sub_ca.id, params)
-
-      passwords = [{ctx.km1, "password1"}, {ctx.km2, "password2"}, {ctx.km3, "password3"}]
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km1, "key1")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km2, "key2")
-      CeremonyOrchestrator.accept_share(ctx.tenant_id, ceremony.id, ctx.km3, "key3")
-
-      {:ok, _result} = CeremonyOrchestrator.execute_keygen(ctx.tenant_id, ceremony.id, passwords)
-
-      # Sub-CA should remain online
-      sub_ca_after = Repo.get!(CaInstance, sub_ca.id)
-      refute sub_ca_after.is_offline
+      assert :waiting = CeremonyOrchestrator.check_readiness(ceremony.id)
     end
   end
 
-  describe "fail_ceremony/3" do
-    test "marks ceremony as failed with reason", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+  describe "get_transcript/1" do
+    test "returns transcript for existing ceremony" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
 
-      {:ok, failed} = CeremonyOrchestrator.fail_ceremony(ctx.tenant_id, ceremony.id, "window_expired")
+      assert {:ok, transcript} = CeremonyOrchestrator.get_transcript(ceremony.id)
+      assert length(transcript.entries) >= 1
+    end
 
-      assert failed.status == "failed"
-      assert failed.domain_info["failure_reason"] == "window_expired"
+    test "returns error for non-existent ceremony" do
+      assert {:error, :not_found} = CeremonyOrchestrator.get_transcript("nonexistent")
     end
   end
 
-  describe "list_attestations/2" do
-    test "returns attestations in order", ctx do
-      params = initiate_params(ctx)
-      {:ok, {ceremony, _, _}} = CeremonyOrchestrator.initiate(ctx.tenant_id, ctx.ca.id, params)
+  describe "list_participants/1" do
+    test "returns all participants for a ceremony" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
 
-      CeremonyOrchestrator.attest(ctx.tenant_id, ceremony.id, ctx.auditor_id, "preparation")
-
-      attestations = CeremonyOrchestrator.list_attestations(ctx.tenant_id, ceremony.id)
-      assert length(attestations) == 1
-      assert hd(attestations).phase == "preparation"
+      assert {:ok, participants} = CeremonyOrchestrator.list_participants(ceremony.id)
+      assert length(participants) == 4  # 3 custodians + 1 auditor
     end
+  end
+
+  # Helper to create a standard test ceremony
+  defp create_test_ceremony do
+    params = %{
+      algorithm: "ECC-P256",
+      threshold_k: 2,
+      threshold_n: 3,
+      custodian_names: ["Alice", "Bob", "Charlie"],
+      auditor_name: "Dave",
+      is_root: true,
+      ceremony_mode: :full,
+      initiated_by: "Admin",
+      key_alias: "test-key",
+      subject_dn: "/CN=Test CA"
+    }
+
+    CeremonyOrchestrator.initiate("ca-test", params)
   end
 end

@@ -1,53 +1,38 @@
 defmodule PkiCaEngine.KeyActivation do
   @moduledoc """
   Day-to-day key activation via threshold share reconstruction.
-
-  K custodians provide their shares (user_id + password), shares are decrypted
-  from DB, and when threshold K is met the private key is reconstructed and
-  held in memory with a configurable timeout.
+  GenServer holds reconstructed private keys in memory.
+  Share lookup now uses Mnesia instead of Ecto.
   """
   use GenServer
 
-  alias PkiCaEngine.{TenantRepo, Schema.ThresholdShare}
+  alias PkiMnesia.Repo
+  alias PkiMnesia.Structs.ThresholdShare
   alias PkiCaEngine.KeyCeremony.ShareEncryption
-  import Ecto.Query
 
-  # ── Client API ────────────────────────────────────────────────
+  # -- Client API --
 
   def start_link(opts) do
     name = opts[:name] || __MODULE__
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @doc """
-  Submit a custodian's share for key activation.
-
-  Decrypts the share from DB using the custodian's password and accumulates it.
-  Returns `{:ok, :share_accepted}` or `{:ok, :key_activated}` when threshold met.
-  """
-  def submit_share(server \\ __MODULE__, tenant_id, issuer_key_id, custodian_user_id, password) do
-    GenServer.call(server, {:submit_share, tenant_id, issuer_key_id, custodian_user_id, password})
+  def submit_share(server \\ __MODULE__, issuer_key_id, custodian_name, password) do
+    GenServer.call(server, {:submit_share, issuer_key_id, custodian_name, password})
   end
 
-  @doc "Returns true if the given issuer key is currently activated."
   def is_active?(server \\ __MODULE__, issuer_key_id) do
     GenServer.call(server, {:is_active, issuer_key_id})
   end
 
-  @doc "Explicitly deactivate (wipe) an active key."
   def deactivate(server \\ __MODULE__, issuer_key_id) do
     GenServer.call(server, {:deactivate, issuer_key_id})
   end
 
-  @doc "Retrieve the reconstructed secret for an active key."
   def get_active_key(server \\ __MODULE__, issuer_key_id) do
     GenServer.call(server, {:get_active_key, issuer_key_id})
   end
 
-  @doc """
-  DEV ONLY: Directly inject a private key into the activation store.
-  Bypasses the threshold ceremony. Only works in :dev environment.
-  """
   def dev_activate(server \\ __MODULE__, issuer_key_id, private_key_der) do
     if Application.get_env(:pki_ca_engine, :allow_dev_activate, false) do
       GenServer.call(server, {:dev_activate, issuer_key_id, private_key_der})
@@ -56,87 +41,65 @@ defmodule PkiCaEngine.KeyActivation do
     end
   end
 
-  # ── Server Callbacks ──────────────────────────────────────────
+  # -- Server Callbacks --
 
   @impl true
   def init(opts) do
     timeout_ms = opts[:timeout_ms] || 3_600_000
 
-    {:ok,
-     %{
-       active_keys: %{},
-       pending_shares: %{},
-       custodians_submitted: %{},
-       min_shares_cache: %{},
-       timeout_ms: timeout_ms
-     }}
+    {:ok, %{
+      active_keys: %{},
+      pending_shares: %{},
+      custodians_submitted: %{},
+      min_shares_cache: %{},
+      timeout_ms: timeout_ms
+    }}
   end
 
   @impl true
-  def handle_call({:submit_share, tenant_id, issuer_key_id, custodian_user_id, password}, _from, state) do
-    # Check for duplicate submission
+  def handle_call({:submit_share, issuer_key_id, custodian_name, password}, _from, state) do
     submitted_set = Map.get(state.custodians_submitted, issuer_key_id, MapSet.new())
 
-    if MapSet.member?(submitted_set, custodian_user_id) do
+    if MapSet.member?(submitted_set, custodian_name) do
       {:reply, {:error, :already_submitted}, state}
     else
-      # Fetch encrypted share from tenant-specific DB
-      repo = TenantRepo.ca_repo(tenant_id)
-
-      share_record =
-        repo.one(
-          from ts in ThresholdShare,
-            where: ts.issuer_key_id == ^issuer_key_id and ts.custodian_user_id == ^custodian_user_id
-        )
-
-      case share_record do
-        nil ->
+      # Look up share from Mnesia by issuer_key_id + custodian_name
+      case Repo.where(ThresholdShare, fn s ->
+        s.issuer_key_id == issuer_key_id and s.custodian_name == custodian_name
+      end) do
+        {:ok, []} ->
           {:reply, {:error, :share_not_found}, state}
 
-        record ->
+        {:ok, [record | _]} ->
           case ShareEncryption.decrypt_share(record.encrypted_share, password) do
             {:error, :decryption_failed} ->
               {:reply, {:error, :decryption_failed}, state}
 
             {:ok, decrypted_share} ->
-              # Track this custodian as submitted
-              new_submitted =
-                Map.put(
-                  state.custodians_submitted,
-                  issuer_key_id,
-                  MapSet.put(submitted_set, custodian_user_id)
-                )
+              new_submitted = Map.put(
+                state.custodians_submitted,
+                issuer_key_id,
+                MapSet.put(submitted_set, custodian_name)
+              )
 
               pending = Map.get(state.pending_shares, issuer_key_id, [])
               new_pending = [decrypted_share | pending]
 
-              # Cache min_shares to avoid re-querying DB on every share submission
               min_shares = case Map.get(state.min_shares_cache, issuer_key_id) do
-                nil ->
-                  repo.one(
-                    from ts in ThresholdShare,
-                      where: ts.issuer_key_id == ^issuer_key_id,
-                      select: min(ts.min_shares)
-                  ) || record.min_shares
+                nil -> record.min_shares
                 cached -> cached
               end
 
               if length(new_pending) >= min_shares do
-                # Threshold met - reconstruct secret
                 case PkiCrypto.Shamir.recover(new_pending) do
                   {:ok, secret} ->
                     timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
 
-                    new_state = %{
-                      state
-                      | active_keys:
-                          Map.put(state.active_keys, issuer_key_id, %{
-                            secret: secret,
-                            timer_ref: timer_ref
-                          }),
-                        pending_shares: Map.delete(state.pending_shares, issuer_key_id),
-                        custodians_submitted: Map.delete(state.custodians_submitted, issuer_key_id),
-                        min_shares_cache: Map.delete(state.min_shares_cache, issuer_key_id)
+                    new_state = %{state |
+                      active_keys: Map.put(state.active_keys, issuer_key_id, %{secret: secret, timer_ref: timer_ref}),
+                      pending_shares: Map.delete(state.pending_shares, issuer_key_id),
+                      custodians_submitted: Map.delete(state.custodians_submitted, issuer_key_id),
+                      min_shares_cache: Map.delete(state.min_shares_cache, issuer_key_id)
                     }
 
                     {:reply, {:ok, :key_activated}, new_state}
@@ -145,16 +108,18 @@ defmodule PkiCaEngine.KeyActivation do
                     {:reply, {:error, {:reconstruction_failed, reason}}, state}
                 end
               else
-                new_state = %{
-                  state
-                  | pending_shares: Map.put(state.pending_shares, issuer_key_id, new_pending),
-                    custodians_submitted: new_submitted,
-                    min_shares_cache: Map.put(state.min_shares_cache, issuer_key_id, min_shares)
+                new_state = %{state |
+                  pending_shares: Map.put(state.pending_shares, issuer_key_id, new_pending),
+                  custodians_submitted: new_submitted,
+                  min_shares_cache: Map.put(state.min_shares_cache, issuer_key_id, min_shares)
                 }
 
                 {:reply, {:ok, :share_accepted}, new_state}
               end
           end
+
+        {:error, reason} ->
+          {:reply, {:error, {:share_lookup_failed, reason}}, state}
       end
     end
   end
@@ -185,13 +150,8 @@ defmodule PkiCaEngine.KeyActivation do
   def handle_call({:dev_activate, issuer_key_id, private_key_der}, _from, state) do
     timer_ref = Process.send_after(self(), {:timeout, issuer_key_id}, state.timeout_ms)
 
-    new_state = %{
-      state
-      | active_keys:
-          Map.put(state.active_keys, issuer_key_id, %{
-            secret: private_key_der,
-            timer_ref: timer_ref
-          })
+    new_state = %{state |
+      active_keys: Map.put(state.active_keys, issuer_key_id, %{secret: private_key_der, timer_ref: timer_ref})
     }
 
     {:reply, {:ok, :dev_activated}, new_state}

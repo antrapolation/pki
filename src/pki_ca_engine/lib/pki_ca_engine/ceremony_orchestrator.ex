@@ -1,270 +1,268 @@
 defmodule PkiCaEngine.CeremonyOrchestrator do
   @moduledoc """
-  Orchestrates multi-participant ceremony phase transitions.
+  Orchestrates key ceremony lifecycle.
 
-  Handles:
-  - Creating ceremonies with participant assignments
-  - Tracking custodian readiness
-  - Recording auditor attestations
-  - Triggering atomic key generation when all participants are ready
+  Redesigned for Mnesia:
+  - Ceremony participants are name+password (not portal user FKs)
+  - Auditor identity verification gate
+  - Printable transcript (CeremonyTranscript)
+  - Root CA requires full ceremony; sub-CA supports full or simplified
+  - Single session: initiate -> verify identities -> generate -> distribute -> complete
   """
 
   require Logger
 
-  alias PkiCaEngine.TenantRepo
-  alias PkiCaEngine.Schema.{CaInstance, KeyCeremony, ThresholdShare, CeremonyAttestation}
-  alias PkiCaEngine.{CaInstanceManagement, IssuerKeyManagement, KeystoreManagement}
+  alias PkiMnesia.Repo
+  alias PkiMnesia.Structs.{
+    KeyCeremony, IssuerKey, ThresholdShare,
+    CeremonyParticipant, CeremonyTranscript
+  }
+  alias PkiCaEngine.{IssuerKeyManagement, CaInstanceManagement}
   alias PkiCaEngine.KeyCeremony.{SyncCeremony, ShareEncryption}
-  alias PkiCaEngine.CeremonyPassword
-  import Ecto.Query
 
   @doc """
-  Initiates a ceremony with participant assignments.
+  Initiate a ceremony. Creates KeyCeremony, IssuerKey, CeremonyParticipants, and CeremonyTranscript.
 
-  Creates KeyCeremony, IssuerKey, and placeholder ThresholdShare records.
+  params:
+    - ca_instance_id: binary
+    - algorithm: string (e.g., "ML-DSA-65")
+    - threshold_k: integer (minimum shares to reconstruct)
+    - threshold_n: integer (total shares)
+    - custodian_names: list of strings (custodian names, NOT user IDs)
+    - auditor_name: string (auditor name)
+    - ceremony_mode: :full | :simplified (root CA must be :full)
+    - key_alias: optional string
+    - subject_dn: optional string
+    - is_root: boolean (default true)
+    - initiated_by: string (name of person initiating)
   """
-  def initiate(tenant_id, ca_instance_id, params) do
-    repo = TenantRepo.ca_repo(tenant_id)
-
+  def initiate(ca_instance_id, params) do
     with :ok <- validate_threshold(params.threshold_k, params.threshold_n),
-         :ok <- validate_participants(params.custodian_user_ids, params.threshold_n),
-         {:ok, _keystore} <- KeystoreManagement.get_keystore(tenant_id, params.keystore_id) do
-      window_hours = Map.get(params, :time_window_hours, 24)
-      window_expires_at = DateTime.utc_now() |> DateTime.add(window_hours * 3600, :second) |> DateTime.truncate(:second)
+         :ok <- validate_participants(params.custodian_names, params.threshold_n),
+         :ok <- validate_ceremony_mode(params) do
 
-      repo.transaction(fn ->
-        case IssuerKeyManagement.create_issuer_key(tenant_id, ca_instance_id, %{
-               key_alias: Map.get(params, :key_alias) || "key-#{System.unique_integer([:positive])}",
-               algorithm: params.algorithm,
-               is_root: Map.get(params, :is_root, true),
-               threshold_config: %{k: params.threshold_k, n: params.threshold_n}
-             }) do
-          {:ok, issuer_key} ->
-            ceremony_attrs = %{
-              ca_instance_id: ca_instance_id,
-              issuer_key_id: issuer_key.id,
-              ceremony_type: "sync",
-              status: "preparing",
-              algorithm: params.algorithm,
-              keystore_id: params.keystore_id,
-              threshold_k: params.threshold_k,
-              threshold_n: params.threshold_n,
-              domain_info: Map.get(params, :domain_info, %{}),
-              initiated_by: params.initiated_by,
-              auditor_user_id: params.auditor_user_id,
-              time_window_hours: window_hours,
-              window_expires_at: window_expires_at,
-              participants: %{
-                custodians: params.custodian_user_ids,
-                auditor: params.auditor_user_id
-              }
-            }
-
-            case %KeyCeremony{} |> KeyCeremony.changeset(ceremony_attrs) |> repo.insert() do
-              {:ok, ceremony} ->
-                # Create placeholder shares for each custodian
-                shares =
-                  params.custodian_user_ids
-                  |> Enum.with_index(1)
-                  |> Enum.map(fn {user_id, index} ->
-                    {:ok, share} =
-                      %ThresholdShare{}
-                      |> ThresholdShare.placeholder_changeset(%{
-                        issuer_key_id: issuer_key.id,
-                        custodian_user_id: user_id,
-                        share_index: index,
-                        min_shares: params.threshold_k,
-                        total_shares: params.threshold_n,
-                        status: "pending"
-                      })
-                      |> repo.insert()
-
-                    share
-                  end)
-
-                {ceremony, issuer_key, shares}
-
-              {:error, reason} ->
-                repo.rollback(reason)
-            end
-
-          {:error, reason} ->
-            repo.rollback(reason)
-        end
-      end)
-    end
-  end
-
-  @doc """
-  Records a custodian accepting their share. The password is encrypted and stored
-  in the DB so it survives server restarts within the ceremony time window.
-  """
-  def accept_share(tenant_id, ceremony_id, user_id, key_label, password \\ nil) do
-    repo = TenantRepo.ca_repo(tenant_id)
-
-    case get_ceremony(repo, ceremony_id) do
-      {:ok, ceremony} when ceremony.status == "preparing" ->
-        case repo.one(
-               from s in ThresholdShare,
-                 where: s.issuer_key_id == ^ceremony.issuer_key_id and
-                        s.custodian_user_id == ^user_id and
-                        s.status == "pending"
-             ) do
-          nil ->
-            {:error, :share_not_found}
-
-          share ->
-            changes = %{
-              key_label: key_label,
-              status: "accepted",
-              accepted_at: DateTime.utc_now() |> DateTime.truncate(:second)
-            }
-
-            changes = if password do
-              {:ok, encrypted} = CeremonyPassword.encrypt(password)
-              Map.put(changes, :encrypted_password, encrypted)
-            else
-              changes
-            end
-
-            share
-            |> Ecto.Changeset.change(changes)
-            |> repo.update()
-        end
-
-      {:ok, _} -> {:error, :invalid_ceremony_status}
-      error -> error
-    end
-  end
-
-  @doc """
-  Records an auditor attestation for a ceremony phase.
-  """
-  def attest(tenant_id, ceremony_id, auditor_user_id, phase, details \\ %{}) do
-    repo = TenantRepo.ca_repo(tenant_id)
-
-    case get_ceremony(repo, ceremony_id) do
-      {:ok, ceremony} when not is_nil(ceremony.auditor_user_id) and ceremony.auditor_user_id == auditor_user_id ->
-        %CeremonyAttestation{}
-        |> CeremonyAttestation.changeset(%{
-          ceremony_id: ceremony_id,
-          auditor_user_id: auditor_user_id,
-          phase: phase,
-          attested_at: DateTime.utc_now() |> DateTime.truncate(:second),
-          details: details
+      Repo.transaction(fn ->
+        # Create issuer key
+        key = IssuerKey.new(%{
+          ca_instance_id: ca_instance_id,
+          key_alias: Map.get(params, :key_alias, "key-#{:erlang.unique_integer([:positive])}"),
+          algorithm: params.algorithm,
+          is_root: Map.get(params, :is_root, true),
+          ceremony_mode: Map.get(params, :ceremony_mode, :full),
+          threshold_config: %{k: params.threshold_k, n: params.threshold_n}
         })
-        |> repo.insert()
+        :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), key))
 
-      {:ok, _} -> {:error, :not_assigned_auditor}
-      error -> error
-    end
-  end
+        # Create ceremony
+        window_hours = Map.get(params, :time_window_hours, 24)
+        window_expires_at = DateTime.utc_now() |> DateTime.add(window_hours * 3600, :second) |> DateTime.truncate(:second)
 
-  @doc """
-  Checks if all custodians have accepted and preparation attestation exists.
-  Returns :ready if the ceremony can proceed to key generation.
-  """
-  def check_readiness(tenant_id, ceremony_id) do
-    repo = TenantRepo.ca_repo(tenant_id)
+        ceremony = KeyCeremony.new(%{
+          ca_instance_id: ca_instance_id,
+          issuer_key_id: key.id,
+          algorithm: params.algorithm,
+          threshold_k: params.threshold_k,
+          threshold_n: params.threshold_n,
+          domain_info: %{
+            "is_root" => Map.get(params, :is_root, true),
+            "subject_dn" => Map.get(params, :subject_dn, "/CN=CA-#{ca_instance_id}")
+          },
+          initiated_by: params.initiated_by,
+          window_expires_at: window_expires_at
+        })
+        :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), ceremony))
 
-    case get_ceremony(repo, ceremony_id) do
-      {:ok, ceremony} when ceremony.status == "preparing" ->
-        all_accepted =
-          repo.aggregate(
-            from(s in ThresholdShare,
-              where: s.issuer_key_id == ^ceremony.issuer_key_id and s.status == "pending"
-            ),
-            :count
-          ) == 0
+        # Create custodian participants
+        custodian_participants =
+          params.custodian_names
+          |> Enum.map(fn name ->
+            p = CeremonyParticipant.new(%{ceremony_id: ceremony.id, name: name, role: :custodian})
+            :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(CeremonyParticipant), p))
+            p
+          end)
 
-        prep_attested =
-          repo.exists?(
-            from(a in CeremonyAttestation,
-              where: a.ceremony_id == ^ceremony_id and a.phase == "preparation"
-            )
-          )
+        # Create auditor participant
+        auditor = CeremonyParticipant.new(%{
+          ceremony_id: ceremony.id,
+          name: params.auditor_name,
+          role: :auditor
+        })
+        :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(CeremonyParticipant), auditor))
 
-        if all_accepted and prep_attested, do: :ready, else: :waiting
+        # Create placeholder shares for each custodian
+        shares =
+          params.custodian_names
+          |> Enum.with_index(1)
+          |> Enum.map(fn {name, index} ->
+            share = ThresholdShare.new(%{
+              issuer_key_id: key.id,
+              custodian_name: name,
+              share_index: index,
+              min_shares: params.threshold_k,
+              total_shares: params.threshold_n,
+              status: "pending"
+            })
+            :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(ThresholdShare), share))
+            share
+          end)
 
-      {:ok, _} -> {:error, :invalid_status}
-      error -> error
-    end
-  end
+        # Create transcript
+        transcript = CeremonyTranscript.new(%{
+          ceremony_id: ceremony.id,
+          entries: [%{
+            timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
+            actor: params.initiated_by,
+            action: "ceremony_initiated",
+            details: %{algorithm: params.algorithm, k: params.threshold_k, n: params.threshold_n}
+          }]
+        })
+        :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(CeremonyTranscript), transcript))
 
-  @doc """
-  Executes atomic key generation: keygen -> sign -> split -> encrypt -> wipe.
-
-  `custodian_passwords` is a list of `{user_id, password}` tuples from ETS.
-  """
-  def execute_keygen(tenant_id, ceremony_id, custodian_passwords) do
-    repo = TenantRepo.ca_repo(tenant_id)
-
-    # Step 1: Atomically claim the ceremony with FOR UPDATE lock (prevents D5 race)
-    claim_result =
-      repo.transaction(fn ->
-        case repo.one(from c in KeyCeremony, where: c.id == ^ceremony_id, lock: "FOR UPDATE") do
-          nil ->
-            repo.rollback(:not_found)
-
-          %{status: status} = ceremony when status in ["preparing", "generating"] ->
-            ceremony
-            |> Ecto.Changeset.change(%{status: "generating"})
-            |> repo.update!()
-
-          _other ->
-            repo.rollback(:invalid_status)
-        end
+        {ceremony, key, shares, custodian_participants ++ [auditor], transcript}
       end)
-
-    case claim_result do
-      {:error, :not_found} -> {:error, :not_found}
-      {:error, :invalid_status} -> {:error, :invalid_status}
-      {:ok, ceremony} ->
-        do_execute_keygen(repo, tenant_id, ceremony_id, ceremony, custodian_passwords)
     end
   end
 
-  defp do_execute_keygen(repo, tenant_id, ceremony_id, ceremony, custodian_passwords) do
-    # Load shares ordered by share_index to ensure deterministic ordering
-    db_shares = repo.all(
-      from s in ThresholdShare,
-        where: s.issuer_key_id == ^ceremony.issuer_key_id,
-        order_by: [asc: s.share_index]
-    )
+  @doc """
+  Verify a participant's identity. The auditor confirms they verified a custodian.
+  This is the identity verification gate required before key generation.
+  """
+  def verify_identity(ceremony_id, custodian_name, auditor_name) do
+    case Repo.where(CeremonyParticipant, fn p ->
+      p.ceremony_id == ceremony_id and p.name == custodian_name and p.role == :custodian
+    end) do
+      {:ok, []} -> {:error, :participant_not_found}
+      {:ok, [participant | _]} ->
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+        result = Repo.update(participant, %{
+          identity_verified_by: auditor_name,
+          identity_verified_at: now
+        })
+        append_transcript(ceremony_id, auditor_name, "identity_verified", %{custodian: custodian_name})
+        result
+      {:error, _} = err -> err
+    end
+  end
 
-    # Build password map: prefer passed-in passwords (ETS), fall back to DB-stored encrypted passwords
-    password_map =
-      if custodian_passwords == [] or custodian_passwords == %{} do
-        db_shares
-        |> Enum.reduce_while({:ok, %{}}, fn share, {:ok, acc} ->
-          case CeremonyPassword.decrypt(share.encrypted_password) do
-            {:ok, pw} -> {:cont, {:ok, Map.put(acc, share.custodian_user_id, pw)}}
-            _error -> {:halt, {:error, {:password_decrypt_failed, share.custodian_user_id}}}
-          end
-        end)
-      else
-        {:ok, Map.new(custodian_passwords)}
+  @doc """
+  Accept a custodian's share assignment with their password.
+  Stores a password hash for later share encryption.
+  """
+  def accept_share(ceremony_id, custodian_name, password) do
+    with {:ok, ceremony} <- get_ceremony(ceremony_id),
+         true <- ceremony.status == "preparing" || {:error, :invalid_ceremony_status} do
+
+      case Repo.where(ThresholdShare, fn s ->
+        s.issuer_key_id == ceremony.issuer_key_id and s.custodian_name == custodian_name and s.status == "pending"
+      end) do
+        {:ok, []} -> {:error, :share_not_found}
+        {:ok, [share | _]} ->
+          password_hash = :crypto.hash(:sha256, password)
+          now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+          result = Repo.update(share, %{
+            password_hash: password_hash,
+            status: "accepted",
+            updated_at: now
+          })
+          append_transcript(ceremony_id, custodian_name, "share_accepted", %{})
+          result
+        {:error, _} = err -> err
       end
-
-    case password_map do
-      {:error, reason} ->
-        fail_ceremony(repo, ceremony_id, "password_recovery_failed")
-        {:error, reason}
-
-      {:ok, passwords} ->
-        do_keygen_and_split(repo, tenant_id, ceremony_id, ceremony, db_shares, passwords)
     end
   end
 
-  defp do_keygen_and_split(repo, tenant_id, ceremony_id, ceremony, db_shares, passwords) do
+  @doc """
+  Check if all custodians have been identity-verified and accepted their shares.
+  Returns :ready or :waiting.
+  """
+  def check_readiness(ceremony_id) do
+    with {:ok, ceremony} <- get_ceremony(ceremony_id),
+         true <- ceremony.status == "preparing" || {:error, :invalid_status} do
+
+      with {:ok, participants} <- Repo.where(CeremonyParticipant, fn p ->
+             p.ceremony_id == ceremony_id and p.role == :custodian
+           end),
+           {:ok, shares} <- Repo.where(ThresholdShare, fn s ->
+             s.issuer_key_id == ceremony.issuer_key_id
+           end) do
+
+        all_verified = Enum.all?(participants, fn p -> p.identity_verified_at != nil end)
+        all_accepted = Enum.all?(shares, fn s -> s.status == "accepted" end)
+
+        if all_verified and all_accepted, do: :ready, else: :waiting
+      end
+    end
+  end
+
+  @doc """
+  Execute key generation: keygen -> sign -> split -> encrypt per custodian password -> wipe.
+  custodian_passwords: list of {custodian_name, password} tuples.
+  """
+  def execute_keygen(ceremony_id, custodian_passwords) do
+    with {:ok, ceremony} <- get_ceremony(ceremony_id),
+         true <- ceremony.status in ["preparing", "generating"] || {:error, :invalid_status} do
+
+      # Claim ceremony
+      {:ok, _} = Repo.update(ceremony, %{status: "generating"})
+
+      case Repo.where(ThresholdShare, fn s ->
+        s.issuer_key_id == ceremony.issuer_key_id
+      end) do
+        {:ok, db_shares} ->
+          db_shares = Enum.sort_by(db_shares, & &1.share_index)
+          password_map = Map.new(custodian_passwords)
+          do_keygen_and_split(ceremony, db_shares, password_map)
+
+        {:error, _} = err -> err
+      end
+    end
+  end
+
+  @doc "Mark a ceremony as failed."
+  def fail_ceremony(ceremony_id, reason) do
+    case Repo.get(KeyCeremony, ceremony_id) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, ceremony} ->
+        Repo.update(ceremony, %{
+          status: "failed",
+          domain_info: Map.merge(ceremony.domain_info || %{}, %{"failure_reason" => reason})
+        })
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Get the transcript for a ceremony."
+  def get_transcript(ceremony_id) do
+    case Repo.where(CeremonyTranscript, fn t -> t.ceremony_id == ceremony_id end) do
+      {:ok, []} -> {:error, :not_found}
+      {:ok, [t | _]} -> {:ok, t}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "List participants for a ceremony."
+  def list_participants(ceremony_id) do
+    Repo.where(CeremonyParticipant, fn p -> p.ceremony_id == ceremony_id end)
+  end
+
+  # -- Private --
+
+  defp get_ceremony(ceremony_id) do
+    case Repo.get(KeyCeremony, ceremony_id) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, ceremony} -> {:ok, ceremony}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp do_keygen_and_split(ceremony, db_shares, passwords) do
     case SyncCeremony.generate_keypair(ceremony.algorithm) do
       {:ok, %{public_key: pub, private_key: priv}} ->
         fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower)
+        is_root = Map.get(ceremony.domain_info, "is_root", true)
+        subject_dn = Map.get(ceremony.domain_info, "subject_dn", "/CN=CA-#{ceremony.id}")
 
-        is_root = Map.get(ceremony.domain_info || %{}, "is_root", true)
-        subject_dn = Map.get(ceremony.domain_info || %{}, "subject_dn", "/CN=CA-#{ceremony.id}")
-
-        # Sign cert or generate CSR
         {cert_or_csr_result, cert_der, cert_pem, csr_pem} =
           if is_root do
             case generate_self_signed(ceremony.algorithm, priv, pub, subject_dn) do
@@ -282,197 +280,150 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           :ok ->
             case PkiCrypto.Shamir.split(priv, ceremony.threshold_k, ceremony.threshold_n) do
               {:ok, raw_shares} ->
-                # Force GC to release private key bytes (D3)
                 :erlang.garbage_collect()
-
-                encrypt_and_commit(
-                  repo, tenant_id, ceremony_id, ceremony, db_shares, passwords,
-                  raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn
-                )
+                encrypt_and_commit(ceremony, db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn)
 
               error ->
-                fail_ceremony(repo, ceremony_id, "shamir_split_failed")
+                fail_ceremony(ceremony.id, "shamir_split_failed")
                 error
             end
 
           error ->
-            fail_ceremony(repo, ceremony_id, "cert_generation_failed")
+            fail_ceremony(ceremony.id, "cert_generation_failed")
             error
         end
 
       error ->
-        fail_ceremony(repo, ceremony_id, "keygen_failed")
+        fail_ceremony(ceremony.id, "keygen_failed")
         error
     end
   end
 
-  defp encrypt_and_commit(
-         repo, tenant_id, ceremony_id, ceremony, db_shares, passwords,
-         raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn
-       ) do
+  defp encrypt_and_commit(ceremony, db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn) do
     encrypt_result =
       Enum.zip(db_shares, raw_shares)
       |> Enum.reduce_while({:ok, []}, fn {db_share, raw_share}, {:ok, acc} ->
-        case Map.fetch(passwords, db_share.custodian_user_id) do
+        case Map.fetch(passwords, db_share.custodian_name) do
           {:ok, password} ->
             case ShareEncryption.encrypt_share(raw_share, password) do
               {:ok, encrypted} -> {:cont, {:ok, [{db_share, encrypted} | acc]}}
               {:error, reason} -> {:halt, {:error, {:share_encryption_failed, reason}}}
             end
-
           :error ->
-            {:halt, {:error, {:missing_password, db_share.custodian_user_id}}}
+            {:halt, {:error, {:missing_password, db_share.custodian_name}}}
         end
       end)
 
     case encrypt_result do
       {:error, reason} ->
-        fail_ceremony(repo, ceremony_id, "share_encryption_failed")
+        fail_ceremony(ceremony.id, "share_encryption_failed")
         {:error, reason}
 
       {:ok, encrypted_pairs_reversed} ->
         encrypted_pairs = Enum.reverse(encrypted_pairs_reversed)
 
-        case repo.transaction(fn ->
-          # Update each share with encrypted data
+        case Repo.transaction(fn ->
+          # Update shares with encrypted data
           Enum.each(encrypted_pairs, fn {db_share, encrypted_share} ->
-            db_share
-            |> Ecto.Changeset.change(%{encrypted_share: encrypted_share})
-            |> repo.update!()
+            updated = %{db_share | encrypted_share: encrypted_share, updated_at: DateTime.utc_now() |> DateTime.truncate(:second)}
+            :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(ThresholdShare), updated))
           end)
 
           # Activate issuer key if root CA
           if is_root and cert_der do
-            issuer_key = repo.get!(PkiCaEngine.Schema.IssuerKey, ceremony.issuer_key_id)
-            case IssuerKeyManagement.activate_by_certificate(tenant_id, issuer_key, %{
-              certificate_der: cert_der,
-              certificate_pem: cert_pem
-            }) do
-              {:ok, _} -> :ok
-              {:error, reason} -> repo.rollback({:activate_key_failed, reason})
+            case :mnesia.read(PkiMnesia.Schema.table_name(IssuerKey), ceremony.issuer_key_id) do
+              [record] ->
+                key = Repo.record_to_struct(IssuerKey, record)
+                activated = %{key |
+                  status: "active",
+                  certificate_der: cert_der,
+                  certificate_pem: cert_pem,
+                  fingerprint: fingerprint,
+                  subject_dn: subject_dn,
+                  updated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+                }
+                :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), activated))
+              [] -> :ok
             end
           end
 
           # Update ceremony to completed
-          ceremony_rec = repo.get!(KeyCeremony, ceremony_id)
-          ceremony_rec
-          |> Ecto.Changeset.change(%{
-            status: "completed",
-            domain_info: Map.merge(ceremony_rec.domain_info || %{}, %{
-              "fingerprint" => fingerprint,
-              "csr_pem" => csr_pem,
-              "subject_dn" => subject_dn
-            })
-          })
-          |> repo.update!()
+          case :mnesia.read(PkiMnesia.Schema.table_name(KeyCeremony), ceremony.id) do
+            [record] ->
+              c = Repo.record_to_struct(KeyCeremony, record)
+              completed = %{c |
+                status: "completed",
+                domain_info: Map.merge(c.domain_info || %{}, %{
+                  "fingerprint" => fingerprint,
+                  "csr_pem" => csr_pem,
+                  "subject_dn" => subject_dn
+                }),
+                updated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+              }
+              :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), completed))
+            [] -> :ok
+          end
         end) do
           {:ok, _} ->
-            wipe_stored_passwords(repo, ceremony.issuer_key_id)
             :erlang.garbage_collect()
+            append_transcript(ceremony.id, "system", "ceremony_completed", %{fingerprint: fingerprint})
 
-            # Auto-offline root CA after ceremony completion
-            ca = repo.get(CaInstance, ceremony.ca_instance_id)
-            if ca && CaInstanceManagement.is_root?(ca) do
-              case CaInstanceManagement.set_offline(tenant_id, ceremony.ca_instance_id) do
-                {:ok, _} -> :ok
-                {:error, reason} ->
-                  Logger.error("[auto_offline] Failed to take root CA #{ceremony.ca_instance_id} offline after ceremony: #{inspect(reason)}")
-              end
+            # Auto-offline root CA after ceremony
+            case Repo.get(PkiMnesia.Structs.CaInstance, ceremony.ca_instance_id) do
+              {:ok, ca} when not is_nil(ca) ->
+                if CaInstanceManagement.is_root?(ca) do
+                  CaInstanceManagement.set_offline(ceremony.ca_instance_id)
+                end
+              _ -> :ok
             end
 
             {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem}}
 
           {:error, reason} ->
-            fail_ceremony(repo, ceremony_id, "transaction_failed: #{inspect(reason)}")
+            fail_ceremony(ceremony.id, "transaction_failed: #{inspect(reason)}")
             {:error, reason}
         end
     end
   end
 
-  @doc """
-  Marks a ceremony as failed.
-  """
-  def fail_ceremony(nil, ceremony_id, reason) do
-    fail_ceremony(PkiCaEngine.Repo, ceremony_id, reason)
-  end
-
-  def fail_ceremony(tenant_id, ceremony_id, reason) when is_binary(tenant_id) do
-    repo = TenantRepo.ca_repo(tenant_id)
-    fail_ceremony(repo, ceremony_id, reason)
-  end
-
-  def fail_ceremony(repo, ceremony_id, reason) do
-    case repo.get(KeyCeremony, ceremony_id) do
-      nil -> {:error, :not_found}
-      ceremony ->
-        ceremony
-        |> Ecto.Changeset.change(%{
-          status: "failed",
-          domain_info: Map.merge(ceremony.domain_info || %{}, %{"failure_reason" => reason})
-        })
-        |> repo.update()
+  defp append_transcript(ceremony_id, actor, action, details) do
+    case Repo.where(CeremonyTranscript, fn t -> t.ceremony_id == ceremony_id end) do
+      {:ok, [transcript | _]} ->
+        entry = %{
+          timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
+          actor: actor,
+          action: action,
+          details: details
+        }
+        Repo.update(transcript, %{entries: (transcript.entries || []) ++ [entry]})
+      _ -> :ok
     end
-  end
-
-  @doc """
-  Lists attestations for a ceremony.
-  """
-  def list_attestations(tenant_id, ceremony_id) do
-    repo = TenantRepo.ca_repo(tenant_id)
-    repo.all(from a in CeremonyAttestation, where: a.ceremony_id == ^ceremony_id, order_by: [asc: a.attested_at])
-  end
-
-  # --- Private helpers ---
-
-  defp get_ceremony(repo, ceremony_id) do
-    case repo.get(KeyCeremony, ceremony_id) do
-      nil -> {:error, :not_found}
-      ceremony -> {:ok, ceremony}
-    end
-  end
-
-  defp wipe_stored_passwords(repo, issuer_key_id) do
-    from(s in ThresholdShare, where: s.issuer_key_id == ^issuer_key_id)
-    |> repo.update_all(set: [encrypted_password: nil])
   end
 
   defp validate_threshold(k, n) when is_integer(k) and is_integer(n) and k >= 2 and k <= n, do: :ok
   defp validate_threshold(_, _), do: {:error, :invalid_threshold}
 
-  defp validate_participants(user_ids, n) when is_list(user_ids) and length(user_ids) == n, do: :ok
+  defp validate_participants(names, n) when is_list(names) and length(names) == n, do: :ok
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}
+
+  defp validate_ceremony_mode(%{is_root: true, ceremony_mode: :simplified}),
+    do: {:error, :root_ca_requires_full_ceremony}
+  defp validate_ceremony_mode(_), do: :ok
 
   defp generate_self_signed(algorithm, private_key, public_key, subject_dn) do
     case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
       {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
-        case PkiCrypto.X509Builder.self_sign(
-               algorithm,
-               %{public_key: public_key, private_key: private_key},
-               subject_dn,
-               365 * 25
-             ) do
+        case PkiCrypto.X509Builder.self_sign(algorithm, %{public_key: public_key, private_key: private_key}, subject_dn, 365 * 25) do
           {:ok, cert_der} ->
             cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
             {:ok, cert_der, cert_pem}
-
-          {:error, _} = error ->
-            error
+          {:error, _} = error -> error
         end
 
       {:ok, %{family: _classical}} ->
         try do
           native_key = decode_private_key(private_key)
-
-          root_cert =
-            X509.Certificate.self_signed(
-              native_key,
-              subject_dn,
-              template: :root_ca,
-              hash: :sha256,
-              serial: {:random, 8},
-              validity: 365 * 25
-            )
-
+          root_cert = X509.Certificate.self_signed(native_key, subject_dn, template: :root_ca, hash: :sha256, serial: {:random, 8}, validity: 365 * 25)
           cert_der = X509.Certificate.to_der(root_cert)
           cert_pem = X509.Certificate.to_pem(root_cert)
           {:ok, cert_der, cert_pem}
@@ -480,8 +431,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           e -> {:error, e}
         end
 
-      :error ->
-        {:error, {:unknown_algorithm, algorithm}}
+      :error -> {:error, {:unknown_algorithm, algorithm}}
     end
   end
 
@@ -498,8 +448,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           e -> {:error, e}
         end
 
-      :error ->
-        {:error, {:unknown_algorithm, algorithm}}
+      :error -> {:error, {:unknown_algorithm, algorithm}}
     end
   end
 
