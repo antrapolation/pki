@@ -9,10 +9,15 @@ defmodule PkiPlatformEngine.Application do
         PkiPlatformEngine.PlatformRepo,
         PkiPlatformEngine.EmailVerification,
         PkiPlatformEngine.TenantRegistry,
+        PkiPlatformEngine.PortAllocator,
+        PkiPlatformEngine.AuditReceiver,
+        PkiPlatformEngine.TenantLifecycle,
+        PkiPlatformEngine.TenantHealthMonitor,
+        # Keep TenantSupervisor for schema-mode tenants (no peer spawning)
         PkiPlatformEngine.TenantSupervisor
       ] ++ date_log_handler_child()
 
-    # :rest_for_one — PlatformRepo → TenantRegistry → TenantSupervisor must restart in order
+    # :rest_for_one — PlatformRepo → registry → allocator → lifecycle must restart in order
     opts = [strategy: :rest_for_one, name: PkiPlatformEngine.Supervisor]
     result = Supervisor.start_link(children, opts)
 
