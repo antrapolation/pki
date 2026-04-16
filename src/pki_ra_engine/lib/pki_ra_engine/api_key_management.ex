@@ -1,179 +1,101 @@
 defmodule PkiRaEngine.ApiKeyManagement do
   @moduledoc """
-  API Key Management — create, verify, list, and revoke API keys.
+  API key management with hash-based lookup against Mnesia.
 
-  Keys are stored as SHA3-256 hashes. The raw key is only returned at creation time.
+  Keys are stored as SHA-256 hashes. The raw key is only returned at creation time.
   """
 
-  import Ecto.Query
-
-  alias PkiRaEngine.TenantRepo
-  alias PkiRaEngine.Schema.RaApiKey
+  alias PkiMnesia.{Repo, Structs.ApiKey}
 
   @doc """
-  Create a new API key for an RA user.
+  Create a new API key.
 
-  Generates a 32-byte random key, stores its SHA3-256 hash.
-  Returns the raw key (base64-encoded) alongside the persisted record.
+  Generates a 32-byte random key, stores its SHA-256 hash.
+  Returns the raw key (base64url-encoded) alongside the persisted record.
   The raw key is only visible at creation time.
   """
-  @spec create_api_key(String.t(), map()) :: {:ok, %{raw_key: String.t(), api_key: RaApiKey.t()}} | {:error, Ecto.Changeset.t()}
-  def create_api_key(tenant_id, attrs) do
-    repo = TenantRepo.ra_repo(tenant_id)
-    raw_key = :crypto.strong_rand_bytes(32)
-    hashed = hash_key(raw_key)
+  @spec create_api_key(map()) :: {:ok, ApiKey.t(), String.t()} | {:error, term()}
+  def create_api_key(attrs) do
+    raw_key = generate_raw_key()
+    key_hash = hash_key(raw_key)
+    key_prefix = String.slice(raw_key, 0, 8)
 
-    # Auto-generate webhook secret if webhook_url is provided
-    webhook_url = attrs[:webhook_url] || attrs["webhook_url"]
-    webhook_secret = if is_binary(webhook_url) and webhook_url != "" do
-      :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
-    else
-      nil
-    end
-
-    api_key_attrs =
-      attrs
-      |> Map.put(:hashed_key, hashed)
-      |> Map.put(:webhook_secret, webhook_secret)
-
-    case %RaApiKey{} |> RaApiKey.changeset(api_key_attrs) |> repo.insert() do
-      {:ok, api_key} ->
-        audit("api_key_created", tenant_id, "api_key", api_key.id, %{
-          ra_user_id: api_key.ra_user_id,
-          label: api_key.label,
-          key_type: api_key.key_type
+    api_key =
+      ApiKey.new(
+        Map.merge(attrs, %{
+          key_hash: key_hash,
+          key_prefix: key_prefix
         })
-        {:ok, %{raw_key: Base.encode64(raw_key), api_key: api_key, webhook_secret: webhook_secret}}
+      )
 
-      {:error, changeset} ->
-        {:error, changeset}
+    case Repo.insert(api_key) do
+      {:ok, api_key} -> {:ok, api_key, raw_key}
+      error -> error
     end
   end
 
   @doc """
-  Verify a raw API key string.
+  Authenticate a raw API key string.
 
-  Hashes the provided key and looks it up. Checks that the key is active and not expired.
+  Hashes the provided key and looks it up by the key_hash index.
+  Checks that the key is active and not expired.
   """
-  @spec verify_key(String.t(), String.t()) :: {:ok, RaApiKey.t()} | {:error, :invalid_key | :expired}
-  def verify_key(tenant_id, raw_key_base64) do
-    repo = TenantRepo.ra_repo(tenant_id)
+  @spec authenticate(String.t()) :: {:ok, ApiKey.t()} | {:error, :invalid_key | :key_revoked | :key_expired}
+  def authenticate(raw_key) do
+    key_hash = hash_key(raw_key)
 
-    with {:ok, raw_key} <- Base.decode64(raw_key_base64) do
-      hashed = hash_key(raw_key)
+    case Repo.get_by(ApiKey, :key_hash, key_hash) do
+      {:ok, nil} ->
+        {:error, :invalid_key}
 
-      # Fetch by status only, then use timing-safe comparison on the hash
-      # to prevent timing side-channel attacks on the key value.
-      query = from k in RaApiKey, where: k.status == "active"
+      {:ok, %{status: "revoked"}} ->
+        {:error, :key_revoked}
 
-      repo.all(query)
-      |> Enum.find(fn %RaApiKey{hashed_key: stored_hash} ->
-        Plug.Crypto.secure_compare(hashed, stored_hash)
-      end)
-      |> case do
-        %RaApiKey{} = api_key ->
-          if expired?(api_key) do
-            {:error, :expired}
-          else
-            {:ok, api_key}
-          end
+      {:ok, %{expires_at: exp} = key} when not is_nil(exp) ->
+        if DateTime.compare(DateTime.utc_now(), exp) == :gt,
+          do: {:error, :key_expired},
+          else: {:ok, key}
 
-        nil ->
-          {:error, :invalid_key}
-      end
-    else
-      :error -> {:error, :invalid_key}
-    end
-  end
+      {:ok, key} ->
+        {:ok, key}
 
-  @doc "List all API keys for a given RA user."
-  @spec list_keys(String.t(), String.t()) :: [RaApiKey.t()]
-  def list_keys(tenant_id, ra_user_id) do
-    repo = TenantRepo.ra_repo(tenant_id)
-
-    from(k in RaApiKey, where: k.ra_user_id == ^ra_user_id)
-    |> repo.all()
-  end
-
-  @doc "Update an API key's mutable fields (label, key_type, rate_limit, allowed_profile_ids, ip_whitelist, webhook_url)."
-  @spec update_key(String.t(), String.t(), map()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def update_key(tenant_id, id, attrs) do
-    repo = TenantRepo.ra_repo(tenant_id)
-
-    case repo.get(RaApiKey, id) do
-      nil ->
-        {:error, :not_found}
-
-      api_key ->
-        # Auto-generate webhook secret if webhook_url is being set for the first time
-        webhook_url = attrs[:webhook_url] || attrs["webhook_url"]
-        attrs = if is_binary(webhook_url) and webhook_url != "" and (api_key.webhook_secret == nil or api_key.webhook_secret == "") do
-          Map.put(attrs, :webhook_secret, :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false))
-        else
-          attrs
-        end
-
-        case api_key |> RaApiKey.update_changeset(attrs) |> repo.update() do
-          {:ok, updated} ->
-            audit("api_key_updated", tenant_id, "api_key", id, %{
-              ra_user_id: updated.ra_user_id,
-              label: updated.label
-            })
-            {:ok, updated}
-
-          error ->
-            error
-        end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   @doc "Revoke an API key by ID."
-  @spec revoke_key(String.t(), String.t()) :: {:ok, RaApiKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def revoke_key(tenant_id, id) do
-    repo = TenantRepo.ra_repo(tenant_id)
-
-    case repo.get(RaApiKey, id) do
-      nil ->
+  @spec revoke_api_key(binary()) :: {:ok, ApiKey.t()} | {:error, :not_found | term()}
+  def revoke_api_key(id) do
+    case Repo.get(ApiKey, id) do
+      {:ok, nil} ->
         {:error, :not_found}
 
-      api_key ->
-        case api_key
-             |> RaApiKey.changeset(%{status: "revoked", revoked_at: DateTime.utc_now()})
-             |> repo.update() do
-          {:ok, revoked} ->
-            audit("api_key_revoked", tenant_id, "api_key", id, %{
-              ra_user_id: revoked.ra_user_id,
-              label: revoked.label
-            })
-            {:ok, revoked}
+      {:ok, key} ->
+        Repo.update(key, %{status: "revoked", updated_at: DateTime.utc_now() |> DateTime.truncate(:second)})
 
-          error ->
-            error
-        end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc "List API keys, optionally filtered by ra_instance_id."
+  @spec list_api_keys(binary() | nil) :: {:ok, [ApiKey.t()]} | {:error, term()}
+  def list_api_keys(ra_instance_id \\ nil) do
+    if ra_instance_id do
+      Repo.where(ApiKey, fn k -> k.ra_instance_id == ra_instance_id end)
+    else
+      Repo.all(ApiKey)
     end
   end
 
   # ── Private ─────────────────────────────────────────────────────────
 
+  defp generate_raw_key do
+    :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+  end
+
   defp hash_key(raw_key) do
-    Base.encode16(:crypto.hash(:sha3_256, raw_key), case: :lower)
-  end
-
-  defp audit(action, tenant_id, target_type, target_id, details) do
-    PkiPlatformEngine.PlatformAudit.log(action, %{
-      target_type: target_type,
-      target_id: target_id,
-      tenant_id: tenant_id,
-      portal: "ra",
-      details: details
-    })
-  rescue
-    _ -> :ok
-  end
-
-  defp expired?(%RaApiKey{expiry: nil}), do: false
-
-  defp expired?(%RaApiKey{expiry: expiry}) do
-    DateTime.compare(DateTime.utc_now(), expiry) == :gt
+    :crypto.hash(:sha256, raw_key)
   end
 end
