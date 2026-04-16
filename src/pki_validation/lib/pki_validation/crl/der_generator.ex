@@ -1,157 +1,138 @@
 defmodule PkiValidation.Crl.DerGenerator do
   @moduledoc """
-  Generates RFC 5280 DER-encoded `CertificateList` (CRL) values for
-  a given issuer, signed with a delegated CRL signer key held by the
-  validation service.
+  Generates RFC 5280 DER-encoded CertificateList (CRL) values for a given
+  issuer, signed with the issuer's active key from KeyActivation.
 
-  ## Design
-
-    * The CRL `issuer` field is taken from the SUBJECT DN of the
-      signing certificate, implementing the delegated CRL signer
-      model from RFC 5280 §5. In production the delegated signer's
-      subject is typically arranged to match the CA's own subject so
-      clients can associate the CRL with revocations from that CA.
-
-    * Each generated CRL includes the `cRLNumber` extension
-      (OID 2.5.29.20) with a monotonically increasing integer per
-      issuer. The counter lives in the `crl_metadata` row for the
-      issuer and is incremented inside a transaction with a
-      `FOR UPDATE` row lock to prevent races between concurrent
-      generators.
-
-    * Each revoked entry includes the `reasonCode` extension
-      (OID 2.5.29.21) encoding the RFC 5280 `CRLReason` value
-      derived from the `certificate_status.revocation_reason`
-      column.
-
-    * Signing uses the same ECC/RSA patterns as
-      `PkiValidation.Ocsp.ResponseBuilder`. For ECC we construct an
-      `ECPrivateKey` record at sign time from the raw scalar; for
-      RSA we decode the stored DER-encoded `:RSAPrivateKey` before
-      calling `:public_key.sign/3`.
-
-    * The signed DER bytes are cached in the `crl_metadata` row
-      (`last_der_bytes`, `last_der_size`, `last_generated_at`) so
-      readers can serve the most recent CRL without re-signing.
+  CRL number is tracked in a simple in-process counter (ETS) per issuer_key_id.
+  In a multi-node deployment, each node maintains its own monotonic counter;
+  a distributed CRL number coordinator is a Phase 2 concern.
   """
 
-  import Ecto.Query
+  require Logger
 
-  alias PkiValidation.Repo
-  alias PkiValidation.Schema.{CertificateStatus, CrlMetadata}
+  alias PkiMnesia.{Repo, Structs.CertificateStatus, Structs.IssuerKey}
+  alias PkiCaEngine.KeyActivation
 
   @crl_number_oid {2, 5, 29, 20}
   @crl_reason_oid {2, 5, 29, 21}
-
-  # CRL validity window for next_update.
   @default_validity_seconds 24 * 3600
 
   @type signing_key :: %{
           required(:algorithm) => String.t(),
           required(:private_key) => binary(),
-          required(:certificate_der) => binary(),
-          optional(any()) => any()
+          required(:certificate_der) => binary()
         }
 
   @doc """
-  Generate, sign, persist, and return the DER-encoded CRL for the
-  given issuer.
+  Generate, sign, and return the DER-encoded CRL for the given issuer.
 
-  Returns `{:ok, der_binary, crl_number}` on success, where
-  `crl_number` is the value embedded in the generated CRL's
-  `cRLNumber` extension.
+  Returns `{:ok, der_binary, crl_number}` on success.
+
+  Options:
+    - `:validity_seconds` — CRL validity window (default: 86400)
+    - `:activation_server` — GenServer name/pid for KeyActivation (default: `KeyActivation`)
   """
-  @spec generate(binary(), signing_key(), keyword()) ::
+  @spec generate(binary(), keyword()) ::
           {:ok, binary(), pos_integer()} | {:error, term()}
-  def generate(issuer_key_id, signing_key, opts \\ []) do
+  def generate(issuer_key_id, opts \\ []) do
     validity_seconds = Keyword.get(opts, :validity_seconds, @default_validity_seconds)
-    now = DateTime.utc_now()
-    next_update = DateTime.add(now, validity_seconds, :second)
+    activation_server = Keyword.get(opts, :activation_server, KeyActivation)
 
-    revoked = load_revoked(issuer_key_id)
+    with {:ok, private_key} <- KeyActivation.get_active_key(activation_server, issuer_key_id),
+         {:ok, %IssuerKey{} = issuer_key} <- Repo.get(IssuerKey, issuer_key_id),
+         true <- not is_nil(issuer_key.certificate_der) do
+      signing_key = %{
+        algorithm: issuer_key.algorithm,
+        private_key: private_key,
+        certificate_der: issuer_key.certificate_der
+      }
 
-    Repo.transaction(fn ->
-      meta = get_or_create_metadata_locked(issuer_key_id)
-      current_number = meta.crl_number
-
-      try do
-        tbs = build_tbs(signing_key, revoked, current_number, now, next_update)
-        tbs_der = :public_key.der_encode(:TBSCertList, tbs)
-        {sig_alg_id, signature} = sign_tbs(tbs_der, signing_key)
-        cert_list = {:CertificateList, tbs, sig_alg_id, signature}
-        der = :public_key.der_encode(:CertificateList, cert_list)
-
-        update_metadata!(meta, current_number + 1, der, now)
-
-        {der, current_number}
-      rescue
-        e -> Repo.rollback(e)
-      end
-    end)
-    |> case do
-      {:ok, {der, number}} -> {:ok, der, number}
+      do_generate(issuer_key_id, signing_key, validity_seconds)
+    else
+      {:error, :not_active} -> {:error, :key_not_active}
+      {:ok, nil} -> {:error, :issuer_key_not_found}
+      false -> {:error, :no_certificate_der}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  # ---- Metadata row management ----
+  @doc """
+  Generate a signed DER CRL from a provided signing key map.
+  Used when the caller has already resolved the key (e.g. in tests).
+  """
+  @spec generate_with_key(binary(), signing_key(), keyword()) ::
+          {:ok, binary(), pos_integer()} | {:error, term()}
+  def generate_with_key(issuer_key_id, signing_key, opts \\ []) do
+    validity_seconds = Keyword.get(opts, :validity_seconds, @default_validity_seconds)
+    do_generate(issuer_key_id, signing_key, validity_seconds)
+  end
 
-  defp get_or_create_metadata_locked(issuer_key_id) do
-    query =
-      from c in CrlMetadata,
-        where: c.issuer_key_id == ^issuer_key_id,
-        lock: "FOR UPDATE"
+  # -- Private helpers --
 
-    case Repo.one(query) do
-      nil ->
-        {:ok, meta} =
-          %CrlMetadata{}
-          |> CrlMetadata.changeset(%{
-            issuer_key_id: issuer_key_id,
-            crl_number: 1,
-            generation_count: 0
-          })
-          |> Repo.insert()
+  defp do_generate(issuer_key_id, signing_key, validity_seconds) do
+    now = DateTime.utc_now()
+    next_update = DateTime.add(now, validity_seconds, :second)
+    crl_number = next_crl_number(issuer_key_id)
 
-        meta
+    case load_revoked(issuer_key_id) do
+      {:ok, revoked} ->
+        try do
+          tbs = build_tbs(signing_key, revoked, crl_number, now, next_update)
+          tbs_der = :public_key.der_encode(:TBSCertList, tbs)
+          {sig_alg_id, signature} = sign_tbs(tbs_der, signing_key)
+          cert_list = {:CertificateList, tbs, sig_alg_id, signature}
+          der = :public_key.der_encode(:CertificateList, cert_list)
+          {:ok, der, crl_number}
+        rescue
+          e ->
+            Logger.error("CRL DER generation failed: #{Exception.message(e)}")
+            {:error, {:der_generation_failed, Exception.message(e)}}
+        end
 
-      %CrlMetadata{} = meta ->
-        meta
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp update_metadata!(%CrlMetadata{} = meta, next_number, der, %DateTime{} = now) do
-    meta
-    |> CrlMetadata.changeset(%{
-      crl_number: next_number,
-      last_der_bytes: der,
-      last_der_size: byte_size(der),
-      last_generated_at: now,
-      generation_count: meta.generation_count + 1
-    })
-    |> Repo.update!()
-  end
-
-  # ---- Data loading ----
-
   defp load_revoked(issuer_key_id) do
-    from(cs in CertificateStatus,
-      where: cs.issuer_key_id == ^issuer_key_id and cs.status == "revoked",
-      order_by: [asc: cs.revoked_at],
-      select: %{
-        serial_number: cs.serial_number,
-        revoked_at: cs.revoked_at,
-        reason: cs.revocation_reason
-      }
-    )
-    |> Repo.all()
+    case Repo.where(CertificateStatus, fn cs ->
+           cs.issuer_key_id == issuer_key_id && cs.status == "revoked"
+         end) do
+      {:ok, revoked} ->
+        entries =
+          revoked
+          |> Enum.map(fn cs ->
+            %{serial_number: cs.serial_number, revoked_at: cs.revoked_at, reason: cs.revocation_reason}
+          end)
+          |> Enum.sort_by(& &1.revoked_at)
+
+        {:ok, entries}
+
+      {:error, _} = err ->
+        err
+    end
   end
 
-  # ---- TBSCertList construction ----
+  # Simple per-node monotonic counter using persistent_term per issuer.
+  # Not distributed-safe, but correct for single-node deployments.
+  defp next_crl_number(issuer_key_id) do
+    key = {__MODULE__, :crl_number, issuer_key_id}
+
+    current =
+      try do
+        :persistent_term.get(key)
+      rescue
+        ArgumentError -> 0
+      end
+
+    next = current + 1
+    :persistent_term.put(key, next)
+    next
+  end
 
   defp build_tbs(signing_key, revoked, crl_number, this_update, next_update) do
     issuer = extract_issuer(signing_key.certificate_der)
-    sig_alg_id = signing_key.signer.algorithm_identifier_record()
+    sig_alg_id = algorithm_identifier(signing_key.algorithm)
 
     revoked_entries =
       case Enum.map(revoked, &build_revoked_entry/1) do
@@ -173,37 +154,21 @@ defmodule PkiValidation.Crl.DerGenerator do
 
     extensions =
       case reason_atom do
-        nil ->
-          []
-
+        nil -> []
         atom ->
-          [
-            {:Extension, @crl_reason_oid, false, :public_key.der_encode(:CRLReason, atom)}
-          ]
+          [{:Extension, @crl_reason_oid, false, :public_key.der_encode(:CRLReason, atom)}]
       end
 
     {:TBSCertList_revokedCertificates_SEQOF, serial_int, utc_time(revoked_at), extensions}
   end
 
-  # ---- Issuer extraction ----
-
   defp extract_issuer(cert_der) do
     plain = :public_key.pkix_decode_cert(cert_der, :plain)
-    # :plain Certificate record:
-    #   {:Certificate, tbsCertificate, signatureAlgorithm, signature}
     tbs = :erlang.element(2, plain)
-    # :plain TBSCertificate fields (1-indexed inside the tuple where
-    # position 1 is the record tag):
-    #   2 version, 3 serialNumber, 4 signature, 5 issuer, 6 validity,
-    #   7 subject, 8 subjectPublicKeyInfo, ...
     :erlang.element(7, tbs)
   end
 
-  # ---- Time helpers ----
-
   defp utc_time(%DateTime{} = dt) do
-    # DateTime.utc_now/0 and stored revoked_at columns are already UTC;
-    # do NOT call DateTime.shift_zone!/2 (pulls in tzdata unnecessarily).
     charlist =
       dt
       |> Calendar.strftime("%y%m%d%H%M%SZ")
@@ -212,13 +177,10 @@ defmodule PkiValidation.Crl.DerGenerator do
     {:utcTime, charlist}
   end
 
-  # ---- Serial parsing ----
-
   defp parse_serial(bin) when is_binary(bin) do
     case Integer.parse(bin) do
       {int, ""} ->
         int
-
       _ ->
         case Integer.parse(bin, 16) do
           {int, ""} -> int
@@ -226,8 +188,6 @@ defmodule PkiValidation.Crl.DerGenerator do
         end
     end
   end
-
-  # ---- Reason mapping ----
 
   defp reason_to_atom(nil), do: nil
   defp reason_to_atom("unspecified"), do: :unspecified
@@ -241,26 +201,67 @@ defmodule PkiValidation.Crl.DerGenerator do
   defp reason_to_atom("privilege_withdrawn"), do: :privilegeWithdrawn
   defp reason_to_atom("aa_compromise"), do: :aACompromise
 
-  # Defensive catch-all: the certificate_status changeset validates
-  # revocation_reason against a fixed enum, so this clause should never fire
-  # in normal operation. It exists so a row inserted out-of-band (migration,
-  # manual ops, direct SQL) with an unknown reason string does not crash CRL
-  # generation for the entire issuer — we log and fall back to :unspecified.
   defp reason_to_atom(other) do
-    require Logger
     Logger.warning("Unknown revocation reason in CRL: #{inspect(other)}, using :unspecified")
     :unspecified
   end
 
-  # ---- Signing ----
+  defp sign_tbs(tbs_der, %{algorithm: algorithm, private_key: priv}) do
+    case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+        {:ok, algo} = PkiCrypto.Registry.get(algorithm)
+        {:ok, sig} = PkiCrypto.Algorithm.sign(algo, priv, tbs_der)
+        {pqc_algorithm_identifier(algorithm), sig}
 
-  # Algorithm dispatch lives in the Signer module (cached on the signing_key
-  # at SigningKeyStore load time). The signer exposes both the signing
-  # primitive and the AlgorithmIdentifier as an Erlang record (for the CRL
-  # path, which uses :public_key.der_encode(:TBSCertList, ...) and needs the
-  # typed form).
-  defp sign_tbs(tbs_der, %{signer: signer_mod, private_key: priv}) do
-    signature = signer_mod.sign(tbs_der, priv)
-    {signer_mod.algorithm_identifier_record(), signature}
+      {:ok, %{family: :ecdsa}} ->
+        hash = if algorithm == "ECC-P384", do: :sha384, else: :sha256
+        native_key = :public_key.der_decode(:ECPrivateKey, priv)
+        sig = :public_key.sign(tbs_der, hash, native_key)
+        curve = if algorithm == "ECC-P384", do: :secp384r1, else: :prime256v1
+        alg_id = {:AlgorithmIdentifier, {1, 2, 840, 10045, 4, 3, 2}, {:namedCurve, curve}}
+        {alg_id, sig}
+
+      {:ok, %{family: :rsa}} ->
+        native_key = :public_key.der_decode(:RSAPrivateKey, priv)
+        sig = :public_key.sign(tbs_der, :sha256, native_key)
+        alg_id = {:AlgorithmIdentifier, :sha256WithRSAEncryption, :asn1_NOVALUE}
+        {alg_id, sig}
+
+      _ ->
+        raise "unknown algorithm for CRL signing: #{inspect(algorithm)}"
+    end
+  end
+
+  # Returns the AlgorithmIdentifier ASN.1 record for the given algorithm string.
+  defp algorithm_identifier(algorithm) do
+    case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+      {:ok, %{family: :ecdsa}} ->
+        curve = if algorithm == "ECC-P384", do: :secp384r1, else: :prime256v1
+        {:AlgorithmIdentifier, {1, 2, 840, 10045, 4, 3, 2}, {:namedCurve, curve}}
+
+      {:ok, %{family: :rsa}} ->
+        {:AlgorithmIdentifier, :sha256WithRSAEncryption, :asn1_NOVALUE}
+
+      {:ok, %{family: _pqc}} ->
+        pqc_algorithm_identifier(algorithm)
+
+      _ ->
+        raise "unknown algorithm identifier for: #{inspect(algorithm)}"
+    end
+  end
+
+  defp pqc_algorithm_identifier(algorithm) do
+    # PQC algorithm identifiers — OIDs from NIST/IETF drafts.
+    # These will need to be updated as standards stabilize.
+    oid =
+      case algorithm do
+        "ML-DSA-44" -> {2, 16, 840, 1, 101, 3, 4, 3, 17}
+        "ML-DSA-65" -> {2, 16, 840, 1, 101, 3, 4, 3, 18}
+        "ML-DSA-87" -> {2, 16, 840, 1, 101, 3, 4, 3, 19}
+        # KAZ-SIGN — placeholder OID until official assignment
+        _ -> {2, 16, 458, 1, 1, 1, 1}
+      end
+
+    {:AlgorithmIdentifier, oid, :asn1_NOVALUE}
   end
 end

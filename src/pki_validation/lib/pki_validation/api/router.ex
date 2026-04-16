@@ -4,26 +4,20 @@ defmodule PkiValidation.Api.Router do
 
   Endpoints:
   - GET  /health           — health check
-  - POST /ocsp             — OCSP status query (simplified JSON, legacy)
+  - POST /ocsp             — OCSP status query (simplified JSON)
   - POST /ocsp/der         — RFC 6960 OCSP (application/ocsp-request)
   - GET  /ocsp/der/:base64 — RFC 5019 lightweight OCSP (GET form)
-  - GET  /crl              — current CRL (JSON, legacy)
-  - GET  /crl/der          — RFC 5280 DER CRL (default issuer)
+  - GET  /crl              — current CRL (JSON)
   - GET  /crl/der/:issuer_key_id — RFC 5280 DER CRL for a specific issuer
   - POST /notify/issuance  — CA notifies of new certificate (internal, authenticated)
   - POST /notify/revocation — CA notifies of certificate revocation (internal, authenticated)
-  - POST /notify/signing-key-rotation — trigger SigningKeyStore.reload/0 (internal, authenticated)
   """
 
   use Plug.Router
 
   require Logger
 
-  alias PkiValidation.Repo
-  alias PkiValidation.Schema.{CertificateStatus, SigningKeyConfig}
-  alias PkiValidation.OcspCache
-
-  import Ecto.Query
+  alias PkiMnesia.{Repo, Structs.CertificateStatus, Structs.IssuerKey}
 
   plug :match
 
@@ -35,25 +29,22 @@ defmodule PkiValidation.Api.Router do
   plug :dispatch
 
   get "/health" do
-    case PkiValidation.SigningKeyStore.status() do
-      %{healthy: true, loaded: loaded} ->
-        send_json(conn, 200, %{status: "ok", signing_keys_loaded: loaded})
+    crl_status =
+      case PkiValidation.CrlPublisher.get_current_crl() do
+        {:ok, crl} -> %{type: crl.type, total_revoked: crl.total_revoked}
+        _ -> %{error: "unavailable"}
+      end
 
-      %{loaded: loaded, failed: failed, last_error: last_error} ->
-        send_json(conn, 503, %{
-          status: "degraded",
-          signing_keys_loaded: loaded,
-          signing_keys_failed: failed,
-          last_error: if(last_error, do: Atom.to_string(last_error), else: nil)
-        })
-    end
+    send_json(conn, 200, %{status: "ok", crl: crl_status})
   end
 
   post "/ocsp" do
     case conn.body_params do
       %{"serial_number" => serial_number} when is_binary(serial_number) ->
         case PkiValidation.OcspResponder.check_status(serial_number) do
-          {:ok, response} -> send_json(conn, 200, response)
+          {:ok, response} ->
+            send_json(conn, 200, response)
+
           {:error, reason} ->
             Logger.error("OCSP check failed for serial #{serial_number}: #{inspect(reason)}")
             send_json(conn, 500, %{error: "OCSP check failed"})
@@ -66,9 +57,11 @@ defmodule PkiValidation.Api.Router do
 
   get "/crl" do
     case PkiValidation.CrlPublisher.get_current_crl() do
-      {:ok, crl} -> send_json(conn, 200, crl)
+      {:ok, crl} ->
+        send_json(conn, 200, crl)
+
       {:error, reason} ->
-        Logger.error("CRL generation failed: #{inspect(reason)}")
+        Logger.error("CRL fetch failed: #{inspect(reason)}")
         send_json(conn, 500, %{error: "CRL generation failed"})
     end
   end
@@ -76,17 +69,16 @@ defmodule PkiValidation.Api.Router do
   post "/notify/issuance" do
     with :ok <- verify_internal_auth(conn),
          {:ok, attrs} <- validate_issuance_params(conn.body_params) do
-      changeset = CertificateStatus.changeset(%CertificateStatus{}, attrs)
+      cs = CertificateStatus.new(attrs)
 
-      case Repo.insert(changeset) do
+      case Repo.insert(cs) do
         {:ok, record} ->
           Logger.info("Certificate issuance recorded: serial=#{record.serial_number}")
           send_json(conn, 201, %{status: "ok", serial_number: record.serial_number})
 
-        {:error, changeset} ->
-          errors = format_changeset_errors(changeset)
-          Logger.warning("Certificate issuance notification rejected: #{inspect(errors)}")
-          send_json(conn, 422, %{error: "validation_failed", details: errors})
+        {:error, reason} ->
+          Logger.warning("Certificate issuance notification failed: #{inspect(reason)}")
+          send_json(conn, 422, %{error: "insert_failed", details: inspect(reason)})
       end
     else
       {:error, :unauthorized} ->
@@ -100,50 +92,44 @@ defmodule PkiValidation.Api.Router do
   post "/notify/revocation" do
     with :ok <- verify_internal_auth(conn),
          {:ok, serial_number, reason} <- validate_revocation_params(conn.body_params) do
-      # Use transaction + FOR UPDATE to prevent TOCTOU race on concurrent revocations
+      # Lookup then update in Mnesia transaction
       result =
         Repo.transaction(fn ->
-          query = from(cs in CertificateStatus, where: cs.serial_number == ^serial_number, lock: "FOR UPDATE")
+          case :mnesia.index_read(:certificate_status, serial_number, :serial_number) do
+            [] ->
+              :not_found
 
-          case Repo.one(query) do
-            nil -> {:not_found}
-            %CertificateStatus{status: "revoked"} -> {:already_revoked}
-            %CertificateStatus{} = cert ->
-              now = DateTime.utc_now() |> DateTime.truncate(:second)
+            [record | _] ->
+              cs = PkiMnesia.Repo.record_to_struct(CertificateStatus, record)
 
-              changeset =
-                CertificateStatus.changeset(cert, %{
-                  status: "revoked",
-                  revoked_at: now,
-                  revocation_reason: reason
-                })
+              case cs.status do
+                "revoked" ->
+                  :already_revoked
 
-              case Repo.update(changeset) do
-                {:ok, updated} -> {:revoked, updated}
-                {:error, changeset} -> {:validation_error, changeset}
+                _ ->
+                  now = DateTime.utc_now() |> DateTime.truncate(:second)
+                  updated = %{cs | status: "revoked", revoked_at: now, revocation_reason: reason, updated_at: now}
+                  :mnesia.write(PkiMnesia.Repo.struct_to_record(:certificate_status, updated))
+                  {:revoked, updated}
               end
           end
         end)
 
       case result do
-        {:ok, {:not_found}} ->
+        {:ok, :not_found} ->
           send_json(conn, 404, %{error: "certificate_not_found"})
 
-        {:ok, {:already_revoked}} ->
+        {:ok, :already_revoked} ->
           send_json(conn, 409, %{error: "already_revoked"})
 
-        {:ok, {:revoked, _updated}} ->
-          OcspCache.invalidate(serial_number)
+        {:ok, {:revoked, updated}} ->
+          # Force CRL regeneration on revocation
+          PkiValidation.CrlPublisher.regenerate()
           Logger.info("Certificate revocation recorded: serial=#{serial_number} reason=#{reason}")
-          send_json(conn, 200, %{status: "ok", serial_number: serial_number})
-
-        {:ok, {:validation_error, changeset}} ->
-          errors = format_changeset_errors(changeset)
-          Logger.warning("Certificate revocation notification rejected: #{inspect(errors)}")
-          send_json(conn, 422, %{error: "validation_failed", details: errors})
+          send_json(conn, 200, %{status: "ok", serial_number: updated.serial_number})
 
         {:error, reason} ->
-          Logger.error("Certificate revocation transaction failed: #{inspect(reason)}")
+          Logger.error("Certificate revocation failed: #{inspect(reason)}")
           send_json(conn, 500, %{error: "internal_error"})
       end
     else
@@ -161,8 +147,6 @@ defmodule PkiValidation.Api.Router do
         handle_der_ocsp_body(conn, body)
 
       {:more, _partial, conn} ->
-        # Body exceeded our 1 MB cap — treat as malformed rather than
-        # attempt to process an unbounded OCSP request.
         send_malformed_ocsp(conn)
 
       {:error, _reason} ->
@@ -186,26 +170,20 @@ defmodule PkiValidation.Api.Router do
     end
   end
 
-  get "/crl/der" do
-    case first_active_issuer_key_id() do
-      nil -> send_resp(conn, 503, "")
-      issuer_key_id -> serve_crl(conn, issuer_key_id)
-    end
-  end
-
   get "/crl/der/:issuer_key_id" do
-    serve_crl(conn, issuer_key_id)
-  end
+    case PkiValidation.Crl.DerGenerator.generate(issuer_key_id) do
+      {:ok, der, crl_number} ->
+        conn
+        |> put_resp_header("content-type", "application/pkix-crl")
+        |> put_resp_header("cache-control", "public, max-age=3600, no-transform")
+        |> put_resp_header("etag", "\"#{crl_number}-#{short_id(issuer_key_id)}\"")
+        |> send_resp(200, der)
 
-  post "/notify/signing-key-rotation" do
-    case verify_internal_auth(conn) do
-      :ok ->
-        PkiValidation.SigningKeyStore.reload()
-        Logger.info("SigningKeyStore reloaded via /notify/signing-key-rotation")
-        send_json(conn, 200, %{status: "ok"})
+      {:error, :key_not_active} ->
+        send_resp(conn, 503, "")
 
-      {:error, :unauthorized} ->
-        send_json(conn, 401, %{error: "unauthorized"})
+      {:error, _reason} ->
+        send_resp(conn, 500, "")
     end
   end
 
@@ -238,27 +216,24 @@ defmodule PkiValidation.Api.Router do
   end
 
   defp validate_issuance_params(params) do
-    required = ~w(serial_number issuer_key_id subject_dn not_before not_after)
+    required = ~w(serial_number issuer_key_id not_after)
 
     case check_required(params, required) do
       :ok ->
-        not_before = parse_datetime(params["not_before"])
         not_after = parse_datetime(params["not_after"])
+        not_before = parse_datetime(params["not_before"])
 
-        with {:not_before, %DateTime{}} <- {:not_before, not_before},
-             {:not_after, %DateTime{}} <- {:not_after, not_after} do
-          {:ok,
-           %{
-             serial_number: params["serial_number"],
-             issuer_key_id: params["issuer_key_id"],
-             subject_dn: params["subject_dn"],
-             status: "active",
-             not_before: not_before,
-             not_after: not_after
-           }}
+        with {:not_after, %DateTime{}} <- {:not_after, not_after} do
+          {:ok, %{
+            serial_number: params["serial_number"],
+            issuer_key_id: params["issuer_key_id"],
+            status: "active",
+            not_before: if(match?(%DateTime{}, not_before), do: not_before, else: nil),
+            not_after: not_after
+          }}
         else
-          {:not_before, _} -> {:error, :invalid_params, "not_before is not a valid ISO 8601 datetime"}
-          {:not_after, _} -> {:error, :invalid_params, "not_after is not a valid ISO 8601 datetime"}
+          {:not_after, _} ->
+            {:error, :invalid_params, "not_after is not a valid ISO 8601 datetime"}
         end
 
       {:error, missing} ->
@@ -300,12 +275,12 @@ defmodule PkiValidation.Api.Router do
   defp parse_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} -> dt
-      _ -> {:error, :invalid_datetime}
+      _ -> nil
     end
   end
 
   defp parse_datetime(%DateTime{} = value), do: value
-  defp parse_datetime(_), do: {:error, :invalid_datetime}
+  defp parse_datetime(_), do: nil
 
   defp handle_der_ocsp_body(conn, body) do
     case PkiValidation.Ocsp.RequestDecoder.decode(body) do
@@ -317,12 +292,10 @@ defmodule PkiValidation.Api.Router do
     end
   end
 
-  # Guard the DerResponder.respond/2 result. The orchestrator's internal
-  # rescue branch can still return {:error, _} if the ASN.1 encoder itself
-  # fails while producing an :internalError response. In that rare case we
-  # can't produce a signed body at all, so fall back to a bare HTTP 500.
   defp respond_der_ocsp(conn, request) do
-    case PkiValidation.Ocsp.DerResponder.respond(request, []) do
+    issuer_key_id = resolve_issuer_key_id(request)
+
+    case PkiValidation.Ocsp.DerResponder.respond(request, issuer_key_id: issuer_key_id) do
       {:ok, der} ->
         send_der_ocsp(conn, der)
 
@@ -330,6 +303,26 @@ defmodule PkiValidation.Api.Router do
         send_resp(conn, 500, "")
     end
   end
+
+  # Try to find the issuer_key_id from the request's issuer_name_hash or
+  # issuer_key_hash by scanning IssuerKey records. Falls back to nil (which
+  # causes DerResponder to return :unauthorized).
+  defp resolve_issuer_key_id(%{cert_ids: [%{issuer_key_hash: hash} | _]}) when is_binary(hash) do
+    case Repo.where(IssuerKey, fn k -> k.status == "active" end) do
+      {:ok, keys} ->
+        Enum.find_value(keys, nil, fn key ->
+          if key.certificate_der do
+            key_hash = PkiValidation.CertId.issuer_key_hash(key.certificate_der)
+            if key_hash == hash, do: key.id
+          end
+        end)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp resolve_issuer_key_id(_), do: nil
 
   defp send_der_ocsp(conn, der) do
     etag = :crypto.hash(:sha256, der) |> Base.encode16(case: :lower)
@@ -348,76 +341,20 @@ defmodule PkiValidation.Api.Router do
     send_der_ocsp(conn, der)
   end
 
-  # ResponseBuilder.build/4 requires a signing_key argument even for error
-  # statuses, but the error path never signs anything — it just produces an
-  # OCSPResponse with `:asn1_NOVALUE` body.
   defp dummy_signing_key do
     %{algorithm: "ecc_p256", private_key: <<>>, certificate_der: <<>>}
   end
 
-  # Try url-safe base64 first (RFC 5019 permits it). Some clients use
-  # standard base64 (possibly URL-encoded by the HTTP layer); fall back to
-  # that so both forms round-trip.
   defp decode_ocsp_get_param(b64) when is_binary(b64) do
-    case Base.url_decode64(b64, padding: false) do
-      {:ok, bin} ->
-        {:ok, bin}
-
-      :error ->
-        case Base.url_decode64(b64, padding: true) do
-          {:ok, bin} ->
-            {:ok, bin}
-
-          :error ->
-            case Base.decode64(b64, padding: false) do
-              {:ok, bin} ->
-                {:ok, bin}
-
-              :error ->
-                Base.decode64(b64, padding: true)
-            end
-        end
+    with :error <- Base.url_decode64(b64, padding: false),
+         :error <- Base.url_decode64(b64, padding: true),
+         :error <- Base.decode64(b64, padding: false) do
+      Base.decode64(b64, padding: true)
+    else
+      {:ok, bin} -> {:ok, bin}
     end
-  end
-
-  defp serve_crl(conn, issuer_key_id) do
-    case PkiValidation.SigningKeyStore.get(issuer_key_id) do
-      {:ok, signing_key} ->
-        case PkiValidation.Crl.DerGenerator.generate(issuer_key_id, signing_key) do
-          {:ok, der, crl_number} ->
-            conn
-            |> put_resp_header("content-type", "application/pkix-crl")
-            |> put_resp_header("cache-control", "public, max-age=3600, no-transform")
-            |> put_resp_header("etag", "\"#{crl_number}-#{short_id(issuer_key_id)}\"")
-            |> send_resp(200, der)
-
-          {:error, _reason} ->
-            send_resp(conn, 503, "")
-        end
-
-      :not_found ->
-        send_resp(conn, 404, "")
-    end
-  end
-
-  defp first_active_issuer_key_id do
-    Repo.one(
-      from c in SigningKeyConfig,
-        where: c.status == "active",
-        order_by: [asc: c.inserted_at],
-        limit: 1,
-        select: c.issuer_key_id
-    )
   end
 
   defp short_id(id) when is_binary(id),
     do: binary_part(id, 0, min(8, byte_size(id)))
-
-  defp format_changeset_errors(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
-  end
 end
