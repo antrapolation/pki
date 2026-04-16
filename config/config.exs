@@ -113,6 +113,16 @@ config :tailwind,
     cd: Path.expand("../src/pki_platform_portal", __DIR__)
   ]
 
+# ── Tenant Web endpoint ──────────────────────────────────────────────────────
+config :pki_tenant_web, PkiTenantWeb.Endpoint,
+  url: [host: "localhost"],
+  adapter: Bandit.PhoenixAdapter,
+  render_errors: [formats: [html: PkiTenantWeb.ErrorHTML], layout: false],
+  pubsub_server: PkiTenantWeb.PubSub,
+  live_view: [signing_salt: "TnNtW3bQ"],
+  secret_key_base: "dev-only-secret-key-base-that-is-at-least-64-bytes-long-for-phoenix-endpoint-config",
+  http: [port: 4010]
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 # JSON logging in production (LoggerJSON 6.x uses formatter API, not backends)
 if config_env() == :prod do
