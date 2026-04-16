@@ -96,6 +96,10 @@ defmodule PkiTenantWeb do
     end
   end
 
+  # NOTE: ~p sigils from `use Phoenix.VerifiedRoutes` are verified against
+  # CaRouter only. RA-specific routes (e.g. /csrs, /cert-profiles) are not
+  # defined in CaRouter and will fail compile-time verification if referenced
+  # with ~p in templates or LiveViews. Use plain string paths for RA routes.
   def verified_routes do
     quote do
       use Phoenix.VerifiedRoutes,

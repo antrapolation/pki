@@ -13,8 +13,7 @@
     </div>
 
     <%!-- Navigation --%>
-    <% role = (@current_user && (@current_user[:role] || @current_user.role)) || "auditor" %>
-    <% role = to_string(role) %>
+    <% role = @current_user.role %>
     <nav class="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
       <.sidebar_section label="OVERVIEW">
         <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />
@@ -22,16 +21,16 @@
       </.sidebar_section>
 
       <.sidebar_section :if={role in ["ca_admin", "key_manager"]} label="KEY MANAGEMENT">
-        <.sidebar_link :if={role == "ca_admin"} href="/ceremony" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
-        <.sidebar_link href="/ceremony/custodian" icon="hero-key" label="My Shares" current={@page_title} />
-        <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
+        <.sidebar_link :if={role == "ca_admin"} href="/ceremonies" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
+        <.sidebar_link href="/ceremonies/custodian" icon="hero-key" label="My Shares" current={@page_title} />
+        <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremonies/witness" icon="hero-eye" label="Witness" current={@page_title} />
         <.sidebar_link href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
         <.sidebar_link href="/certificates" icon="hero-document-text" label="Certificates" current={@page_title} />
       </.sidebar_section>
 
       <%!-- Auditor-only: show ceremony witness when they have no KEY MANAGEMENT section --%>
       <.sidebar_section :if={role == "auditor"} label="CEREMONY">
-        <.sidebar_link href="/ceremony/witness" icon="hero-eye" label="Witness" current={@page_title} />
+        <.sidebar_link href="/ceremonies/witness" icon="hero-eye" label="Witness" current={@page_title} />
       </.sidebar_section>
 
       <.sidebar_section :if={role in ["ca_admin", "key_manager"]} label="INFRASTRUCTURE">

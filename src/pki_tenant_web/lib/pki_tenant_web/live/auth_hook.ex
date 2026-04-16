@@ -154,7 +154,7 @@ defmodule PkiTenantWeb.Live.AuthHook do
     %{
       id: sess.user_id,
       username: sess.username,
-      role: sess.role,
+      role: to_string(sess.role || "auditor"),
       display_name: sess.display_name,
       email: sess.email
     }
