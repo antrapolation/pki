@@ -251,3 +251,40 @@ if config_env() == :prod do
     config :pki_platform_portal, encryption_salt: enc_salt
   end
 end
+
+# ─── Tenant Node (pki_tenant_node release) ──────────────────────────────
+# Tenant nodes read their config from env vars set by the platform's
+# TenantLifecycle when spawning via :peer module.
+
+if tenant_port = System.get_env("TENANT_PORT") do
+  config :pki_tenant_web, PkiTenantWeb.Endpoint,
+    http: [port: String.to_integer(tenant_port)],
+    server: true
+
+  if secret = System.get_env("SECRET_KEY_BASE") do
+    config :pki_tenant_web, PkiTenantWeb.Endpoint,
+      secret_key_base: secret
+  end
+
+  if tenant_slug = System.get_env("TENANT_SLUG") do
+    config :pki_tenant_web, PkiTenantWeb.Endpoint,
+      url: [host: "#{tenant_slug}.ca.straptrust.com"]
+  end
+end
+
+if mnesia_dir = System.get_env("MNESIA_DIR") do
+  config :pki_tenant, mnesia_dir: mnesia_dir
+end
+
+if platform_node = System.get_env("PLATFORM_NODE") do
+  config :pki_tenant, platform_node: platform_node
+end
+
+if tenant_id = System.get_env("TENANT_ID") do
+  config :pki_tenant, tenant_id: tenant_id
+end
+
+# Allow dev_activate in non-production for testing convenience
+if config_env() != :prod do
+  config :pki_ca_engine, allow_dev_activate: true
+end
