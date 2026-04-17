@@ -133,8 +133,27 @@ config :pki_tenant_web, PkiTenantWeb.Endpoint,
   render_errors: [formats: [html: PkiTenantWeb.ErrorHTML], layout: false],
   pubsub_server: PkiTenantWeb.PubSub,
   live_view: [signing_salt: "TnNtW3bQ"],
-  secret_key_base: "dev-only-secret-key-base-that-is-at-least-64-bytes-long-for-phoenix-endpoint-config",
   http: [port: 4010]
+
+# Dev-only secret_key_base (production MUST set SECRET_KEY_BASE env var)
+if config_env() != :prod do
+  config :pki_tenant_web, PkiTenantWeb.Endpoint,
+    secret_key_base: "dev-only-secret-key-base-that-is-at-least-64-bytes-long-for-phoenix-endpoint-config"
+end
+
+# ── Tenant Web dev watchers ─────────────────────────────────────────────────
+if config_env() == :dev do
+  config :pki_tenant_web, PkiTenantWeb.Endpoint,
+    watchers: [
+      esbuild: {Esbuild, :install_and_run, [:pki_tenant_web, ~w(--sourcemap=inline --watch)]},
+      tailwind: {Tailwind, :install_and_run, [:pki_tenant_web, ~w(--watch)]}
+    ],
+    live_reload: [
+      patterns: [
+        ~r"src/pki_tenant_web/lib/pki_tenant_web/(live|components)/.*(ex|heex)$"
+      ]
+    ]
+end
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 # JSON logging in production (LoggerJSON 6.x uses formatter API, not backends)

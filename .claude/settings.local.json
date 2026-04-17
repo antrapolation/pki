@@ -363,7 +363,19 @@
       "Bash(bash -n /Users/amirrudinyahaya/Workspace/pki/deploy/install.sh)",
       "Bash(bash -n /Users/amirrudinyahaya/Workspace/pki/deploy/generate-env.sh)",
       "Bash(security find-generic-password:*)",
-      "Bash(sudo -u postgres psql -l)"
+      "Bash(sudo -u postgres psql -l)",
+      "Bash(head -1 /Users/amirrudinyahaya/Workspace/pki/src/pki_tenant_web/lib/pki_tenant_web/ca/live/*.ex)",
+      "Bash(MIX_ENV=test mix deps.compile pki_mnesia)",
+      "Bash(MIX_ENV=test ls /Users/amirrudinyahaya/Workspace/pki/src/pki_tenant/_build/test/lib/pki_mnesia/ebin/)",
+      "Bash(MIX_ENV=test mix deps.compile pki_mnesia --force)",
+      "Bash(MIX_ENV=test mix run -e 'IO.puts\\(Mix.env\\(\\)\\)')",
+      "Bash(MIX_ENV=dev mix esbuild *)",
+      "Bash(MIX_QUIET=1 mix esbuild pki_tenant_web)",
+      "Bash(xxd /Users/amirrudinyahaya/Workspace/pki/deps/typedstruct/.hex)",
+      "Bash(MIX_ENV=prod mix esbuild pki_ca_portal)",
+      "Bash(MIX_ENV=prod mix esbuild *)",
+      "Bash(MIX_ENV=prod mix tailwind pki_tenant_web)",
+      "Bash(TENANT_ID=dev-tenant-001 TENANT_SLUG=dev TENANT_PORT=4010 MNESIA_DIR=/tmp/pki-dev-smoke-test MIX_ENV=test mix compile)"
     ]
   }
 }

@@ -11,7 +11,7 @@
 ### 1. Boot the tenant node directly (no platform needed for dev)
 
 ```bash
-cd /Users/amirrudinyahaya/Workspace/pki
+cd <project-root>
 
 # Set tenant env vars
 export TENANT_ID="dev-tenant-001"
@@ -85,7 +85,7 @@ Go to http://dev.ca.lvh.me:4010/login
 ### 1. Boot platform node
 
 ```bash
-cd /Users/amirrudinyahaya/Workspace/pki
+cd <project-root>
 DATABASE_URL="ecto://postgres:postgres@localhost/pki_platform" \
 SECRET_KEY_BASE="dev-only-key-base-64-chars-long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
 iex --sname pki_platform -S mix run --no-halt

@@ -261,14 +261,24 @@ if tenant_port = System.get_env("TENANT_PORT") do
     http: [port: String.to_integer(tenant_port)],
     server: true
 
-  if secret = System.get_env("SECRET_KEY_BASE") do
+  if config_env() == :prod do
+    secret =
+      System.get_env("SECRET_KEY_BASE") ||
+        raise "SECRET_KEY_BASE is required for tenant nodes in production"
+
     config :pki_tenant_web, PkiTenantWeb.Endpoint,
       secret_key_base: secret
+  else
+    if secret = System.get_env("SECRET_KEY_BASE") do
+      config :pki_tenant_web, PkiTenantWeb.Endpoint,
+        secret_key_base: secret
+    end
   end
 
+  base_domain = System.get_env("TENANT_BASE_DOMAIN", "localhost")
   if tenant_slug = System.get_env("TENANT_SLUG") do
     config :pki_tenant_web, PkiTenantWeb.Endpoint,
-      url: [host: "#{tenant_slug}.ca.straptrust.com"]
+      url: [host: "#{tenant_slug}.ca.#{base_domain}"]
   end
 end
 
