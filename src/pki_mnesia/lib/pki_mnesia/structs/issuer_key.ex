@@ -28,6 +28,16 @@ defmodule PkiMnesia.Structs.IssuerKey do
     updated_at: DateTime.t()
   }
 
+  @doc "Validates required fields before Mnesia write."
+  def validate(%__MODULE__{} = s) do
+    missing =
+      [{:ca_instance_id, s.ca_instance_id}, {:algorithm, s.algorithm}]
+      |> Enum.filter(fn {_k, v} -> is_nil(v) end)
+      |> Enum.map(fn {k, _v} -> k end)
+
+    if missing == [], do: :ok, else: {:error, {:missing_fields, missing}}
+  end
+
   def new(attrs \\ %{}) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     %__MODULE__{

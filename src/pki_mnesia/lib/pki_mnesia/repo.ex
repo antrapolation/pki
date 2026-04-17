@@ -6,15 +6,17 @@ defmodule PkiMnesia.Repo do
 
   alias PkiMnesia.Schema
 
-  @doc "Insert a struct into its corresponding Mnesia table."
+  @doc "Insert a struct into its corresponding Mnesia table. Validates if the struct module exports validate/1."
   @spec insert(struct()) :: {:ok, struct()} | {:error, term()}
   def insert(%{__struct__: mod} = struct) do
-    table = Schema.table_name(mod)
-    record = struct_to_record(table, struct)
+    with :ok <- maybe_validate(mod, struct) do
+      table = Schema.table_name(mod)
+      record = struct_to_record(table, struct)
 
-    case :mnesia.transaction(fn -> :mnesia.write(record) end) do
-      {:atomic, :ok} -> {:ok, struct}
-      {:aborted, reason} -> {:error, reason}
+      case :mnesia.transaction(fn -> :mnesia.write(record) end) do
+        {:atomic, :ok} -> {:ok, struct}
+        {:aborted, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -51,7 +53,7 @@ defmodule PkiMnesia.Repo do
       case :mnesia.read(table, id) do
         [existing_record] ->
           existing_struct = record_to_struct(mod, existing_record)
-          updated = Map.merge(existing_struct, changes)
+          updated = struct(existing_struct, changes)
           record = struct_to_record(table, updated)
           :mnesia.write(record)
           updated
@@ -67,12 +69,12 @@ defmodule PkiMnesia.Repo do
   end
 
   @doc "Delete a struct from Mnesia by id."
-  @spec delete(module(), binary()) :: :ok | {:error, term()}
+  @spec delete(module(), binary()) :: {:ok, binary()} | {:error, term()}
   def delete(struct_mod, id) do
     table = Schema.table_name(struct_mod)
 
     case :mnesia.transaction(fn -> :mnesia.delete({table, id}) end) do
-      {:atomic, :ok} -> :ok
+      {:atomic, :ok} -> {:ok, id}
       {:aborted, reason} -> {:error, reason}
     end
   end
@@ -135,6 +137,16 @@ defmodule PkiMnesia.Repo do
     case :mnesia.transaction(fun) do
       {:atomic, result} -> {:ok, result}
       {:aborted, reason} -> {:error, reason}
+    end
+  end
+
+  # -- Validation helper --
+
+  defp maybe_validate(mod, struct) do
+    if function_exported?(mod, :validate, 1) do
+      mod.validate(struct)
+    else
+      :ok
     end
   end
 

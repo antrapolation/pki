@@ -12,6 +12,7 @@ defmodule PkiPlatformEngine.CaddyConfigurator do
     ra_host = "#{slug}.ra.*"
 
     route = %{
+      "@id": "route-#{slug}",
       match: [%{host: [ca_host, ra_host]}],
       handle: [
         %{
@@ -35,7 +36,7 @@ defmodule PkiPlatformEngine.CaddyConfigurator do
   def remove_route(slug) do
     Logger.info("[caddy] Removing route for #{slug}")
 
-    case delete_config("/config/apps/http/servers/srv0/routes/#{URI.encode(slug)}") do
+    case delete_config("/id/route-#{slug}") do
       :ok ->
         Logger.info("[caddy] Removed route for #{slug}")
         :ok

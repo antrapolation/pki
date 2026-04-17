@@ -22,6 +22,7 @@ defmodule PkiTenant.Application do
       if Application.get_env(:pki_tenant, :start_application, true) do
         [
           {PkiTenant.MnesiaBootstrap, [slug: tenant_slug]},
+          {PkiTenant.MnesiaBackup, [start_timer: true]},
           {PkiTenant.AuditBridge, [tenant_id: tenant_id, platform_node: platform_node]},
           {PkiCaEngine.EngineSupervisor, []},
           {PkiRaEngine.EngineSupervisor, []},

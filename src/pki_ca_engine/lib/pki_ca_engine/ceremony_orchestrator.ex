@@ -176,30 +176,44 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   Stores a password hash for later share encryption.
   """
   def accept_share(ceremony_id, custodian_name, password) do
-    with {:ok, ceremony} <- get_ceremony(ceremony_id),
-         true <- ceremony.status == "preparing" || {:error, :invalid_ceremony_status} do
+    salt = :crypto.strong_rand_bytes(16)
+    password_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, 100_000, 32)
+    combined_hash = salt <> password_hash
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
-        {:ok, shares} ->
-          case Enum.find(shares, fn s -> s.custodian_name == custodian_name and s.status == "pending" end) do
-            nil -> {:error, :share_not_found}
-            share ->
-              salt = :crypto.strong_rand_bytes(16)
-              password_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, 100_000, 32)
-              combined_hash = salt <> password_hash
-              now = DateTime.utc_now() |> DateTime.truncate(:second)
+    Repo.transaction(fn ->
+      # Read ceremony status inside transaction to avoid TOCTOU race
+      ceremony_table = PkiMnesia.Schema.table_name(KeyCeremony)
+      ceremony =
+        case :mnesia.read(ceremony_table, ceremony_id) do
+          [record] -> Repo.record_to_struct(KeyCeremony, record)
+          [] -> :mnesia.abort(:not_found)
+        end
 
-              Repo.transaction(fn ->
-                updated = %{share | password_hash: combined_hash, status: "accepted", updated_at: now}
-                :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(ThresholdShare), updated))
-
-                append_transcript_in_tx(ceremony_id, custodian_name, "share_accepted", %{})
-
-                updated
-              end)
-          end
-        {:error, _} = err -> err
+      if ceremony.status != "preparing" do
+        :mnesia.abort({:invalid_ceremony_status, ceremony.status})
       end
+
+      share_table = PkiMnesia.Schema.table_name(ThresholdShare)
+      shares = :mnesia.index_read(share_table, ceremony.issuer_key_id, :issuer_key_id)
+               |> Enum.map(&Repo.record_to_struct(ThresholdShare, &1))
+
+      share = Enum.find(shares, fn s -> s.custodian_name == custodian_name and s.status == "pending" end)
+      if is_nil(share), do: :mnesia.abort(:share_not_found)
+
+      updated = %{share | password_hash: combined_hash, status: "accepted", updated_at: now}
+      :mnesia.write(Repo.struct_to_record(share_table, updated))
+
+      append_transcript_in_tx(ceremony_id, custodian_name, "share_accepted", %{})
+
+      updated
+    end)
+    |> case do
+      {:ok, _} = ok -> ok
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, {:invalid_ceremony_status, _}} -> {:error, :invalid_ceremony_status}
+      {:error, :share_not_found} -> {:error, :share_not_found}
+      {:error, _} = err -> err
     end
   end
 
@@ -228,20 +242,38 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   custodian_passwords: list of {custodian_name, password} tuples.
   """
   def execute_keygen(ceremony_id, custodian_passwords) do
-    with {:ok, ceremony} <- get_ceremony(ceremony_id),
-         true <- ceremony.status in ["preparing", "generating"] || {:error, :invalid_status} do
+    # Atomic status claim: read + validate + update in a single Mnesia transaction
+    claim_result =
+      Repo.transaction(fn ->
+        table = PkiMnesia.Schema.table_name(KeyCeremony)
+        case :mnesia.read(table, ceremony_id) do
+          [record] ->
+            ceremony = PkiMnesia.Repo.record_to_struct(KeyCeremony, record)
+            if ceremony.status not in ["preparing", "generating"] do
+              :mnesia.abort({:invalid_status, ceremony.status})
+            else
+              updated = struct(ceremony, %{status: "generating"})
+              :mnesia.write(PkiMnesia.Repo.struct_to_record(table, updated))
+              ceremony
+            end
+          [] -> :mnesia.abort(:not_found)
+        end
+      end)
 
-      # Claim ceremony
-      {:ok, _} = Repo.update(ceremony, %{status: "generating"})
+    case claim_result do
+      {:ok, ceremony} ->
+        case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
+          {:ok, db_shares} ->
+            db_shares = Enum.sort_by(db_shares, & &1.share_index)
+            password_map = Map.new(custodian_passwords)
+            do_keygen_and_split(ceremony, db_shares, password_map)
 
-      case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
-        {:ok, db_shares} ->
-          db_shares = Enum.sort_by(db_shares, & &1.share_index)
-          password_map = Map.new(custodian_passwords)
-          do_keygen_and_split(ceremony, db_shares, password_map)
+          {:error, _} = err -> err
+        end
 
-        {:error, _} = err -> err
-      end
+      {:error, {:invalid_status, _}} -> {:error, :invalid_status}
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, reason} -> {:error, {:status_claim_failed, reason}}
     end
   end
 

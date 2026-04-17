@@ -57,7 +57,7 @@ defmodule PkiMnesia.RepoTest do
     ca = CaInstance.new(%{name: "Delete Me"})
     {:ok, _} = Repo.insert(ca)
 
-    assert :ok = Repo.delete(CaInstance, ca.id)
+    assert {:ok, _} = Repo.delete(CaInstance, ca.id)
     assert {:ok, nil} = Repo.get(CaInstance, ca.id)
   end
 

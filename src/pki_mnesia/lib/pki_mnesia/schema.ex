@@ -4,12 +4,16 @@ defmodule PkiMnesia.Schema do
   Each table stores Elixir structs. Table attributes match struct fields.
   """
 
+  require Logger
+
   alias PkiMnesia.Structs.{
     CaInstance, IssuerKey, KeyCeremony, CeremonyParticipant,
     CeremonyTranscript, ThresholdShare, IssuedCertificate,
     RaInstance, RaCaConnection, CertProfile, CsrRequest,
     ApiKey, DcvChallenge, CertificateStatus, PortalUser
   }
+
+  @schema_version 1
 
   @plural_overrides %{
     "key_ceremony" => "key_ceremonies"
@@ -54,10 +58,15 @@ defmodule PkiMnesia.Schema do
     end)
 
     case Enum.find(results, fn r -> r != :ok end) do
-      nil -> :ok
+      nil ->
+        create_schema_versions_table()
+        check_and_migrate()
       error -> error
     end
   end
+
+  @doc "Current schema version."
+  def schema_version, do: @schema_version
 
   @doc """
   Creates a single Mnesia table for the given struct module.
@@ -123,5 +132,64 @@ defmodule PkiMnesia.Schema do
   """
   def struct_attributes(struct_mod) do
     struct_mod.fields()
+  end
+
+  # -- Schema versioning --
+
+  defp create_schema_versions_table do
+    case :mnesia.create_table(:schema_versions, [
+      {:attributes, [:key, :value]},
+      {:type, :set},
+      {:disc_copies, [node()]}
+    ]) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, _}} -> :ok
+      {:aborted, reason} -> {:error, {:table_creation_failed, :schema_versions, reason}}
+    end
+  end
+
+  @doc """
+  Check the stored schema version against @schema_version and run any
+  pending migrations. Currently the migration list is empty — this
+  mechanism exists so future field additions are safe.
+  """
+  def check_and_migrate do
+    stored = read_schema_version()
+    current = @schema_version
+
+    if stored < current do
+      run_migrations(stored, current)
+      write_schema_version(current)
+      Logger.info("Mnesia schema migrated from v#{stored} to v#{current}")
+    else
+      Logger.info("Mnesia schema at v#{current} — no migration needed")
+    end
+
+    :ok
+  end
+
+  defp read_schema_version do
+    case :mnesia.transaction(fn -> :mnesia.read(:schema_versions, :schema_version) end) do
+      {:atomic, [{:schema_versions, :schema_version, version}]} -> version
+      {:atomic, []} -> 0
+      _ -> 0
+    end
+  end
+
+  defp write_schema_version(version) do
+    :mnesia.transaction(fn ->
+      :mnesia.write({:schema_versions, :schema_version, version})
+    end)
+  end
+
+  defp run_migrations(from, to) do
+    # Migration registry: add entries as {version, description, fun} tuples.
+    # Each fun runs inside a Mnesia transaction context.
+    _migrations = []
+
+    # Filter and run migrations between `from` and `to`
+    # (empty for now — mechanism is in place for future use)
+    Logger.info("Running schema migrations from v#{from} to v#{to} (0 pending)")
+    :ok
   end
 end

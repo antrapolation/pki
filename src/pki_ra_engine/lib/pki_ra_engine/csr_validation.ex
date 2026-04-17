@@ -7,7 +7,9 @@ defmodule PkiRaEngine.CsrValidation do
     pending -> rejected  (auto-validation fail)
     verified -> approved (officer)
     verified -> rejected (officer)
-    approved -> issued   (after CA signs)
+    approved -> signing  (lock before CA call)
+    signing  -> issued   (after CA signs)
+    signing  -> approved (rollback on CA failure)
   """
 
   require Logger
@@ -19,7 +21,9 @@ defmodule PkiRaEngine.CsrValidation do
   @api_transitions %{
     {"verified", "approved"} => true,
     {"verified", "rejected"} => true,
-    {"approved", "issued"} => true
+    {"approved", "signing"} => true,
+    {"signing", "issued"} => true,
+    {"signing", "approved"} => true
   }
 
   # Additional transitions only allowed internally (auto-validation)
@@ -97,28 +101,32 @@ defmodule PkiRaEngine.CsrValidation do
   @spec forward_to_ca(String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def forward_to_ca(csr_id) do
     with {:ok, csr} <- get_csr(csr_id),
-         :ok <- check_transition(csr.status, "issued"),
-         {:ok, profile} <- CertProfileConfig.get_profile(csr.cert_profile_id) do
+         :ok <- check_transition(csr.status, "signing"),
+         {:ok, signing_csr} <- transition(csr, "signing", %{}),
+         {:ok, profile} <- CertProfileConfig.get_profile(signing_csr.cert_profile_id) do
 
       validity_days = profile.validity_days || 365
 
       cert_profile_map = %{
-        id: csr.cert_profile_id,
+        id: signing_csr.cert_profile_id,
         issuer_key_id: profile.issuer_key_id,
-        subject_dn: csr.subject_dn,
+        subject_dn: signing_csr.subject_dn,
         validity_days: validity_days
       }
 
       case PkiCaEngine.CertificateSigning.sign_certificate(
-             profile.issuer_key_id, csr.csr_pem, cert_profile_map
+             profile.issuer_key_id, signing_csr.csr_pem, cert_profile_map
            ) do
         {:ok, cert} -> mark_issued(csr_id, cert.serial_number)
-        {:error, reason} -> {:error, reason}
+        {:error, reason} ->
+          # Rollback to approved on failure so it can be retried
+          transition(signing_csr, "approved", %{})
+          {:error, reason}
       end
     end
   end
 
-  @doc "Mark an approved CSR as issued with the certificate serial."
+  @doc "Mark a signing CSR as issued with the certificate serial."
   @spec mark_issued(String.t(), String.t()) :: {:ok, CsrRequest.t()} | {:error, term()}
   def mark_issued(csr_id, cert_serial) do
     with {:ok, csr} <- get_csr(csr_id),

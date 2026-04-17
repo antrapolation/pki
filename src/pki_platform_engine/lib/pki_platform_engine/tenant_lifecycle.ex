@@ -34,6 +34,10 @@ defmodule PkiPlatformEngine.TenantLifecycle do
     GenServer.call(__MODULE__, {:get_tenant, tenant_id})
   end
 
+  @max_restart_attempts 5
+  @base_backoff_ms 5_000
+  @max_backoff_ms 300_000
+
   @impl true
   def init(_opts) do
     {:ok, %{tenants: %{}}}
@@ -56,7 +60,8 @@ defmodule PkiPlatformEngine.TenantLifecycle do
               port: port,
               slug: slug,
               status: :starting,
-              monitor_ref: ref
+              monitor_ref: ref,
+              restart_count: 0
             }
 
             new_state = %{state | tenants: Map.put(state.tenants, tenant_id, tenant_info)}
@@ -114,7 +119,8 @@ defmodule PkiPlatformEngine.TenantLifecycle do
               port: saved_port,
               slug: saved_slug,
               status: :starting,
-              monitor_ref: ref
+              monitor_ref: ref,
+              restart_count: 0
             }
 
             new_state = %{state_without_tenant | tenants: Map.put(state_without_tenant.tenants, tenant_id, tenant_info)}
@@ -152,10 +158,23 @@ defmodule PkiPlatformEngine.TenantLifecycle do
           "[tenant_lifecycle] Tenant #{tenant_id} (#{info.slug}) crashed: #{inspect(reason)}"
         )
 
-        # Auto-restart with backoff
-        Process.send_after(self(), {:auto_restart, tenant_id, info.slug}, 5_000)
-        new_info = %{info | status: :crashed}
-        {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
+        restart_count = Map.get(info, :restart_count, 0)
+
+        if restart_count >= @max_restart_attempts do
+          Logger.error(
+            "[tenant_lifecycle] Tenant #{tenant_id} exceeded #{@max_restart_attempts} restart attempts — marking as failed"
+          )
+          new_info = %{info | status: :failed}
+          {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
+        else
+          backoff = min(@base_backoff_ms * trunc(:math.pow(2, restart_count)), @max_backoff_ms)
+          Logger.info(
+            "[tenant_lifecycle] Scheduling auto-restart for #{tenant_id} in #{backoff}ms (attempt #{restart_count + 1}/#{@max_restart_attempts})"
+          )
+          Process.send_after(self(), {:auto_restart, tenant_id, info.slug, restart_count + 1}, backoff)
+          new_info = %{info | status: :crashed, restart_count: restart_count}
+          {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
+        end
 
       nil ->
         {:noreply, state}
@@ -163,34 +182,50 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   end
 
   @impl true
-  def handle_info({:auto_restart, tenant_id, slug}, state) do
-    Logger.info("[tenant_lifecycle] Auto-restarting tenant #{tenant_id}")
+  def handle_info({:auto_restart, tenant_id, slug, restart_count}, state) do
+    Logger.info("[tenant_lifecycle] Auto-restarting tenant #{tenant_id} (attempt #{restart_count})")
 
     case Map.get(state.tenants, tenant_id) do
-      %{status: :crashed} ->
-        port = PortAllocator.get_port(tenant_id) || 0
+      %{status: :crashed} = info ->
+        case PortAllocator.get_port(tenant_id) do
+          nil ->
+            Logger.error("[tenant_lifecycle] Cannot restart #{tenant_id}: port not found")
+            {:noreply, put_in(state, [:tenants, tenant_id, :status], :failed)}
 
-        case spawn_tenant(tenant_id, slug, port) do
-          {:ok, peer_pid, node_name} ->
-            ref = Process.monitor(peer_pid)
+          port ->
+            case spawn_tenant(tenant_id, slug, port) do
+              {:ok, peer_pid, node_name} ->
+                ref = Process.monitor(peer_pid)
 
-            new_info = %{
-              peer_pid: peer_pid,
-              node: node_name,
-              port: port,
-              slug: slug,
-              status: :starting,
-              monitor_ref: ref
-            }
+                new_info = %{
+                  peer_pid: peer_pid,
+                  node: node_name,
+                  port: port,
+                  slug: slug,
+                  status: :starting,
+                  monitor_ref: ref,
+                  restart_count: 0
+                }
 
-            {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
+                {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
 
-          {:error, reason} ->
-            Logger.error(
-              "[tenant_lifecycle] Auto-restart failed for #{tenant_id}: #{inspect(reason)}"
-            )
+              {:error, reason} ->
+                Logger.error(
+                  "[tenant_lifecycle] Auto-restart failed for #{tenant_id}: #{inspect(reason)}"
+                )
 
-            {:noreply, state}
+                if restart_count >= @max_restart_attempts do
+                  Logger.error(
+                    "[tenant_lifecycle] Tenant #{tenant_id} exceeded #{@max_restart_attempts} restart attempts — marking as failed"
+                  )
+                  {:noreply, put_in(state, [:tenants, tenant_id, :status], :failed)}
+                else
+                  backoff = min(@base_backoff_ms * trunc(:math.pow(2, restart_count)), @max_backoff_ms)
+                  Process.send_after(self(), {:auto_restart, tenant_id, slug, restart_count + 1}, backoff)
+                  new_info = %{info | restart_count: restart_count}
+                  {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
+                end
+            end
         end
 
       _ ->

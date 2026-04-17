@@ -27,6 +27,16 @@ defmodule PkiMnesia.Structs.ThresholdShare do
     updated_at: DateTime.t()
   }
 
+  @doc "Validates required fields before Mnesia write."
+  def validate(%__MODULE__{} = s) do
+    missing =
+      [{:issuer_key_id, s.issuer_key_id}, {:custodian_name, s.custodian_name}, {:share_index, s.share_index}]
+      |> Enum.filter(fn {_k, v} -> is_nil(v) end)
+      |> Enum.map(fn {k, _v} -> k end)
+
+    if missing == [], do: :ok, else: {:error, {:missing_fields, missing}}
+  end
+
   def new(attrs \\ %{}) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     %__MODULE__{

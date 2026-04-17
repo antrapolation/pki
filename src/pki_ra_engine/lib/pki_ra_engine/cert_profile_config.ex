@@ -59,7 +59,7 @@ defmodule PkiRaEngine.CertProfileConfig do
   end
 
   @doc "Delete a certificate profile (hard delete from Mnesia)."
-  @spec delete_profile(binary()) :: :ok | {:error, term()}
+  @spec delete_profile(binary()) :: {:ok, binary()} | {:error, term()}
   def delete_profile(id) do
     Repo.delete(CertProfile, id)
   end

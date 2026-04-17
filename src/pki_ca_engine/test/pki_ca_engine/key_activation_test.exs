@@ -51,4 +51,65 @@ defmodule PkiCaEngine.KeyActivationTest do
 
     Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
   end
+
+  # G1 — Timeout eviction test
+  test "key is evicted after timeout", %{ka: ka} do
+    GenServer.stop(ka)
+    {:ok, ka2} = KeyActivation.start_link(name: :ka_timeout_test, timeout_ms: 50, allow_dev_activate: true)
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, true)
+
+    key_id = PkiMnesia.Id.generate()
+    {:ok, :dev_activated} = KeyActivation.dev_activate(ka2, key_id, "secret")
+    assert KeyActivation.is_active?(ka2, key_id) == true
+
+    Process.sleep(100)
+    assert KeyActivation.is_active?(ka2, key_id) == false
+
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
+    GenServer.stop(ka2)
+  end
+
+  # G2 — Wrong password returns decryption_failed
+  test "submit_share with wrong password returns decryption_failed", %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+    {:ok, encrypted} = PkiCaEngine.KeyCeremony.ShareEncryption.encrypt_share("share-data", "correct-password")
+    salt = :crypto.strong_rand_bytes(16)
+    hash = :crypto.pbkdf2_hmac(:sha256, "correct-password", salt, 100_000, 32)
+
+    share = ThresholdShare.new(%{
+      issuer_key_id: key_id,
+      custodian_name: "alice",
+      share_index: 1,
+      encrypted_share: encrypted,
+      password_hash: salt <> hash,
+      min_shares: 1,
+      total_shares: 1
+    })
+    {:ok, _} = Repo.insert(share)
+
+    assert {:error, :decryption_failed} = KeyActivation.submit_share(ka, key_id, "alice", "wrong-password")
+    assert KeyActivation.is_active?(ka, key_id) == false
+  end
+
+  # G3 — Replay attack: same custodian cannot submit share twice
+  test "same custodian cannot submit share twice", %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+    {:ok, encrypted} = PkiCaEngine.KeyCeremony.ShareEncryption.encrypt_share("share-1", "pass1")
+    salt = :crypto.strong_rand_bytes(16)
+    hash = :crypto.pbkdf2_hmac(:sha256, "pass1", salt, 100_000, 32)
+
+    share = ThresholdShare.new(%{
+      issuer_key_id: key_id,
+      custodian_name: "alice",
+      share_index: 1,
+      encrypted_share: encrypted,
+      password_hash: salt <> hash,
+      min_shares: 2,
+      total_shares: 2
+    })
+    {:ok, _} = Repo.insert(share)
+
+    assert {:ok, :share_accepted} = KeyActivation.submit_share(ka, key_id, "alice", "pass1")
+    assert {:error, :already_submitted} = KeyActivation.submit_share(ka, key_id, "alice", "pass1")
+  end
 end

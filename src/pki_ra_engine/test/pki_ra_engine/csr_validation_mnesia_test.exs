@@ -83,7 +83,11 @@ defmodule PkiRaEngine.CsrValidationMnesiaTest do
     {:ok, approved} = CsrValidation.approve_csr(verified.id, "officer-1")
     assert approved.status == "approved"
 
-    {:ok, issued} = CsrValidation.mark_issued(approved.id, "SERIAL-001")
+    # Transition through "signing" state (D14 double-sign protection)
+    {:ok, signing} = Repo.update(approved, %{status: "signing"})
+    assert signing.status == "signing"
+
+    {:ok, issued} = CsrValidation.mark_issued(signing.id, "SERIAL-001")
     assert issued.status == "issued"
     assert issued.issued_cert_serial == "SERIAL-001"
   end

@@ -3,6 +3,14 @@ defmodule PkiMnesia.TestHelper do
   Test helper for Mnesia-based tests.
   Each test gets a unique temp directory, starts Mnesia there,
   creates tables, runs test, stops Mnesia, deletes directory.
+
+  ## Production note
+
+  This module contains no side effects at load time and is never
+  called from production paths. It exists in lib/ because Elixir
+  deps are always compiled in :prod mode regardless of the parent
+  project's MIX_ENV, making compile-time guards (Mix.env() == :test)
+  ineffective across dep boundaries.
   """
 
   @doc """

@@ -20,8 +20,18 @@ defmodule PkiTenant.MnesiaBootstrap do
     Application.put_env(:mnesia, :dir, String.to_charlist(mnesia_dir))
 
     :mnesia.stop()
-    :mnesia.create_schema([node()])
-    :ok = :mnesia.start()
+
+    case :mnesia.create_schema([node()]) do
+      :ok -> :ok
+      {:error, {_, {:already_exists, _}}} -> :ok
+      {:error, reason} -> raise "Mnesia schema creation failed: #{inspect(reason)}"
+    end
+
+    case :mnesia.start() do
+      :ok -> :ok
+      {:error, reason} -> raise "Mnesia failed to start: #{inspect(reason)}"
+    end
+
     :ok = PkiMnesia.Schema.create_tables()
 
     table_names = :mnesia.system_info(:local_tables) -- [:schema]

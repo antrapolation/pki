@@ -400,14 +400,8 @@ defmodule PkiTenantWeb.Ca.CeremonyCustodianLive do
     case Repo.get_all_by_index(ThresholdShare, :custodian_name, user_name) do
       {:ok, shares} ->
         Enum.map(shares, fn share ->
-          ceremony = case Repo.get(KeyCeremony, share.issuer_key_id) do
-            {:ok, nil} ->
-              # Try looking up by ceremony that references the issuer_key_id
-              case Repo.get_all_by_index(KeyCeremony, :issuer_key_id, share.issuer_key_id) do
-                {:ok, [c | _]} -> c
-                _ -> nil
-              end
-            {:ok, c} -> c
+          ceremony = case PkiMnesia.Repo.get_all_by_index(PkiMnesia.Structs.KeyCeremony, :issuer_key_id, share.issuer_key_id) do
+            {:ok, [c | _]} -> c
             _ -> nil
           end
 

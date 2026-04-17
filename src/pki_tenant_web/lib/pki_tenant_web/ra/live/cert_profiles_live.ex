@@ -288,7 +288,7 @@ defmodule PkiTenantWeb.Ra.CertProfilesLive do
   def handle_event("delete_profile", %{"id" => id}, socket) do
     if get_role(socket) == "ra_admin" do
       case CertProfileConfig.delete_profile(id) do
-        :ok ->
+        {:ok, _} ->
           profiles = Enum.reject(socket.assigns.profiles, &(&1.id == id))
 
           {:noreply,
