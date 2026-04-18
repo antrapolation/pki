@@ -14,7 +14,7 @@ defmodule PkiIntegration.HsmKeystoreTest do
 
   alias PkiMnesia.{TestHelper, Repo}
   alias PkiMnesia.Structs.IssuerKey
-  alias PkiCaEngine.{KeyActivation, KeyStore.Dispatcher}
+  alias PkiCaEngine.{KeyActivation, KeyStore.Dispatcher, KeyStore.MockHsmAdapter}
 
   setup do
     dir = TestHelper.setup_mnesia()
@@ -28,9 +28,19 @@ defmodule PkiIntegration.HsmKeystoreTest do
         {:error, {:already_started, pid}} -> {pid, false}
       end
 
+    # Start MockHsmAdapter (safe if already running)
+    mock_pid =
+      case MockHsmAdapter.start_link(name: MockHsmAdapter) do
+        {:ok, p} -> p
+        {:error, {:already_started, p}} -> p
+      end
+
+    MockHsmAdapter.reset()
+
     on_exit(fn ->
       Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
       if started_here? and Process.alive?(ka_pid), do: GenServer.stop(ka_pid)
+      if Process.alive?(mock_pid), do: GenServer.stop(mock_pid)
       TestHelper.teardown_mnesia(dir)
     end)
 
@@ -125,6 +135,72 @@ defmodule PkiIntegration.HsmKeystoreTest do
 
       # No agent connected — RemoteHsmAdapter should return :agent_not_connected
       assert {:error, :agent_not_connected} = Dispatcher.sign(key.id, "tbs-data")
+    end
+  end
+
+  describe "MockHsmAdapter keystore via Dispatcher" do
+    test "create issuer key with keystore_type :mock_hsm, import key, sign, verify" do
+      # Generate an ECC key pair outside the mock
+      ec_key   = :public_key.generate_key({:namedCurve, :secp256r1})
+      priv_der = :public_key.der_encode(:ECPrivateKey, ec_key)
+      pub_point = elem(ec_key, 4)
+
+      key =
+        IssuerKey.new(%{
+          ca_instance_id: "ca-mock-hsm-1",
+          algorithm: "ECC-P256",
+          status: "active",
+          keystore_type: :mock_hsm
+        })
+
+      {:ok, _} = Repo.insert(key)
+
+      # Import the key into the mock HSM keyed by the issuer_key id
+      :ok = MockHsmAdapter.import_key(key.id, "ECC-P256", priv_der)
+
+      # Sign via Dispatcher — should route to MockHsmAdapter
+      tbs_data = :crypto.strong_rand_bytes(64)
+      assert {:ok, signature} = Dispatcher.sign(key.id, tbs_data)
+      assert is_binary(signature)
+      assert byte_size(signature) > 0
+
+      # Verify the signature with the native OTP public key
+      assert :crypto.verify(:ecdsa, :sha256, tbs_data, signature, [pub_point, :secp256r1])
+    end
+
+    test "key_available? returns true once key is imported" do
+      key =
+        IssuerKey.new(%{
+          ca_instance_id: "ca-mock-hsm-2",
+          algorithm: "ECC-P256",
+          status: "active",
+          keystore_type: :mock_hsm
+        })
+
+      {:ok, _} = Repo.insert(key)
+
+      # Not yet imported
+      refute Dispatcher.key_available?(key.id)
+
+      ec_key   = :public_key.generate_key({:namedCurve, :secp256r1})
+      priv_der = :public_key.der_encode(:ECPrivateKey, ec_key)
+      :ok = MockHsmAdapter.import_key(key.id, "ECC-P256", priv_der)
+
+      assert Dispatcher.key_available?(key.id)
+    end
+
+    test "sign returns error if key not imported" do
+      key =
+        IssuerKey.new(%{
+          ca_instance_id: "ca-mock-hsm-3",
+          algorithm: "ECC-P256",
+          status: "active",
+          keystore_type: :mock_hsm
+        })
+
+      {:ok, _} = Repo.insert(key)
+
+      assert {:error, {:key_not_in_mock_hsm, _}} = Dispatcher.sign(key.id, "some-data")
     end
   end
 

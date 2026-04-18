@@ -8,7 +8,7 @@ defmodule PkiCaEngine.KeyStore.Dispatcher do
   """
 
   alias PkiMnesia.{Repo, Structs.IssuerKey}
-  alias PkiCaEngine.KeyStore.{SoftwareAdapter, LocalHsmAdapter, RemoteHsmAdapter}
+  alias PkiCaEngine.KeyStore.{SoftwareAdapter, LocalHsmAdapter, RemoteHsmAdapter, MockHsmAdapter}
 
   @doc "Sign tbs_data using the adapter configured on the issuer key."
   def sign(issuer_key_id, tbs_data) do
@@ -45,6 +45,7 @@ defmodule PkiCaEngine.KeyStore.Dispatcher do
   defp adapter_for(:software), do: SoftwareAdapter
   defp adapter_for(:local_hsm), do: LocalHsmAdapter
   defp adapter_for(:remote_hsm), do: RemoteHsmAdapter
+  defp adapter_for(:mock_hsm), do: MockHsmAdapter
   defp adapter_for(_), do: {:error, :unknown_keystore_type}
 
   defp get_issuer_key(issuer_key_id) do
