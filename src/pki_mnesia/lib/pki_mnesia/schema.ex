@@ -15,6 +15,124 @@ defmodule PkiMnesia.Schema do
 
   @schema_version 1
 
+  @sync_tables [
+    :ca_instances, :issuer_keys, :threshold_shares, :key_ceremonies,
+    :ceremony_participants, :ceremony_transcripts, :portal_users,
+    :cert_profiles, :ra_instances, :ra_ca_connections, :api_keys,
+    :dcv_challenges, :schema_versions
+  ]
+
+  @async_tables [:issued_certificates, :csr_requests, :certificate_status]
+
+  @doc "List of table names replicated synchronously (disc_copies primary, ram_copies replica)."
+  def sync_tables, do: @sync_tables
+
+  @doc "List of table names replicated asynchronously (disc_only_copies on both nodes)."
+  def async_tables, do: @async_tables
+
+  @doc """
+  Join an existing primary node's Mnesia cluster and add table copies.
+  Called on a replica node after :mnesia.start() (without creating schema).
+
+  Sync tables get :ram_copies (synchronous replication, zero data loss).
+  Async tables get :disc_only_copies (asynchronous, eventual consistency).
+
+  Returns :ok or {:error, reason}.
+  """
+  @spec add_replica_copies(node()) :: :ok | {:error, term()}
+  def add_replica_copies(primary_node) do
+    case :mnesia.change_config(:extra_db_nodes, [primary_node]) do
+      {:ok, [^primary_node]} -> :ok
+      {:ok, []} -> {:error, {:cannot_connect, primary_node}}
+      {:error, reason} -> {:error, {:change_config_failed, reason}}
+    end
+    |> case do
+      :ok ->
+        with :ok <- add_copies(@sync_tables, :ram_copies),
+             :ok <- add_copies(@async_tables, :disc_only_copies) do
+          all_tables = @sync_tables ++ @async_tables
+          case :mnesia.wait_for_tables(all_tables, 30_000) do
+            :ok -> :ok
+            {:timeout, tables} -> {:error, {:table_timeout, tables}}
+            {:error, reason} -> {:error, {:wait_failed, reason}}
+          end
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Promote a replica node to primary by converting ram_copies to disc_copies.
+  Called during manual failover. Async tables are already disc_only_copies,
+  so only sync tables need conversion.
+
+  Returns :ok or {:error, reason}.
+  """
+  @spec promote_to_primary() :: :ok | {:error, term()}
+  def promote_to_primary do
+    Enum.reduce_while(@sync_tables, :ok, fn table, :ok ->
+      case :mnesia.change_table_copy_type(table, node(), :disc_copies) do
+        {:atomic, :ok} ->
+          {:cont, :ok}
+
+        {:aborted, {:already_exists, _, _, _}} ->
+          {:cont, :ok}
+
+        {:aborted, reason} ->
+          {:halt, {:error, {:promote_failed, table, reason}}}
+      end
+    end)
+  end
+
+  @doc """
+  Demote a promoted node back to replica mode by converting disc_copies
+  to ram_copies and re-joining the primary's Mnesia cluster.
+
+  Returns :ok or {:error, reason}.
+  """
+  @spec demote_to_replica(node()) :: :ok | {:error, term()}
+  def demote_to_replica(primary_node) do
+    case :mnesia.change_config(:extra_db_nodes, [primary_node]) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, {:change_config_failed, reason}}
+    end
+    |> case do
+      :ok ->
+        Enum.reduce_while(@sync_tables, :ok, fn table, :ok ->
+          case :mnesia.change_table_copy_type(table, node(), :ram_copies) do
+            {:atomic, :ok} ->
+              {:cont, :ok}
+
+            {:aborted, {:already_exists, _, _, _}} ->
+              {:cont, :ok}
+
+            {:aborted, reason} ->
+              {:halt, {:error, {:demote_failed, table, reason}}}
+          end
+        end)
+
+      error ->
+        error
+    end
+  end
+
+  defp add_copies(tables, copy_type) do
+    Enum.reduce_while(tables, :ok, fn table, :ok ->
+      case :mnesia.add_table_copy(table, node(), copy_type) do
+        {:atomic, :ok} ->
+          {:cont, :ok}
+
+        {:aborted, {:already_exists, _, _}} ->
+          {:cont, :ok}
+
+        {:aborted, reason} ->
+          {:halt, {:error, {:add_table_copy_failed, table, reason}}}
+      end
+    end)
+  end
+
   @plural_overrides %{
     "key_ceremony" => "key_ceremonies"
   }
