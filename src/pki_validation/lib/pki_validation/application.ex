@@ -6,13 +6,21 @@ defmodule PkiValidation.Application do
   @impl true
   def start(_type, _args) do
     children =
-      [
-        PkiValidation.CrlPublisher
-      ] ++ http_children()
+      if Application.get_env(:pki_validation, :start_application, true) do
+        [
+          PkiValidation.CrlPublisher
+        ] ++ http_children()
+      else
+        []
+      end
 
-    # :one_for_one is fine — CrlPublisher is independent of HTTP
-    opts = [strategy: :one_for_one, name: PkiValidation.Supervisor]
-    Supervisor.start_link(children, opts)
+    if Application.get_env(:pki_validation, :start_application, true) do
+      opts = [strategy: :one_for_one, name: PkiValidation.Supervisor]
+      Supervisor.start_link(children, opts)
+    else
+      # Don't register the supervisor name — pki_tenant will start it instead
+      Supervisor.start_link([], strategy: :one_for_one)
+    end
   end
 
   defp http_children do

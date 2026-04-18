@@ -8,19 +8,26 @@ defmodule PkiRaEngine.Application do
   @impl true
   def start(_type, _args) do
     children =
-      [
-        PkiRaEngine.Repo,
-        PkiRaEngine.CaEngineConfig,
-        {Task.Supervisor, name: PkiRaEngine.TaskSupervisor}
-      ] ++ dcv_poller_children() ++ reconciler_children() ++ http_children()
+      if Application.get_env(:pki_ra_engine, :start_application, true) do
+        [
+          PkiRaEngine.Repo,
+          PkiRaEngine.CaEngineConfig,
+          {Task.Supervisor, name: PkiRaEngine.TaskSupervisor}
+        ] ++ dcv_poller_children() ++ reconciler_children() ++ http_children()
+      else
+        []
+      end
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     PkiRaEngine.Telemetry.setup()
 
-    # :rest_for_one — if Repo crashes, restart CaEngineConfig, DcvPoller, HTTP, etc.
-    opts = [strategy: :rest_for_one, name: PkiRaEngine.Supervisor]
-    Supervisor.start_link(children, opts)
+    if Application.get_env(:pki_ra_engine, :start_application, true) do
+      opts = [strategy: :rest_for_one, name: PkiRaEngine.Supervisor]
+      Supervisor.start_link(children, opts)
+    else
+      Supervisor.start_link([], strategy: :one_for_one)
+    end
   end
 
   defp dcv_poller_children do

@@ -6,19 +6,30 @@ defmodule PkiCaEngine.Application do
   @impl true
   def start(_type, _args) do
     children =
-      [
-        PkiCaEngine.Repo,
-        {PkiCaEngine.CeremonyRegistry, name: :ceremony_pid_registry},
-        {PkiCaEngine.KeyActivation,
-         name: PkiCaEngine.KeyActivation,
-         timeout_ms: Application.get_env(:pki_ca_engine, :key_activation_timeout_ms, 3_600_000)},
-        {DynamicSupervisor, strategy: :one_for_one, name: PkiCaEngine.EngineSupervisor}
-      ] ++ http_children()
+      if Application.get_env(:pki_ca_engine, :start_application, true) do
+        [
+          PkiCaEngine.Repo,
+          {PkiCaEngine.CeremonyRegistry, name: :ceremony_pid_registry},
+          {PkiCaEngine.KeyActivation,
+           name: PkiCaEngine.KeyActivation,
+           timeout_ms: Application.get_env(:pki_ca_engine, :key_activation_timeout_ms, 3_600_000)},
+          {DynamicSupervisor, strategy: :one_for_one, name: PkiCaEngine.EngineSupervisor}
+        ] ++ http_children()
+      else
+        []
+      end
 
-    # :rest_for_one — if Repo crashes, restart everything after it (KeyActivation, HTTP, etc.)
-    opts = [strategy: :rest_for_one, name: PkiCaEngine.Supervisor]
-    result = Supervisor.start_link(children, opts)
-    ensure_default_instance()
+    result = if Application.get_env(:pki_ca_engine, :start_application, true) do
+      opts = [strategy: :rest_for_one, name: PkiCaEngine.Supervisor]
+      Supervisor.start_link(children, opts)
+    else
+      Supervisor.start_link([], strategy: :one_for_one)
+    end
+
+    if Application.get_env(:pki_ca_engine, :start_application, true) do
+      ensure_default_instance()
+    end
+
     result
   end
 

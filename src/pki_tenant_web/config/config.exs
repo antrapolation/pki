@@ -36,7 +36,4 @@ config :pki_tenant_web, PkiTenantWeb.Endpoint,
   secret_key_base: "dev-only-secret-key-base-that-is-at-least-64-bytes-long-for-phoenix-endpoint-config",
   http: [port: 4010]
 
-# Disable pki_tenant app auto-start in tests
-config :pki_tenant, start_application: false
-
 import_config "#{config_env()}.exs"
