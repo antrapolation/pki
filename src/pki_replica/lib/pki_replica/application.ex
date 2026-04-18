@@ -5,7 +5,8 @@ defmodule PkiReplica.Application do
   Children:
   1. ClusterMonitor — heartbeat monitoring of the primary platform node
   2. FailoverManager — alert + manual promotion orchestration
-  3. PortAllocator — in-memory port pool for post-promotion HTTP endpoints
+  3. TenantReplicaSupervisor — spawns and tracks replica tenant BEAM nodes
+  4. PortAllocator — in-memory port pool for post-promotion HTTP endpoints
   """
   use Application
 
@@ -31,6 +32,9 @@ defmodule PkiReplica.Application do
     webhook_url = Application.get_env(:pki_replica, :webhook_url)
     alert_log_path = Application.get_env(:pki_replica, :alert_log_path, "/var/log/pki/failover-alert.log")
 
+    poll_interval_ms =
+      Application.get_env(:pki_replica, :tenant_poll_interval_ms, 30_000)
+
     children = [
       {PkiReplica.ClusterMonitor,
        primary_node: primary_node,
@@ -39,6 +43,9 @@ defmodule PkiReplica.Application do
       {PkiReplica.FailoverManager,
        webhook_url: webhook_url,
        alert_log_path: alert_log_path},
+      {PkiReplica.TenantReplicaSupervisor,
+       primary_node: primary_node,
+       poll_interval_ms: poll_interval_ms},
       {PkiReplica.PortAllocator, []}
     ]
 
