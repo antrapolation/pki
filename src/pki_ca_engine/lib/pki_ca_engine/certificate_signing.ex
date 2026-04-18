@@ -9,22 +9,21 @@ defmodule PkiCaEngine.CertificateSigning do
   PkiCrypto is UNCHANGED. This module only handles storage + orchestration.
   """
 
-  alias PkiCaEngine.{KeyActivation, CaInstanceManagement}
+  alias PkiCaEngine.{KeyActivation, CaInstanceManagement, KeyStore.SoftwareAdapter}
+  alias PkiCaEngine.KeyStore.Dispatcher
   alias PkiMnesia.{Repo, Structs}
   alias Structs.{IssuedCertificate, IssuerKey, CertificateStatus}
 
   require Logger
 
   def sign_certificate(issuer_key_id, csr_pem, cert_profile_map, opts \\ []) do
-    activation_server = opts[:activation_server] || KeyActivation
     csr_fingerprint = compute_csr_fingerprint(csr_pem)
 
     with {:ok, issuer_key} <- get_issuer_key(issuer_key_id),
          :ok <- check_key_status(issuer_key),
          :ok <- check_duplicate_csr(issuer_key_id, csr_fingerprint),
          :ok <- check_ca_online(issuer_key),
-         :ok <- check_leaf_ca(issuer_key),
-         {:ok, private_key_der} <- KeyActivation.get_active_key(activation_server, issuer_key_id) do
+         :ok <- check_leaf_ca(issuer_key) do
 
       serial = generate_serial()
       now = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -32,7 +31,24 @@ defmodule PkiCaEngine.CertificateSigning do
       not_after = DateTime.add(now, validity_days * 86400, :second) |> DateTime.truncate(:second)
       subject_dn = Map.get(cert_profile_map, :subject_dn, extract_subject_from_csr(csr_pem))
 
-      case do_sign(issuer_key, private_key_der, csr_pem, subject_dn, validity_days, serial) do
+      sign_result =
+        case issuer_key.keystore_type do
+          :software ->
+            # Software path: get raw key from KeyActivation, sign in-process via X509Builder.
+            # activation_server opt is forwarded for test isolation.
+            activation_server = opts[:activation_server] || KeyActivation
+            case SoftwareAdapter.get_raw_key(issuer_key_id, activation_server: activation_server) do
+              {:ok, private_key_der} ->
+                do_sign(issuer_key, private_key_der, csr_pem, subject_dn, validity_days, serial)
+              {:error, _} = err -> err
+            end
+
+          _hsm_type ->
+            # HSM path: build TBS, sign via Dispatcher, assemble certificate
+            do_sign_via_dispatcher(issuer_key, issuer_key_id, csr_pem, subject_dn, validity_days, serial)
+        end
+
+      case sign_result do
         {:ok, cert_der, cert_pem_str} ->
           cert = IssuedCertificate.new(%{
             serial_number: serial,
@@ -62,10 +78,10 @@ defmodule PkiCaEngine.CertificateSigning do
             error -> error
           end
 
+        {:error, :not_active} -> {:error, :key_not_active}
         {:error, reason} -> {:error, reason}
       end
     else
-      {:error, :not_active} -> {:error, :key_not_active}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -139,6 +155,36 @@ defmodule PkiCaEngine.CertificateSigning do
       else
         {:error, reason} ->
           Logger.error("Certificate signing failed: #{inspect(reason)}")
+          {:error, {:signing_failed, reason}}
+      end
+    end
+  end
+
+  defp do_sign_via_dispatcher(issuer_key, issuer_key_id, csr_pem, subject_dn, validity_days, serial) do
+    issuer_cert_der = issuer_key.certificate_der
+    issuer_alg_id = issuer_key.algorithm
+    serial_int = hex_serial_to_integer(serial)
+
+    if issuer_cert_der == nil do
+      {:error, :issuer_certificate_not_available}
+    else
+      with {:ok, csr} <- PkiCrypto.Csr.parse(csr_pem),
+           :ok <- PkiCrypto.Csr.verify_pop(csr),
+           {:ok, tbs_der, sig_alg_oid} <-
+             PkiCrypto.X509Builder.build_tbs_cert(
+               csr,
+               %{cert_der: issuer_cert_der, algorithm_id: issuer_alg_id},
+               subject_dn,
+               validity_days,
+               serial_int
+             ),
+           {:ok, signature} <- Dispatcher.sign(issuer_key_id, tbs_der) do
+        cert_der = PkiCrypto.X509Builder.assemble_cert(tbs_der, sig_alg_oid, signature)
+        cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+        {:ok, cert_der, cert_pem}
+      else
+        {:error, reason} ->
+          Logger.error("Certificate signing via HSM failed: #{inspect(reason)}")
           {:error, {:signing_failed, reason}}
       end
     end

@@ -14,7 +14,7 @@ defmodule PkiValidation.OcspResponder do
   """
 
   alias PkiMnesia.{Repo, Structs.CertificateStatus, Structs.IssuerKey}
-  alias PkiCaEngine.KeyActivation
+  alias PkiCaEngine.{KeyActivation, KeyStore.Dispatcher}
 
   @doc """
   Check the status of a certificate by its serial number.
@@ -36,7 +36,7 @@ defmodule PkiValidation.OcspResponder do
     - `:activation_server` — GenServer name/pid for KeyActivation (default: `KeyActivation`)
   """
   def signed_response(serial_number, issuer_key_id, opts \\ []) do
-    activation_server = Keyword.get(opts, :activation_server, KeyActivation)
+    _activation_server = Keyword.get(opts, :activation_server, KeyActivation)
     status = lookup_status(serial_number)
 
     response_data = :erlang.term_to_binary(%{
@@ -45,22 +45,16 @@ defmodule PkiValidation.OcspResponder do
       produced_at: DateTime.utc_now() |> DateTime.to_iso8601()
     })
 
-    case KeyActivation.get_active_key(activation_server, issuer_key_id) do
-      {:ok, private_key} ->
+    case Dispatcher.sign(issuer_key_id, response_data) do
+      {:ok, signature} ->
         case Repo.get(IssuerKey, issuer_key_id) do
           {:ok, %IssuerKey{} = issuer_key} ->
-            case sign_response(issuer_key.algorithm, private_key, response_data) do
-              {:ok, signature} ->
-                {:ok, %{
-                  status: status,
-                  response_data: response_data,
-                  signature: signature,
-                  algorithm: issuer_key.algorithm
-                }}
-
-              {:error, reason} ->
-                {:error, {:signing_failed, reason}}
-            end
+            {:ok, %{
+              status: status,
+              response_data: response_data,
+              signature: signature,
+              algorithm: issuer_key.algorithm
+            }}
 
           {:ok, nil} ->
             # Issuer key not in Mnesia — return unsigned status
@@ -74,8 +68,16 @@ defmodule PkiValidation.OcspResponder do
         # Key not yet activated via threshold ceremony — return unsigned status
         {:ok, %{status: status, unsigned: true}}
 
+      {:error, :agent_not_connected} ->
+        # Remote HSM agent not connected — return unsigned status
+        {:ok, %{status: status, unsigned: true}}
+
+      {:error, :issuer_key_not_found} ->
+        # Issuer key not in Mnesia — return unsigned status
+        {:ok, %{status: status, unsigned: true}}
+
       {:error, reason} ->
-        {:error, {:key_activation_failed, reason}}
+        {:error, {:signing_failed, reason}}
     end
   end
 
@@ -117,25 +119,4 @@ defmodule PkiValidation.OcspResponder do
     end
   end
 
-  defp sign_response(algorithm, private_key, data) do
-    case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
-      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
-        case PkiCrypto.Registry.get(algorithm) do
-          {:ok, algo} -> PkiCrypto.Algorithm.sign(algo, private_key, data)
-          {:error, _} = err -> err
-        end
-
-      {:ok, %{family: :ecdsa}} ->
-        hash = if algorithm == "ECC-P384", do: :sha384, else: :sha256
-        native_key = :public_key.der_decode(:ECPrivateKey, private_key)
-        {:ok, :public_key.sign(data, hash, native_key)}
-
-      {:ok, %{family: :rsa}} ->
-        native_key = :public_key.der_decode(:RSAPrivateKey, private_key)
-        {:ok, :public_key.sign(data, :sha256, native_key)}
-
-      _ ->
-        {:error, :unknown_algorithm}
-    end
-  end
 end

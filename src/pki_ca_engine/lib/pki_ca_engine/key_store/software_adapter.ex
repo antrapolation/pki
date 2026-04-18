@@ -36,6 +36,18 @@ defmodule PkiCaEngine.KeyStore.SoftwareAdapter do
     KeyActivation.is_active?(activation_server, issuer_key_id)
   end
 
+  @doc """
+  Get the raw private key DER bytes from KeyActivation.
+
+  Used by CertificateSigning for X.509 certificate assembly via
+  `PkiCrypto.X509Builder.sign_tbs` (software path only). HSM paths
+  do not need raw key access.
+  """
+  def get_raw_key(issuer_key_id, opts \\ []) do
+    activation_server = Keyword.get(opts, :activation_server, KeyActivation)
+    KeyActivation.get_active_key(activation_server, issuer_key_id)
+  end
+
   # -- Private --
 
   defp get_issuer_key(issuer_key_id) do

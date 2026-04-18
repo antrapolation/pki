@@ -14,7 +14,7 @@ defmodule PkiValidation.CrlPublisher do
   require Logger
 
   alias PkiMnesia.{Repo, Structs.CertificateStatus, Structs.IssuerKey}
-  alias PkiCaEngine.KeyActivation
+  alias PkiCaEngine.{KeyActivation, KeyStore.Dispatcher}
 
   @default_interval_ms :timer.hours(1)
   @crl_validity_seconds 3600
@@ -51,17 +51,23 @@ defmodule PkiValidation.CrlPublisher do
     - `:activation_server` — GenServer name/pid for KeyActivation (default: `KeyActivation`)
   """
   def signed_crl(issuer_key_id, opts \\ []) do
-    activation_server = Keyword.get(opts, :activation_server, KeyActivation)
+    _activation_server = Keyword.get(opts, :activation_server, KeyActivation)
 
     with {:ok, crl} <- do_generate_crl(),
-         {:ok, private_key} <- KeyActivation.get_active_key(activation_server, issuer_key_id),
-         {:ok, issuer_key} <- Repo.get(IssuerKey, issuer_key_id),
          crl_data <- :erlang.term_to_binary(crl),
-         {:ok, signature} <- sign_crl(issuer_key.algorithm, private_key, crl_data) do
+         {:ok, signature} <- Dispatcher.sign(issuer_key_id, crl_data),
+         {:ok, issuer_key} <- Repo.get(IssuerKey, issuer_key_id) do
       {:ok, Map.merge(crl, %{signature: signature, algorithm: issuer_key.algorithm})}
     else
       {:error, :not_active} ->
         # Key not yet activated — return unsigned CRL
+        case do_generate_crl() do
+          {:ok, crl} -> {:ok, Map.put(crl, :unsigned, true)}
+          err -> err
+        end
+
+      {:error, :agent_not_connected} ->
+        # Remote HSM agent not connected — return unsigned CRL
         case do_generate_crl() do
           {:ok, crl} -> {:ok, Map.put(crl, :unsigned, true)}
           err -> err
@@ -190,25 +196,4 @@ defmodule PkiValidation.CrlPublisher do
     Process.send_after(self(), :regenerate, interval)
   end
 
-  defp sign_crl(algorithm, private_key, data) do
-    case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
-      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
-        case PkiCrypto.Registry.get(algorithm) do
-          {:ok, algo} -> PkiCrypto.Algorithm.sign(algo, private_key, data)
-          {:error, _} = err -> err
-        end
-
-      {:ok, %{family: :ecdsa}} ->
-        hash = if algorithm == "ECC-P384", do: :sha384, else: :sha256
-        native_key = :public_key.der_decode(:ECPrivateKey, private_key)
-        {:ok, :public_key.sign(data, hash, native_key)}
-
-      {:ok, %{family: :rsa}} ->
-        native_key = :public_key.der_decode(:RSAPrivateKey, private_key)
-        {:ok, :public_key.sign(data, :sha256, native_key)}
-
-      _ ->
-        {:error, :unknown_algorithm}
-    end
-  end
 end
