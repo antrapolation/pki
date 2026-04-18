@@ -65,6 +65,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
             }
 
             new_state = %{state | tenants: Map.put(state.tenants, tenant_id, tenant_info)}
+            notify_replica(:tenant_started, %{tenant_id: tenant_id, slug: slug, node: node_name})
             {:reply, {:ok, %{tenant_id: tenant_id, port: port, node: node_name}}, new_state}
 
           {:error, reason} ->
@@ -88,6 +89,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
         PortAllocator.release(tenant_id)
         CaddyConfigurator.remove_route(info.slug)
         new_tenants = Map.delete(state.tenants, tenant_id)
+        notify_replica(:tenant_stopped, %{tenant_id: tenant_id})
         {:reply, :ok, %{state | tenants: new_tenants}}
     end
   end
@@ -124,6 +126,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
             }
 
             new_state = %{state_without_tenant | tenants: Map.put(state_without_tenant.tenants, tenant_id, tenant_info)}
+            notify_replica(:tenant_started, %{tenant_id: tenant_id, slug: saved_slug, node: node_name})
             {:reply, {:ok, %{tenant_id: tenant_id, port: saved_port, node: node_name}}, new_state}
 
           {:error, reason} ->
@@ -207,6 +210,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
                   restart_count: 0
                 }
 
+                notify_replica(:tenant_started, %{tenant_id: tenant_id, slug: slug, node: node_name})
                 {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
 
               {:error, reason} ->
@@ -231,6 +235,16 @@ defmodule PkiPlatformEngine.TenantLifecycle do
       _ ->
         {:noreply, state}
     end
+  end
+
+  defp notify_replica(event, payload) do
+    case Application.get_env(:pki_platform_engine, :replica_node) do
+      nil -> :ok  # no replica configured
+      replica_node ->
+        GenServer.cast({PkiReplica.TenantReplicaSupervisor, replica_node}, {event, payload})
+    end
+  rescue
+    _ -> :ok  # replica unreachable, non-critical
   end
 
   defp spawn_tenant(tenant_id, slug, port) do

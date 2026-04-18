@@ -56,6 +56,11 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   username: System.get_env("POSTGRES_USER", Keyword.get(tenant_base, :username, "postgres")),
   password: System.get_env("POSTGRES_PASSWORD", Keyword.get(tenant_base, :password, "postgres"))
 
+# Replica node for multi-host replication (optional)
+if replica = System.get_env("REPLICA_NODE") do
+  config :pki_platform_engine, replica_node: String.to_atom(replica)
+end
+
 # ─── CA Engine ──────────────────────────────────────────────────────────
 
 if ca_engine_db_url do
