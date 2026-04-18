@@ -8,23 +8,28 @@ defmodule PkiPlatformEngine.CaddyConfigurator do
   @caddy_admin_url "http://localhost:2019"
 
   def add_route(slug, port) do
-    ca_host = "#{slug}.ca.*"
-    ra_host = "#{slug}.ra.*"
+    base_domain = Application.get_env(:pki_platform_engine, :base_domain, "straptrust.com")
+
+    hosts = [
+      "#{slug}.ca.#{base_domain}",
+      "#{slug}.ra.#{base_domain}",
+      "#{slug}.ocsp.#{base_domain}"
+    ]
 
     route = %{
-      "@id": "route-#{slug}",
-      match: [%{host: [ca_host, ra_host]}],
-      handle: [
+      "@id" => "route-#{slug}",
+      "match" => [%{"host" => hosts}],
+      "handle" => [
         %{
-          handler: "reverse_proxy",
-          upstreams: [%{dial: "localhost:#{port}"}]
+          "handler" => "reverse_proxy",
+          "upstreams" => [%{"dial" => "localhost:#{port}"}]
         }
       ]
     }
 
     case post_config("/config/apps/http/servers/srv0/routes", route) do
       :ok ->
-        Logger.info("[caddy] Added route for #{slug} -> port #{port}")
+        Logger.info("[caddy] Added route for #{slug} -> port #{port} (hosts: #{Enum.join(hosts, ", ")})")
         :ok
 
       {:error, reason} ->

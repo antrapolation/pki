@@ -20,6 +20,14 @@ defmodule PkiTenantWeb.HostRouterTest do
       assert HostRouter.extract_service("tenant1.ra.pki.local") == :ra
     end
 
+    test "returns :ocsp for slug.ocsp.domain" do
+      assert HostRouter.extract_service("acme.ocsp.example.com") == :ocsp
+    end
+
+    test "returns :ocsp for slug.ocsp.domain.tld" do
+      assert HostRouter.extract_service("tenant1.ocsp.straptrust.com") == :ocsp
+    end
+
     test "returns :ca for localhost (dev default)" do
       assert HostRouter.extract_service("localhost") == :ca
     end

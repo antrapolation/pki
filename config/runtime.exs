@@ -61,6 +61,11 @@ if replica = System.get_env("REPLICA_NODE") do
   config :pki_platform_engine, replica_node: String.to_atom(replica)
 end
 
+# Base domain for Caddy route registration (e.g. "straptrust.com")
+if base_domain = System.get_env("BASE_DOMAIN") do
+  config :pki_platform_engine, base_domain: base_domain
+end
+
 # ─── CA Engine ──────────────────────────────────────────────────────────
 
 if ca_engine_db_url do
