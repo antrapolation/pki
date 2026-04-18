@@ -1,0 +1,65 @@
+syntax = "proto3";
+package pki.hsm;
+
+option go_package = "github.com/antrapolation/hsm-agent/proto";
+
+// HsmGateway defines the bidirectional streaming service between the PKI
+// backend and remote HSM agents.  The Go agent opens a Connect stream,
+// sends a RegisterRequest, then receives SignRequests and replies with
+// SignResponses.  Heartbeats keep the connection alive.
+//
+// Transport note: the Elixir backend implements this contract over
+// WebSocket (JSON messages) rather than native gRPC to avoid protobuf
+// compilation dependencies.  The message shapes are identical.
+
+service HsmGateway {
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}
+
+message AgentMessage {
+  oneof payload {
+    RegisterRequest register = 1;
+    SignResponse sign_response = 2;
+    Heartbeat heartbeat = 3;
+  }
+}
+
+message ServerMessage {
+  oneof payload {
+    RegisterResponse register_response = 1;
+    SignRequest sign_request = 2;
+    HeartbeatAck heartbeat_ack = 3;
+  }
+}
+
+message RegisterRequest {
+  string tenant_id = 1;
+  string agent_id = 2;
+  repeated string available_key_labels = 3;
+}
+
+message RegisterResponse {
+  bool accepted = 1;
+  string error = 2;
+}
+
+message SignRequest {
+  string request_id = 1;
+  string key_label = 2;
+  bytes tbs_data = 3;
+  string algorithm = 4;
+}
+
+message SignResponse {
+  string request_id = 1;
+  bytes signature = 2;
+  string error = 3;
+}
+
+message Heartbeat {
+  int64 timestamp = 1;
+}
+
+message HeartbeatAck {
+  int64 timestamp = 1;
+}
