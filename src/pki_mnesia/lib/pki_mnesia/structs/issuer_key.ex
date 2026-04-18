@@ -4,6 +4,7 @@ defmodule PkiMnesia.Structs.IssuerKey do
   @fields [:id, :ca_instance_id, :key_alias, :algorithm, :status, :is_root,
            :ceremony_mode, :keystore_ref, :certificate_der, :certificate_pem,
            :csr_pem, :subject_dn, :fingerprint, :threshold_config,
+           :keystore_type, :hsm_config, :hsm_key_handle,
            :inserted_at, :updated_at]
   def fields, do: @fields
 
@@ -24,6 +25,9 @@ defmodule PkiMnesia.Structs.IssuerKey do
     subject_dn: String.t() | nil,
     fingerprint: String.t() | nil,
     threshold_config: map(),
+    keystore_type: :software | :local_hsm | :remote_hsm,
+    hsm_config: map(),
+    hsm_key_handle: binary() | nil,
     inserted_at: DateTime.t(),
     updated_at: DateTime.t()
   }
@@ -55,6 +59,9 @@ defmodule PkiMnesia.Structs.IssuerKey do
       subject_dn: attrs[:subject_dn],
       fingerprint: attrs[:fingerprint],
       threshold_config: Map.get(attrs, :threshold_config, %{k: 2, n: 3}),
+      keystore_type: Map.get(attrs, :keystore_type, :software),
+      hsm_config: Map.get(attrs, :hsm_config, %{}),
+      hsm_key_handle: attrs[:hsm_key_handle],
       inserted_at: attrs[:inserted_at] || now,
       updated_at: attrs[:updated_at] || now
     }
