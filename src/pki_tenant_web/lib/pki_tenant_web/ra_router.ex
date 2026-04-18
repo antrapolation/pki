@@ -10,6 +10,17 @@ defmodule PkiTenantWeb.RaRouter do
     plug :put_secure_browser_headers
   end
 
+  pipeline :api do
+    plug :accepts, ["json"]
+  end
+
+  # Health check (unauthenticated JSON endpoint)
+  scope "/", PkiTenantWeb do
+    pipe_through :api
+
+    get "/health", HealthController, :show
+  end
+
   # Public routes (no auth required)
   scope "/", PkiTenantWeb do
     pipe_through :browser

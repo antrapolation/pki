@@ -10,12 +10,53 @@ defmodule PkiTenant.HealthTest do
     :ok
   end
 
-  test "check returns status :ok with mnesia running" do
+  test "check/0 returns all expected keys" do
     result = Health.check()
-    assert result.status == :ok
-    assert result.mnesia == :running
-    assert result.node == node()
+
+    assert Map.has_key?(result, :status)
+    assert Map.has_key?(result, :mnesia)
+    assert Map.has_key?(result, :tables)
+    assert Map.has_key?(result, :active_keys)
+    assert Map.has_key?(result, :last_backup)
+    assert Map.has_key?(result, :uptime_seconds)
+  end
+
+  test "check/0 returns healthy status when mnesia is running" do
+    result = Health.check()
+    assert result.status == "healthy"
+    assert result.mnesia == "running"
+  end
+
+  test "check/0 returns tables as integer" do
+    result = Health.check()
+    assert is_integer(result.tables)
+    assert result.tables > 0
+  end
+
+  test "check/0 returns active_keys as integer" do
+    result = Health.check()
+    assert is_integer(result.active_keys)
+  end
+
+  test "check/0 returns last_backup as nil when no backups exist" do
+    result = Health.check()
+    assert result.last_backup == nil
+  end
+
+  test "check/0 returns last_backup as DateTime when backup record exists" do
+    alias PkiMnesia.Structs.BackupRecord
+    alias PkiMnesia.Repo
+
+    record = BackupRecord.new(%{type: "local", status: "completed"})
+    {:ok, _} = Repo.insert(record)
+
+    result = Health.check()
+    assert %DateTime{} = result.last_backup
+  end
+
+  test "check/0 returns uptime_seconds as positive integer" do
+    result = Health.check()
     assert is_integer(result.uptime_seconds)
-    assert is_integer(result.memory_mb)
+    assert result.uptime_seconds >= 0
   end
 end

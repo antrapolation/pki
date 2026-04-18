@@ -62,6 +62,10 @@ defmodule PkiCaEngine.KeyActivation do
     end
   end
 
+  def count_active(server \\ __MODULE__) do
+    GenServer.call(server, :count_active)
+  end
+
   # -- Server Callbacks --
 
   @impl true
@@ -188,6 +192,11 @@ defmodule PkiCaEngine.KeyActivation do
       nil -> {:reply, {:error, :not_active}, state}
       %{secret: secret} -> {:reply, {:ok, secret}, state}
     end
+  end
+
+  @impl true
+  def handle_call(:count_active, _from, state) do
+    {:reply, map_size(state.active_keys), state}
   end
 
   @impl true

@@ -24,6 +24,13 @@ defmodule PkiPlatformPortalWeb.Router do
     plug :accepts, ["json"]
   end
 
+  # Health check (unauthenticated JSON endpoint)
+  scope "/", PkiPlatformPortalWeb do
+    pipe_through :api
+
+    get "/health", HealthController, :show
+  end
+
   # Setup route (no auth, no setup check)
   scope "/", PkiPlatformPortalWeb do
     pipe_through :browser
