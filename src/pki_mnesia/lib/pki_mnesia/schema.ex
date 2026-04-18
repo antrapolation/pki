@@ -10,7 +10,8 @@ defmodule PkiMnesia.Schema do
     CaInstance, IssuerKey, KeyCeremony, CeremonyParticipant,
     CeremonyTranscript, ThresholdShare, IssuedCertificate,
     RaInstance, RaCaConnection, CertProfile, CsrRequest,
-    ApiKey, DcvChallenge, CertificateStatus, PortalUser
+    ApiKey, DcvChallenge, CertificateStatus, PortalUser,
+    BackupRecord
   }
 
   @schema_version 1
@@ -19,7 +20,7 @@ defmodule PkiMnesia.Schema do
     :ca_instances, :issuer_keys, :threshold_shares, :key_ceremonies,
     :ceremony_participants, :ceremony_transcripts, :portal_users,
     :cert_profiles, :ra_instances, :ra_ca_connections, :api_keys,
-    :dcv_challenges, :schema_versions
+    :dcv_challenges, :backup_records, :schema_versions
   ]
 
   @async_tables [:issued_certificates, :csr_requests, :certificate_status]
@@ -168,7 +169,10 @@ defmodule PkiMnesia.Schema do
       {CertificateStatus, :disc_only_copies, [:serial_number, :issuer_key_id, :status]},
 
       # Portal users (disc_copies)
-      {PortalUser, :disc_copies, [:username, :email, :role]}
+      {PortalUser, :disc_copies, [:username, :email, :role]},
+
+      # Operations tables (disc_copies)
+      {BackupRecord, :disc_copies, [:timestamp, :type, :status]}
     ]
 
     results = Enum.map(tables, fn {struct_mod, storage_type, indices} ->
