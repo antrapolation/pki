@@ -59,7 +59,8 @@ defmodule PkiPlatformPortal.MixProject do
       {:pki_ca_engine, path: "../pki_ca_engine"},
       {:pki_ra_engine, path: "../pki_ra_engine"},
       {:pki_validation, path: "../pki_validation"},
-      {:logger_json, "~> 6.0"}
+      {:logger_json, "~> 6.0"},
+      {:phoenix_live_dashboard, "~> 0.8"}
     ]
   end
 

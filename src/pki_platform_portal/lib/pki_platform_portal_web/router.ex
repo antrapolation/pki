@@ -1,6 +1,8 @@
 defmodule PkiPlatformPortalWeb.Router do
   use PkiPlatformPortalWeb, :router
 
+  import Phoenix.LiveDashboard.Router
+
   pipeline :browser do
     plug PkiPlatformEngine.Plugs.ClearTenantPrefix
     plug :accepts, ["html"]
@@ -70,5 +72,7 @@ defmodule PkiPlatformPortalWeb.Router do
       live "/profile", ProfileLive
       live "/sessions", SessionsLive
     end
+
+    live_dashboard "/dashboard", metrics: false
   end
 end
