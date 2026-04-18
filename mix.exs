@@ -42,6 +42,10 @@ defmodule PkiSystem.MixProject do
       {:pki_tenant, path: "src/pki_tenant"},
       {:pki_tenant_web, path: "src/pki_tenant_web"},
 
+      # ── Multi-host replication (Phase B) ──
+      {:pki_replica, path: "src/pki_replica"},
+      {:libcluster, "~> 3.3"},
+
       # ── Shared (override to resolve version conflicts) ──
       {:gettext, "~> 0.26", override: true},
       {:jason, "~> 1.2", override: true},
@@ -115,6 +119,23 @@ defmodule PkiSystem.MixProject do
           pki_validation: :permanent,
           pki_tenant: :permanent,
           pki_tenant_web: :permanent
+        ]
+      ],
+
+      # ── Multi-host replication releases (Phase B) ──
+
+      # Release 6: Replica node — warm standby with Mnesia replication
+      # Joins primary cluster, receives replicated data, can promote to primary.
+      pki_replica: [
+        validate_compile_env: false,
+        applications: [
+          pki_replica: :permanent,
+          pki_mnesia: :permanent,
+          pki_ca_engine: :load,
+          pki_ra_engine: :load,
+          pki_validation: :load,
+          pki_tenant: :load,
+          pki_tenant_web: :load
         ]
       ]
     ]

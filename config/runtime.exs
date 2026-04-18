@@ -299,6 +299,21 @@ if tenant_id = System.get_env("TENANT_ID") do
   config :pki_tenant, tenant_id: tenant_id
 end
 
+# ─── Cluster formation for multi-host replication ──────────────────────
+if primary_host = System.get_env("PRIMARY_HOSTNAME") do
+  replica_host = System.get_env("REPLICA_HOSTNAME")
+  hosts = [:"pki_platform@#{primary_host}"]
+  hosts = if replica_host, do: hosts ++ [:"pki_replica@#{replica_host}"], else: hosts
+
+  config :libcluster,
+    topologies: [
+      pki_cluster: [
+        strategy: Cluster.Strategy.Epmd,
+        config: [hosts: hosts]
+      ]
+    ]
+end
+
 # Allow dev_activate in non-production for testing convenience
 if config_env() != :prod do
   config :pki_ca_engine, allow_dev_activate: true
