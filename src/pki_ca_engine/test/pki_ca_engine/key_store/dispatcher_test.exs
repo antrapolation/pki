@@ -97,7 +97,7 @@ defmodule PkiCaEngine.KeyStore.DispatcherTest do
       refute Dispatcher.key_available?("nonexistent-id")
     end
 
-    test "returns false for :local_hsm keys (not yet implemented)" do
+    test "returns true for :local_hsm keys" do
       key = IssuerKey.new(%{
         ca_instance_id: "ca-1",
         algorithm: "ECC-P256",
@@ -106,7 +106,7 @@ defmodule PkiCaEngine.KeyStore.DispatcherTest do
       })
       {:ok, _} = Repo.insert(key)
 
-      refute Dispatcher.key_available?(key.id)
+      assert Dispatcher.key_available?(key.id)
     end
   end
 end
