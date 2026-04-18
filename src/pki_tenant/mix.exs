@@ -29,7 +29,9 @@ defmodule PkiTenant.MixProject do
       {:pki_ra_engine, path: "../pki_ra_engine"},
       {:pki_validation, path: "../pki_validation"},
       # timex needed transitively: pki_validation CrlPublisher uses DateTime with TZ
-      {:timex, "~> 3.7"}
+      {:timex, "~> 3.7"},
+      # HTTP client for S3 backup uploads
+      {:req, "~> 0.5"}
     ]
   end
 end
