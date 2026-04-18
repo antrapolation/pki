@@ -323,3 +323,12 @@ end
 if config_env() != :prod do
   config :pki_ca_engine, allow_dev_activate: true
 end
+
+# ─── HSM Gateway (Phase D) ───────────────────────────────────────────────
+# Set HSM_GATEWAY_PORT (or HSM_GRPC_PORT) to enable the gRPC server for
+# remote HSM agents. When not set, HsmGateway is not started (zero overhead
+# for software-only tenants).
+# Example: HSM_GATEWAY_PORT=9010
+if hsm_port = System.get_env("HSM_GATEWAY_PORT") || System.get_env("HSM_GRPC_PORT") do
+  config :pki_ca_engine, :hsm_gateway_port, String.to_integer(hsm_port)
+end

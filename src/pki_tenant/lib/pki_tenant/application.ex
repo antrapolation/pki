@@ -38,7 +38,7 @@ defmodule PkiTenant.Application do
 
         # Primary mode — full supervision tree (existing behavior)
         true ->
-          [
+          base_children = [
             {PkiTenant.MnesiaBootstrap, [slug: tenant_slug]},
             {PkiTenant.MnesiaBackup, [start_timer: true]},
             {PkiTenant.AuditBridge, [tenant_id: tenant_id, platform_node: platform_node]},
@@ -47,9 +47,23 @@ defmodule PkiTenant.Application do
             {PkiValidation.Supervisor, []},
             {Task.Supervisor, name: PkiTenant.TaskSupervisor}
           ]
+
+          base_children ++ maybe_start_hsm_gateway()
       end
 
     opts = [strategy: :one_for_one, name: PkiTenant.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # Start HsmGateway only when HSM_GATEWAY_PORT (or HSM_GRPC_PORT) env var is set.
+  # This avoids gRPC overhead for software-only tenants.
+  defp maybe_start_hsm_gateway do
+    port_str =
+      System.get_env("HSM_GATEWAY_PORT") || System.get_env("HSM_GRPC_PORT")
+
+    case port_str do
+      nil -> []
+      port -> [{PkiCaEngine.HsmGateway, [port: String.to_integer(port)]}]
+    end
   end
 end
