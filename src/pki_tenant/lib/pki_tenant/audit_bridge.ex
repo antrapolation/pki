@@ -67,6 +67,13 @@ defmodule PkiTenant.AuditBridge do
         timestamp: DateTime.utc_now()
       })
 
+    # Always record locally; Mnesia owns the tenant's own audit trail.
+    try do
+      PkiTenant.AuditTrail.record(to_string(action), attrs)
+    rescue
+      e -> Logger.warning("[audit_bridge] local record failed: #{Exception.message(e)}")
+    end
+
     case {state.platform_node, state.connected} do
       {nil, _} ->
         {:noreply, buffer_event(state, event)}

@@ -77,6 +77,13 @@ defmodule PkiTenantWeb.RoutesTest do
       route = Enum.find(@ca_routes, fn r -> r.path == "/users" end)
       assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ca.UsersLive
     end
+
+    test "has /audit-log route backed by Ca.AuditLogLive" do
+      assert "/audit-log" in live_paths(@ca_routes)
+
+      route = Enum.find(@ca_routes, fn r -> r.path == "/audit-log" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ca.AuditLogLive
+    end
   end
 
   describe "RaRouter" do
@@ -130,6 +137,13 @@ defmodule PkiTenantWeb.RoutesTest do
 
       route = Enum.find(@ra_routes, fn r -> r.path == "/users" end)
       assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ra.UsersLive
+    end
+
+    test "has /audit-log route backed by Ra.AuditLogLive" do
+      assert "/audit-log" in live_paths(@ra_routes)
+
+      route = Enum.find(@ra_routes, fn r -> r.path == "/audit-log" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ra.AuditLogLive
     end
 
     test "has /profile route backed by the shared ProfileLive" do
