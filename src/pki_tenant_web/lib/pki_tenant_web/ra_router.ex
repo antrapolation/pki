@@ -38,6 +38,7 @@ defmodule PkiTenantWeb.RaRouter do
       on_mount: [{PkiTenantWeb.Live.AuthHook, :ra}],
       layout: {PkiTenantWeb.Layouts, :ra_app} do
       live "/", DashboardLive, :index
+      live "/ra-instances", RaInstancesLive, :index
       live "/csrs", CsrsLive, :index
       live "/cert-profiles", CertProfilesLive, :index
       live "/certificates", CertificatesLive, :index
