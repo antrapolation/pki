@@ -43,5 +43,9 @@ defmodule PkiTenantWeb.CaRouter do
       live "/issuer-keys", IssuerKeysLive, :index
       live "/certificates", CertificatesLive, :index
     end
+
+    # Printable ceremony transcript — plain controller, bypasses the
+    # ca_app layout so the page renders cleanly for print.
+    get "/ceremonies/:id/transcript", CeremonyTranscriptController, :show
   end
 end

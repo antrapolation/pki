@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ceremony Transcript — {@ceremony.id}</title>
+    <style>
+      /* Deliberate plain-HTML styling. No portal chrome, no Tailwind.
+         Everything inlined so the page prints identically regardless of
+         network conditions or external CSS. */
+      html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+      body {
+        font-family: Georgia, "Times New Roman", Times, serif;
+        font-size: 11pt;
+        line-height: 1.45;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 24px 32px 48px;
+      }
+      h1 {
+        font-size: 18pt;
+        margin: 0 0 4px;
+        border-bottom: 2px solid #000;
+        padding-bottom: 6px;
+      }
+      h2 {
+        font-size: 13pt;
+        margin: 22px 0 6px;
+        border-bottom: 1px solid #000;
+        padding-bottom: 2px;
+      }
+      .subtitle {
+        font-size: 10pt;
+        color: #444;
+        margin: 0 0 20px;
+      }
+      dl.metadata { display: grid; grid-template-columns: 160px 1fr; gap: 2px 12px; margin: 0 0 8px; }
+      dl.metadata dt { color: #444; }
+      dl.metadata dd { margin: 0; font-family: "Courier New", Courier, monospace; }
+      table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 6px; }
+      th, td { padding: 4px 6px; text-align: left; vertical-align: top; border-bottom: 1px solid #ccc; }
+      th { background: #eee; font-weight: bold; border-bottom: 1px solid #000; }
+      .ts { font-family: "Courier New", Courier, monospace; white-space: nowrap; }
+      .sig-block {
+        border: 1px solid #000;
+        padding: 12px 16px;
+        margin: 8px 0;
+        page-break-inside: avoid;
+      }
+      .sig-block .row { display: flex; gap: 24px; margin: 10px 0; align-items: flex-end; }
+      .sig-block .label { font-size: 9pt; color: #333; flex: 0 0 140px; }
+      .sig-line {
+        flex: 1;
+        border-bottom: 1px solid #000;
+        min-height: 40px;
+        display: flex;
+        align-items: flex-end;
+        padding-bottom: 2px;
+      }
+      .sig-line .printed { font-family: "Courier New", Courier, monospace; font-size: 11pt; }
+      .caveat { font-size: 8.5pt; color: #555; font-style: italic; margin-top: 6px; }
+      .footer { margin-top: 36px; font-size: 9pt; color: #666; border-top: 1px solid #ccc; padding-top: 8px; }
+      .page-break { page-break-before: always; }
+
+      @media print {
+        html, body { background: #fff; }
+        main { padding: 0; max-width: none; }
+        .no-print { display: none; }
+        a { color: inherit; text-decoration: none; }
+      }
+
+      @media screen {
+        html, body { background: #f5f5f5; }
+        main { background: #fff; margin-top: 24px; margin-bottom: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .print-hint {
+          background: #fffbea;
+          border: 1px solid #f0d47a;
+          padding: 8px 12px;
+          font-family: system-ui, -apple-system, sans-serif;
+          font-size: 10pt;
+          margin-bottom: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="print-hint no-print">
+        <strong>Print this page.</strong> Each custodian signs the
+        printed transcript in pen in the appropriate block below, then
+        the auditor countersigns. The printed + signed paper is the
+        authoritative audit record for this ceremony.
+      </div>
+
+      <h1>Key Ceremony Transcript</h1>
+      <p class="subtitle">
+        Single-session key ceremony — printed and signed copy is the
+        authoritative audit record.
+      </p>
+
+      <h2>Ceremony</h2>
+      <dl class="metadata">
+        <dt>Ceremony ID:</dt>
+        <dd>{@ceremony.id}</dd>
+
+        <dt>Status:</dt>
+        <dd>{@ceremony.status}</dd>
+
+        <dt>Initiated by:</dt>
+        <dd>{@ceremony.initiated_by || "—"}</dd>
+
+        <dt>Initiated at:</dt>
+        <dd>{fmt_time(@ceremony.inserted_at)}</dd>
+
+        <dt>Completed at:</dt>
+        <dd>{fmt_time(@ceremony.updated_at)}</dd>
+
+        <dt>Algorithm:</dt>
+        <dd>{@ceremony.algorithm}</dd>
+
+        <dt>Threshold:</dt>
+        <dd>{@ceremony.threshold_k}-of-{@ceremony.threshold_n}</dd>
+
+        <dt>Type:</dt>
+        <dd><%= if is_root?(@ceremony), do: "Root CA (self-signed)", else: "Sub-CA (CSR)" %></dd>
+
+        <dt>Subject DN:</dt>
+        <dd>{subject_dn(@ceremony)}</dd>
+
+        <dt>Public key SHA-256:</dt>
+        <dd>{fingerprint(@ceremony)}</dd>
+      </dl>
+
+      <h2>Issuer Key</h2>
+      <%= if @issuer_key do %>
+        <dl class="metadata">
+          <dt>Key ID:</dt>
+          <dd>{@issuer_key.id}</dd>
+          <dt>Key alias:</dt>
+          <dd>{@issuer_key.key_alias || "—"}</dd>
+          <dt>Status:</dt>
+          <dd>{@issuer_key.status}</dd>
+          <dt>Algorithm:</dt>
+          <dd>{@issuer_key.algorithm}</dd>
+        </dl>
+      <% else %>
+        <p>Issuer key record not found.</p>
+      <% end %>
+
+      <h2>Event Log</h2>
+      <%= if @transcript && @transcript.entries != [] do %>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:170px">Timestamp</th>
+              <th style="width:150px">Actor</th>
+              <th style="width:200px">Action</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={entry <- @transcript.entries}>
+              <td class="ts">{fmt_time(entry[:timestamp] || entry["timestamp"])}</td>
+              <td>{entry[:actor] || entry["actor"] || "—"}</td>
+              <td>{humanize_action(entry[:action] || entry["action"])}</td>
+              <td>{describe_details(entry[:details] || entry["details"])}</td>
+            </tr>
+          </tbody>
+        </table>
+      <% else %>
+        <p><em>No events recorded.</em></p>
+      <% end %>
+
+      <h2>Custodian Acknowledgements</h2>
+      <p>
+        By signing below, I confirm I was present for the ceremony
+        above, I chose my own per-ceremony password, and I acknowledge
+        that my encrypted share is now stored against the key identified
+        by the fingerprint above.
+      </p>
+
+      <%= for share <- @shares do %>
+        <div class="sig-block">
+          <div><strong>Custodian #{share.share_index}</strong></div>
+
+          <div class="row">
+            <div class="label">Name:</div>
+            <div class="sig-line">
+              <%= if share.status == "pending" do %>
+                <span class="printed" style="color:#888;font-style:italic">— awaiting entry —</span>
+              <% else %>
+                <span class="printed">{share.custodian_name}</span>
+              <% end %>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="label">Signature:</div>
+            <div class="sig-line">&nbsp;</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Date:</div>
+            <div class="sig-line" style="max-width:260px;">&nbsp;</div>
+          </div>
+
+          <p class="caveat">
+            Share status: {share.status}. Share accepted on
+            {fmt_time(share.updated_at)}.
+          </p>
+        </div>
+      <% end %>
+
+      <h2>Auditor Acknowledgement</h2>
+      <p>
+        I observed this ceremony in person, I confirmed each custodian's
+        identity, and I attest that the event log above accurately
+        reflects what occurred during the session.
+      </p>
+
+      <div class="sig-block">
+        <div class="row">
+          <div class="label">Auditor name:</div>
+          <div class="sig-line">
+            <span class="printed">{(@auditor && @auditor.name) || "—"}</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="label">Organization:</div>
+          <div class="sig-line">&nbsp;</div>
+        </div>
+
+        <div class="row">
+          <div class="label">Signature:</div>
+          <div class="sig-line">&nbsp;</div>
+        </div>
+
+        <div class="row">
+          <div class="label">Date:</div>
+          <div class="sig-line" style="max-width:260px;">&nbsp;</div>
+        </div>
+
+        <%= if @auditor && @auditor.identity_verified_at do %>
+          <p class="caveat">
+            Auditor identity-verification events recorded at
+            {fmt_time(@auditor.identity_verified_at)}.
+          </p>
+        <% end %>
+      </div>
+
+      <p class="footer">
+        Generated from Mnesia ceremony record {@ceremony.id} at
+        {fmt_time(DateTime.utc_now())}. This document reflects system
+        state at rendering time; the wet-signed paper copy is the
+        authoritative audit record.
+      </p>
+    </main>
+  </body>
+</html>
