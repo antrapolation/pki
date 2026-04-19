@@ -53,7 +53,7 @@ config :pki_platform_engine, PkiPlatformEngine.PlatformRepo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  port: 5434,
+  port: 5432,
   database: "pki_platform_dev",
   pool_size: 5
 
@@ -62,7 +62,7 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  port: 5434,
+  port: 5432,
   pool_size: 2
 
 # Engine database configs (needed for direct admin creation on activation)
@@ -70,7 +70,7 @@ config :pki_ca_engine, PkiCaEngine.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  port: 5434,
+  port: 5432,
   database: "pki_ca_engine_dev",
   pool_size: 3
 
@@ -78,7 +78,7 @@ config :pki_ra_engine, PkiRaEngine.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  port: 5434,
+  port: 5432,
   database: "pki_ra_engine_dev",
   pool_size: 3
 
@@ -86,7 +86,7 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  port: 5434,
+  port: 5432,
   database: "pki_ca_engine_dev",
   pool_size: 2
 
@@ -99,7 +99,7 @@ config :pki_validation, PkiValidation.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  port: 5434,
+  port: 5432,
   database: "pki_validation_dev",
   pool_size: 5
 

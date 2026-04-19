@@ -4,6 +4,39 @@ Tracked per-component. P0 = exploitable/blocker, P1 = exploitable with specific
 conditions, P2 = defense-in-depth / hardening, P3 = cleanup, P4 = nice-to-have.
 Keep priority + component headings; move to `## Completed` once done.
 
+## Prioritized backlog (post-v1.1.0.0)
+
+The per-component sections below are the authoritative registry. This block
+tracks the order we agreed to work through them.
+
+### Tier 1 — Foundation (force multipliers)
+- [x] **1a. Native PG setup** — PG 17 via brew on macOS, default port 5432
+  (test configs moved off 5434). Done 2026-04-19.
+- [ ] **1b. Triage pre-existing failures unmasked by 1a** — pki_ca_engine now
+  compiles + runs 525 tests, 161 fail. Failures look like real API drift
+  (e.g. `IssuerKeyManagement.create_issuer_key/3` called but only `/2`
+  exists). Not caused by recent PRs; accumulated during the Mnesia rewrite.
+  Need a dedicated triage pass before P1 work continues.
+- [ ] **1c. x509 doctest drift cleanup** — 59 noise failures will hide real
+  regressions. Effort: ~30min.
+
+### Tier 2 — Security P1s (ordered easy → hard)
+- [ ] **2a. Fail-closed attestation in CredentialManager** (~1h)
+- [ ] **2b. Bind advertised key labels to tenant at registration** (~2h)
+- [ ] **2c. PKCS#11 session mutex in hsm-agent** (~2h)
+- [ ] **2d. mTLS at Cowboy listener** (~4-8h)
+
+### Tier 3 — Quality infrastructure
+- [ ] **3a. Wire `mix test --cover`** — real line-coverage numbers. Target
+  ≥70% for pki_ca_engine / pki_ra_engine / pki_crypto.
+- [ ] **3b. First real E2E test with PG up** — CSR → RA approve → CA sign
+  → OCSP check against live engines.
+
+### Tier 4 — Product roadmap
+- [ ] **4a. Phase 4 PQC OCSP + CRL signing** (multi-day)
+- [ ] **4b. HSM wizard UI** (1-2 days)
+- [ ] **4c. Remaining P2 hardening items** (see per-component sections)
+
 ## HSM gateway (Phase D)
 
 ### mTLS at the Cowboy listener
@@ -100,22 +133,20 @@ which is already in the dep tree.
 
 ## Test infrastructure
 
-### Native PG setup docs for umbrella-root tests
-**Priority:** P2
-**Notes:** `mix test` at the repo root runs 16 Mnesia-backed integration
-tests cleanly. PG-backed legacy engine tests (`pki_ca_engine`,
-`pki_ra_engine`, `pki_platform_engine`, portals) need Postgres running on
-localhost:5434. Bare metal all the way: no Docker.
+### Native PG setup automation
+**Priority:** P3
+**Notes:** Local dev setup is manual today:
 
-- macOS dev: `brew install postgresql@16 && brew services start postgresql@16`
-  then `./scripts/init-databases.sh`. The script creates the 5 databases
-  on whichever port PG is listening on — ensure the `pg_ctl` config uses
-  5434, or set `PGPORT=5434` in shell profile.
-- Linux dev/prod: same system package + systemd that prod deploys with.
+- macOS: `brew install postgresql@17 && brew services start postgresql@17`
+  (default port 5432). Create a `postgres` superuser role with password
+  `postgres`, then create databases: `pki_{ca_engine,ra_engine,validation,
+  audit_trail,platform}` and their `_test` counterparts.
+- Linux: system package + systemd, same shape.
 
-Add a `scripts/dev-setup-pg.sh` that wraps the brew / apt flow with port
-check + database init, and a `make test` wrapper that verifies PG is up
-before invoking `mix test`.
+Nice-to-have: `scripts/dev-setup-pg.sh` that wraps the flow
+idempotently, and a `make test` wrapper that verifies PG is reachable
+before invoking `mix test`. Current `scripts/init-databases.sh` is
+container-specific and only creates prod databases, not `_test`.
 
 ### Real HSM two-server integration test
 **Priority:** P2
