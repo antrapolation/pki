@@ -21,10 +21,6 @@ defmodule PkiCaEngine.Schema.CaUser do
 
     belongs_to :ca_instance, PkiCaEngine.Schema.CaInstance
 
-    has_many :credentials, PkiCaEngine.CredentialManager.Credential, foreign_key: :user_id
-    has_many :keypair_accesses, PkiCaEngine.Schema.KeypairAccess, foreign_key: :user_id
-    has_many :threshold_shares, PkiCaEngine.Schema.ThresholdShare, foreign_key: :custodian_user_id
-
     timestamps()
   end
 
