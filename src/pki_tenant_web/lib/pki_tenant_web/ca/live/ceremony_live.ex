@@ -59,7 +59,14 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        # Slot-based custodian acceptance state
        slot_states: [],
        entering_slot: nil,
-       entry_error: nil
+       entry_error: nil,
+       # Passwords accumulated during slot entry — held only long enough to
+       # feed execute_keygen when the last custodian submits, then wiped.
+       entered_passwords: %{},
+       # :idle | :running | :completed | :failed
+       execution_state: nil,
+       execution_error: nil,
+       completed_ceremony: nil
      )}
   end
 
@@ -110,6 +117,81 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
       e ->
         Logger.warning("[CeremonyLive] Failed to load data: #{Exception.message(e)}")
         {:noreply, assign(socket, loading: false)}
+    end
+  end
+
+  def handle_info(:execute_keygen, socket) do
+    ceremony = socket.assigns.active_ceremony
+    passwords = socket.assigns.entered_passwords
+
+    # Wipe the in-memory password map BEFORE calling execute_keygen so if
+    # the call raises we don't leave the map in socket state. Pass the
+    # local `passwords` into the orchestrator; after this function returns,
+    # the BEAM garbage-collects the locals.
+    socket = assign(socket, entered_passwords: %{})
+
+    # Convert map to the list-of-{name, password} tuples the orchestrator
+    # expects. Wrap in try/rescue so a raise during keygen ends up in
+    # :failed state rather than crashing the LiveView.
+    try do
+      case CeremonyOrchestrator.execute_keygen(ceremony.id, Map.to_list(passwords)) do
+        {:ok, _} ->
+          # Re-read the ceremony so we have fingerprint + updated status.
+          completed =
+            case Repo.get(KeyCeremony, ceremony.id) do
+              {:ok, c} -> c
+              _ -> ceremony
+            end
+
+          PkiTenant.AuditBridge.log("ceremony_key_generated", %{
+            ceremony_id: ceremony.id,
+            fingerprint: Map.get(completed.domain_info || %{}, "fingerprint")
+          })
+
+          :erlang.garbage_collect()
+
+          {:noreply,
+           socket
+           |> assign(
+             execution_state: :completed,
+             execution_error: nil,
+             completed_ceremony: completed,
+             slot_states: load_slot_states(completed),
+             activity_log:
+               [
+                 %{timestamp: DateTime.utc_now(), message: "Key generated, shares encrypted, ceremony complete."}
+                 | socket.assigns.activity_log
+               ]
+               |> Enum.take(50)
+           )}
+
+        {:error, reason} ->
+          :erlang.garbage_collect()
+
+          {:noreply,
+           socket
+           |> assign(
+             execution_state: :failed,
+             execution_error: format_error(reason),
+             activity_log:
+               [
+                 %{timestamp: DateTime.utc_now(), message: "Key generation failed: #{format_error(reason)}"}
+                 | socket.assigns.activity_log
+               ]
+               |> Enum.take(50)
+           )}
+      end
+    rescue
+      e ->
+        Logger.error("[ceremony_live] execute_keygen raised: #{Exception.message(e)}")
+        :erlang.garbage_collect()
+
+        {:noreply,
+         socket
+         |> assign(
+           execution_state: :failed,
+           execution_error: "An unexpected error occurred during key generation."
+         )}
     end
   end
 
@@ -430,7 +512,11 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                    activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — Custodian #1 up next"}],
                    slot_states: slot_states,
                    entering_slot: next_pending_slot(slot_states),
-                   entry_error: nil
+                   entry_error: nil,
+                   entered_passwords: %{},
+                   execution_state: :idle,
+                   execution_error: nil,
+                   completed_ceremony: nil
                  )}
 
               {:error, reason} ->
@@ -475,20 +561,36 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
           new_slot_states = load_slot_states(ceremony)
           next_slot = next_pending_slot(new_slot_states)
+          accumulated = Map.put(socket.assigns.entered_passwords, real_name, password)
 
-          flash_msg =
-            if next_slot,
-              do: "#{real_name} accepted Custodian ##{slot}. Now Custodian ##{next_slot}.",
-              else: "#{real_name} accepted Custodian ##{slot}. All custodians have now accepted — ready to generate."
+          if next_slot do
+            {:noreply,
+             socket
+             |> assign(
+               entering_slot: next_slot,
+               entry_error: nil,
+               slot_states: new_slot_states,
+               entered_passwords: accumulated
+             )
+             |> put_flash(:info, "#{real_name} accepted Custodian ##{slot}. Now Custodian ##{next_slot}.")}
+          else
+            # Last slot just accepted. Schedule execute_keygen on the next
+            # message loop tick so the UI gets a chance to render the
+            # "generating…" state before the (potentially slow) keygen
+            # runs synchronously in handle_info.
+            send(self(), :execute_keygen)
 
-          {:noreply,
-           socket
-           |> assign(
-             entering_slot: next_slot,
-             entry_error: nil,
-             slot_states: new_slot_states
-           )
-           |> put_flash(:info, flash_msg)}
+            {:noreply,
+             socket
+             |> assign(
+               entering_slot: nil,
+               entry_error: nil,
+               slot_states: new_slot_states,
+               entered_passwords: accumulated,
+               execution_state: :running
+             )
+             |> put_flash(:info, "All custodians have accepted. Generating key…")}
+          end
         else
           {:error, :duplicate_name} ->
             {:noreply, assign(socket, entry_error: "Another custodian in this ceremony has already used that name. Add a qualifier (e.g. department).")}
@@ -1146,6 +1248,67 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
           <div :if={Enum.empty?(@participants)} class="text-sm text-base-content/50 text-center py-4">
             No participants assigned yet.
+          </div>
+        </div>
+      </div>
+
+      <%!-- Execution state banner --%>
+      <div :if={@execution_state == :running} class="alert alert-info">
+        <.icon name="hero-cog-6-tooth" class="size-5 animate-spin" />
+        <div>
+          <div class="font-semibold text-sm">Generating key and encrypting shares…</div>
+          <div class="text-xs opacity-70">
+            Do not navigate away. Post-quantum algorithms can take several seconds.
+          </div>
+        </div>
+      </div>
+
+      <div :if={@execution_state == :completed and @completed_ceremony} class="card bg-success/5 border-success/40 border shadow-sm">
+        <div class="card-body">
+          <h3 class="text-sm font-semibold text-success">
+            <.icon name="hero-check-circle" class="size-5 inline" /> Ceremony complete
+          </h3>
+          <p class="text-xs text-base-content/70">
+            The keypair is generated, shares are encrypted per custodian,
+            and passwords have been wiped from server memory. The auditor
+            must now print the transcript; each custodian signs the printed
+            transcript in pen, then the auditor signs.
+          </p>
+
+          <div class="bg-base-100 rounded p-3 text-xs space-y-1 font-mono">
+            <div :if={Map.get(@completed_ceremony.domain_info || %{}, "fingerprint")}>
+              <span class="text-base-content/50">Public key SHA-256:</span>
+              <span>{Map.get(@completed_ceremony.domain_info || %{}, "fingerprint")}</span>
+            </div>
+            <div>
+              <span class="text-base-content/50">Ceremony status:</span>
+              <span class="badge badge-xs badge-success">{@completed_ceremony.status}</span>
+            </div>
+          </div>
+
+          <div class="card-actions justify-end mt-2">
+            <.link
+              href={"/ca/ceremonies/#{@completed_ceremony.id}/transcript"}
+              target="_blank"
+              class="btn btn-primary btn-sm"
+            >
+              <.icon name="hero-printer" class="size-4" /> Print transcript
+            </.link>
+            <button phx-click="finish_wizard" class="btn btn-ghost btn-sm">
+              Back to list
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div :if={@execution_state == :failed} class="alert alert-error">
+        <.icon name="hero-x-circle" class="size-5" />
+        <div>
+          <div class="font-semibold text-sm">Key generation failed</div>
+          <div class="text-xs">{@execution_error}</div>
+          <div class="text-xs opacity-70 mt-1">
+            Passwords have been wiped from memory. The ceremony is marked
+            failed — start a new one.
           </div>
         </div>
       </div>
