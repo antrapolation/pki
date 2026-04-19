@@ -125,6 +125,90 @@ defmodule PkiCaEngine.CeremonyOrchestratorTest do
     end
   end
 
+  describe "accept_share_by_slot/4" do
+    # Covers the single-session flow where the custodian's real name
+    # isn't known until they sit down. Initiation writes placeholder
+    # names ("Custodian 1"..."Custodian N"); this function overwrites
+    # the placeholder with the real name at acceptance time.
+
+    test "accepts a slot and writes the real name + password hash" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
+
+      assert {:ok, updated} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 1, "Alice Johnson", "mypassw0rd99!")
+
+      assert updated.share_index == 1
+      assert updated.custodian_name == "Alice Johnson"
+      assert updated.status == "accepted"
+      assert updated.password_hash != nil
+    end
+
+    test "trims whitespace around the name" do
+      {:ok, {ceremony, _, _, _, _}} = create_test_ceremony()
+
+      assert {:ok, updated} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 1, "  Alice  ", "mypassw0rd99!")
+
+      assert updated.custodian_name == "Alice"
+    end
+
+    test "rejects empty name" do
+      {:ok, {ceremony, _, _, _, _}} = create_test_ceremony()
+
+      assert {:error, :empty_name} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 1, "   ", "mypassw0rd99!")
+    end
+
+    test "rejects empty password" do
+      {:ok, {ceremony, _, _, _, _}} = create_test_ceremony()
+
+      assert {:error, :empty_password} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 1, "Alice", "")
+    end
+
+    test "rejects when slot does not exist" do
+      {:ok, {ceremony, _, _, _, _}} = create_test_ceremony()
+
+      assert {:error, :share_not_found} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 99, "Alice", "mypassw0rd99!")
+    end
+
+    test "rejects when the same slot is already accepted" do
+      {:ok, {ceremony, _, _, _, _}} = create_test_ceremony()
+
+      assert {:ok, _} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 1, "Alice", "mypassw0rd99!")
+
+      assert {:error, {:invalid_share_status, "accepted"}} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 1, "Alice B.", "mypassw0rd99!")
+    end
+
+    test "rejects a duplicate real name across slots (case-insensitive)" do
+      {:ok, {ceremony, _, _, _, _}} = create_test_ceremony()
+
+      assert {:ok, _} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 1, "Alice Johnson", "mypassw0rd99!")
+
+      assert {:error, :duplicate_name} =
+               CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 2, "alice johnson", "otherpw99!!")
+    end
+
+    test "updates the corresponding CeremonyParticipant placeholder name" do
+      # Use a ceremony seeded with placeholder names — that's the shape
+      # the single-session UI uses at initiation time.
+      {:ok, {ceremony, _, _, _, _}} = create_test_ceremony_with_placeholders()
+
+      {:ok, _} =
+        CeremonyOrchestrator.accept_share_by_slot(ceremony.id, 2, "Bob Mendez", "mypassw0rd99!")
+
+      {:ok, participants} = CeremonyOrchestrator.list_participants(ceremony.id)
+
+      assert Enum.any?(participants, fn p -> p.name == "Bob Mendez" and p.role == :custodian end)
+
+      refute Enum.any?(participants, fn p -> p.name == "Custodian 2" and p.role == :custodian end)
+    end
+  end
+
   describe "execute_keygen/2 post-ceremony password_hash wipe" do
     # When a ceremony completes, the custodian password_hash has served its
     # accept-vs-execute verification purpose. The authoritative record is the
@@ -262,5 +346,24 @@ defmodule PkiCaEngine.CeremonyOrchestratorTest do
     }
 
     CeremonyOrchestrator.initiate("ca-test", params)
+  end
+
+  # Mirrors what the single-session LiveView passes at initiate/2 time —
+  # N placeholder names, real names come in at accept_share_by_slot.
+  defp create_test_ceremony_with_placeholders do
+    params = %{
+      algorithm: "ECC-P256",
+      threshold_k: 2,
+      threshold_n: 3,
+      custodian_names: ["Custodian 1", "Custodian 2", "Custodian 3"],
+      auditor_name: "External Auditor",
+      is_root: true,
+      ceremony_mode: :full,
+      initiated_by: "Admin",
+      key_alias: "test-key-placeholders",
+      subject_dn: "/CN=Test CA Placeholders"
+    }
+
+    CeremonyOrchestrator.initiate("ca-test-placeholders", params)
   end
 end

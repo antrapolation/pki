@@ -55,7 +55,11 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        wizard_busy: false,
        # Progress dashboard state
        participants: [],
-       activity_log: []
+       activity_log: [],
+       # Slot-based custodian acceptance state
+       slot_states: [],
+       entering_slot: nil,
+       entry_error: nil
      )}
   end
 
@@ -324,13 +328,13 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   def handle_event("initiate_ceremony", params, socket) do
     ca_id = params["ca_instance_id"]
 
-    # Custodian names are free-form per-ceremony. Custodians are not portal
-    # users — they sit down at the ceremony, enter their name and a
-    # per-ceremony password in the custodian-entry step. We just need the
-    # list of names at initiation time so Mnesia can create placeholder
-    # ThresholdShare records keyed by custodian_name.
-    custodian_names = parse_custodian_names(params["custodian_names"])
+    # At initiation we only know how many custodians (threshold_n) and who
+    # the auditor is. Each custodian's real name + per-ceremony password is
+    # collected at their turn in the entry step. Mnesia gets placeholder
+    # names "Custodian 1..N" which get overwritten with real names on
+    # accept_share_by_slot.
     auditor_name = String.trim(params["auditor_name"] || "")
+    threshold_k = parse_int(params["threshold_k"]) || 2
     threshold_n = parse_int(params["threshold_n"]) || 3
 
     cond do
@@ -340,17 +344,13 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
       is_nil(params["keystore_id"]) or params["keystore_id"] == "" ->
         {:noreply, assign(socket, wizard_error: "Please select a Keystore.")}
 
-      Enum.empty?(custodian_names) ->
-        {:noreply, assign(socket, wizard_error: "Enter at least one custodian name.")}
+      threshold_n < 2 or threshold_n > 20 ->
+        {:noreply, assign(socket, wizard_error: "Threshold N must be between 2 and 20.")}
 
-      length(custodian_names) != length(Enum.uniq(custodian_names)) ->
-        {:noreply, assign(socket, wizard_error: "Custodian names must be unique within a ceremony.")}
-
-      length(custodian_names) != threshold_n ->
+      threshold_k > threshold_n or threshold_k < 2 ->
         {:noreply,
          assign(socket,
-           wizard_error:
-             "You entered #{length(custodian_names)} custodian name(s) but threshold N is #{threshold_n}. Names and N must match."
+           wizard_error: "Threshold K must be between 2 and #{threshold_n}."
          )}
 
       auditor_name == "" ->
@@ -372,15 +372,16 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
           {:allow, _} ->
             is_root = params["is_root"] == "true"
             initiated_by = socket.assigns.current_user[:username] || socket.assigns.current_user[:display_name] || "unknown"
+            placeholder_names = Enum.map(1..threshold_n, fn i -> "Custodian #{i}" end)
 
             ceremony_params = %{
               algorithm: params["algorithm"],
               keystore_id: params["keystore_id"],
-              threshold_k: parse_int(params["threshold_k"]) || 2,
+              threshold_k: threshold_k,
               threshold_n: threshold_n,
               is_root: is_root,
               key_alias: params["key_alias"],
-              custodian_names: custodian_names,
+              custodian_names: placeholder_names,
               auditor_name: auditor_name,
               ceremony_mode: :full,
               initiated_by: initiated_by,
@@ -395,7 +396,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                   ca_instance_id: ca_id,
                   is_root: is_root,
                   key_alias: params["key_alias"],
-                  custodian_count: length(custodian_names),
+                  custodian_count: threshold_n,
                   auditor_name: auditor_name
                 })
 
@@ -413,6 +414,8 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                   }
                 end)
 
+                slot_states = load_slot_states(ceremony)
+
                 {:noreply,
                  socket
                  |> assign(
@@ -424,7 +427,10 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                    wizard_step: :progress,
                    wizard_error: nil,
                    participants: participants,
-                   activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — waiting for participants"}]
+                   activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — Custodian #1 up next"}],
+                   slot_states: slot_states,
+                   entering_slot: next_pending_slot(slot_states),
+                   entry_error: nil
                  )}
 
               {:error, reason} ->
@@ -437,6 +443,81 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   # ---------------------------------------------------------------------------
   # Progress dashboard events
   # ---------------------------------------------------------------------------
+
+  # Sequential custodian entry. The dialog is open for exactly one slot at a
+  # time. After each successful submission it advances to the next pending
+  # slot automatically, or closes when all N are accepted. No
+  # "pick a slot" step — the system drives the order so two custodians
+  # can't enter the same slot or skip ahead.
+
+  def handle_event("submit_slot_entry", params, socket) do
+    slot = socket.assigns.entering_slot
+    ceremony = socket.assigns.active_ceremony
+    real_name = String.trim(params["custodian_name"] || "")
+    password = params["password"] || ""
+    confirmation = params["password_confirmation"] || ""
+
+    cond do
+      is_nil(slot) or is_nil(ceremony) ->
+        {:noreply, socket}
+
+      real_name == "" ->
+        {:noreply, assign(socket, entry_error: "Enter your name.")}
+
+      true ->
+        with :ok <- PkiCaEngine.KeyCeremony.PasswordPolicy.validate_with_confirmation(password, confirmation),
+             {:ok, _updated} <- CeremonyOrchestrator.accept_share_by_slot(ceremony.id, slot, real_name, password) do
+          PkiTenant.AuditBridge.log("custodian_share_accepted", %{
+            ceremony_id: ceremony.id,
+            slot: slot,
+            custodian_name: real_name
+          })
+
+          new_slot_states = load_slot_states(ceremony)
+          next_slot = next_pending_slot(new_slot_states)
+
+          flash_msg =
+            if next_slot,
+              do: "#{real_name} accepted Custodian ##{slot}. Now Custodian ##{next_slot}.",
+              else: "#{real_name} accepted Custodian ##{slot}. All custodians have now accepted — ready to generate."
+
+          {:noreply,
+           socket
+           |> assign(
+             entering_slot: next_slot,
+             entry_error: nil,
+             slot_states: new_slot_states
+           )
+           |> put_flash(:info, flash_msg)}
+        else
+          {:error, :duplicate_name} ->
+            {:noreply, assign(socket, entry_error: "Another custodian in this ceremony has already used that name. Add a qualifier (e.g. department).")}
+
+          {:error, :empty_name} ->
+            {:noreply, assign(socket, entry_error: "Enter your name.")}
+
+          {:error, :empty_password} ->
+            {:noreply, assign(socket, entry_error: "Password cannot be empty.")}
+
+          {:error, {:invalid_share_status, status}} ->
+            {:noreply, assign(socket, entry_error: "This slot is no longer pending (#{status}). Refresh the page.")}
+
+          {:error, {:invalid_ceremony_status, status}} ->
+            {:noreply, assign(socket, entry_error: "Ceremony is no longer accepting shares (status: #{status}).")}
+
+          {:error, reason} when is_atom(reason) ->
+            msg = PkiCaEngine.KeyCeremony.PasswordPolicy.humanize_error(reason)
+            {:noreply, assign(socket, entry_error: msg)}
+
+          {:error, {:too_short, _n} = reason} ->
+            {:noreply, assign(socket, entry_error: PkiCaEngine.KeyCeremony.PasswordPolicy.humanize_error(reason))}
+
+          other ->
+            Logger.error("[ceremony_live] unexpected error on submit_slot_entry: #{inspect(other)}")
+            {:noreply, assign(socket, entry_error: "Unexpected error. Try again.")}
+        end
+    end
+  end
 
   def handle_event("cancel_active_ceremony", _params, socket) do
     ceremony = socket.assigns.active_ceremony
@@ -480,19 +561,35 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   # Private helpers
   # ---------------------------------------------------------------------------
 
-  # Free-form custodian names: one per line or comma-separated in a textarea.
-  # Trim whitespace, drop empty entries, cap name length at 128 chars.
-  defp parse_custodian_names(nil), do: []
+  # Load share state for the slot-entry dashboard. Returns a list sorted
+  # by share_index of %{slot, name, status}.
+  defp load_slot_states(nil), do: []
 
-  defp parse_custodian_names(raw) when is_binary(raw) do
-    raw
-    |> String.split(~r/[\n,]/, trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.map(&String.slice(&1, 0, 128))
+  defp load_slot_states(ceremony) do
+    case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
+      {:ok, shares} ->
+        shares
+        |> Enum.sort_by(& &1.share_index)
+        |> Enum.map(fn s ->
+          %{slot: s.share_index, name: s.custodian_name, status: s.status}
+        end)
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
   end
 
-  defp parse_custodian_names(_), do: []
+  # Lowest-numbered pending slot, or nil if every slot is already accepted.
+  defp next_pending_slot(slot_states) do
+    slot_states
+    |> Enum.find(fn %{status: status} -> status == "pending" end)
+    |> case do
+      nil -> nil
+      %{slot: n} -> n
+    end
+  end
 
   defp build_participants_from_ceremony(ceremony) do
     # Build participant list from CeremonyParticipant records
@@ -939,50 +1036,30 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
           <div class="divider text-xs text-base-content/40">Participants (single-session ceremony)</div>
 
           <p class="text-xs text-base-content/60 -mt-2 mb-2">
-            This ceremony runs end-to-end in one session. Custodians and the
-            auditor are external — they are NOT portal users. Enter the
-            names that will be recorded in the printed transcript. Each
-            custodian will choose their own per-ceremony password when they
-            sit down at the next step.
+            This ceremony runs end-to-end in one session. Threshold N above
+            is the number of custodians. Each custodian will enter their
+            own name and a per-ceremony password when it's their turn on
+            the next step — no need to enter them here. Custodians and the
+            auditor are external, not portal users; what they type becomes
+            the printed-transcript record.
           </p>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-medium text-base-content/60 mb-1">
-                Custodian names (one per line, must match threshold N)
-              </label>
-              <textarea
-                name="custodian_names"
-                rows="4"
-                placeholder="Alice Johnson&#10;Bob Mendez&#10;Charlie Nakamura"
-                class="textarea textarea-bordered textarea-sm w-full font-mono"
-                required
-              ></textarea>
-              <p class="text-xs text-base-content/40 mt-1">
-                Free text, 1-128 chars per name. Names must be unique within
-                this ceremony. They become the identifier on each custodian's
-                share and on the signature line of the printed transcript.
-              </p>
-            </div>
-
-            <div>
-              <label class="block text-xs font-medium text-base-content/60 mb-1">
-                External auditor name
-              </label>
-              <input
-                type="text"
-                name="auditor_name"
-                maxlength="128"
-                placeholder="e.g. Jane Roe, Big Four Audit Firm"
-                class="input input-bordered input-sm w-full"
-                required
-              />
-              <p class="text-xs text-base-content/40 mt-1">
-                The external auditor observing and signing the printed
-                transcript at session end. Not a system user; just a name on
-                the paper record.
-              </p>
-            </div>
+          <div>
+            <label class="block text-xs font-medium text-base-content/60 mb-1">
+              External auditor name
+            </label>
+            <input
+              type="text"
+              name="auditor_name"
+              maxlength="128"
+              placeholder="e.g. Jane Roe, Big Four Audit Firm"
+              class="input input-bordered input-sm w-full"
+              required
+            />
+            <p class="text-xs text-base-content/40 mt-1">
+              The external auditor observing and signing the printed
+              transcript at session end.
+            </p>
           </div>
 
           <div class="pt-2">
@@ -1073,6 +1150,43 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
         </div>
       </div>
 
+      <%!-- Custodian slots (single-session) --%>
+      <div :if={not Enum.empty?(@slot_states)} class="card bg-base-100 shadow-sm border border-base-300">
+        <div class="card-body">
+          <h3 class="text-sm font-semibold text-base-content mb-3">
+            <.icon name="hero-key" class="size-4 inline" /> Custodian Shares
+          </h3>
+
+          <p class="text-xs text-base-content/60 mb-3">
+            Each custodian enters their name and a per-ceremony password in
+            sequence. A dialog appears automatically for the next pending
+            slot — hand the screen to that custodian when it opens.
+          </p>
+
+          <table class="table table-sm table-fixed w-full">
+            <thead>
+              <tr class="text-xs uppercase text-base-content/50">
+                <th class="w-[20%]">Slot</th>
+                <th class="w-[55%]">Custodian</th>
+                <th class="w-[25%]">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={s <- @slot_states} class="hover">
+                <td class="text-sm font-mono">Custodian #{s.slot}</td>
+                <td class="text-sm">
+                  <span :if={s.status == "pending"} class="text-base-content/40 italic">— awaiting entry —</span>
+                  <span :if={s.status != "pending"} class="font-medium">{s.name}</span>
+                </td>
+                <td>
+                  <span class={"badge badge-sm #{slot_status_class(s.status)}"}>{s.status}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <%!-- Activity log --%>
       <div class="card bg-base-100 shadow-sm border border-base-300">
         <div class="card-body">
@@ -1109,9 +1223,93 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
           <.icon name="hero-x-circle" class="size-4" /> Cancel Ceremony
         </button>
       </div>
+
+      <%!-- Sequential custodian-entry modal --%>
+      <%= if @entering_slot do %>
+        {render_slot_entry_dialog(assigns)}
+      <% end %>
     </div>
     """
   end
+
+  # Modal shown while a custodian is at the keyboard entering their name
+  # and per-ceremony password. There's no cancel button — the modal only
+  # closes on successful submission, and the whole ceremony can be
+  # cancelled from the dashboard below. This keeps the flow linear:
+  # operator opens the dialog, custodian fills in, next custodian.
+  defp render_slot_entry_dialog(assigns) do
+    ~H"""
+    <div class="modal modal-open" role="dialog" aria-labelledby="slot-entry-title">
+      <div class="modal-box max-w-md">
+        <h2 id="slot-entry-title" class="text-base font-semibold mb-1">
+          Custodian #{@entering_slot} — enter your details
+        </h2>
+        <p class="text-xs text-base-content/60 mb-4">
+          Your name appears on the signed paper transcript. Your password
+          is used only for this ceremony and is not stored after the
+          session ends. Minimum {PkiCaEngine.KeyCeremony.PasswordPolicy.min_length()} characters.
+        </p>
+
+        <form phx-submit="submit_slot_entry" class="space-y-3" autocomplete="off">
+          <div>
+            <label class="block text-xs font-medium text-base-content/70 mb-1">
+              Name (as it should appear on the transcript)
+            </label>
+            <input
+              type="text"
+              name="custodian_name"
+              maxlength="128"
+              autofocus
+              required
+              class="input input-bordered input-sm w-full"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-base-content/70 mb-1">
+              Password
+            </label>
+            <input
+              type="password"
+              name="password"
+              minlength={PkiCaEngine.KeyCeremony.PasswordPolicy.min_length()}
+              required
+              class="input input-bordered input-sm w-full font-mono"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-base-content/70 mb-1">
+              Confirm password
+            </label>
+            <input
+              type="password"
+              name="password_confirmation"
+              minlength={PkiCaEngine.KeyCeremony.PasswordPolicy.min_length()}
+              required
+              class="input input-bordered input-sm w-full font-mono"
+            />
+          </div>
+
+          <div :if={@entry_error} class="alert alert-error text-sm py-2">
+            <span>{@entry_error}</span>
+          </div>
+
+          <div class="modal-action mt-4">
+            <button type="submit" class="btn btn-primary btn-sm">
+              Accept share
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    """
+  end
+
+  defp slot_status_class("pending"), do: "badge-ghost"
+  defp slot_status_class("accepted"), do: "badge-info"
+  defp slot_status_class("active"), do: "badge-success"
+  defp slot_status_class(_), do: "badge-ghost"
 
   # Done
   defp render_step_done(assigns) do
