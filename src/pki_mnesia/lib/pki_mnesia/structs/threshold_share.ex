@@ -2,9 +2,22 @@ defmodule PkiMnesia.Structs.ThresholdShare do
   @moduledoc """
   Custodian threshold share. Keyed by custodian_name (string), NOT a user FK.
 
-  `encrypted_share` and `password_hash` are required when status is "active".
-  They may be nil during "pending" status (before the custodian has accepted
-  and encrypted their share).
+  ## Field lifecycle
+
+  `password_hash` is **ceremony-scoped**. It holds a PBKDF2 hash of the
+  custodian's per-ceremony password only during the brief window between
+  `CeremonyOrchestrator.accept_share/3` and `execute_keygen/2`'s
+  password-verification gate. Once `encrypt_and_commit` writes
+  `encrypted_share`, the orchestrator wipes `password_hash` to nil — the
+  authoritative record is the AES-GCM ciphertext in `encrypted_share`,
+  and activation-time decryption authenticates the submitted password
+  via the GCM tag (no separate hash needed).
+
+  Observed field combinations by status:
+
+      status "pending":   encrypted_share=nil,        password_hash=nil
+      status "accepted":  encrypted_share=nil,        password_hash=<48-byte hash>
+      status "active":    encrypted_share=<ciphertext>, password_hash=nil
   """
 
   @fields [:id, :issuer_key_id, :custodian_name, :share_index, :encrypted_share,

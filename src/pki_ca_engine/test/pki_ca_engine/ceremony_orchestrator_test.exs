@@ -125,6 +125,39 @@ defmodule PkiCaEngine.CeremonyOrchestratorTest do
     end
   end
 
+  describe "execute_keygen/2 post-ceremony password_hash wipe" do
+    # When a ceremony completes, the custodian password_hash has served its
+    # accept-vs-execute verification purpose. The authoritative record is the
+    # AES-GCM ciphertext in encrypted_share — the GCM tag authenticates the
+    # submitted password at activation time, so a separate hash is dead
+    # weight (and an offline-crackable artifact). Encrypt_and_commit wipes
+    # password_hash atomically with the status flip to "active".
+
+    test "wipes password_hash and flips status to active on success" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
+
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Alice", "alice-pw")
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Bob", "bob-pw")
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Charlie", "charlie-pw")
+
+      passwords = [{"Alice", "alice-pw"}, {"Bob", "bob-pw"}, {"Charlie", "charlie-pw"}]
+
+      assert {:ok, _} = CeremonyOrchestrator.execute_keygen(ceremony.id, passwords)
+
+      {:ok, shares_after} =
+        PkiMnesia.Repo.get_all_by_index(PkiMnesia.Structs.ThresholdShare, :issuer_key_id, ceremony.issuer_key_id)
+
+      assert length(shares_after) == 3
+
+      for share <- shares_after do
+        assert share.status == "active", "share #{share.custodian_name} should be active"
+        assert share.encrypted_share != nil, "share #{share.custodian_name} should have encrypted_share"
+        assert share.password_hash == nil,
+               "share #{share.custodian_name} password_hash must be wiped post-ceremony, got: #{inspect(share.password_hash)}"
+      end
+    end
+  end
+
   describe "check_readiness/1" do
     test "returns :waiting when not all verified and accepted" do
       {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
