@@ -46,7 +46,7 @@ defmodule PkiTenantWeb.Ca.DashboardLive do
           %{status: "unknown", uptime_seconds: 0, active_keys: 0})
         keys = safe_call(fn -> IssuerKeyManagement.list_issuer_keys(ca_id) end, [])
         ceremonies = safe_call(fn -> list_ceremonies(ca_id) end, [])
-        keystores = safe_call(fn -> KeystoreManagement.list_keystores(nil, ca_id) end, [])
+        keystores = safe_call(fn -> KeystoreManagement.list_keystores(ca_id) end, [])
         users = safe_call(fn -> list_portal_users() end, [])
         {status, keys, ceremonies, keystores, users}
       else

@@ -11,16 +11,17 @@ defmodule PkiMnesia.Schema do
     CeremonyTranscript, ThresholdShare, IssuedCertificate,
     RaInstance, RaCaConnection, CertProfile, CsrRequest,
     ApiKey, DcvChallenge, CertificateStatus, PortalUser,
-    BackupRecord, ServiceConfig, AuditLogEntry
+    BackupRecord, ServiceConfig, AuditLogEntry, Keystore
   }
 
   @schema_version 1
 
   @sync_tables [
-    :ca_instances, :issuer_keys, :threshold_shares, :key_ceremonies,
-    :ceremony_participants, :ceremony_transcripts, :portal_users,
-    :cert_profiles, :ra_instances, :ra_ca_connections, :api_keys,
-    :dcv_challenges, :service_configs, :backup_records, :schema_versions
+    :ca_instances, :issuer_keys, :keystores, :threshold_shares,
+    :key_ceremonies, :ceremony_participants, :ceremony_transcripts,
+    :portal_users, :cert_profiles, :ra_instances, :ra_ca_connections,
+    :api_keys, :dcv_challenges, :service_configs, :backup_records,
+    :schema_versions
   ]
 
   @async_tables [:issued_certificates, :csr_requests, :certificate_status, :audit_log_entries]
@@ -148,6 +149,7 @@ defmodule PkiMnesia.Schema do
       # CA Engine tables (disc_copies)
       {CaInstance, :disc_copies, [:name, :parent_id, :status]},
       {IssuerKey, :disc_copies, [:ca_instance_id, :key_alias, :status]},
+      {Keystore, :disc_copies, [:ca_instance_id, :type, :status]},
       {KeyCeremony, :disc_copies, [:ca_instance_id, :issuer_key_id, :status]},
       {CeremonyParticipant, :disc_copies, [:ceremony_id, :name, :role]},
       {CeremonyTranscript, :disc_copies, [:ceremony_id]},

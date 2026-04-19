@@ -767,17 +767,14 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
       {:ok, c} -> c
       _ -> []
     end
-    keystores = case KeystoreManagement.list_keystores(nil, ca_id) do
-      {:ok, ks} -> ks
-      _ -> []
-    end
+    keystores = KeystoreManagement.list_keystores(ca_id)
     {ceremonies, keystores}
   rescue
     _ -> {[], []}
   end
 
   defp keystore_display(ks) do
-    config = if ks.config, do: PkiCaEngine.Schema.Keystore.decode_config(ks.config), else: nil
+    config = PkiMnesia.Structs.Keystore.decode_config(ks.config)
     label = if config, do: config["label"], else: nil
 
     case {ks.type, label} do

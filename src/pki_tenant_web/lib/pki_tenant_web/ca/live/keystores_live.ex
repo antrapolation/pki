@@ -64,7 +64,7 @@ defmodule PkiTenantWeb.Ca.KeystoresLive do
         _ -> nil
       end
 
-    keystores = safely_list_keystores(tenant_id, ca_filter)
+    keystores = safely_list_keystores(ca_filter)
 
     hsm_devices =
       tenant_id
@@ -125,9 +125,7 @@ defmodule PkiTenantWeb.Ca.KeystoresLive do
           %{type: type}
           |> maybe_put(:hsm_device_id, type == "hsm" && hsm_device_id)
 
-        tenant_id = PkiTenant.tenant_id()
-
-        case KeystoreManagement.configure_keystore(tenant_id, ca_instance_id, attrs) do
+        case KeystoreManagement.configure_keystore(ca_instance_id, attrs) do
           {:ok, keystore} ->
             PkiTenant.AuditBridge.log("keystore_configured", %{
               keystore_id: keystore.id,
@@ -151,8 +149,8 @@ defmodule PkiTenantWeb.Ca.KeystoresLive do
 
   # --- Private helpers ---
 
-  defp safely_list_keystores(tenant_id, ca_filter) do
-    KeystoreManagement.list_keystores(tenant_id, ca_filter)
+  defp safely_list_keystores(ca_filter) do
+    KeystoreManagement.list_keystores(ca_filter)
   rescue
     e ->
       Logger.warning("[keystores_live] list_keystores raised: #{Exception.message(e)}")
@@ -183,8 +181,8 @@ defmodule PkiTenantWeb.Ca.KeystoresLive do
   defp status_badge_class("inactive"), do: "badge-ghost"
   defp status_badge_class(_), do: "badge-ghost"
 
-  defp hsm_label_for(%{config: config}) when is_binary(config) do
-    case PkiCaEngine.Schema.Keystore.decode_config(config) do
+  defp hsm_label_for(%{config: %{} = config}) do
+    case PkiMnesia.Structs.Keystore.decode_config(config) do
       %{"label" => label} -> label
       _ -> "—"
     end
