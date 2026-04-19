@@ -33,16 +33,18 @@ func NewWsClient(config *Config, hsm *HsmClient) *WsClient {
 }
 
 // Connect establishes the WebSocket connection with mTLS.
+//
+// mTLS is REQUIRED. If TLS config is missing or invalid, Connect returns an
+// error. We never fall back to plaintext — the agent holds HSM signing
+// authority, and a rogue backend that can impersonate the gateway can make
+// the agent sign arbitrary data with production CA keys.
 func (w *WsClient) Connect(ctx context.Context) error {
-	dialer := websocket.Dialer{}
-
 	tlsConfig, err := w.buildTLSConfig()
 	if err != nil {
-		// If TLS config fails (e.g. no certs configured), connect without mTLS
-		log.Printf("TLS config not available (%v), connecting without mTLS", err)
-	} else {
-		dialer.TLSClientConfig = tlsConfig
+		return fmt.Errorf("mTLS config required but not loadable: %w", err)
 	}
+
+	dialer := websocket.Dialer{TLSClientConfig: tlsConfig}
 
 	conn, _, err := dialer.DialContext(ctx, w.config.Backend.URL, nil)
 	if err != nil {
@@ -59,10 +61,14 @@ func (w *WsClient) Connect(ctx context.Context) error {
 
 // Register sends the register message to the backend and waits for response.
 func (w *WsClient) Register() error {
+	if w.config.Agent.AuthToken == "" {
+		return fmt.Errorf("agent.auth_token is required — set it in the config or the HSM_AGENT_AUTH_TOKEN env var")
+	}
 	msg := RegisterMsg{
 		Type:          "register",
 		TenantID:      w.config.Agent.TenantID,
 		AgentID:       w.config.Agent.ID,
+		AuthToken:     w.config.Agent.AuthToken,
 		AvailableKeys: w.hsm.AvailableKeyLabels(),
 	}
 
@@ -204,35 +210,31 @@ func (w *WsClient) buildTLSConfig() (*tls.Config, error) {
 	tlsCfg := w.config.Backend.TLS
 
 	if tlsCfg.ClientCert == "" || tlsCfg.ClientKey == "" {
-		return nil, fmt.Errorf("client cert/key not configured")
+		return nil, fmt.Errorf("backend.tls.client_cert and client_key are required")
+	}
+	if tlsCfg.CACert == "" {
+		return nil, fmt.Errorf("backend.tls.ca_cert is required: agent must pin the backend CA")
 	}
 
-	// Load client certificate for mTLS
 	cert, err := tls.LoadX509KeyPair(tlsCfg.ClientCert, tlsCfg.ClientKey)
 	if err != nil {
 		return nil, fmt.Errorf("load client cert failed: %w", err)
 	}
 
-	config := &tls.Config{
+	caCert, err := os.ReadFile(tlsCfg.CACert)
+	if err != nil {
+		return nil, fmt.Errorf("read CA cert failed: %w", err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to parse CA certificate")
+	}
+
+	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
+		RootCAs:      caCertPool,
 		MinVersion:   tls.VersionTLS13,
-	}
-
-	// Load CA certificate if provided
-	if tlsCfg.CACert != "" {
-		caCert, err := os.ReadFile(tlsCfg.CACert)
-		if err != nil {
-			return nil, fmt.Errorf("read CA cert failed: %w", err)
-		}
-
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA certificate")
-		}
-		config.RootCAs = caCertPool
-	}
-
-	return config, nil
+	}, nil
 }
 
 // Close shuts down the WebSocket connection.

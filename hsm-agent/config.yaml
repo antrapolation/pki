@@ -27,4 +27,8 @@ backend:
 agent:
   id: "agent-dev-01"
   tenant_id: "dev-tenant-001"
+  # Bearer token issued by the backend at agent provisioning.
+  # Backend verifies against config :pki_ca_engine, :hsm_agent_tokens.
+  # Use ${HSM_AGENT_AUTH_TOKEN} to read from env var.
+  auth_token: "${HSM_AGENT_AUTH_TOKEN}"
   heartbeat_interval: "10s"

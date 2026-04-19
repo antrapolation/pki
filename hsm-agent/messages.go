@@ -1,10 +1,13 @@
 package main
 
 // RegisterMsg is sent by the agent to register with the backend.
+// AuthToken is required — the backend checks it against its configured
+// agent allowlist. Without a valid token the registration is rejected.
 type RegisterMsg struct {
 	Type          string   `json:"type"`
 	TenantID      string   `json:"tenant_id"`
 	AgentID       string   `json:"agent_id"`
+	AuthToken     string   `json:"auth_token"`
 	AvailableKeys []string `json:"available_key_labels"`
 }
 

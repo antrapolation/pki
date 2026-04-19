@@ -412,21 +412,36 @@ static void handle_sign(const char *json) {
     rv = fn->C_SignInit(session, &mech, key_handle);
     if (rv != CKR_OK) { free(data); send_error("C_SignInit failed"); return; }
 
-    CK_BYTE sig[4096];
-    CK_ULONG sig_len = sizeof(sig);
+    /* Two-call pattern: first call with NULL gets required length, then alloc.
+     * Required because PQC signatures (ML-DSA, SLH-DSA) range 2KB to 50KB
+     * and overflow any fixed stack buffer. */
+    CK_ULONG sig_len = 0;
+    rv = fn->C_Sign(session, data, data_len, NULL, &sig_len);
+    if (rv != CKR_OK) { free(data); send_error("C_Sign (size query) failed"); return; }
+    if (sig_len == 0 || sig_len > 10 * 1024 * 1024) {
+        free(data); send_error("C_Sign returned unreasonable size"); return;
+    }
+    CK_BYTE *sig = malloc(sig_len);
+    if (!sig) { free(data); send_error("sig alloc failed"); return; }
     rv = fn->C_Sign(session, data, data_len, sig, &sig_len);
     free(data);
-    if (rv != CKR_OK) { send_error("C_Sign failed"); return; }
+    if (rv != CKR_OK) { free(sig); send_error("C_Sign failed"); return; }
 
     /* Encode signature as base64 */
     size_t b64_len;
     char *sig_b64 = base64_encode(sig, sig_len, &b64_len);
+    free(sig);
     if (!sig_b64) { send_error("base64 encode failed"); return; }
 
-    char extra[65536];
-    snprintf(extra, sizeof(extra), "\"signature\":\"%s\"", sig_b64);
+    /* Response envelope must hold base64 of signature (sig_len * 4/3 + header).
+     * Allocate on heap so we can scale for PQC-sized sigs. */
+    size_t extra_sz = b64_len + 32;
+    char *extra = malloc(extra_sz);
+    if (!extra) { free(sig_b64); send_error("response alloc failed"); return; }
+    snprintf(extra, extra_sz, "\"signature\":\"%s\"", sig_b64);
     free(sig_b64);
     send_ok(extra);
+    free(extra);
 }
 
 static void handle_get_public_key(const char *json) {

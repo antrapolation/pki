@@ -29,6 +29,7 @@ type Config struct {
 	Agent struct {
 		ID                string `yaml:"id"`
 		TenantID          string `yaml:"tenant_id"`
+		AuthToken         string `yaml:"auth_token"`
 		HeartbeatInterval string `yaml:"heartbeat_interval"`
 	} `yaml:"agent"`
 }
@@ -46,14 +47,30 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	// Expand environment variables in PIN
-	if strings.HasPrefix(config.PKCS11.Pin, "${") && strings.HasSuffix(config.PKCS11.Pin, "}") {
-		envVar := config.PKCS11.Pin[2 : len(config.PKCS11.Pin)-1]
-		config.PKCS11.Pin = os.Getenv(envVar)
-		if config.PKCS11.Pin == "" {
-			return nil, fmt.Errorf("environment variable %s not set", envVar)
-		}
+	// Expand ${VAR} in sensitive fields so secrets don't live in config files.
+	config.PKCS11.Pin, err = expandEnvVar(config.PKCS11.Pin, "pkcs11.pin")
+	if err != nil {
+		return nil, err
+	}
+
+	config.Agent.AuthToken, err = expandEnvVar(config.Agent.AuthToken, "agent.auth_token")
+	if err != nil {
+		return nil, err
 	}
 
 	return &config, nil
+}
+
+// expandEnvVar replaces a ${VAR} literal with os.Getenv(VAR). Pass-through
+// for non-placeholder values. Returns an error if the envvar is unset.
+func expandEnvVar(value, field string) (string, error) {
+	if !strings.HasPrefix(value, "${") || !strings.HasSuffix(value, "}") {
+		return value, nil
+	}
+	envVar := value[2 : len(value)-1]
+	v := os.Getenv(envVar)
+	if v == "" {
+		return "", fmt.Errorf("environment variable %s (referenced by %s) is not set", envVar, field)
+	}
+	return v, nil
 }

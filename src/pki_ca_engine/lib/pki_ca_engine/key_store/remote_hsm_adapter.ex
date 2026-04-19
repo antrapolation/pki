@@ -5,8 +5,17 @@ defmodule PkiCaEngine.KeyStore.RemoteHsmAdapter do
   Delegates signing to `PkiCaEngine.HsmGateway`, which forwards requests
   to the connected Go agent over a WebSocket with JSON messages (wire
   format defined in `priv/proto/hsm_gateway.proto`).
+
+  ## Signature verification
+
+  Every signature returned by the agent is verified against the issuer
+  key's stored public key before being returned to the caller. A rogue
+  or compromised agent cannot inject arbitrary bytes — the adapter
+  treats the remote agent as untrusted and validates every response.
   """
   @behaviour PkiCaEngine.KeyStore
+
+  require Logger
 
   alias PkiMnesia.{Repo, Structs.IssuerKey}
   alias PkiCaEngine.HsmGateway
@@ -16,22 +25,95 @@ defmodule PkiCaEngine.KeyStore.RemoteHsmAdapter do
     gateway = Keyword.get(opts, :gateway, HsmGateway)
     timeout = Keyword.get(opts, :timeout, 5_000)
 
-    with {:ok, key} <- get_issuer_key(issuer_key_id) do
-      try do
-        if HsmGateway.agent_connected?(gateway) do
-          HsmGateway.sign_request(
-            gateway,
-            key.hsm_config["key_label"],
-            tbs_data,
-            key.algorithm,
-            timeout: timeout
+    with {:ok, key} <- get_issuer_key(issuer_key_id),
+         :ok <- ensure_connected(gateway),
+         {:ok, signature} <- request_signature(gateway, key, tbs_data, timeout),
+         :ok <- verify_signature(key, tbs_data, signature) do
+      {:ok, signature}
+    end
+  end
+
+  defp ensure_connected(gateway) do
+    try do
+      if HsmGateway.agent_connected?(gateway), do: :ok, else: {:error, :agent_not_connected}
+    catch
+      :exit, _ -> {:error, :agent_not_connected}
+    end
+  end
+
+  defp request_signature(gateway, key, tbs_data, timeout) do
+    try do
+      HsmGateway.sign_request(
+        gateway,
+        key.hsm_config["key_label"],
+        tbs_data,
+        key.algorithm,
+        timeout: timeout
+      )
+    catch
+      :exit, _ -> {:error, :agent_not_connected}
+    end
+  end
+
+  # The agent is untrusted — verify the signature it returned against the
+  # issuer's stored public key before accepting. Without this check, a rogue
+  # agent can return attacker-chosen bytes that downstream code commits as a
+  # valid CA signature.
+  defp verify_signature(key, tbs_data, signature) do
+    with {:ok, pub_key_der} <- get_public_key_from_key(key),
+         {:ok, algo} <- resolve_algorithm(key.algorithm) do
+      case PkiCrypto.Algorithm.verify(algo, pub_key_der, signature, tbs_data) do
+        :ok ->
+          :ok
+
+        {:error, _} = err ->
+          Logger.error(
+            "HSM agent returned invalid signature for issuer_key #{key.id} (algo=#{key.algorithm}). " <>
+              "Rejecting — the agent or gateway may be compromised."
           )
-        else
-          {:error, :agent_not_connected}
-        end
-      catch
-        :exit, _ -> {:error, :agent_not_connected}
+
+          err
+
+        true ->
+          :ok
+
+        false ->
+          Logger.error("HSM agent returned invalid signature for issuer_key #{key.id}")
+          {:error, :invalid_signature}
       end
+    end
+  end
+
+  defp get_public_key_from_key(%{certificate_der: nil}), do: {:error, :no_public_key}
+
+  defp get_public_key_from_key(%{certificate_der: der}) do
+    try do
+      cert = :public_key.der_decode(:Certificate, der)
+      tbs = elem(cert, 1)
+      spki = elem(tbs, 6)
+      {:ok, :public_key.der_encode(:SubjectPublicKeyInfo, spki)}
+    rescue
+      _ -> {:error, :invalid_certificate}
+    end
+  end
+
+  defp resolve_algorithm(algo_id) do
+    cond do
+      function_exported?(PkiCaEngine.AlgorithmRegistry, :by_id, 1) ->
+        case apply(PkiCaEngine.AlgorithmRegistry, :by_id, [algo_id]) do
+          {:ok, algo} -> {:ok, algo}
+          _ -> registry_fallback(algo_id)
+        end
+
+      true ->
+        registry_fallback(algo_id)
+    end
+  end
+
+  defp registry_fallback(algo_id) do
+    case PkiCrypto.Registry.get(algo_id) do
+      nil -> {:error, {:unknown_algorithm, algo_id}}
+      algo -> {:ok, algo}
     end
   end
 
