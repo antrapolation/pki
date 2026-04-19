@@ -39,6 +39,17 @@ defmodule PkiCaEngine.KeyActivationTest do
     Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
   end
 
+  test "dev_activate rejects when allow_dev_activate flag is false", %{ka: ka} do
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
+
+    priv = :crypto.strong_rand_bytes(32)
+
+    assert {:error, :not_available_in_production} =
+             KeyActivation.dev_activate(ka, "gated-key", priv)
+
+    refute KeyActivation.is_active?(ka, "gated-key")
+  end
+
   test "deactivate removes an active key", %{ka: ka} do
     Application.put_env(:pki_ca_engine, :allow_dev_activate, true)
 

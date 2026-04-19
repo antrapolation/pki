@@ -23,15 +23,6 @@ with the same salt. Even with a random GCM nonce this is a defense-in-depth
 gap — different credentials should derive distinct keys via HKDF with a
 domain-separation tag.
 
-### Compile-time prod guard for `dev_activate`
-**Priority:** P1
-**Source:** pre-landing review (confidence 7/10)
-**Notes:** `PkiCaEngine.KeyActivation.dev_activate/2` is gated only on
-`Application.get_env(:pki_ca_engine, :allow_dev_activate, false)`. A
-misconfigured prod release that accidentally sets the flag enables a
-threshold bypass. Add `if Mix.env() != :prod do ... else raise end`
-at module compile time, and hard-fail at boot if the flag is true in prod.
-
 ### Sync.Mutex + worker pool for HSM agent PKCS#11 session
 **Priority:** P1
 **Source:** pre-landing review (confidence 7/10)
@@ -171,6 +162,21 @@ log and validation service still use the shared-PG path. Tracked in memory
 under `project_schema_mode_outstanding`.
 
 ## Completed
+
+### Boot-time prod guard for `dev_activate`
+**Priority:** was P1
+**Completed:** v1.1.0.1 (2026-04-19)
+**Notes:** `PkiCaEngine.Application.start/2` now refuses to boot when the
+compile-time env is `:prod` and `:pki_ca_engine, :allow_dev_activate` is
+true. The check logic lives in pure function
+`PkiCaEngine.Application.check_dev_activate_safe/2` for easy testing.
+`pki_ca_engine`'s own config/config.exs records its compile env as
+`:pki_ca_engine, :env, config_env()` so the assertion has a reliable
+signal without depending only on the umbrella's `:pki_system, :env`.
+Tests in `test/pki_ca_engine/application_test.exs`. The compile-time
+"strip the handler" variant from the review was dropped: Mix path-dep
+compilation evaluates `Mix.env/0` as `:prod` regardless of the parent
+env, so the boot-time gate + runtime flag check are the reliable defense.
 
 ### Verify custodian password against stored hash before encrypting share
 **Priority:** was P1
