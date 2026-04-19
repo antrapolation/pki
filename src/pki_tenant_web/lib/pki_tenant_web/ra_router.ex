@@ -42,6 +42,7 @@ defmodule PkiTenantWeb.RaRouter do
       live "/cert-profiles", CertProfilesLive, :index
       live "/certificates", CertificatesLive, :index
       live "/api-keys", ApiKeysLive, :index
+      live "/service-configs", ServiceConfigsLive, :index
       live "/setup-wizard", SetupWizardLive, :index
     end
   end
