@@ -13,7 +13,31 @@ defmodule PkiCaEngine.KeypairACL do
   1. The admin's KEM private key (decrypted via their session)
   2. Which decrypts the ACL's random password
   3. Which decrypts the ACL's signing + KEM private keys
+
+  ## Key hierarchy and domain separation (v1)
+
+  The admin-decrypted ACL password is run through PBKDF2 (one iteration,
+  since the password is high-entropy random) to produce the ACL *root key*.
+  Each credential is wrapped with its own *sub-key*, derived from the root
+  key via HKDF-SHA256 with a credential-type-scoped info tag:
+
+      sub_key = HKDF(root_key, acl_salt, info: "pki_acl/v1/cred/\#{type}")
+
+  Separate sub-keys per credential type (signing vs kem) close the
+  domain-identical-function gap called out in the v1.1.0.0 security
+  review: even if AES-GCM's random IVs prevent the immediate nonce-reuse
+  collision, reusing one KEK across two distinct purposes is poor
+  hygiene. A future bad-RNG or deterministic-nonce mistake cannot cause
+  cross-credential key leakage, and the scheme is ready to version if
+  additional credential types are added.
+
+  Legacy ACLs (initialized before this scheme landed) wrapped both
+  credentials with the raw root key. `activate/5` transparently falls
+  back to the legacy scheme on decryption failure and logs a warning
+  recommending re-initialization.
   """
+
+  require Logger
 
   alias PkiCaEngine.Repo
   alias PkiCaEngine.Schema.CaUser
@@ -22,6 +46,7 @@ defmodule PkiCaEngine.KeypairACL do
   import Ecto.Query
 
   @acl_user_id "00000000-0000-0000-0000-000000000000"
+  @scheme_version "v1"
 
   @doc "The well-known UUID for the virtual ACL system user."
   def acl_user_id, do: @acl_user_id
@@ -55,16 +80,32 @@ defmodule PkiCaEngine.KeypairACL do
     # Generate a random password for the ACL
     acl_password = :crypto.strong_rand_bytes(32)
     acl_salt = Kdf.generate_salt()
-    # Low iterations — password is random high-entropy
+    # Low iterations — password is random high-entropy. This yields the ACL
+    # root key; per-credential sub-keys are derived with HKDF below.
     case Kdf.derive_key(acl_password, acl_salt, iterations: 1) do
-      {:ok, acl_derived_key} ->
-        do_initialize(ca_instance_id, admin_kem_public_key, acl_password, acl_salt, acl_derived_key, opts)
+      {:ok, acl_root_key} ->
+        do_initialize(ca_instance_id, admin_kem_public_key, acl_password, acl_salt, acl_root_key, opts)
       {:error, reason} ->
         {:error, {:kdf_failed, reason}}
     end
   end
 
-  defp do_initialize(ca_instance_id, admin_kem_public_key, acl_password, acl_salt, acl_derived_key, opts) do
+  @doc """
+  Derive a per-credential-type wrap key from the ACL root key using
+  HKDF-SHA256 with a credential-type-scoped info tag. Pure function — the
+  same inputs always yield the same wrap key.
+
+  `credential_type` must be either `"signing"` or `"kem"`.
+  """
+  def derive_wrap_key(acl_root_key, acl_salt, credential_type)
+      when is_binary(acl_root_key) and is_binary(acl_salt) and
+             credential_type in ["signing", "kem"] do
+    info = "pki_acl/" <> @scheme_version <> "/cred/" <> credential_type
+    {:ok, wrap_key} = Kdf.hkdf(acl_root_key, acl_salt, info: info, length: 32)
+    wrap_key
+  end
+
+  defp do_initialize(ca_instance_id, admin_kem_public_key, acl_password, acl_salt, acl_root_key, opts) do
     signing_algo = Keyword.get(opts, :signing_algorithm, "ECC-P256")
     kem_algo = Keyword.get(opts, :kem_algorithm, "ECDH-P256")
 
@@ -78,16 +119,20 @@ defmodule PkiCaEngine.KeypairACL do
           Repo.rollback({:system_user_failed, reason})
       end
 
-      # Create ACL signing credential
+      # Create ACL signing credential with a type-specific wrap key
+      signing_wrap_key = derive_wrap_key(acl_root_key, acl_salt, "signing")
+
       signing_cred =
-        case generate_and_store_credential("signing", signing_algo, acl_derived_key, acl_salt) do
+        case generate_and_store_credential("signing", signing_algo, signing_wrap_key, acl_salt) do
           {:ok, cred} -> cred
           {:error, reason} -> Repo.rollback({:signing_credential_failed, reason})
         end
 
-      # Create ACL KEM credential
+      # Create ACL KEM credential with a type-specific wrap key
+      kem_wrap_key = derive_wrap_key(acl_root_key, acl_salt, "kem")
+
       kem_cred =
-        case generate_and_store_credential("kem", kem_algo, acl_derived_key, acl_salt) do
+        case generate_and_store_credential("kem", kem_algo, kem_wrap_key, acl_salt) do
           {:ok, cred} -> cred
           {:error, reason} -> Repo.rollback({:kem_credential_failed, reason})
         end
@@ -127,15 +172,43 @@ defmodule PkiCaEngine.KeypairACL do
 
     with {:ok, shared_secret} <- Algorithm.kem_decapsulate(kem_struct, admin_kem_private_key, kem_ciphertext),
          {:ok, acl_password} <- Symmetric.decrypt(encrypted_acl_password, shared_secret),
-         {:ok, acl_derived_key} <- Kdf.derive_key(acl_password, acl_salt, iterations: 1) do
-      # Decrypt ACL signing key
+         {:ok, acl_root_key} <- Kdf.derive_key(acl_password, acl_salt, iterations: 1) do
       signing_cred = get_acl_credential("signing")
       kem_cred = get_acl_credential("kem")
 
-      with {:ok, signing_key} <- Symmetric.decrypt(signing_cred.encrypted_private_key, acl_derived_key),
-           {:ok, kem_key} <- Symmetric.decrypt(kem_cred.encrypted_private_key, acl_derived_key) do
+      with {:ok, signing_key} <- decrypt_acl_credential(signing_cred, acl_root_key, acl_salt),
+           {:ok, kem_key} <- decrypt_acl_credential(kem_cred, acl_root_key, acl_salt) do
         {:ok, %{signing_key: signing_key, kem_key: kem_key}}
       end
+    end
+  end
+
+  # Try v1 (HKDF-derived sub-key) first; fall back to legacy (raw root key
+  # wrap). Legacy ACLs were created before the domain-separation fix
+  # landed and must still decrypt until they're re-initialized.
+  @doc false
+  def decrypt_acl_credential(nil, _root_key, _salt), do: {:error, :credential_not_found}
+
+  def decrypt_acl_credential(cred, acl_root_key, acl_salt) do
+    wrap_key = derive_wrap_key(acl_root_key, acl_salt, cred.credential_type)
+
+    case Symmetric.decrypt(cred.encrypted_private_key, wrap_key) do
+      {:ok, key} ->
+        {:ok, key}
+
+      {:error, _} ->
+        case Symmetric.decrypt(cred.encrypted_private_key, acl_root_key) do
+          {:ok, key} ->
+            Logger.warning(
+              "ACL credential #{cred.credential_type} (id=#{cred.id}) decrypted via legacy " <>
+                "pre-v1 wrap scheme. Re-initialize the ACL to move it to the HKDF-domain-separated scheme."
+            )
+
+            {:ok, key}
+
+          {:error, _} = err ->
+            err
+        end
     end
   end
 

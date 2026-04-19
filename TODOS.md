@@ -14,15 +14,6 @@ Cowboy listener (`verify: :verify_peer` + `cacertfile`) so bad certs never
 reach the handler at all. Then bind `agent_id` to the cert subject instead
 of trusting the body.
 
-### Per-credential salt + HKDF domain separation in KeypairACL
-**Priority:** P1
-**Source:** pre-landing review (confidence 8/10)
-**Notes:** `PkiCaEngine.KeypairACL.initialize/3` derives one ACL key with
-`iterations: 1` and uses it to encrypt both `signing_cred` and `kem_cred`
-with the same salt. Even with a random GCM nonce this is a defense-in-depth
-gap — different credentials should derive distinct keys via HKDF with a
-domain-separation tag.
-
 ### Sync.Mutex + worker pool for HSM agent PKCS#11 session
 **Priority:** P1
 **Source:** pre-landing review (confidence 7/10)
@@ -162,6 +153,28 @@ log and validation service still use the shared-PG path. Tracked in memory
 under `project_schema_mode_outstanding`.
 
 ## Completed
+
+### KDF domain separation for ACL credential wrap keys
+**Priority:** was P1
+**Completed:** v1.1.0.1 (2026-04-19)
+**Notes:** `PkiCaEngine.KeypairACL.initialize/3` used to wrap both the
+signing_cred and kem_cred with the same root key derived from the ACL
+password. `activate/5` derived the same one key and decrypted both.
+Even with AES-GCM's random IVs (so no immediate nonce reuse), using one
+KEK for two distinct purposes is a domain-identical-function gap.
+
+New scheme (tagged `pki_acl/v1/cred/<type>`): an HKDF-SHA256 sub-key is
+derived per credential_type from the ACL root key. signing_cred and
+kem_cred now wrap with distinct keys — a future deterministic-nonce
+mistake or bad RNG cannot leak across credential types.
+
+Backward compatible: `decrypt_acl_credential/3` tries the v1 scheme
+first and falls back to the legacy raw-root-key wrap, logging a warning
+recommending re-initialization. No schema migration needed.
+
+Tests in `test/pki_ca_engine/keypair_acl_unit_test.exs` (9 pure-function
+tests — domain separation, salt sensitivity, round-trip, backward compat,
+negative cases).
 
 ### Boot-time prod guard for `dev_activate`
 **Priority:** was P1
