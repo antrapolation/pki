@@ -32,6 +32,32 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   Custodian share-acceptance passwords are hashed with PBKDF2-HMAC-SHA256
   (100 000 iterations, 16-byte random salt). The `password_hash` field stores
   `<<salt::binary-16, hash::binary-32>>` (48 bytes total).
+
+  ## Password lifecycle (single-session ceremony)
+
+  Custodian passwords are **per-ceremony**. A custodian enters a fresh name +
+  password + confirmation at the start of their turn. The password is used for
+  two things, in order, in the same session:
+
+  1. `accept_share/3` records `password_hash` (PBKDF2 of the custodian's
+     password) so a later caller can't substitute a different password at
+     `execute_keygen`. The verifier in `execute_keygen` re-derives and
+     constant-time-compares.
+
+  2. `execute_keygen/2` calls `ShareEncryption.encrypt_share(raw_share, password)`
+     which uses its own independent PBKDF2 salt to derive an AES-256-GCM key.
+     The encrypted share is written to `encrypted_share` and the share
+     transitions to `active`.
+
+  After step 2 completes successfully, `password_hash` has served its only
+  purpose — it was the proof-of-acceptance gate. The authoritative record
+  is the ciphertext in `encrypted_share`; subsequent share submission at
+  activation time is validated by AES-GCM authentication, not by the hash.
+  So `encrypt_and_commit` **wipes `password_hash` to nil** when it writes
+  `encrypted_share`. The same transaction atomically flips the share to
+  `active`. This minimizes the blast radius if the Mnesia store is ever
+  read by an attacker: no offline-crackable password artifact lingers
+  past the session that created it.
   """
 
   require Logger
@@ -442,9 +468,22 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
         encrypted_pairs = Enum.reverse(encrypted_pairs_reversed)
 
         case Repo.transaction(fn ->
-          # Update shares with encrypted data
+          now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+          # Write encrypted_share, flip status to active, AND wipe password_hash.
+          # password_hash served its purpose during execute_keygen's
+          # verify_custodian_passwords gate. Past this point it's dead weight:
+          # share submission at activation time is gated by AES-GCM authentication
+          # on the encrypted_share ciphertext, not by this hash. Clearing it
+          # here limits the post-ceremony attack surface — a DB read no longer
+          # yields an offline-crackable password artifact.
           Enum.each(encrypted_pairs, fn {db_share, encrypted_share} ->
-            updated = %{db_share | encrypted_share: encrypted_share, updated_at: DateTime.utc_now() |> DateTime.truncate(:second)}
+            updated = %{db_share |
+              encrypted_share: encrypted_share,
+              password_hash: nil,
+              status: "active",
+              updated_at: now
+            }
             :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(ThresholdShare), updated))
           end)
 
