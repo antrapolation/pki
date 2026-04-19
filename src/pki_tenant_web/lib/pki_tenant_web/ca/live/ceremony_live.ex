@@ -1288,7 +1288,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
           <div class="card-actions justify-end mt-2">
             <.link
-              href={"/ca/ceremonies/#{@completed_ceremony.id}/transcript"}
+              href={"/ceremonies/#{@completed_ceremony.id}/transcript"}
               target="_blank"
               class="btn btn-primary btn-sm"
             >

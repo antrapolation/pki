@@ -30,6 +30,18 @@ defmodule PkiTenantWeb.RoutesTest do
     test "has /certificates route" do
       assert "/certificates" in live_paths(@ca_routes)
     end
+
+    test "has /ceremonies/:id/transcript printable route" do
+      # Non-LiveView controller route.
+      paths = @ca_routes |> Enum.map(& &1.path)
+      assert "/ceremonies/:id/transcript" in paths
+
+      route =
+        Enum.find(@ca_routes, fn r -> r.path == "/ceremonies/:id/transcript" end)
+
+      assert route.verb == :get
+      assert route.plug == PkiTenantWeb.Ca.CeremonyTranscriptController
+    end
   end
 
   describe "RaRouter" do
