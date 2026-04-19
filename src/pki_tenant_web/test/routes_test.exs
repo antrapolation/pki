@@ -63,6 +63,13 @@ defmodule PkiTenantWeb.RoutesTest do
       route = Enum.find(@ca_routes, fn r -> r.path == "/keystores" end)
       assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ca.KeystoresLive
     end
+
+    test "has /ca-instances route backed by Ca.CaInstancesLive" do
+      assert "/ca-instances" in live_paths(@ca_routes)
+
+      route = Enum.find(@ca_routes, fn r -> r.path == "/ca-instances" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ca.CaInstancesLive
+    end
   end
 
   describe "RaRouter" do
