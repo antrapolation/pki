@@ -202,8 +202,124 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   end
 
   @doc """
+  Accept a custodian share by **slot index**, used by the single-session
+  flow where the custodian's real name is unknown until they sit down.
+
+  `share_index` is the 1..N slot position assigned at `initiate/2` time.
+  `real_name` is what the custodian types in — becomes the identifier on
+  the printed transcript signature line.
+
+  Returns `{:error, :duplicate_name}` if the same real name is already
+  accepted by another custodian in this ceremony (two Alice Johnsons in
+  one ceremony need to disambiguate with title/department).
+
+  Password is NOT validated here beyond non-empty. Pre-validate with
+  `PkiCaEngine.KeyCeremony.PasswordPolicy.validate_with_confirmation/2`
+  at the call site.
+  """
+  def accept_share_by_slot(ceremony_id, share_index, real_name, password)
+      when is_integer(share_index) and is_binary(real_name) and is_binary(password) do
+    real_name = String.trim(real_name)
+
+    cond do
+      real_name == "" ->
+        {:error, :empty_name}
+
+      password == "" ->
+        {:error, :empty_password}
+
+      true ->
+        do_accept_share_by_slot(ceremony_id, share_index, real_name, password)
+    end
+  end
+
+  defp do_accept_share_by_slot(ceremony_id, share_index, real_name, password) do
+    salt = :crypto.strong_rand_bytes(@pbkdf2_salt_size)
+    password_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, @pbkdf2_iterations, @pbkdf2_hash_size)
+    combined_hash = salt <> password_hash
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.transaction(fn ->
+      ceremony_table = PkiMnesia.Schema.table_name(KeyCeremony)
+      ceremony =
+        case :mnesia.read(ceremony_table, ceremony_id) do
+          [record] -> Repo.record_to_struct(KeyCeremony, record)
+          [] -> :mnesia.abort(:not_found)
+        end
+
+      if ceremony.status != "preparing" do
+        :mnesia.abort({:invalid_ceremony_status, ceremony.status})
+      end
+
+      share_table = PkiMnesia.Schema.table_name(ThresholdShare)
+      shares =
+        :mnesia.index_read(share_table, ceremony.issuer_key_id, :issuer_key_id)
+        |> Enum.map(&Repo.record_to_struct(ThresholdShare, &1))
+
+      share = Enum.find(shares, fn s -> s.share_index == share_index end)
+      cond do
+        is_nil(share) ->
+          :mnesia.abort(:share_not_found)
+
+        share.status != "pending" ->
+          :mnesia.abort({:invalid_share_status, share.status})
+
+        Enum.any?(shares, fn s ->
+          s.share_index != share_index and
+            s.status in ["accepted", "active"] and
+            String.downcase(s.custodian_name || "") == String.downcase(real_name)
+        end) ->
+          :mnesia.abort(:duplicate_name)
+
+        true ->
+          # Update the corresponding CeremonyParticipant so the transcript
+          # reflects the real name going forward (initiate created
+          # placeholder "Custodian N" participants).
+          participant_table = PkiMnesia.Schema.table_name(CeremonyParticipant)
+          participants =
+            :mnesia.index_read(participant_table, ceremony_id, :ceremony_id)
+            |> Enum.map(&Repo.record_to_struct(CeremonyParticipant, &1))
+
+          placeholder_name = "Custodian #{share_index}"
+          case Enum.find(participants, fn p ->
+                 p.role == :custodian and p.name == placeholder_name
+               end) do
+            nil -> :ok
+            p ->
+              updated_p = %{p | name: real_name}
+              :mnesia.write(Repo.struct_to_record(participant_table, updated_p))
+          end
+
+          updated_share = %{share |
+            custodian_name: real_name,
+            password_hash: combined_hash,
+            status: "accepted",
+            updated_at: now
+          }
+          :mnesia.write(Repo.struct_to_record(share_table, updated_share))
+
+          append_transcript_in_tx(ceremony_id, real_name, "share_accepted", %{slot: share_index})
+
+          updated_share
+      end
+    end)
+    |> case do
+      {:ok, _} = ok -> ok
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, {:invalid_ceremony_status, status}} -> {:error, {:invalid_ceremony_status, status}}
+      {:error, {:invalid_share_status, status}} -> {:error, {:invalid_share_status, status}}
+      {:error, :share_not_found} -> {:error, :share_not_found}
+      {:error, :duplicate_name} -> {:error, :duplicate_name}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
   Accept a custodian's share assignment with their password.
   Stores a password hash for later share encryption.
+
+  Legacy 3-arg variant kept for the pre-slot callers. New callers
+  should use `accept_share_by_slot/4`.
   """
   def accept_share(ceremony_id, custodian_name, password) do
     salt = :crypto.strong_rand_bytes(@pbkdf2_salt_size)
