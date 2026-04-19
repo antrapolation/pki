@@ -32,55 +32,9 @@ config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
   live_view: [signing_salt: "Xk9pR2wM"],
   cache_static_manifest: "priv/static/cache_manifest.json"
 
-# ── CA Portal endpoint ───────────────────────────────────────────────────────
-config :pki_ca_portal,
-  generators: [timestamp_type: :utc_datetime],
-  trusted_proxies: ["127.0.0.1", "::1"],
-  session_idle_timeout_ms: 30 * 60 * 1000
-
-config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
-  url: [host: "localhost"],
-  adapter: Bandit.PhoenixAdapter,
-  render_errors: [
-    formats: [html: PkiCaPortalWeb.ErrorHTML, json: PkiCaPortalWeb.ErrorJSON],
-    layout: false
-  ],
-  pubsub_server: PkiCaPortal.PubSub,
-  live_view: [signing_salt: "a/Jpy5T4"],
-  cache_static_manifest: "priv/static/cache_manifest.json"
-
-# ── RA Portal endpoint ───────────────────────────────────────────────────────
-config :pki_ra_portal,
-  generators: [timestamp_type: :utc_datetime],
-  trusted_proxies: ["127.0.0.1", "::1"],
-  session_idle_timeout_ms: 30 * 60 * 1000
-
-config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
-  url: [host: "localhost"],
-  adapter: Bandit.PhoenixAdapter,
-  render_errors: [
-    formats: [html: PkiRaPortalWeb.ErrorHTML, json: PkiRaPortalWeb.ErrorJSON],
-    layout: false
-  ],
-  pubsub_server: PkiRaPortal.PubSub,
-  live_view: [signing_salt: "FeWYPwyL"],
-  cache_static_manifest: "priv/static/cache_manifest.json"
-
-# ── esbuild (asset bundling for all 3 portals) ─────────────────────────────
+# ── esbuild (asset bundling) ─────────────────────────────────────────────────
 config :esbuild,
   version: "0.25.4",
-  pki_ca_portal: [
-    args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../src/pki_ca_portal/assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
-  ],
-  pki_ra_portal: [
-    args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../src/pki_ra_portal/assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
-  ],
   pki_platform_portal: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
@@ -94,23 +48,9 @@ config :esbuild,
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
-# ── tailwind (CSS compilation for all 3 portals) ───────────────────────────
+# ── tailwind (CSS compilation) ───────────────────────────────────────────────
 config :tailwind,
   version: "4.1.12",
-  pki_ca_portal: [
-    args: ~w(
-      --input=assets/css/app.css
-      --output=priv/static/assets/css/app.css
-    ),
-    cd: Path.expand("../src/pki_ca_portal", __DIR__)
-  ],
-  pki_ra_portal: [
-    args: ~w(
-      --input=assets/css/app.css
-      --output=priv/static/assets/css/app.css
-    ),
-    cd: Path.expand("../src/pki_ra_portal", __DIR__)
-  ],
   pki_platform_portal: [
     args: ~w(
       --input=assets/css/app.css

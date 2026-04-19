@@ -19,9 +19,9 @@ defmodule PkiPlatformEngine.PoolConfigTest do
 
   @runtime_configs [
     "pki_ca_engine/config/runtime.exs",
-    "pki_ca_portal/config/runtime.exs",
     "pki_ra_engine/config/runtime.exs",
-    "pki_ra_portal/config/runtime.exs",
+    "pki_tenant/config/runtime.exs",
+    "pki_tenant_web/config/runtime.exs",
     "pki_platform_portal/config/runtime.exs",
     "pki_validation/config/runtime.exs"
   ]
