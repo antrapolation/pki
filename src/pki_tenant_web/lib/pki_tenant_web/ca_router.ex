@@ -45,6 +45,7 @@ defmodule PkiTenantWeb.CaRouter do
       live "/certificates", CertificatesLive, :index
       live "/hsm-devices", HsmDevicesLive, :index
       live "/keystores", KeystoresLive, :index
+      live "/users", UsersLive, :index
     end
 
     # Printable ceremony transcript — plain controller, bypasses the
