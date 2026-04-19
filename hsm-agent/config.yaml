@@ -1,0 +1,34 @@
+# HSM Agent configuration
+# Copy this file and adjust for your environment.
+
+pkcs11:
+  # Path to the PKCS#11 shared library for your HSM
+  # SoftHSM2: /usr/lib/softhsm/libsofthsm2.so (Linux) or /opt/homebrew/lib/softhsm/libsofthsm2.so (macOS)
+  # YubiKey:  /usr/lib/libykcs11.so
+  # Entrust:  /opt/nfast/toolkits/pkcs11/libcknfast.so
+  # Thales:   /usr/safenet/lunaclient/lib/libCryptoki2_64.so
+  library: "/opt/homebrew/lib/softhsm/libsofthsm2.so"
+  slot: 0
+  # HSM PIN — use ${HSM_PIN} to read from environment variable
+  pin: "${HSM_PIN}"
+
+backend:
+  # WebSocket endpoint of the PKI backend
+  url: "wss://comp-5.hsm.straptrust.com:9010/hsm/connect"
+  tls:
+    # Minimum TLS version (1.3 required)
+    min_version: "1.3"
+    # Client certificate for mTLS (issued by your tenant's CA)
+    client_cert: ""
+    client_key: ""
+    # CA certificate chain to verify the server
+    ca_cert: ""
+
+agent:
+  id: "agent-dev-01"
+  tenant_id: "dev-tenant-001"
+  # Bearer token issued by the backend at agent provisioning.
+  # Backend verifies against config :pki_ca_engine, :hsm_agent_tokens.
+  # Use ${HSM_AGENT_AUTH_TOKEN} to read from env var.
+  auth_token: "${HSM_AGENT_AUTH_TOKEN}"
+  heartbeat_interval: "10s"

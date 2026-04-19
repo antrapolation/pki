@@ -25,16 +25,14 @@ defmodule PkiCaEngine.MixProject do
 
   defp deps do
     [
-      {:ecto_sql, "~> 3.11"},
-      {:postgrex, "~> 0.18"},
+      {:pki_mnesia, in_umbrella: true},
+      {:pki_crypto, in_umbrella: true},
       {:jason, "~> 1.4"},
       {:plug, "~> 1.16"},
       {:plug_cowboy, "~> 2.7"},
       {:keyx, path: "../keyx", override: true},
       {:x509, path: "../x509", override: true},
       {:ex_ccrypto, path: "../ex_ccrypto", override: true},
-      # {:ap_java_crypto, path: "../ap_java_crypto", runtime: false},  # not used — JRuby bridge, removed for now
-      {:pki_crypto, path: "../pki_crypto"},
       {:pki_oqs_nif, path: "../pki_oqs_nif"},
       {:pki_audit_trail, path: "../pki_audit_trail"},
       {:req, "~> 0.5"},
@@ -47,10 +45,8 @@ defmodule PkiCaEngine.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
+      setup: ["deps.get"],
+      test: ["test"]
     ]
   end
 end

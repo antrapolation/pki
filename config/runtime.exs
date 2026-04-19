@@ -56,6 +56,16 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   username: System.get_env("POSTGRES_USER", Keyword.get(tenant_base, :username, "postgres")),
   password: System.get_env("POSTGRES_PASSWORD", Keyword.get(tenant_base, :password, "postgres"))
 
+# Replica node for multi-host replication (optional)
+if replica = System.get_env("REPLICA_NODE") do
+  config :pki_platform_engine, replica_node: String.to_atom(replica)
+end
+
+# Base domain for Caddy route registration (e.g. "straptrust.com")
+if base_domain = System.get_env("BASE_DOMAIN") do
+  config :pki_platform_engine, base_domain: base_domain
+end
+
 # ─── CA Engine ──────────────────────────────────────────────────────────
 
 if ca_engine_db_url do
@@ -250,4 +260,75 @@ if config_env() == :prod do
   if enc_salt = System.get_env("PLATFORM_ENCRYPTION_SALT") do
     config :pki_platform_portal, encryption_salt: enc_salt
   end
+end
+
+# ─── Tenant Node (pki_tenant_node release) ──────────────────────────────
+# Tenant nodes read their config from env vars set by the platform's
+# TenantLifecycle when spawning via :peer module.
+
+if tenant_port = System.get_env("TENANT_PORT") do
+  config :pki_tenant_web, PkiTenantWeb.Endpoint,
+    http: [port: String.to_integer(tenant_port)],
+    server: true
+
+  if config_env() == :prod do
+    secret =
+      System.get_env("SECRET_KEY_BASE") ||
+        raise "SECRET_KEY_BASE is required for tenant nodes in production"
+
+    config :pki_tenant_web, PkiTenantWeb.Endpoint,
+      secret_key_base: secret
+  else
+    if secret = System.get_env("SECRET_KEY_BASE") do
+      config :pki_tenant_web, PkiTenantWeb.Endpoint,
+        secret_key_base: secret
+    end
+  end
+
+  base_domain = System.get_env("TENANT_BASE_DOMAIN", "localhost")
+  if tenant_slug = System.get_env("TENANT_SLUG") do
+    config :pki_tenant_web, PkiTenantWeb.Endpoint,
+      url: [host: "#{tenant_slug}.ca.#{base_domain}"]
+  end
+end
+
+if mnesia_dir = System.get_env("MNESIA_DIR") do
+  config :pki_tenant, mnesia_dir: mnesia_dir
+end
+
+if platform_node = System.get_env("PLATFORM_NODE") do
+  config :pki_tenant, platform_node: platform_node
+end
+
+if tenant_id = System.get_env("TENANT_ID") do
+  config :pki_tenant, tenant_id: tenant_id
+end
+
+# ─── Cluster formation for multi-host replication ──────────────────────
+if primary_host = System.get_env("PRIMARY_HOSTNAME") do
+  replica_host = System.get_env("REPLICA_HOSTNAME")
+  hosts = [:"pki_platform@#{primary_host}"]
+  hosts = if replica_host, do: hosts ++ [:"pki_replica@#{replica_host}"], else: hosts
+
+  config :libcluster,
+    topologies: [
+      pki_cluster: [
+        strategy: Cluster.Strategy.Epmd,
+        config: [hosts: hosts]
+      ]
+    ]
+end
+
+# Allow dev_activate in non-production for testing convenience
+if config_env() != :prod do
+  config :pki_ca_engine, allow_dev_activate: true
+end
+
+# ─── HSM Gateway (Phase D) ───────────────────────────────────────────────
+# Set HSM_GATEWAY_PORT (or HSM_GRPC_PORT) to enable the gRPC server for
+# remote HSM agents. When not set, HsmGateway is not started (zero overhead
+# for software-only tenants).
+# Example: HSM_GATEWAY_PORT=9010
+if hsm_port = System.get_env("HSM_GATEWAY_PORT") || System.get_env("HSM_GRPC_PORT") do
+  config :pki_ca_engine, :hsm_gateway_port, String.to_integer(hsm_port)
 end

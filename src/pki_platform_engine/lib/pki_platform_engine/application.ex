@@ -5,34 +5,48 @@ defmodule PkiPlatformEngine.Application do
 
   def start(_type, _args) do
     children =
-      [
-        PkiPlatformEngine.PlatformRepo,
-        PkiPlatformEngine.EmailVerification,
-        PkiPlatformEngine.TenantRegistry,
-        PkiPlatformEngine.TenantSupervisor
-      ] ++ date_log_handler_child()
+      if Application.get_env(:pki_platform_engine, :start_application, true) do
+        [
+          PkiPlatformEngine.PlatformRepo,
+          PkiPlatformEngine.EmailVerification,
+          PkiPlatformEngine.TenantRegistry,
+          PkiPlatformEngine.PortAllocator,
+          PkiPlatformEngine.AuditReceiver,
+          PkiPlatformEngine.TenantLifecycle,
+          PkiPlatformEngine.TenantHealthMonitor,
+          # Keep TenantSupervisor for schema-mode tenants (no peer spawning)
+          PkiPlatformEngine.TenantSupervisor
+        ] ++ date_log_handler_child()
+      else
+        []
+      end
 
-    # :rest_for_one — PlatformRepo → TenantRegistry → TenantSupervisor must restart in order
-    opts = [strategy: :rest_for_one, name: PkiPlatformEngine.Supervisor]
-    result = Supervisor.start_link(children, opts)
+    result = if Application.get_env(:pki_platform_engine, :start_application, true) do
+      opts = [strategy: :rest_for_one, name: PkiPlatformEngine.Supervisor]
+      Supervisor.start_link(children, opts)
+    else
+      Supervisor.start_link([], strategy: :one_for_one)
+    end
 
     # Boot active tenants async (after supervisor tree is ready)
-    Task.start(fn ->
-      Process.sleep(1_000)
-      Logger.info("[Application] Booting active tenant engines...")
-      PkiPlatformEngine.TenantSupervisor.boot_active_tenants()
+    if Application.get_env(:pki_platform_engine, :start_application, true) do
+      Task.start(fn ->
+        Process.sleep(1_000)
+        Logger.info("[Application] Booting active tenant engines...")
+        PkiPlatformEngine.TenantSupervisor.boot_active_tenants()
 
-      # Run tenant schema migrations after boot
-      Logger.info("[Application] Running tenant schema migrations...")
-      PkiPlatformEngine.TenantMigrator.migrate_all()
+        # Run tenant schema migrations after boot
+        Logger.info("[Application] Running tenant schema migrations...")
+        PkiPlatformEngine.TenantMigrator.migrate_all()
 
-      # Dev-only: auto-activate issuer keys via EngineBootstrap behaviour
-      if Application.get_env(:pki_platform_engine, :dev_auto_activate_keys, false) do
-        Process.sleep(3_000)
-        Logger.info("[Application] Dev auto-activating issuer keys...")
-        dev_auto_activate_all_keys()
-      end
-    end)
+        # Dev-only: auto-activate issuer keys via EngineBootstrap behaviour
+        if Application.get_env(:pki_platform_engine, :dev_auto_activate_keys, false) do
+          Process.sleep(3_000)
+          Logger.info("[Application] Dev auto-activating issuer keys...")
+          dev_auto_activate_all_keys()
+        end
+      end)
+    end
 
     result
   end

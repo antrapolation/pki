@@ -30,12 +30,16 @@ defmodule PkiRaEngine.MixProject do
       setup: ["deps.get", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
+      test: ["test"]
     ]
   end
 
   defp deps do
     [
+      {:pki_mnesia, path: "../pki_mnesia"},
+      {:pki_crypto, path: "../pki_crypto"},
+      {:pki_ca_engine, path: "../pki_ca_engine"},
+      # Ecto deps kept for legacy modules not yet migrated (user_management, webhook_delivery, etc.)
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.18"},
       {:jason, "~> 1.4"},
@@ -48,7 +52,6 @@ defmodule PkiRaEngine.MixProject do
       {:keyx, path: "../keyx", override: true},
       {:x509, path: "../x509", override: true},
       {:ex_ccrypto, path: "../ex_ccrypto"},
-      {:pki_crypto, path: "../pki_crypto"},
       {:pki_platform_engine, path: "../pki_platform_engine"}
     ]
   end

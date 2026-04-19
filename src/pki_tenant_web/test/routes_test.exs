@@ -1,0 +1,60 @@
+defmodule PkiTenantWeb.RoutesTest do
+  use ExUnit.Case, async: true
+
+  @ca_routes Phoenix.Router.routes(PkiTenantWeb.CaRouter)
+  @ra_routes Phoenix.Router.routes(PkiTenantWeb.RaRouter)
+
+  defp live_paths(routes) do
+    routes
+    |> Enum.filter(fn r -> r.plug == Phoenix.LiveView.Plug end)
+    |> Enum.map(fn r -> r.path end)
+  end
+
+  describe "CaRouter" do
+    test "has dashboard route /" do
+      assert "/" in live_paths(@ca_routes)
+    end
+
+    test "has /ceremonies route" do
+      assert "/ceremonies" in live_paths(@ca_routes)
+    end
+
+    test "has /ceremonies/custodian route" do
+      assert "/ceremonies/custodian" in live_paths(@ca_routes)
+    end
+
+    test "has /issuer-keys route" do
+      assert "/issuer-keys" in live_paths(@ca_routes)
+    end
+
+    test "has /certificates route" do
+      assert "/certificates" in live_paths(@ca_routes)
+    end
+  end
+
+  describe "RaRouter" do
+    test "has dashboard route /" do
+      assert "/" in live_paths(@ra_routes)
+    end
+
+    test "has /csrs route" do
+      assert "/csrs" in live_paths(@ra_routes)
+    end
+
+    test "has /cert-profiles route" do
+      assert "/cert-profiles" in live_paths(@ra_routes)
+    end
+
+    test "has /certificates route" do
+      assert "/certificates" in live_paths(@ra_routes)
+    end
+
+    test "has /api-keys route" do
+      assert "/api-keys" in live_paths(@ra_routes)
+    end
+
+    test "has /setup-wizard route" do
+      assert "/setup-wizard" in live_paths(@ra_routes)
+    end
+  end
+end

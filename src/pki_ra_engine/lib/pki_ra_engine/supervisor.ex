@@ -1,0 +1,21 @@
+defmodule PkiRaEngine.EngineSupervisor do
+  @moduledoc """
+  RA engine supervisor for the Mnesia-backed RA engine.
+  Replaces the Ecto-based supervision tree.
+  """
+
+  use Supervisor
+
+  def start_link(opts \\ []) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_opts) do
+    children = [
+      {PkiRaEngine.CsrProcessor, []},
+      {PkiRaEngine.DcvPoller, []}
+    ]
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+end

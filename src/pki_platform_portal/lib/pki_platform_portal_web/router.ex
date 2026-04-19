@@ -1,6 +1,8 @@
 defmodule PkiPlatformPortalWeb.Router do
   use PkiPlatformPortalWeb, :router
 
+  import Phoenix.LiveDashboard.Router
+
   pipeline :browser do
     plug PkiPlatformEngine.Plugs.ClearTenantPrefix
     plug :accepts, ["html"]
@@ -22,6 +24,13 @@ defmodule PkiPlatformPortalWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+  end
+
+  # Health check (unauthenticated JSON endpoint)
+  scope "/", PkiPlatformPortalWeb do
+    pipe_through :api
+
+    get "/health", HealthController, :show
   end
 
   # Setup route (no auth, no setup check)
@@ -63,5 +72,7 @@ defmodule PkiPlatformPortalWeb.Router do
       live "/profile", ProfileLive
       live "/sessions", SessionsLive
     end
+
+    live_dashboard "/dashboard", metrics: false
   end
 end

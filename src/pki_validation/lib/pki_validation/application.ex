@@ -6,20 +6,25 @@ defmodule PkiValidation.Application do
   @impl true
   def start(_type, _args) do
     children =
-      [
-        PkiValidation.Repo,
-        PkiValidation.SigningKeyStore,
-        PkiValidation.OcspCache,
-        PkiValidation.CrlPublisher
-      ] ++ http_children()
+      if Application.get_env(:pki_validation, :start_application, true) do
+        [
+          PkiValidation.CrlPublisher
+        ] ++ http_children()
+      else
+        []
+      end
 
-    # :rest_for_one — Repo → SigningKeyStore → OcspCache → CrlPublisher must restart in order
-    opts = [strategy: :rest_for_one, name: PkiValidation.Supervisor]
-    Supervisor.start_link(children, opts)
+    if Application.get_env(:pki_validation, :start_application, true) do
+      opts = [strategy: :one_for_one, name: PkiValidation.Supervisor]
+      Supervisor.start_link(children, opts)
+    else
+      # Don't register the supervisor name — pki_tenant will start it instead
+      Supervisor.start_link([], strategy: :one_for_one)
+    end
   end
 
   defp http_children do
-    if Application.get_env(:pki_validation, :http)[:start] do
+    if Application.get_env(:pki_validation, :http, [])[:start] do
       port = Application.get_env(:pki_validation, :http)[:port] || 4005
 
       [

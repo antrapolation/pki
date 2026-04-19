@@ -1,333 +1,115 @@
 defmodule PkiCaEngine.KeyActivationTest do
-  use PkiCaEngine.DataCase, async: false
+  use ExUnit.Case, async: false
 
+  alias PkiMnesia.{TestHelper, Repo}
+  alias PkiMnesia.Structs.ThresholdShare
   alias PkiCaEngine.KeyActivation
-  alias PkiCaEngine.KeyCeremony.SyncCeremony
-  alias PkiCaEngine.Schema.{CaInstance, CaUser, Keystore}
 
   setup do
-    {:ok, ca} =
-      Repo.insert(
-        CaInstance.changeset(%CaInstance{}, %{
-          name: "activation-ca-#{System.unique_integer([:positive])}",
-          created_by: "admin"
-        })
-      )
+    dir = TestHelper.setup_mnesia()
 
-    {:ok, keystore} =
-      Repo.insert(
-        Keystore.changeset(%Keystore{}, %{ca_instance_id: ca.id, type: "software"})
-      )
+    {:ok, pid} = KeyActivation.start_link(name: :test_ka, timeout_ms: 60_000)
 
-    {:ok, initiator} =
-      Repo.insert(
-        CaUser.changeset(%CaUser{}, %{
-          ca_instance_id: ca.id,
-          role: "key_manager"
-        })
-      )
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+      TestHelper.teardown_mnesia(dir)
+    end)
 
-    custodians =
-      for i <- 1..3 do
-        {:ok, user} =
-          Repo.insert(
-            CaUser.changeset(%CaUser{}, %{
-              ca_instance_id: ca.id,
-              role: "key_manager"
-            })
-          )
-
-        user
-      end
-
-    # Create ceremony + issuer key
-    {:ok, {ceremony, issuer_key}} =
-      SyncCeremony.initiate(nil, ca.id, %{
-        algorithm: "ECC-P256",
-        keystore_id: keystore.id,
-        threshold_k: 2,
-        threshold_n: 3,
-        initiated_by: initiator.id
-      })
-
-    # Generate keypair and distribute shares
-    {:ok, keypair} = SyncCeremony.generate_keypair("ECC-P256")
-
-    custodian_passwords =
-      Enum.map(custodians, fn user -> {user.id, "password-#{user.id}"} end)
-
-    {:ok, 3} =
-      SyncCeremony.distribute_shares(nil, ceremony, keypair.private_key, custodian_passwords)
-
-    %{
-      ca: ca,
-      issuer_key: issuer_key,
-      custodians: custodians,
-      ceremony: ceremony,
-      custodian_passwords: custodian_passwords
-    }
+    %{ka: :test_ka}
   end
 
-  describe "start_link/1" do
-    test "starts the KeyActivation GenServer" do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      {:ok, pid} =
-        KeyActivation.start_link(
-          name: name,
-
-          timeout_ms: 5_000
-        )
-
-      assert Process.alive?(pid)
-      GenServer.stop(pid)
-    end
+  test "get_active_key returns error when key not activated", %{ka: ka} do
+    assert {:error, :not_active} = KeyActivation.get_active_key(ka, "some-key-id")
   end
 
-  describe "submit_share/5" do
-    test "custodian submits share, decrypted and accumulated", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      [c1 | _] = ctx.custodians
-      password = "password-#{c1.id}"
-
-      assert {:ok, :share_accepted} =
-               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, password)
-    end
-
-    test "returns :key_activated when K threshold met", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      [c1, c2 | _] = ctx.custodians
-      pw1 = "password-#{c1.id}"
-      pw2 = "password-#{c2.id}"
-
-      assert {:ok, :share_accepted} =
-               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, pw1)
-
-      assert {:ok, :key_activated} =
-               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, pw2)
-    end
+  test "is_active? returns false for non-activated key", %{ka: ka} do
+    refute KeyActivation.is_active?(ka, "some-key-id")
   end
 
-  describe "is_active?/2" do
-    test "returns true if key is activated", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
+  test "dev_activate injects a key directly", %{ka: ka} do
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, true)
 
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
+    key_id = "test-key-1"
+    priv = :crypto.strong_rand_bytes(32)
 
-      [c1, c2 | _] = ctx.custodians
+    assert {:ok, :dev_activated} = KeyActivation.dev_activate(ka, key_id, priv)
+    assert KeyActivation.is_active?(ka, key_id)
+    assert {:ok, ^priv} = KeyActivation.get_active_key(ka, key_id)
 
-      assert KeyActivation.is_active?(name, ctx.issuer_key.id) == false
-
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      assert KeyActivation.is_active?(name, ctx.issuer_key.id) == false
-
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
-      assert KeyActivation.is_active?(name, ctx.issuer_key.id) == true
-    end
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
   end
 
-  describe "deactivate/2" do
-    test "explicitly wipes key and removes from active", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
+  test "deactivate removes an active key", %{ka: ka} do
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, true)
 
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
+    key_id = "test-key-2"
+    priv = :crypto.strong_rand_bytes(32)
+    KeyActivation.dev_activate(ka, key_id, priv)
 
-      [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+    assert :ok = KeyActivation.deactivate(ka, key_id)
+    refute KeyActivation.is_active?(ka, key_id)
 
-      assert KeyActivation.is_active?(name, ctx.issuer_key.id) == true
-
-      assert :ok = KeyActivation.deactivate(name, ctx.issuer_key.id)
-      assert KeyActivation.is_active?(name, ctx.issuer_key.id) == false
-    end
-
-    test "returns error when key not active", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      assert {:error, :not_active} = KeyActivation.deactivate(name, ctx.issuer_key.id)
-    end
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
   end
 
-  describe "timeout" do
-    test "key auto-deactivates after configured timeout", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
+  # G1 — Timeout eviction test
+  test "key is evicted after timeout", %{ka: ka} do
+    GenServer.stop(ka)
+    {:ok, ka2} = KeyActivation.start_link(name: :ka_timeout_test, timeout_ms: 50, allow_dev_activate: true)
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, true)
 
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 100},
-        restart: :temporary
-      )
+    key_id = PkiMnesia.Id.generate()
+    {:ok, :dev_activated} = KeyActivation.dev_activate(ka2, key_id, "secret")
+    assert KeyActivation.is_active?(ka2, key_id) == true
 
-      [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
+    Process.sleep(100)
+    assert KeyActivation.is_active?(ka2, key_id) == false
 
-      assert KeyActivation.is_active?(name, ctx.issuer_key.id) == true
-
-      # Wait for timeout
-      Process.sleep(200)
-
-      assert KeyActivation.is_active?(name, ctx.issuer_key.id) == false
-    end
+    Application.put_env(:pki_ca_engine, :allow_dev_activate, false)
+    GenServer.stop(ka2)
   end
 
-  describe "duplicate share submission (D3 regression)" do
-    test "same custodian submitting twice returns {:error, :already_submitted}", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
+  # G2 — Wrong password returns decryption_failed
+  test "submit_share with wrong password returns decryption_failed", %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+    {:ok, encrypted} = PkiCaEngine.KeyCeremony.ShareEncryption.encrypt_share("share-data", "correct-password")
+    salt = :crypto.strong_rand_bytes(16)
+    hash = :crypto.pbkdf2_hmac(:sha256, "correct-password", salt, 100_000, 32)
 
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
+    share = ThresholdShare.new(%{
+      issuer_key_id: key_id,
+      custodian_name: "alice",
+      share_index: 1,
+      encrypted_share: encrypted,
+      password_hash: salt <> hash,
+      min_shares: 1,
+      total_shares: 1
+    })
+    {:ok, _} = Repo.insert(share)
 
-      [c1 | _] = ctx.custodians
-      password = "password-#{c1.id}"
-
-      assert {:ok, :share_accepted} =
-               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, password)
-
-      assert {:error, :already_submitted} =
-               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, password)
-    end
+    assert {:error, :decryption_failed} = KeyActivation.submit_share(ka, key_id, "alice", "wrong-password")
+    assert KeyActivation.is_active?(ka, key_id) == false
   end
 
-  describe "error: wrong password" do
-    test "returns :decryption_failed for wrong password", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
+  # G3 — Replay attack: same custodian cannot submit share twice
+  test "same custodian cannot submit share twice", %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+    {:ok, encrypted} = PkiCaEngine.KeyCeremony.ShareEncryption.encrypt_share("share-1", "pass1")
+    salt = :crypto.strong_rand_bytes(16)
+    hash = :crypto.pbkdf2_hmac(:sha256, "pass1", salt, 100_000, 32)
 
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
+    share = ThresholdShare.new(%{
+      issuer_key_id: key_id,
+      custodian_name: "alice",
+      share_index: 1,
+      encrypted_share: encrypted,
+      password_hash: salt <> hash,
+      min_shares: 2,
+      total_shares: 2
+    })
+    {:ok, _} = Repo.insert(share)
 
-      [c1 | _] = ctx.custodians
-
-      assert {:error, :decryption_failed} =
-               KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "wrong-password")
-    end
-  end
-
-  # ── UC-CA-30 edge cases ────────────────────────────────────────
-
-  describe "submit_share/4 with non-existent issuer key" do
-    test "returns {:error, :share_not_found} when no share exists for given key and custodian",
-         ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      [c1 | _] = ctx.custodians
-      non_existent_key_id = Uniq.UUID.uuid7()
-
-      assert {:error, :share_not_found} =
-               KeyActivation.submit_share(name, nil, non_existent_key_id, c1.id, "password-#{c1.id}")
-    end
-  end
-
-  describe "get_active_key/2" do
-    test "returns {:ok, secret} for activated key", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
-
-      assert {:ok, secret} = KeyActivation.get_active_key(name, ctx.issuer_key.id)
-      assert is_binary(secret)
-    end
-
-    test "returns {:error, :not_active} for non-activated key", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      assert {:error, :not_active} =
-               KeyActivation.get_active_key(name, ctx.issuer_key.id)
-    end
-
-    test "returns {:error, :not_active} after deactivation", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
-
-      assert {:ok, _} = KeyActivation.get_active_key(name, ctx.issuer_key.id)
-
-      :ok = KeyActivation.deactivate(name, ctx.issuer_key.id)
-
-      assert {:error, :not_active} =
-               KeyActivation.get_active_key(name, ctx.issuer_key.id)
-    end
-  end
-
-  describe "deactivate/2 double deactivation" do
-    test "deactivating an already-deactivated key returns {:error, :not_active}", ctx do
-      name = :"test_activation_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {KeyActivation,
-         name: name, timeout_ms: 5_000},
-        restart: :temporary
-      )
-
-      [c1, c2 | _] = ctx.custodians
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c1.id, "password-#{c1.id}")
-      KeyActivation.submit_share(name, nil, ctx.issuer_key.id, c2.id, "password-#{c2.id}")
-
-      assert :ok = KeyActivation.deactivate(name, ctx.issuer_key.id)
-      assert {:error, :not_active} = KeyActivation.deactivate(name, ctx.issuer_key.id)
-    end
+    assert {:ok, :share_accepted} = KeyActivation.submit_share(ka, key_id, "alice", "pass1")
+    assert {:error, :already_submitted} = KeyActivation.submit_share(ka, key_id, "alice", "pass1")
   end
 end

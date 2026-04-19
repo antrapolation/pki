@@ -7,20 +7,29 @@ defmodule PkiAuditTrail.Application do
 
   @impl true
   def start(_type, _args) do
-    ensure_mnesia_schema()
-    PkiAuditTrail.WalBuffer.init()
+    if Application.get_env(:pki_audit_trail, :start_application, true) do
+      ensure_mnesia_schema()
+      PkiAuditTrail.WalBuffer.init()
+    end
 
     # PkiAuditTrail.Logger (global hash-chained singleton) is disabled —
     # in schema mode audit_events has no global home; it lives per-tenant
     # under audit_prefix. Tenant-scoped audit writing goes through
     # PkiCaEngine.Audit. Phase 2 wires per-tenant prefix + hash chain.
-    children = [
-      PkiAuditTrail.Repo
-    ]
+    children =
+      if Application.get_env(:pki_audit_trail, :start_application, true) do
+        [
+          PkiAuditTrail.Repo
+        ]
+      else
+        []
+      end
 
-    opts = [strategy: :one_for_one, name: PkiAuditTrail.Supervisor]
-
-    Supervisor.start_link(children, opts)
+    if Application.get_env(:pki_audit_trail, :start_application, true) do
+      Supervisor.start_link(children, strategy: :one_for_one, name: PkiAuditTrail.Supervisor)
+    else
+      Supervisor.start_link([], strategy: :one_for_one)
+    end
   end
 
   defp ensure_mnesia_schema do

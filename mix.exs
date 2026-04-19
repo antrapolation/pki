@@ -1,7 +1,7 @@
 defmodule PkiSystem.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "1.1.0"
 
   def project do
     [
@@ -32,10 +32,19 @@ defmodule PkiSystem.MixProject do
       {:pki_validation, path: "src/pki_validation"},
       {:pki_audit_trail, path: "src/pki_audit_trail"},
 
-      # ── Portals ──
+      # ── Portals (legacy, shared-BEAM mode) ──
       {:pki_ca_portal, path: "src/pki_ca_portal"},
       {:pki_ra_portal, path: "src/pki_ra_portal"},
       {:pki_platform_portal, path: "src/pki_platform_portal"},
+
+      # ── Per-tenant BEAM architecture (Phase A) ──
+      {:pki_mnesia, path: "src/pki_mnesia"},
+      {:pki_tenant, path: "src/pki_tenant"},
+      {:pki_tenant_web, path: "src/pki_tenant_web"},
+
+      # ── Multi-host replication (Phase B) ──
+      {:pki_replica, path: "src/pki_replica"},
+      {:libcluster, "~> 3.3"},
 
       # ── Shared (override to resolve version conflicts) ──
       {:gettext, "~> 0.26", override: true},
@@ -85,6 +94,49 @@ defmodule PkiSystem.MixProject do
           pki_platform_engine: :permanent,
           pki_audit_trail: :permanent
         ]
+      ],
+
+      # ── Per-tenant BEAM releases (Phase A) ──
+
+      # Release 4: Platform node — manages tenant lifecycle + platform portal
+      # PostgreSQL-backed. Spawns tenant BEAM nodes via :peer module.
+      pki_platform: [
+        validate_compile_env: false,
+        applications: [
+          pki_platform_engine: :permanent,
+          pki_platform_portal: :permanent
+        ]
+      ],
+
+      # Release 5: Tenant node — one per tenant, spawned by platform
+      # Mnesia-backed. Runs CA + RA + Validation for a single tenant.
+      pki_tenant_node: [
+        validate_compile_env: false,
+        applications: [
+          pki_mnesia: :permanent,
+          pki_ca_engine: :permanent,
+          pki_ra_engine: :permanent,
+          pki_validation: :permanent,
+          pki_tenant: :permanent,
+          pki_tenant_web: :permanent
+        ]
+      ],
+
+      # ── Multi-host replication releases (Phase B) ──
+
+      # Release 6: Replica node — warm standby with Mnesia replication
+      # Joins primary cluster, receives replicated data, can promote to primary.
+      pki_replica: [
+        validate_compile_env: false,
+        applications: [
+          pki_replica: :permanent,
+          pki_mnesia: :permanent,
+          pki_ca_engine: :load,
+          pki_ra_engine: :load,
+          pki_validation: :load,
+          pki_tenant: :load,
+          pki_tenant_web: :load
+        ]
       ]
     ]
   end
@@ -109,7 +161,10 @@ defmodule PkiSystem.MixProject do
         "esbuild pki_platform_portal --minify",
         "phx.digest src/pki_ca_portal/priv/static -o src/pki_ca_portal/priv/static",
         "phx.digest src/pki_ra_portal/priv/static -o src/pki_ra_portal/priv/static",
-        "phx.digest src/pki_platform_portal/priv/static -o src/pki_platform_portal/priv/static"
+        "phx.digest src/pki_platform_portal/priv/static -o src/pki_platform_portal/priv/static",
+        "tailwind pki_tenant_web --minify",
+        "esbuild pki_tenant_web --minify",
+        "phx.digest src/pki_tenant_web/priv/static -o src/pki_tenant_web/priv/static"
       ]
     ]
   end

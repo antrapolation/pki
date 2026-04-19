@@ -10,14 +10,13 @@ defmodule PkiValidation.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       erlc_paths: ["src"],
       compilers: [:asn1] ++ Mix.compilers(),
-      aliases: aliases(),
       deps: deps()
     ]
   end
 
   def application do
     [
-      extra_applications: [:logger, :tzdata],
+      extra_applications: [:logger, :mnesia],
       mod: {PkiValidation.Application, []}
     ]
   end
@@ -27,24 +26,12 @@ defmodule PkiValidation.MixProject do
 
   defp deps do
     [
-      {:ecto_sql, "~> 3.11"},
-      {:postgrex, "~> 0.18"},
-      {:jason, "~> 1.4"},
+      {:pki_mnesia, path: "../pki_mnesia"},
+      {:pki_crypto, path: "../pki_crypto"},
+      {:pki_ca_engine, path: "../pki_ca_engine"},
       {:plug, "~> 1.16"},
       {:plug_cowboy, "~> 2.7"},
-      {:uniq, "~> 0.6"},
-      {:kaz_sign, path: "../../../PQC-KAZ/SIGN/bindings/elixir"},
-      {:pki_crypto, path: "../pki_crypto"},
-      {:pki_platform_engine, path: "../pki_platform_engine"}
-    ]
-  end
-
-  defp aliases do
-    [
-      setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
+      {:jason, "~> 1.4"}
     ]
   end
 end

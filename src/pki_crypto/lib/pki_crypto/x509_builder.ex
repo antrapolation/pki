@@ -194,6 +194,18 @@ defmodule PkiCrypto.X509Builder do
   defp ecdsa_hash_for("ECC-P256"), do: :sha256
   defp ecdsa_hash_for("ECC-P384"), do: :sha384
 
+  @doc """
+  Assemble a full X.509 Certificate DER from a TBS DER, signature algorithm OID,
+  and raw signature bytes.
+
+  Used by callers (e.g. CertificateSigning) that build TBS first, sign via an
+  external adapter (HSM), then assemble the final certificate.
+  """
+  @spec assemble_cert(binary(), tuple(), binary()) :: binary()
+  def assemble_cert(tbs_der, sig_alg_oid, signature) do
+    wrap_cert(tbs_der, sig_alg_oid, signature)
+  end
+
   defp wrap_cert(tbs_der, sig_alg_oid, signature) do
     sig_alg = Asn1.sequence([Asn1.oid(sig_alg_oid)])
     Asn1.sequence([tbs_der, sig_alg, Asn1.bit_string(signature)])
