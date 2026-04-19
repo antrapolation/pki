@@ -12,13 +12,19 @@ tracks the order we agreed to work through them.
 ### Tier 1 — Foundation (force multipliers)
 - [x] **1a. Native PG setup** — PG 17 via brew on macOS, default port 5432
   (test configs moved off 5434). Done 2026-04-19.
-- [ ] **1b. Triage pre-existing failures unmasked by 1a** — pki_ca_engine now
-  compiles + runs 525 tests, 161 fail. Failures look like real API drift
-  (e.g. `IssuerKeyManagement.create_issuer_key/3` called but only `/2`
-  exists). Not caused by recent PRs; accumulated during the Mnesia rewrite.
-  Need a dedicated triage pass before P1 work continues.
+- [x] **1b. Triage pre-existing failures unmasked by 1a** — deleted 9
+  legacy Ecto-era test files, fixed two bugs in `RemoteHsmAdapter.sign/3`
+  (wrong `:public_key.der_decode` target, wrong pubkey format for ECC
+  verify). pki_ca_engine now 360 tests / 0 failures. Done 2026-04-19.
 - [ ] **1c. x509 doctest drift cleanup** — 59 noise failures will hide real
   regressions. Effort: ~30min.
+- [ ] **1d. Retire legacy Ecto-backed code paths** — deleted the Ecto tests
+  but the code they tested still lives: `SyncCeremony`, `AsyncCeremony`,
+  `api/ceremony_controller.ex`, `Schema.KeyCeremony/Keystore/etc.` These
+  call `IssuerKeyManagement.create_issuer_key/3` (undef), `list_issuer_keys/2`
+  (undef), etc. — dead-on-arrival if exercised at runtime. No live caller
+  identified (only tests exercised them). Either delete the modules or
+  gate with a feature flag. Compile warnings flag every call site.
 
 ### Tier 2 — Security P1s (ordered easy → hard)
 - [ ] **2a. Fail-closed attestation in CredentialManager** (~1h)
