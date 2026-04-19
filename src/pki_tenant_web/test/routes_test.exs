@@ -97,6 +97,13 @@ defmodule PkiTenantWeb.RoutesTest do
       assert "/setup-wizard" in live_paths(@ra_routes)
     end
 
+    test "has /service-configs route backed by Ra.ServiceConfigsLive" do
+      assert "/service-configs" in live_paths(@ra_routes)
+
+      route = Enum.find(@ra_routes, fn r -> r.path == "/service-configs" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ra.ServiceConfigsLive
+    end
+
     test "has /profile route backed by the shared ProfileLive" do
       assert "/profile" in live_paths(@ra_routes)
 

@@ -10,9 +10,9 @@ defmodule PkiMnesia.ReplicationTest do
   end
 
   describe "sync_tables/0" do
-    test "returns 14 sync table names" do
+    test "returns 15 sync table names" do
       tables = Schema.sync_tables()
-      assert length(tables) == 14
+      assert length(tables) == 15
       assert :ca_instances in tables
       assert :issuer_keys in tables
       assert :threshold_shares in tables
@@ -25,6 +25,7 @@ defmodule PkiMnesia.ReplicationTest do
       assert :ra_ca_connections in tables
       assert :api_keys in tables
       assert :dcv_challenges in tables
+      assert :service_configs in tables
       assert :backup_records in tables
       assert :schema_versions in tables
     end
