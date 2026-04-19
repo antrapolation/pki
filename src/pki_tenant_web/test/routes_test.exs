@@ -49,6 +49,13 @@ defmodule PkiTenantWeb.RoutesTest do
       route = Enum.find(@ca_routes, fn r -> r.path == "/profile" end)
       assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.ProfileLive
     end
+
+    test "has /hsm-devices route backed by Ca.HsmDevicesLive" do
+      assert "/hsm-devices" in live_paths(@ca_routes)
+
+      route = Enum.find(@ca_routes, fn r -> r.path == "/hsm-devices" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ca.HsmDevicesLive
+    end
   end
 
   describe "RaRouter" do
