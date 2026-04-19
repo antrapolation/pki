@@ -86,14 +86,31 @@ defmodule PkiCaEngine.KeyStore.RemoteHsmAdapter do
 
   defp get_public_key_from_key(%{certificate_der: nil}), do: {:error, :no_public_key}
 
-  defp get_public_key_from_key(%{certificate_der: der}) do
+  defp get_public_key_from_key(%{certificate_der: der, algorithm: algo_id}) do
+    # Parsing path:
+    #   Certificate → TBSCertificate → subjectPublicKeyInfo → {algo, pubkey_bytes}
+    # Extract the field at index 7 (0-tag, 1-version, 2-serial, 3-sig,
+    # 4-issuer, 5-validity, 6-subject, 7-spki, ...).
+    #
+    # Format the pubkey for the algorithm's verify/4:
+    #   RSA verify    — wants DER-encoded SubjectPublicKeyInfo
+    #   ECC/PQC verify — wants the raw subjectPublicKey bit-string contents
     try do
-      cert = :public_key.der_decode(:Certificate, der)
-      tbs = elem(cert, 1)
-      spki = elem(tbs, 6)
-      {:ok, :public_key.der_encode(:SubjectPublicKeyInfo, spki)}
+      plain_cert = :public_key.der_decode(:Certificate, der)
+      tbs = elem(plain_cert, 1)
+      spki = elem(tbs, 7)
+      {:ok, format_pubkey_for_algorithm(algo_id, spki)}
     rescue
       _ -> {:error, :invalid_certificate}
+    end
+  end
+
+  defp format_pubkey_for_algorithm(algo_id, spki) when is_binary(algo_id) do
+    if String.starts_with?(algo_id, "RSA") do
+      :public_key.der_encode(:SubjectPublicKeyInfo, spki)
+    else
+      # ECC + PQC (ML-DSA, KAZ-SIGN, SLH-DSA) all take raw pubkey bytes.
+      elem(spki, 2)
     end
   end
 
