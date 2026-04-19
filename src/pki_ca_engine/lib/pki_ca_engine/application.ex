@@ -16,7 +16,7 @@ defmodule PkiCaEngine.Application do
            name: PkiCaEngine.KeyActivation,
            timeout_ms: Application.get_env(:pki_ca_engine, :key_activation_timeout_ms, 3_600_000)},
           {DynamicSupervisor, strategy: :one_for_one, name: PkiCaEngine.EngineSupervisor}
-        ] ++ http_children()
+        ]
       else
         []
       end
@@ -53,15 +53,6 @@ defmodule PkiCaEngine.Application do
   rescue
     # DB not ready yet (migrations not run) — skip silently
     _ -> :ok
-  end
-
-  defp http_children do
-    if Application.get_env(:pki_ca_engine, :start_http, false) do
-      port = Application.get_env(:pki_ca_engine, :http_port, 4001)
-      [{Plug.Cowboy, scheme: :http, plug: PkiCaEngine.Api.Router, options: [port: port]}]
-    else
-      []
-    end
   end
 
   @doc false

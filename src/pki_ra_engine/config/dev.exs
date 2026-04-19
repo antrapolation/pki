@@ -22,14 +22,5 @@ ra_repo_opts =
 
 config :pki_ra_engine, PkiRaEngine.Repo, ra_repo_opts
 
-config :pki_ra_engine, start_http: true
-config :pki_ra_engine, :http_port, String.to_integer(System.get_env("PORT", "4003"))
-
-# CA Engine connection defaults for local development.
-config :pki_ra_engine,
-  ca_engine_url: System.get_env("CA_ENGINE_URL", "http://localhost:4001"),
-  internal_api_secret: System.get_env("INTERNAL_API_SECRET", "dev-secret"),
-  ca_engine_module: PkiRaEngine.CsrValidation.DefaultCaClient
-
-# Relax rate limiting in dev to avoid being blocked during debugging
-config :pki_ra_engine, :rate_limit_enabled, false
+# In-process CA engine integration (RA + CA share the same BEAM).
+config :pki_ra_engine, ca_engine_module: PkiRaEngine.CsrValidation.DefaultCaClient

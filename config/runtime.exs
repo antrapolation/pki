@@ -11,9 +11,8 @@ import Config
 #   INTERNAL_API_SECRET
 #
 # Release-specific env vars:
-#   pki_engines:  CA_ENGINE_PORT, RA_ENGINE_PORT, VALIDATION_PORT
-#   pki_portals:  CA_PORTAL_PORT, RA_PORTAL_PORT, PLATFORM_PORTAL_PORT,
-#                 ENGINE_CLIENT_MODE=direct, PHX_SERVER=true
+#   pki_engines:  VALIDATION_PORT
+#   pki_platform: PLATFORM_PORTAL_PORT, PHX_SERVER=true
 #   pki_audit:    (minimal, just DATABASE_URL)
 
 # ─── Database URLs ──────────────────────────────────────────────────────
@@ -82,13 +81,6 @@ if audit_trail_db_url do
     prepare: :unnamed
 end
 
-# CA Engine HTTP API — only starts if start_http is true (engines release)
-if System.get_env("CA_ENGINE_START_HTTP") == "true" do
-  config :pki_ca_engine, :start_http, true
-  config :pki_ca_engine, :http_port,
-    String.to_integer(System.get_env("CA_ENGINE_PORT", "4001"))
-end
-
 # ─── RA Engine ──────────────────────────────────────────────────────────
 
 if ra_engine_db_url do
@@ -96,13 +88,6 @@ if ra_engine_db_url do
     url: ra_engine_db_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
     prepare: :unnamed
-end
-
-# RA Engine HTTP API — only starts if start_http is true (engines release)
-if System.get_env("RA_ENGINE_START_HTTP") == "true" do
-  config :pki_ra_engine, start_http: true
-  config :pki_ra_engine, :http_port,
-    String.to_integer(System.get_env("RA_ENGINE_PORT", "4003"))
 end
 
 # ─── Validation ─────────────────────────────────────────────────────────
@@ -131,26 +116,19 @@ if config_env() == :prod do
       raise "environment variable SECRET_KEY_BASE is missing"
 
   validation_url = System.get_env("VALIDATION_URL", "http://localhost:4005")
-  ca_engine_url = System.get_env("CA_ENGINE_URL", "http://localhost:4001")
-  ra_engine_url = System.get_env("RA_ENGINE_URL", "http://localhost:4003")
 
   # ── CA Engine config ──
+  # internal_api_secret is consumed by the CA → Validation service
+  # HTTP client (validation_notifier). The engines' own HTTP APIs
+  # have been retired; tenant_web calls engine modules in-process.
   config :pki_ca_engine,
     internal_api_secret: internal_api_secret,
     validation_url: validation_url
 
   # ── RA Engine config ──
-  ca_engine_module =
-    if System.get_env("ENGINE_CLIENT_MODE") == "direct" do
-      PkiRaEngine.CsrValidation.DirectCaClient
-    else
-      PkiRaEngine.CsrValidation.HttpCaClient
-    end
-
-  config :pki_ra_engine,
-    ca_engine_url: ca_engine_url,
-    internal_api_secret: internal_api_secret,
-    ca_engine_module: ca_engine_module
+  # In per-tenant BEAM deployments RA + CA share a node, so the
+  # in-process DirectCaClient is the only supported backend.
+  config :pki_ra_engine, ca_engine_module: PkiRaEngine.CsrValidation.DirectCaClient
 
   # ── Rate limiting (ETS — in-memory, per-node, no Mnesia setup needed) ──
   # Mnesia backend requires schema init and caused "Service temporarily unavailable"
