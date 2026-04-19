@@ -7,7 +7,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   alias PkiCaEngine.CeremonyOrchestrator
   alias PkiCaEngine.KeystoreManagement
   alias PkiMnesia.Repo
-  alias PkiMnesia.Structs.{KeyCeremony, PortalUser, CeremonyParticipant, ThresholdShare}
+  alias PkiMnesia.Structs.{KeyCeremony, CeremonyParticipant, ThresholdShare}
 
   @algorithms [
     {"KAZ-SIGN-128", "Post-Quantum — KAZ-Sign level 1"},
@@ -28,18 +28,6 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
     {"RSA-4096", "Classical — legacy, stronger"}
   ]
 
-  @time_window_options [
-    {1, "1 hour"},
-    {2, "2 hours"},
-    {4, "4 hours"},
-    {8, "8 hours"},
-    {12, "12 hours"},
-    {24, "24 hours"},
-    {48, "2 days"},
-    {72, "3 days"},
-    {168, "1 week"}
-  ]
-
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -49,7 +37,6 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        keystores: [],
        ca_instances: [],
        algorithms: @algorithms,
-       time_window_options: @time_window_options,
        effective_ca_id: nil,
        selected_ca_id: "",
        loading: true,
@@ -63,10 +50,6 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        public_key_fingerprint: nil,
        is_root: true,
        subject_dn: "",
-       key_managers: [],
-       auditors: [],
-       custodians: [],
-       custodian_passwords: [],
        csr_pem: nil,
        wizard_error: nil,
        wizard_busy: false,
@@ -110,9 +93,6 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
       {ceremonies, keystores} = load_for_ca(effective_ca_id)
 
-      key_managers = load_key_managers()
-      auditors = load_auditors()
-
       {:noreply,
        assign(socket,
          ceremonies: ceremonies,
@@ -120,8 +100,6 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
          ca_instances: ca_instances,
          effective_ca_id: effective_ca_id,
          selected_ca_id: effective_ca_id || "",
-         key_managers: key_managers,
-         auditors: auditors,
          loading: false
        )}
     rescue
@@ -346,9 +324,14 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   def handle_event("initiate_ceremony", params, socket) do
     ca_id = params["ca_instance_id"]
 
-    selected_custodian_names = parse_multi_select(params["custodian_names"])
-    auditor_name = params["auditor_name"] || ""
-    time_window_hours = parse_int(params["time_window_hours"]) || 24
+    # Custodian names are free-form per-ceremony. Custodians are not portal
+    # users — they sit down at the ceremony, enter their name and a
+    # per-ceremony password in the custodian-entry step. We just need the
+    # list of names at initiation time so Mnesia can create placeholder
+    # ThresholdShare records keyed by custodian_name.
+    custodian_names = parse_custodian_names(params["custodian_names"])
+    auditor_name = String.trim(params["auditor_name"] || "")
+    threshold_n = parse_int(params["threshold_n"]) || 3
 
     cond do
       is_nil(ca_id) or ca_id == "" ->
@@ -357,11 +340,21 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
       is_nil(params["keystore_id"]) or params["keystore_id"] == "" ->
         {:noreply, assign(socket, wizard_error: "Please select a Keystore.")}
 
-      Enum.empty?(selected_custodian_names) ->
-        {:noreply, assign(socket, wizard_error: "Please select at least one key manager as custodian.")}
+      Enum.empty?(custodian_names) ->
+        {:noreply, assign(socket, wizard_error: "Enter at least one custodian name.")}
 
-      String.trim(auditor_name) == "" ->
-        {:noreply, assign(socket, wizard_error: "Please select an auditor witness.")}
+      length(custodian_names) != length(Enum.uniq(custodian_names)) ->
+        {:noreply, assign(socket, wizard_error: "Custodian names must be unique within a ceremony.")}
+
+      length(custodian_names) != threshold_n ->
+        {:noreply,
+         assign(socket,
+           wizard_error:
+             "You entered #{length(custodian_names)} custodian name(s) but threshold N is #{threshold_n}. Names and N must match."
+         )}
+
+      auditor_name == "" ->
+        {:noreply, assign(socket, wizard_error: "Enter the external auditor's name.")}
 
       true ->
         # Rate limit ceremony creation: 10 per hour per tenant
@@ -384,15 +377,14 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
               algorithm: params["algorithm"],
               keystore_id: params["keystore_id"],
               threshold_k: parse_int(params["threshold_k"]) || 2,
-              threshold_n: parse_int(params["threshold_n"]) || 3,
+              threshold_n: threshold_n,
               is_root: is_root,
               key_alias: params["key_alias"],
-              custodian_names: selected_custodian_names,
-              auditor_name: String.trim(auditor_name),
-              ceremony_mode: if(is_root, do: :full, else: :full),
+              custodian_names: custodian_names,
+              auditor_name: auditor_name,
+              ceremony_mode: :full,
               initiated_by: initiated_by,
-              subject_dn: params["subject_dn"],
-              time_window_hours: time_window_hours
+              subject_dn: params["subject_dn"]
             }
 
             case CeremonyOrchestrator.initiate(ca_id, ceremony_params) do
@@ -403,9 +395,8 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                   ca_instance_id: ca_id,
                   is_root: is_root,
                   key_alias: params["key_alias"],
-                  custodian_count: length(selected_custodian_names),
-                  auditor_name: String.trim(auditor_name),
-                  time_window_hours: time_window_hours
+                  custodian_count: length(custodian_names),
+                  auditor_name: auditor_name
                 })
 
                 # Subscribe to PubSub for live updates
@@ -489,29 +480,19 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   # Private helpers
   # ---------------------------------------------------------------------------
 
-  defp load_key_managers do
-    case Repo.get_all_by_index(PortalUser, :status, "active") do
-      {:ok, users} ->
-        users
-        |> Enum.filter(fn u -> u.role in [:key_manager, "key_manager"] end)
-        |> Enum.map(fn u -> %{id: u.id, username: u.username, display_name: u.display_name} end)
-      _ -> []
-    end
-  rescue
-    _ -> []
+  # Free-form custodian names: one per line or comma-separated in a textarea.
+  # Trim whitespace, drop empty entries, cap name length at 128 chars.
+  defp parse_custodian_names(nil), do: []
+
+  defp parse_custodian_names(raw) when is_binary(raw) do
+    raw
+    |> String.split(~r/[\n,]/, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&String.slice(&1, 0, 128))
   end
 
-  defp load_auditors do
-    case Repo.get_all_by_index(PortalUser, :status, "active") do
-      {:ok, users} ->
-        users
-        |> Enum.filter(fn u -> u.role in [:auditor, "auditor"] end)
-        |> Enum.map(fn u -> %{id: u.id, username: u.username, display_name: u.display_name} end)
-      _ -> []
-    end
-  rescue
-    _ -> []
-  end
+  defp parse_custodian_names(_), do: []
 
   defp build_participants_from_ceremony(ceremony) do
     # Build participant list from CeremonyParticipant records
@@ -583,9 +564,6 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
     do: :io_lib.format("~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B", [y, mo, d, h, mi, s]) |> IO.iodata_to_binary()
   defp to_sortable_time(_), do: ""
 
-  defp parse_multi_select(nil), do: []
-  defp parse_multi_select(val) when is_binary(val), do: [val]
-  defp parse_multi_select(val) when is_list(val), do: Enum.filter(val, &(&1 != ""))
 
   defp load_for_ca(nil), do: {[], []}
   defp load_for_ca(ca_id) do
@@ -958,55 +936,52 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
           </div>
 
           <%!-- Participant assignment section --%>
-          <div class="divider text-xs text-base-content/40">Participant Assignment</div>
+          <div class="divider text-xs text-base-content/40">Participants (single-session ceremony)</div>
+
+          <p class="text-xs text-base-content/60 -mt-2 mb-2">
+            This ceremony runs end-to-end in one session. Custodians and the
+            auditor are external — they are NOT portal users. Enter the
+            names that will be recorded in the printed transcript. Each
+            custodian will choose their own per-ceremony password when they
+            sit down at the next step.
+          </p>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">
-                Key Manager Custodians
+                Custodian names (one per line, must match threshold N)
               </label>
-              <div :if={not Enum.empty?(@key_managers)} class="space-y-2 mt-1">
-                <label :for={km <- @key_managers} class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="custodian_names[]"
-                    value={km.display_name || km.username}
-                    class="checkbox checkbox-sm checkbox-primary"
-                  />
-                  <span class="text-sm">{km.display_name || km.username}</span>
-                </label>
-              </div>
-              <p :if={Enum.empty?(@key_managers)} class="text-xs text-warning mt-1">
-                No active key managers found. <a href="/users" class="link link-primary">Add key manager users first.</a>
+              <textarea
+                name="custodian_names"
+                rows="4"
+                placeholder="Alice Johnson&#10;Bob Mendez&#10;Charlie Nakamura"
+                class="textarea textarea-bordered textarea-sm w-full font-mono"
+                required
+              ></textarea>
+              <p class="text-xs text-base-content/40 mt-1">
+                Free text, 1-128 chars per name. Names must be unique within
+                this ceremony. They become the identifier on each custodian's
+                share and on the signature line of the printed transcript.
               </p>
             </div>
-            <div class="space-y-4">
-              <div>
-                <label class="block text-xs font-medium text-base-content/60 mb-1">Auditor Witness</label>
-                <select name="auditor_name" class="select select-bordered select-sm w-full" required>
-                  <option value="" disabled selected>Select Auditor</option>
-                  <option
-                    :for={aud <- @auditors}
-                    value={aud.display_name || aud.username}
-                  >
-                    {aud.display_name || aud.username}
-                  </option>
-                </select>
-                <p :if={Enum.empty?(@auditors)} class="text-xs text-warning mt-1">
-                  No active auditors found. <a href="/users" class="link link-primary">Add auditor users first.</a>
-                </p>
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-base-content/60 mb-1">Time Window</label>
-                <select name="time_window_hours" class="select select-bordered select-sm w-full">
-                  <%= for {hours, label} <- @time_window_options do %>
-                    <option value={hours} selected={hours == 24}>{label}</option>
-                  <% end %>
-                </select>
-                <p class="text-xs text-base-content/40 mt-1">
-                  All participants must complete their actions within this window.
-                </p>
-              </div>
+
+            <div>
+              <label class="block text-xs font-medium text-base-content/60 mb-1">
+                External auditor name
+              </label>
+              <input
+                type="text"
+                name="auditor_name"
+                maxlength="128"
+                placeholder="e.g. Jane Roe, Big Four Audit Firm"
+                class="input input-bordered input-sm w-full"
+                required
+              />
+              <p class="text-xs text-base-content/40 mt-1">
+                The external auditor observing and signing the printed
+                transcript at session end. Not a system user; just a name on
+                the paper record.
+              </p>
             </div>
           </div>
 
