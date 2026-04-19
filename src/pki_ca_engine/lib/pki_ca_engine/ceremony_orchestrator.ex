@@ -68,7 +68,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     CeremonyParticipant, CeremonyTranscript
   }
   alias PkiCaEngine.{IssuerKeyManagement, CaInstanceManagement}
-  alias PkiCaEngine.KeyCeremony.{SyncCeremony, ShareEncryption}
+  alias PkiCaEngine.KeyCeremony.ShareEncryption
 
   @pbkdf2_iterations 100_000
   @pbkdf2_salt_size 16
@@ -517,8 +517,15 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
+  defp generate_keypair(algorithm) do
+    case PkiCrypto.Registry.get(algorithm) do
+      nil -> {:error, {:unsupported_algorithm, algorithm}}
+      algo_struct -> PkiCrypto.Algorithm.generate_keypair(algo_struct)
+    end
+  end
+
   defp do_keygen_and_split(ceremony, db_shares, passwords) do
-    case SyncCeremony.generate_keypair(ceremony.algorithm) do
+    case generate_keypair(ceremony.algorithm) do
       {:ok, %{public_key: pub, private_key: priv}} ->
         fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower)
         is_root = Map.get(ceremony.domain_info, "is_root", true)

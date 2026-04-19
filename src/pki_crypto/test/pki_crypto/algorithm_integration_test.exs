@@ -161,10 +161,10 @@ defmodule PkiCrypto.AlgorithmIntegrationTest do
     end
   end
 
-  describe "SyncCeremony.generate_keypair compatibility" do
+  describe "ceremony keygen compatibility" do
     # Tests the exact code path used by the ceremony system
     for algo_name <- ["ECC-P256", "ML-DSA-65", "SLH-DSA-SHA2-128f"] do
-      test "#{algo_name} via SyncCeremony.generate_keypair/1" do
+      test "#{algo_name} via PkiCrypto.Registry.get/1 + generate_keypair/1" do
         # This is exactly what the ceremony calls
         case PkiCrypto.Registry.get(unquote(algo_name)) do
           nil -> flunk("Algorithm #{unquote(algo_name)} not in registry")
