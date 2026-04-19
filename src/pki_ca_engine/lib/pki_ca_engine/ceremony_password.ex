@@ -29,7 +29,7 @@ defmodule PkiCaEngine.CeremonyPassword do
   def decrypt(_), do: {:error, :invalid_format}
 
   defp derive_key do
-    secret = Application.get_env(:pki_ca_portal, :secret_key_base) ||
+    secret = Application.get_env(:pki_tenant_web, :secret_key_base) ||
              Application.get_env(:pki_ca_engine, :secret_key_base) ||
              System.get_env("SECRET_KEY_BASE") ||
              raise "SECRET_KEY_BASE not configured"

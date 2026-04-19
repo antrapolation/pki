@@ -4,8 +4,6 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(PkiCaPortal.PubSub, "session_events")
-      Phoenix.PubSub.subscribe(PkiRaPortal.PubSub, "session_events")
       Phoenix.PubSub.subscribe(PkiPlatformPortal.PubSub, "session_events")
     end
 
@@ -48,11 +46,11 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
   def handle_info(_, socket), do: {:noreply, socket}
 
   defp load_all_sessions do
-    ca = safe_list(PkiCaPortal.SessionStore, "ca")
-    ra = safe_list(PkiRaPortal.SessionStore, "ra")
-    platform = safe_list(PkiPlatformPortal.SessionStore, "platform")
-
-    (ca ++ ra ++ platform)
+    # Platform-only sessions. Per-tenant CA/RA portals now run in their
+    # own BEAM nodes (pki_tenant_web) and their session stores aren't
+    # reachable from the platform node; cross-tenant session visibility
+    # is a separate (unscoped) work item.
+    safe_list(PkiPlatformPortal.SessionStore, "platform")
     |> Enum.sort_by(& &1.last_active_at, {:desc, DateTime})
   end
 
@@ -62,12 +60,8 @@ defmodule PkiPlatformPortalWeb.SessionsLive do
     _ -> []
   end
 
-  defp store_for_portal("ca"), do: PkiCaPortal.SessionStore
-  defp store_for_portal("ra"), do: PkiRaPortal.SessionStore
   defp store_for_portal("platform"), do: PkiPlatformPortal.SessionStore
 
-  defp portal_badge("ca"), do: "badge-primary"
-  defp portal_badge("ra"), do: "badge-secondary"
   defp portal_badge("platform"), do: "badge-accent"
   defp portal_badge(_), do: "badge-ghost"
 

@@ -32,12 +32,10 @@ defmodule PkiSystem.MixProject do
       {:pki_validation, path: "src/pki_validation"},
       {:pki_audit_trail, path: "src/pki_audit_trail"},
 
-      # ── Portals (legacy, shared-BEAM mode) ──
-      {:pki_ca_portal, path: "src/pki_ca_portal"},
-      {:pki_ra_portal, path: "src/pki_ra_portal"},
+      # ── Portals ──
       {:pki_platform_portal, path: "src/pki_platform_portal"},
 
-      # ── Per-tenant BEAM architecture (Phase A) ──
+      # ── Per-tenant BEAM architecture ──
       {:pki_mnesia, path: "src/pki_mnesia"},
       {:pki_tenant, path: "src/pki_tenant"},
       {:pki_tenant_web, path: "src/pki_tenant_web"},
@@ -69,25 +67,7 @@ defmodule PkiSystem.MixProject do
         ]
       ],
 
-      # Release 2: All web portals + engines in direct mode
-      # Runs: CA Portal (4002), RA Portal (4004), Platform Portal (4006)
-      # Engine HTTP APIs NOT started (gated by start_http config)
-      # Portals call engine modules in-process (ENGINE_CLIENT_MODE=direct)
-      pki_portals: [
-        validate_compile_env: false,
-        applications: [
-          pki_platform_engine: :permanent,
-          pki_ca_engine: :transient,
-          pki_ra_engine: :transient,
-          pki_validation: :transient,
-          pki_audit_trail: :transient,
-          pki_ca_portal: :permanent,
-          pki_ra_portal: :permanent,
-          pki_platform_portal: :permanent
-        ]
-      ],
-
-      # Release 3: Audit trail service (lightweight)
+      # Release 2: Audit trail service (lightweight)
       pki_audit: [
         validate_compile_env: false,
         applications: [
@@ -96,9 +76,9 @@ defmodule PkiSystem.MixProject do
         ]
       ],
 
-      # ── Per-tenant BEAM releases (Phase A) ──
+      # ── Per-tenant BEAM releases ──
 
-      # Release 4: Platform node — manages tenant lifecycle + platform portal
+      # Release 3: Platform node — manages tenant lifecycle + platform portal
       # PostgreSQL-backed. Spawns tenant BEAM nodes via :peer module.
       pki_platform: [
         validate_compile_env: false,
@@ -108,7 +88,7 @@ defmodule PkiSystem.MixProject do
         ]
       ],
 
-      # Release 5: Tenant node — one per tenant, spawned by platform
+      # Release 4: Tenant node — one per tenant, spawned by platform
       # Mnesia-backed. Runs CA + RA + Validation for a single tenant.
       pki_tenant_node: [
         validate_compile_env: false,
@@ -122,9 +102,9 @@ defmodule PkiSystem.MixProject do
         ]
       ],
 
-      # ── Multi-host replication releases (Phase B) ──
+      # ── Multi-host replication releases ──
 
-      # Release 6: Replica node — warm standby with Mnesia replication
+      # Release 5: Replica node — warm standby with Mnesia replication
       # Joins primary cluster, receives replicated data, can promote to primary.
       pki_replica: [
         validate_compile_env: false,
@@ -151,16 +131,10 @@ defmodule PkiSystem.MixProject do
         "ecto.drop",
         "ecto.setup"
       ],
-      # Build and digest assets for all 3 portals (called by deploy/build.sh)
+      # Build and digest assets for platform portal + tenant web (called by deploy/build.sh)
       "assets.deploy": [
-        "tailwind pki_ca_portal --minify",
-        "esbuild pki_ca_portal --minify",
-        "tailwind pki_ra_portal --minify",
-        "esbuild pki_ra_portal --minify",
         "tailwind pki_platform_portal --minify",
         "esbuild pki_platform_portal --minify",
-        "phx.digest src/pki_ca_portal/priv/static -o src/pki_ca_portal/priv/static",
-        "phx.digest src/pki_ra_portal/priv/static -o src/pki_ra_portal/priv/static",
         "phx.digest src/pki_platform_portal/priv/static -o src/pki_platform_portal/priv/static",
         "tailwind pki_tenant_web --minify",
         "esbuild pki_tenant_web --minify",

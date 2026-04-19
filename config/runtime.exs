@@ -158,30 +158,10 @@ if config_env() == :prod do
   config :hammer,
     backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
 
-  # ── Portal endpoints (only if PHX_SERVER=true) ──
+  # ── Portal endpoint (only if PHX_SERVER=true) ──
   if System.get_env("PHX_SERVER") do
-    config :pki_ca_portal, PkiCaPortalWeb.Endpoint, server: true
-    config :pki_ra_portal, PkiRaPortalWeb.Endpoint, server: true
     config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint, server: true
   end
-
-  config :pki_ca_portal, PkiCaPortalWeb.Endpoint,
-    http: [port: String.to_integer(System.get_env("CA_PORTAL_PORT", "4002")), ip: {0, 0, 0, 0, 0, 0, 0, 0}],
-    url: [host: System.get_env("CA_PORTAL_HOST", System.get_env("PHX_HOST", "localhost")), port: 443, scheme: "https"],
-    check_origin: [
-      "https://#{System.get_env("CA_PORTAL_HOST", System.get_env("PHX_HOST", "localhost"))}",
-      "http://#{System.get_env("CA_PORTAL_HOST", System.get_env("PHX_HOST", "localhost"))}"
-    ],
-    secret_key_base: secret_key_base
-
-  config :pki_ra_portal, PkiRaPortalWeb.Endpoint,
-    http: [port: String.to_integer(System.get_env("RA_PORTAL_PORT", "4004")), ip: {0, 0, 0, 0, 0, 0, 0, 0}],
-    url: [host: System.get_env("RA_PORTAL_HOST", System.get_env("PHX_HOST", "localhost")), port: 443, scheme: "https"],
-    check_origin: [
-      "https://#{System.get_env("RA_PORTAL_HOST", System.get_env("PHX_HOST", "localhost"))}",
-      "http://#{System.get_env("RA_PORTAL_HOST", System.get_env("PHX_HOST", "localhost"))}"
-    ],
-    secret_key_base: secret_key_base
 
   config :pki_platform_portal, PkiPlatformPortalWeb.Endpoint,
     http: [port: String.to_integer(System.get_env("PLATFORM_PORTAL_PORT", "4006")), ip: {0, 0, 0, 0, 0, 0, 0, 0}],
@@ -191,36 +171,6 @@ if config_env() == :prod do
       "http://#{System.get_env("PLATFORM_HOST", System.get_env("PHX_HOST", "localhost"))}"
     ],
     secret_key_base: secret_key_base
-
-  # ── CA Portal engine client ──
-  ca_portal_client =
-    case System.get_env("ENGINE_CLIENT_MODE") do
-      "direct" -> PkiCaPortal.CaEngineClient.Direct
-      _ -> PkiCaPortal.CaEngineClient.Http
-    end
-
-  ca_portal_url = System.get_env("CA_PORTAL_URL", "https://#{System.get_env("CA_PORTAL_HOST", "localhost")}")
-
-  config :pki_ca_portal,
-    ca_engine_client: ca_portal_client,
-    ca_engine_url: ca_engine_url,
-    internal_api_secret: internal_api_secret,
-    portal_url: ca_portal_url
-
-  # ── RA Portal engine client ──
-  ra_portal_client =
-    case System.get_env("ENGINE_CLIENT_MODE") do
-      "direct" -> PkiRaPortal.RaEngineClient.Direct
-      _ -> PkiRaPortal.RaEngineClient.Http
-    end
-
-  ra_portal_url = System.get_env("RA_PORTAL_URL", "https://#{System.get_env("RA_PORTAL_HOST", "localhost")}")
-
-  config :pki_ra_portal,
-    ra_engine_client: ra_portal_client,
-    ra_engine_url: ra_engine_url,
-    internal_api_secret: internal_api_secret,
-    portal_url: ra_portal_url
 
   # ── Platform Portal admin credentials ──
   admin_username = System.get_env("PLATFORM_ADMIN_USERNAME") ||
@@ -244,18 +194,7 @@ if config_env() == :prod do
   end
 
   # ── Cookie security (always secure in production) ──
-  config :pki_ca_portal, cookie_secure: true
-  config :pki_ra_portal, cookie_secure: true
   config :pki_platform_portal, cookie_secure: true
-
-  # ── Session encryption salts (override hardcoded defaults in production) ──
-  if enc_salt = System.get_env("CA_PORTAL_ENCRYPTION_SALT") do
-    config :pki_ca_portal, encryption_salt: enc_salt
-  end
-
-  if enc_salt = System.get_env("RA_PORTAL_ENCRYPTION_SALT") do
-    config :pki_ra_portal, encryption_salt: enc_salt
-  end
 
   if enc_salt = System.get_env("PLATFORM_ENCRYPTION_SALT") do
     config :pki_platform_portal, encryption_salt: enc_salt
