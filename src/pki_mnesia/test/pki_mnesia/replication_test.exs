@@ -32,12 +32,13 @@ defmodule PkiMnesia.ReplicationTest do
   end
 
   describe "async_tables/0" do
-    test "returns 3 async table names" do
+    test "returns 4 async table names" do
       tables = Schema.async_tables()
-      assert length(tables) == 3
+      assert length(tables) == 4
       assert :issued_certificates in tables
       assert :csr_requests in tables
       assert :certificate_status in tables
+      assert :audit_log_entries in tables
     end
   end
 

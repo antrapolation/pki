@@ -11,7 +11,7 @@ defmodule PkiMnesia.Schema do
     CeremonyTranscript, ThresholdShare, IssuedCertificate,
     RaInstance, RaCaConnection, CertProfile, CsrRequest,
     ApiKey, DcvChallenge, CertificateStatus, PortalUser,
-    BackupRecord, ServiceConfig
+    BackupRecord, ServiceConfig, AuditLogEntry
   }
 
   @schema_version 1
@@ -23,7 +23,7 @@ defmodule PkiMnesia.Schema do
     :dcv_challenges, :service_configs, :backup_records, :schema_versions
   ]
 
-  @async_tables [:issued_certificates, :csr_requests, :certificate_status]
+  @async_tables [:issued_certificates, :csr_requests, :certificate_status, :audit_log_entries]
 
   @doc "List of table names replicated synchronously (disc_copies primary, ram_copies replica)."
   def sync_tables, do: @sync_tables
@@ -135,7 +135,8 @@ defmodule PkiMnesia.Schema do
   end
 
   @plural_overrides %{
-    "key_ceremony" => "key_ceremonies"
+    "key_ceremony" => "key_ceremonies",
+    "audit_log_entry" => "audit_log_entries"
   }
 
   @doc """
@@ -168,6 +169,9 @@ defmodule PkiMnesia.Schema do
 
       # Validation tables (disc_only_copies)
       {CertificateStatus, :disc_only_copies, [:serial_number, :issuer_key_id, :status]},
+
+      # Audit trail (disc_only_copies - grows unbounded)
+      {AuditLogEntry, :disc_only_copies, [:timestamp, :action, :category, :actor]},
 
       # Portal users (disc_copies)
       {PortalUser, :disc_copies, [:username, :email, :role]},
