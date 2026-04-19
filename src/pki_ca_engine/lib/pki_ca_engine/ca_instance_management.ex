@@ -49,4 +49,48 @@ defmodule PkiCaEngine.CaInstanceManagement do
       {:error, _} = err -> err
     end
   end
+
+  @doc "Rename a CA instance. Trims whitespace; rejects empty."
+  def update_name(ca_instance_id, new_name) when is_binary(new_name) do
+    trimmed = String.trim(new_name)
+
+    if trimmed == "" do
+      {:error, :empty_name}
+    else
+      case Repo.get(CaInstance, ca_instance_id) do
+        {:ok, nil} -> {:error, :not_found}
+        {:ok, ca} ->
+          Repo.update(ca, %{
+            name: trimmed,
+            updated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+          })
+        {:error, _} = err -> err
+      end
+    end
+  end
+
+  def update_name(_ca_instance_id, _), do: {:error, :empty_name}
+
+  @valid_statuses ["active", "inactive", "suspended"]
+
+  @doc """
+  Update a CA instance's status. Does NOT cascade to children yet — that
+  rule is tracked as a TODO in the product spec. Current caller surface
+  is the LiveView which only flips status on one instance at a time.
+
+  Valid statuses: "active" | "inactive" | "suspended".
+  """
+  def update_status(ca_instance_id, new_status) when new_status in @valid_statuses do
+    case Repo.get(CaInstance, ca_instance_id) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, ca} ->
+        Repo.update(ca, %{
+          status: new_status,
+          updated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+      {:error, _} = err -> err
+    end
+  end
+
+  def update_status(_, _), do: {:error, :invalid_status}
 end

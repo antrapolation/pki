@@ -38,6 +38,7 @@ defmodule PkiTenantWeb.CaRouter do
       on_mount: [{PkiTenantWeb.Live.AuthHook, :ca}],
       layout: {PkiTenantWeb.Layouts, :ca_app} do
       live "/", DashboardLive, :index
+      live "/ca-instances", CaInstancesLive, :index
       live "/ceremonies", CeremonyLive, :index
       live "/ceremonies/custodian", CeremonyCustodianLive, :index
       live "/issuer-keys", IssuerKeysLive, :index
