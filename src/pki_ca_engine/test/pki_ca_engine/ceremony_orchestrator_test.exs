@@ -146,6 +146,64 @@ defmodule PkiCaEngine.CeremonyOrchestratorTest do
     end
   end
 
+  describe "execute_keygen/2 password verification" do
+    # Regression tests for pre-landing review P1:
+    # "custodian password must be verified against the stored hash before
+    # encrypting the share". See TODOS.md for context.
+
+    test "rejects when a custodian's password does not match the stored hash" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
+
+      # All three custodians accept with their real passwords.
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Alice", "alice-real")
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Bob", "bob-real")
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Charlie", "charlie-real")
+
+      # Caller passes WRONG passwords for Alice and Bob, right for Charlie.
+      wrong = [
+        {"Alice", "attacker-picked"},
+        {"Bob", "attacker-picked"},
+        {"Charlie", "charlie-real"}
+      ]
+
+      assert {:error, {:custodian_password_mismatch, name}} =
+               CeremonyOrchestrator.execute_keygen(ceremony.id, wrong)
+
+      assert name in ["Alice", "Bob"]
+    end
+
+    test "rejects when a share was never accepted" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
+
+      # Only two of three custodians accept.
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Alice", "alice-real")
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Bob", "bob-real")
+
+      passwords = [
+        {"Alice", "alice-real"},
+        {"Bob", "bob-real"},
+        {"Charlie", "charlie-any"}
+      ]
+
+      assert {:error, {:share_not_accepted, "Charlie"}} =
+               CeremonyOrchestrator.execute_keygen(ceremony.id, passwords)
+    end
+
+    test "rejects when a custodian is missing from the password map" do
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()
+
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Alice", "alice-real")
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Bob", "bob-real")
+      {:ok, _} = CeremonyOrchestrator.accept_share(ceremony.id, "Charlie", "charlie-real")
+
+      # Bob is missing from the password map.
+      incomplete = [{"Alice", "alice-real"}, {"Charlie", "charlie-real"}]
+
+      assert {:error, {:missing_password, "Bob"}} =
+               CeremonyOrchestrator.execute_keygen(ceremony.id, incomplete)
+    end
+  end
+
   describe "list_participants/1" do
     test "returns all participants for a ceremony" do
       {:ok, {ceremony, _key, _shares, _participants, _transcript}} = create_test_ceremony()

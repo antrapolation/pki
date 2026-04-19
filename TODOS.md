@@ -23,15 +23,6 @@ with the same salt. Even with a random GCM nonce this is a defense-in-depth
 gap — different credentials should derive distinct keys via HKDF with a
 domain-separation tag.
 
-### Verify custodian password against stored hash before encrypting share
-**Priority:** P1
-**Source:** pre-landing review (confidence 7/10)
-**Notes:** `PkiCaEngine.CeremonyOrchestrator.execute_keygen/N` trusts the
-`custodian_passwords` map passed in. The `password_hash` stored in
-`accept_share` is never checked. A caller can bypass the "accepted" gate
-and encrypt shares with any passwords. Verify each password against
-`share.password_hash` before calling `ShareEncryption.encrypt_share/2`.
-
 ### Compile-time prod guard for `dev_activate`
 **Priority:** P1
 **Source:** pre-landing review (confidence 7/10)
@@ -181,4 +172,14 @@ under `project_schema_mode_outstanding`.
 
 ## Completed
 
-(none yet for v1.1.0.0)
+### Verify custodian password against stored hash before encrypting share
+**Priority:** was P1
+**Completed:** v1.1.0.1 (2026-04-19)
+**Notes:** `CeremonyOrchestrator.execute_keygen/2` now verifies every
+supplied custodian password against the hash stored in `accept_share`
+before any key material is generated. Constant-time compare via
+`:crypto.hash_equals/2`. Rejects with `{:custodian_password_mismatch, name}`,
+`{:share_not_accepted, name}`, `{:missing_password, name}`, or
+`{:corrupt_password_hash, name}`. Tests in
+`test/pki_ca_engine/ceremony_orchestrator_test.exs` under describe
+"execute_keygen/2 password verification".

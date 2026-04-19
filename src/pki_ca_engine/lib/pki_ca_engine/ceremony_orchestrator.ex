@@ -44,6 +44,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   alias PkiCaEngine.{IssuerKeyManagement, CaInstanceManagement}
   alias PkiCaEngine.KeyCeremony.{SyncCeremony, ShareEncryption}
 
+  @pbkdf2_iterations 100_000
+  @pbkdf2_salt_size 16
+  @pbkdf2_hash_size 32
+
   @doc """
   Initiate a ceremony. Creates KeyCeremony, IssuerKey, CeremonyParticipants, and CeremonyTranscript.
 
@@ -176,8 +180,8 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   Stores a password hash for later share encryption.
   """
   def accept_share(ceremony_id, custodian_name, password) do
-    salt = :crypto.strong_rand_bytes(16)
-    password_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, 100_000, 32)
+    salt = :crypto.strong_rand_bytes(@pbkdf2_salt_size)
+    password_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, @pbkdf2_iterations, @pbkdf2_hash_size)
     combined_hash = salt <> password_hash
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -266,7 +270,19 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           {:ok, db_shares} ->
             db_shares = Enum.sort_by(db_shares, & &1.share_index)
             password_map = Map.new(custodian_passwords)
-            do_keygen_and_split(ceremony, db_shares, password_map)
+
+            # Verify BEFORE keygen. If any custodian password doesn't match the
+            # hash recorded in accept_share, bail out before any key material is
+            # generated. This closes the bypass where a caller could encrypt
+            # shares with passwords the custodians never entered.
+            case verify_custodian_passwords(db_shares, password_map) do
+              :ok ->
+                do_keygen_and_split(ceremony, db_shares, password_map)
+
+              {:error, reason} ->
+                fail_ceremony(ceremony.id, "custodian_password_verification_failed")
+                {:error, reason}
+            end
 
           {:error, _} = err -> err
         end
@@ -274,6 +290,51 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
       {:error, {:invalid_status, _}} -> {:error, :invalid_status}
       {:error, :not_found} -> {:error, :not_found}
       {:error, reason} -> {:error, {:status_claim_failed, reason}}
+    end
+  end
+
+  # Verify each custodian's supplied password against the hash recorded in
+  # accept_share. Returns :ok only when every share has been accepted AND
+  # every supplied password matches. Constant-time compare on the hash.
+  defp verify_custodian_passwords(db_shares, password_map) do
+    Enum.reduce_while(db_shares, :ok, fn share, :ok ->
+      with {:ok, password} <- fetch_password(password_map, share.custodian_name),
+           {:ok, salt, expected_hash} <- split_stored_hash(share),
+           :ok <- compare_password(password, salt, expected_hash, share.custodian_name) do
+        {:cont, :ok}
+      else
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp fetch_password(password_map, custodian_name) do
+    case Map.fetch(password_map, custodian_name) do
+      {:ok, password} when is_binary(password) -> {:ok, password}
+      {:ok, _} -> {:error, {:invalid_password_type, custodian_name}}
+      :error -> {:error, {:missing_password, custodian_name}}
+    end
+  end
+
+  defp split_stored_hash(%{password_hash: nil, custodian_name: name}),
+    do: {:error, {:share_not_accepted, name}}
+
+  defp split_stored_hash(%{password_hash: combined, custodian_name: _name})
+       when is_binary(combined) and byte_size(combined) == @pbkdf2_salt_size + @pbkdf2_hash_size do
+    <<salt::binary-size(@pbkdf2_salt_size), hash::binary-size(@pbkdf2_hash_size)>> = combined
+    {:ok, salt, hash}
+  end
+
+  defp split_stored_hash(%{custodian_name: name}),
+    do: {:error, {:corrupt_password_hash, name}}
+
+  defp compare_password(password, salt, expected_hash, custodian_name) do
+    computed = :crypto.pbkdf2_hmac(:sha256, password, salt, @pbkdf2_iterations, @pbkdf2_hash_size)
+
+    if :crypto.hash_equals(computed, expected_hash) do
+      :ok
+    else
+      {:error, {:custodian_password_mismatch, custodian_name}}
     end
   end
 
