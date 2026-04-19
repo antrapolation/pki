@@ -54,6 +54,15 @@ defmodule PkiCaEngine.KeyActivation do
     GenServer.call(server, {:get_active_key, issuer_key_id})
   end
 
+  @doc """
+  Dev/test-only escape hatch that injects a private key directly into the
+  activation cache, bypassing the threshold-share ceremony.
+
+  Gated by the runtime flag `:pki_ca_engine, :allow_dev_activate` (default
+  false). `PkiCaEngine.Application.start/2` hard-refuses to boot when the
+  compile-time env is `:prod` and this flag is true, so a config mistake
+  that enables the bypass in a production release is caught at startup.
+  """
   def dev_activate(server \\ __MODULE__, issuer_key_id, private_key_der) do
     if Application.get_env(:pki_ca_engine, :allow_dev_activate, false) do
       GenServer.call(server, {:dev_activate, issuer_key_id, private_key_der})
