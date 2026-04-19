@@ -127,13 +127,22 @@ which is already in the dep tree.
 
 ## Test infrastructure
 
-### Dockerized PG for umbrella-root tests
+### Native PG setup docs for umbrella-root tests
 **Priority:** P2
 **Notes:** `mix test` at the repo root runs 16 Mnesia-backed integration
 tests cleanly. PG-backed legacy engine tests (`pki_ca_engine`,
 `pki_ra_engine`, `pki_platform_engine`, portals) need Postgres running on
-localhost:5434. Add a `docker-compose.test.yml` and `make test` wrapper so
-one command brings up PG + runs the full suite.
+localhost:5434. Bare metal all the way: no Docker.
+
+- macOS dev: `brew install postgresql@16 && brew services start postgresql@16`
+  then `./scripts/init-databases.sh`. The script creates the 5 databases
+  on whichever port PG is listening on — ensure the `pg_ctl` config uses
+  5434, or set `PGPORT=5434` in shell profile.
+- Linux dev/prod: same system package + systemd that prod deploys with.
+
+Add a `scripts/dev-setup-pg.sh` that wraps the brew / apt flow with port
+check + database init, and a `make test` wrapper that verifies PG is up
+before invoking `mix test`.
 
 ### Real HSM two-server integration test
 **Priority:** P2
