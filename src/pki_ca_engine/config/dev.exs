@@ -40,9 +40,7 @@ audit_repo_opts =
 
 config :pki_audit_trail, PkiAuditTrail.Repo, audit_repo_opts
 
-# HTTP API server
-config :pki_ca_engine, :start_http, true
-config :pki_ca_engine, :http_port, String.to_integer(System.get_env("PORT", "4001"))
+# Internal API secret for CA -> Validation service HTTP calls.
 config :pki_ca_engine, :internal_api_secret, System.get_env("INTERNAL_API_SECRET", "dev-secret")
 config :pki_ca_engine, :validation_url, System.get_env("VALIDATION_URL", "http://localhost:4005")
 

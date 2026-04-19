@@ -29,25 +29,7 @@ if config_env() == :prod do
   config :pki_ra_engine, PkiRaEngine.Repo,
     Keyword.merge(db_config, pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"))
 
-  # ── CA Engine connection (RA → CA signing flow) ────────────────────
-  ca_engine_url = System.get_env("CA_ENGINE_URL") || "http://localhost:4001"
-
-  internal_api_secret =
-    System.get_env("INTERNAL_API_SECRET") ||
-      raise """
-      environment variable INTERNAL_API_SECRET is missing.
-      This must match the value configured on the CA Engine.
-      """
-
-  ca_engine_module =
-    if System.get_env("ENGINE_CLIENT_MODE") == "direct" do
-      PkiRaEngine.CsrValidation.DirectCaClient
-    else
-      PkiRaEngine.CsrValidation.HttpCaClient
-    end
-
-  config :pki_ra_engine,
-    ca_engine_url: ca_engine_url,
-    internal_api_secret: internal_api_secret,
-    ca_engine_module: ca_engine_module
+  # RA and CA share the BEAM in per-tenant deployments, so the CA
+  # client is always the in-process direct variant.
+  config :pki_ra_engine, ca_engine_module: PkiRaEngine.CsrValidation.DirectCaClient
 end

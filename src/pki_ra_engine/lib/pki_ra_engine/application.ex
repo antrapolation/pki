@@ -11,9 +11,8 @@ defmodule PkiRaEngine.Application do
       if Application.get_env(:pki_ra_engine, :start_application, true) do
         [
           PkiRaEngine.Repo,
-          PkiRaEngine.CaEngineConfig,
           {Task.Supervisor, name: PkiRaEngine.TaskSupervisor}
-        ] ++ dcv_poller_children() ++ reconciler_children() ++ http_children()
+        ] ++ dcv_poller_children() ++ reconciler_children()
       else
         []
       end
@@ -46,12 +45,4 @@ defmodule PkiRaEngine.Application do
     end
   end
 
-  defp http_children do
-    if Application.get_env(:pki_ra_engine, :start_http, false) do
-      port = Application.get_env(:pki_ra_engine, :http_port, 4003)
-      [{Plug.Cowboy, scheme: :http, plug: PkiRaEngine.Api.Router, options: [port: port]}]
-    else
-      []
-    end
-  end
 end
