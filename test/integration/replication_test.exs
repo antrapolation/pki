@@ -21,7 +21,9 @@ defmodule PkiReplicationTest do
     assert :threshold_shares in sync
     assert :ca_instances in sync
     assert :portal_users in sync
-    assert length(sync) == 13
+    assert :backup_records in sync
+    assert :schema_versions in sync
+    assert length(sync) == 14
   end
 
   test "async tables list is complete" do

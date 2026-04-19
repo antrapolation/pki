@@ -161,3 +161,8 @@ if config_env() == :prod do
   config :logger, :default_handler,
     formatter: {LoggerJSON.Formatters.Basic, metadata: :all}
 end
+
+# Per-env overrides. Only test.exs exists today — dev/prod use runtime.exs.
+if File.exists?(Path.expand("#{config_env()}.exs", __DIR__)) do
+  import_config "#{config_env()}.exs"
+end

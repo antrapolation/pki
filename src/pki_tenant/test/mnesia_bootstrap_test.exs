@@ -9,10 +9,12 @@ defmodule PkiTenant.MnesiaBootstrapTest do
   """
 
   test "module compiles and exports start_link/1" do
+    Code.ensure_loaded!(PkiTenant.MnesiaBootstrap)
     assert function_exported?(PkiTenant.MnesiaBootstrap, :start_link, 1)
   end
 
   test "module compiles and exports init/1" do
+    Code.ensure_loaded!(PkiTenant.MnesiaBootstrap)
     assert function_exported?(PkiTenant.MnesiaBootstrap, :init, 1)
   end
 
