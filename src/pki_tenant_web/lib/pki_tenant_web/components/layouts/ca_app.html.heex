@@ -23,14 +23,8 @@
       <.sidebar_section :if={role in ["ca_admin", "key_manager"]} label="KEY MANAGEMENT">
         <.sidebar_link :if={role == "ca_admin"} href="/ceremonies" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
         <.sidebar_link href="/ceremonies/custodian" icon="hero-key" label="My Shares" current={@page_title} />
-        <.sidebar_link :if={role in ["ca_admin", "auditor"]} href="/ceremonies/witness" icon="hero-eye" label="Witness" current={@page_title} />
         <.sidebar_link href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
         <.sidebar_link href="/certificates" icon="hero-document-text" label="Certificates" current={@page_title} />
-      </.sidebar_section>
-
-      <%!-- Auditor-only: show ceremony witness when they have no KEY MANAGEMENT section --%>
-      <.sidebar_section :if={role == "auditor"} label="CEREMONY">
-        <.sidebar_link href="/ceremonies/witness" icon="hero-eye" label="Witness" current={@page_title} />
       </.sidebar_section>
 
       <.sidebar_section :if={role in ["ca_admin", "key_manager"]} label="INFRASTRUCTURE">

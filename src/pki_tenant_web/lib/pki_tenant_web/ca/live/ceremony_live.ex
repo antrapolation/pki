@@ -222,13 +222,6 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
     {:noreply, assign(socket, participants: participants, activity_log: activity_log)}
   end
 
-  def handle_info({:witness_attested, %{phase: phase} = details}, socket) do
-    auditor_name = details[:auditor_name] || "Auditor"
-    entry = %{timestamp: DateTime.utc_now(), message: "#{auditor_name} attested to #{phase} phase"}
-    activity_log = [entry | socket.assigns.activity_log] |> Enum.take(50)
-    {:noreply, assign(socket, activity_log: activity_log)}
-  end
-
   def handle_info({:phase_changed, %{phase: phase}}, socket) do
     entry = %{timestamp: DateTime.utc_now(), message: "Ceremony phase changed to: #{phase}"}
     activity_log = [entry | socket.assigns.activity_log] |> Enum.take(50)
@@ -404,7 +397,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   end
 
   # ---------------------------------------------------------------------------
-  # Step 1: Initiate witnessed ceremony
+  # Step 1: Initiate single-session ceremony
   # ---------------------------------------------------------------------------
 
   def handle_event("initiate_ceremony", params, socket) do
@@ -709,8 +702,12 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
       share = Enum.find(shares, fn s -> s.custodian_name == p.name end)
       share_status = if share, do: share.status, else: "pending"
 
+      # Auditor is a name-on-the-transcript, not a workflow actor — no
+      # in-system verification happens in the single-session model.
+      # Custodians flow through pending → accepted → active via the
+      # slot-entry modal.
       status = cond do
-        p.role == :auditor -> if(p.identity_verified_at, do: "witnessed", else: "waiting")
+        p.role == :auditor -> "registered"
         share_status == "accepted" -> "accepted"
         true -> "pending"
       end
@@ -854,7 +851,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   defp participant_status_class("accepted"), do: "badge-success"
   defp participant_status_class("pending"), do: "badge-warning"
   defp participant_status_class("waiting"), do: "badge-ghost"
-  defp participant_status_class("witnessed"), do: "badge-success"
+  defp participant_status_class("registered"), do: "badge-info"
   defp participant_status_class("attested" <> _), do: "badge-success"
   defp participant_status_class(_), do: "badge-ghost"
 
