@@ -39,6 +39,7 @@ defmodule PkiTenantWeb.RaRouter do
       layout: {PkiTenantWeb.Layouts, :ra_app} do
       live "/", DashboardLive, :index
       live "/ra-instances", RaInstancesLive, :index
+      live "/ca-connection", CaConnectionLive, :index
       live "/csrs", CsrsLive, :index
       live "/cert-profiles", CertProfilesLive, :index
       live "/certificates", CertificatesLive, :index
