@@ -48,6 +48,8 @@ defmodule PkiTenantWeb.RaRouter do
       live "/setup-wizard", SetupWizardLive, :index
       live "/users", UsersLive, :index
       live "/audit-log", AuditLogLive, :index
+      live "/welcome", WelcomeLive, :index
+      live "/validation", ValidationStatusLive, :index
     end
   end
 

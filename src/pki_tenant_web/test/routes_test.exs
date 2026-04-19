@@ -146,6 +146,20 @@ defmodule PkiTenantWeb.RoutesTest do
       assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ra.AuditLogLive
     end
 
+    test "has /welcome route backed by Ra.WelcomeLive" do
+      assert "/welcome" in live_paths(@ra_routes)
+
+      route = Enum.find(@ra_routes, fn r -> r.path == "/welcome" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ra.WelcomeLive
+    end
+
+    test "has /validation route backed by Ra.ValidationStatusLive" do
+      assert "/validation" in live_paths(@ra_routes)
+
+      route = Enum.find(@ra_routes, fn r -> r.path == "/validation" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.Ra.ValidationStatusLive
+    end
+
     test "has /profile route backed by the shared ProfileLive" do
       assert "/profile" in live_paths(@ra_routes)
 
