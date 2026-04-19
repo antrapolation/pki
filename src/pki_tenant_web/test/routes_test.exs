@@ -42,6 +42,13 @@ defmodule PkiTenantWeb.RoutesTest do
       assert route.verb == :get
       assert route.plug == PkiTenantWeb.Ca.CeremonyTranscriptController
     end
+
+    test "has /profile route backed by the shared ProfileLive" do
+      assert "/profile" in live_paths(@ca_routes)
+
+      route = Enum.find(@ca_routes, fn r -> r.path == "/profile" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.ProfileLive
+    end
   end
 
   describe "RaRouter" do
@@ -67,6 +74,13 @@ defmodule PkiTenantWeb.RoutesTest do
 
     test "has /setup-wizard route" do
       assert "/setup-wizard" in live_paths(@ra_routes)
+    end
+
+    test "has /profile route backed by the shared ProfileLive" do
+      assert "/profile" in live_paths(@ra_routes)
+
+      route = Enum.find(@ra_routes, fn r -> r.path == "/profile" end)
+      assert route.metadata.phoenix_live_view |> elem(0) == PkiTenantWeb.ProfileLive
     end
   end
 end

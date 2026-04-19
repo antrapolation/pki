@@ -48,4 +48,16 @@ defmodule PkiTenantWeb.CaRouter do
     # ca_app layout so the page renders cleanly for print.
     get "/ceremonies/:id/transcript", CeremonyTranscriptController, :show
   end
+
+  # Shared live views (not under a portal-specific alias). Same live_session
+  # so the ca_app layout applies.
+  scope "/", PkiTenantWeb do
+    pipe_through :browser
+
+    live_session :ca_shared,
+      on_mount: [{PkiTenantWeb.Live.AuthHook, :ca}],
+      layout: {PkiTenantWeb.Layouts, :ca_app} do
+      live "/profile", ProfileLive, :index
+    end
+  end
 end
