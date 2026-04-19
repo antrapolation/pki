@@ -31,7 +31,10 @@ defmodule PkiTenant.MixProject do
       # timex needed transitively: pki_validation CrlPublisher uses DateTime with TZ
       {:timex, "~> 3.7"},
       # HTTP client for S3 backup uploads
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      # Password hashing — Argon2 for new records, Bcrypt to verify legacy hashes
+      {:argon2_elixir, "~> 4.0"},
+      {:bcrypt_elixir, "~> 3.0"}
     ]
   end
 end

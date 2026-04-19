@@ -45,4 +45,15 @@ defmodule PkiTenantWeb.RaRouter do
       live "/setup-wizard", SetupWizardLive, :index
     end
   end
+
+  # Shared live views (not under a portal-specific alias).
+  scope "/", PkiTenantWeb do
+    pipe_through :browser
+
+    live_session :ra_shared,
+      on_mount: [{PkiTenantWeb.Live.AuthHook, :ra}],
+      layout: {PkiTenantWeb.Layouts, :ra_app} do
+      live "/profile", ProfileLive, :index
+    end
+  end
 end
