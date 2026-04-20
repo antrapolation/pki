@@ -72,7 +72,7 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   while IFS='=' read -r key value; do
     [[ -z "$key" || "$key" =~ ^# ]] && continue
     case "$key" in
-      CA_PORTAL_SIGNING_SALT|RA_PORTAL_SIGNING_SALT|PLATFORM_SIGNING_SALT|CA_PORTAL_ENCRYPTION_SALT|RA_PORTAL_ENCRYPTION_SALT|PLATFORM_ENCRYPTION_SALT|SECRET_KEY_BASE)
+      PLATFORM_SIGNING_SALT|PLATFORM_ENCRYPTION_SALT|SECRET_KEY_BASE)
         ENV_ARGS+=("-e" "${key}=${value}")
         ;;
     esac

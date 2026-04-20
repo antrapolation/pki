@@ -1,5 +1,5 @@
 [Unit]
-Description=PKI Portals (CA Portal, RA Portal, Platform Portal + engines in direct mode)
+Description=PKI Platform (platform portal + tenant lifecycle management)
 Documentation=https://github.com/straptrust/pki
 After=network.target postgresql.service pki-engines.service
 Requires=postgresql.service
@@ -9,18 +9,18 @@ Wants=pki-engines.service
 Type=exec
 User=pki
 Group=pki
-WorkingDirectory=/opt/pki/releases/portals
+WorkingDirectory=/opt/pki/releases/platform
 
 EnvironmentFile=/opt/pki/.env
 Environment=PHX_SERVER=true
-Environment=ENGINE_CLIENT_MODE=direct
 Environment=RELEASE_DISTRIBUTION=name
-Environment=RELEASE_NODE=pki_portals@127.0.0.1
-# Portals + in-process engines — moderate scheduler count
+Environment=RELEASE_NODE=pki_platform@127.0.0.1
+# Platform runs the admin portal (port 4006) and spawns per-tenant BEAM
+# nodes via :peer, so it needs headroom for dynamic tenant supervisors.
 Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
 
-ExecStart=/opt/pki/releases/portals/bin/pki_portals start
-ExecStop=/opt/pki/releases/portals/bin/pki_portals stop
+ExecStart=/opt/pki/releases/platform/bin/pki_platform start
+ExecStop=/opt/pki/releases/platform/bin/pki_platform stop
 
 Restart=on-failure
 RestartSec=15
@@ -30,14 +30,15 @@ StartLimitBurst=5
 TimeoutStartSec=90
 TimeoutStopSec=30
 
+# Basic hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pki/releases/portals /var/lib/softhsm /tmp
+ReadWritePaths=/opt/pki/releases/platform /var/lib/pki/tenants /tmp
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=pki-portals
+SyslogIdentifier=pki-platform
 
 [Install]
 WantedBy=multi-user.target

@@ -115,13 +115,13 @@ ensure_caddy() {
 # Map: internal_name → systemd_service_name, tarball_prefix, install_dir
 declare -A SVC_SYSTEMD=(
   [engines]=pki-engines
-  [portals]=pki-portals
+  [platform]=pki-platform
   [audit]=pki-audit
 )
 
 declare -A SVC_TARBALL=(
   [engines]=pki_engines
-  [portals]=pki_portals
+  [platform]=pki_platform
   [audit]=pki_audit
 )
 
@@ -238,7 +238,7 @@ case "$TARGET" in
   all)
     # Stop all services first to release DB connections and avoid exhaustion
     info "Stopping all PKI services before deploy..."
-    for svc in audit portals engines; do
+    for svc in audit platform engines; do
       sname="${SVC_SYSTEMD[$svc]}"
       if systemctl is-active --quiet "$sname" 2>/dev/null || \
          systemctl is-activating "$sname" 2>/dev/null || \
@@ -257,11 +257,11 @@ case "$TARGET" in
     # Ensure databases exist before deploying
     ensure_databases
 
-    # Deploy in dependency order: engines first (owns DBs), then portals, then audit
+    # Deploy in dependency order: engines first (owns DBs), then platform, then audit
     deploy_service engines
-    # Wait for engines to be fully up before starting portals (avoids DB contention)
+    # Wait for engines to be fully up before starting platform (avoids DB contention)
     sleep 5
-    deploy_service portals
+    deploy_service platform
     deploy_service audit
 
     # Start Caddy for TLS termination
@@ -276,7 +276,7 @@ case "$TARGET" in
     ;;
 
   engines)  deploy_service engines ;;
-  portals)  deploy_service portals ;;
+  platform)  deploy_service platform ;;
   audit)    deploy_service audit ;;
 
   migrate)
@@ -329,9 +329,9 @@ case "$TARGET" in
     fi
 
     deploy_service engines
-    # Wait for engines to be fully up before starting portals (avoids DB contention)
+    # Wait for engines to be fully up before starting platform (avoids DB contention)
     sleep 5
-    deploy_service portals
+    deploy_service platform
     deploy_service audit
     ensure_caddy
 
@@ -347,7 +347,7 @@ case "$TARGET" in
   status)
     echo ""
     info "=== Service Status ==="
-    for svc in engines portals audit; do
+    for svc in engines platform audit; do
       sname="${SVC_SYSTEMD[$svc]}"
       if systemctl is-active --quiet "$sname" 2>/dev/null; then
         info "  ✓ $sname is running"
@@ -379,7 +379,7 @@ case "$TARGET" in
     ;;
 
   *)
-    echo "Usage: $0 [all|engines|portals|audit|migrate|setup|status|rollback <svc>]"
+    echo "Usage: $0 [all|engines|platform|audit|migrate|setup|status|rollback <svc>]"
     exit 1
     ;;
 esac

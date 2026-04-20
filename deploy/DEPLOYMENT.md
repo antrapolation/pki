@@ -1,13 +1,20 @@
 # PKI CA System — Production Deployment Guide
 ## BEAM Direct Deployment (No Containers)
 
+> **⚠️ Doc rewrite pending (Milestone 5).** After the portal deletion (M3) and
+> engine Ecto cleanup (M4) the shared-BEAM sections below are obsolete. The
+> current architecture is summarised here; sections that still reference
+> `pki_portals` / CA Portal / RA Portal / `CA_ENGINE_URL` / schema-per-tenant
+> Postgres will be rewritten in the next docs pass. Scripts under `deploy/`
+> have already been updated — this Markdown is the laggard.
+
 This guide covers deploying all PKI services as native Elixir/OTP releases supervised
 by systemd. No Docker/Podman required. Caddy handles TLS termination; PostgreSQL and
 SoftHSM2 run as system services.
 
 ---
 
-## Architecture Overview
+## Architecture Overview (current, as of Milestone 5)
 
 ```
 Internet
@@ -15,23 +22,29 @@ Internet
     ▼
 ┌─────────────────────────────────────────────┐
 │  Caddy (ports 80/443)                        │
-│  ca.straptrust.com  → localhost:4002         │
-│  ra.straptrust.com  → localhost:4004         │
 │  admin.straptrust.com → localhost:4006       │
-└────────────┬──────────────┬─────────────────┘
-             │              │
-┌────────────▼──────────────▼─────────────────┐
-│  pki_portals (1 BEAM VM, +S 2:2)            │
-│  CA Portal :4002 │ RA Portal :4004          │
-│  Platform Portal :4006                       │
-│  Engines loaded in-process (direct mode)     │
+│  <tenant>.straptrust.com → per-tenant BEAM   │
+└────────────┬─────────────────────────────────┘
+             │
+┌────────────▼────────────────────────────────┐
+│  pki_platform (1 BEAM VM, +S 2:2)            │
+│  Platform portal :4006                       │
+│  Tenant lifecycle: spawns per-tenant BEAM    │
+│    via :peer for each tenant                 │
+└────────────┬────────────────────────────────┘
+             │ :peer spawn / distributed Erlang
+┌────────────▼────────────────────────────────┐
+│  pki_tenant_node (one per tenant)            │
+│  CA + RA engines in-process (no HTTP API)    │
+│  pki_validation (OCSP/CRL/TSA) in-process    │
+│  pki_tenant_web serves the portal UI         │
+│  State lives in local Mnesia                 │
 └─────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────┐
-│  pki_engines (1 BEAM VM, +S 4:4)            │
-│  CA Engine API :4001 │ RA Engine API :4003  │
-│  Validation :4005 │ Audit Trail              │
-│  DB migrations, background jobs, tenants     │
+│  pki_engines (1 BEAM VM, +S 2:2)            │
+│  Audit Trail receiver (forwards → Postgres) │
+│  PlatformEngine bootstrap modules            │
 └────────────┬────────────────────────────────┘
              │
 ┌────────────▼────────────────────────────────┐
@@ -41,11 +54,14 @@ Internet
              │
     ┌────────▼───────────────────────────────────┐
     │ PostgreSQL :5432  │  SoftHSM2              │
+    │ (platform + audit_trail only)              │
     └────────────────────────────────────────────┘
-
-3 BEAM VMs (down from 6) supervised by systemd
-Schema-per-tenant: all tenants in shared DB using Ecto prefix:
 ```
+
+- Per-tenant CA/RA/Validation data lives in **Mnesia** on each tenant BEAM.
+- Postgres hosts only: platform admin metadata + centralized audit trail.
+- CA/RA engines no longer expose HTTP APIs — tenant portal calls them in-process.
+- OCSP/CRL/TSA queries are served by the tenant's own Validation service (colocated with CA/RA on the tenant BEAM); the cert's CDP/OCSP URLs point at the tenant's subdomain.
 
 ---
 

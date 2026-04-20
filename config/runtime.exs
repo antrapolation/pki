@@ -20,7 +20,6 @@ import Config
 database_url = System.get_env("DATABASE_URL")
 
 platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || database_url
-validation_db_url = System.get_env("VALIDATION_DATABASE_URL") || database_url
 audit_trail_db_url = System.get_env("AUDIT_TRAIL_DATABASE_URL") || database_url
 
 # ─── Platform Engine (all releases) ────────────────────────────────────
@@ -72,15 +71,8 @@ if audit_trail_db_url do
 end
 
 # ─── Validation ─────────────────────────────────────────────────────────
-
-if validation_db_url do
-  config :pki_validation, PkiValidation.Repo,
-    url: validation_db_url,
-    pool_size: String.to_integer(System.get_env("VALIDATION_POOL_SIZE", "20")),
-    prepare: :unnamed
-end
-
-# Validation HTTP API — only starts if VALIDATION_START_HTTP is true (engines release)
+# Validation (OCSP/CRL/TSA) is hosted inside each tenant BEAM on Mnesia.
+# Its HTTP listener opts in via VALIDATION_START_HTTP=true / VALIDATION_PORT.
 if System.get_env("VALIDATION_START_HTTP") == "true" do
   config :pki_validation, :http, start: true, port: String.to_integer(System.get_env("VALIDATION_PORT", "4005"))
 end
@@ -88,27 +80,13 @@ end
 # ─── Production-only configuration ──────────────────────────────────────
 
 if config_env() == :prod do
-  internal_api_secret =
-    System.get_env("INTERNAL_API_SECRET") ||
-      raise "environment variable INTERNAL_API_SECRET is missing"
-
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
       raise "environment variable SECRET_KEY_BASE is missing"
 
-  validation_url = System.get_env("VALIDATION_URL", "http://localhost:4005")
-
-  # ── CA Engine config ──
-  # internal_api_secret is consumed by the CA → Validation service
-  # HTTP client (validation_notifier). The engines' own HTTP APIs
-  # have been retired; tenant_web calls engine modules in-process.
-  config :pki_ca_engine,
-    internal_api_secret: internal_api_secret,
-    validation_url: validation_url
-
   # ── RA Engine config ──
-  # In per-tenant BEAM deployments RA + CA share a node, so the
-  # in-process DirectCaClient is the only supported backend.
+  # RA + CA + Validation all share one tenant BEAM, so the in-process
+  # DirectCaClient is the only supported backend.
   config :pki_ra_engine, ca_engine_module: PkiRaEngine.CsrValidation.DirectCaClient
 
   # ── Rate limiting (ETS — in-memory, per-node, no Mnesia setup needed) ──
