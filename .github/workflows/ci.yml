@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-flight runs on the same ref when a new commit lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
+  ELIXIR_VERSION: "1.18.4"
+  OTP_VERSION: "28.0"
+
+jobs:
+  compile:
+    name: Compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (recursive — vendored submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Elixir / OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Cache Mix deps + _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Compile (all apps)
+        # NOT using --warnings-as-errors yet — the repo currently
+        # has living warnings (typespec drift in ex_ccrypto,
+        # unreachable {:error, _} clauses, etc.). Tracked
+        # separately. CI still flags compilation *errors* because
+        # Mix exits non-zero on failure.
+        run: mix compile
+
+  # Per-package test jobs come next. Not enabled yet: current
+  # coverage on 8 of 9 packages is below the 70% threshold in
+  # each mix.exs, so `mix test --cover` would always fail. Plan:
+  #
+  #   1. Separate PR lands test jobs without --cover (pass/fail
+  #      on real test results only).
+  #   2. As per-package coverage climbs past 70% via dedicated
+  #      test-writing PRs, flip that package's job to --cover.
+  #
+  # The compile job is already a meaningful gate — it enforces
+  # that every path dep (including the vendored `kaz_sign`
+  # submodule) resolves and builds on a clean Ubuntu runner.

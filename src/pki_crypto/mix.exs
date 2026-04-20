@@ -25,7 +25,7 @@ defmodule PkiCrypto.MixProject do
       {:keyx, path: "../keyx", override: true},
       {:uniq, "~> 0.6"},
       {:pki_oqs_nif, path: "../pki_oqs_nif"},
-      {:kaz_sign, path: "../../../PQC-KAZ/SIGN/bindings/elixir"},
+      {:kaz_sign, path: "../pqc-kaz/SIGN/bindings/elixir"},
       {:x509, "~> 0.8", only: :test}
     ]
   end
