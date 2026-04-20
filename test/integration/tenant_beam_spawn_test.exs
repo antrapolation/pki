@@ -51,33 +51,28 @@ defmodule PkiIntegration.TenantBeamSpawnTest do
   test "peer BEAM boots, runs pki_tenant_web, can create ca_admin", ctx do
     %{slug: slug, tenant_id: tenant_id, mnesia_dir: mnesia_dir} = ctx
 
-    {name_flag, node_name} = peer_name_for(slug)
-    code_path_args = Enum.flat_map(:code.get_path(), fn p -> [~c"-pa", p] end)
-    cookie = Node.get_cookie() |> Atom.to_charlist()
+    # Point the production spawn at our temp dir for this test only.
+    prev_base = Application.get_env(:pki_platform_engine, :tenant_mnesia_base)
+    on_exit(fn ->
+      if prev_base,
+        do: Application.put_env(:pki_platform_engine, :tenant_mnesia_base, prev_base),
+        else: Application.delete_env(:pki_platform_engine, :tenant_mnesia_base)
+    end)
 
-    args =
-      [~c"-setcookie", cookie, name_flag, Atom.to_charlist(node_name)] ++ code_path_args
+    test_base = Path.dirname(mnesia_dir)
+    Application.put_env(:pki_platform_engine, :tenant_mnesia_base, test_base)
+    _ = tenant_id
 
-    env = [
-      {~c"TENANT_ID", String.to_charlist(tenant_id)},
-      {~c"TENANT_SLUG", String.to_charlist(slug)},
-      {~c"MNESIA_DIR", String.to_charlist(mnesia_dir)}
-    ]
-
-    # 1. :peer.start should return successfully (not exit the test process).
+    # 1. Call the REAL production spawn helper (exposed for testing) so
+    #    regressions in args-building, env-forwarding, or naming style
+    #    surface here before they hit browser QA.
     peer_result =
-      :peer.start(%{
-        name: node_name,
-        args: args,
-        env: env,
-        connection: :standard_io
-      })
+      PkiPlatformEngine.TenantLifecycle.spawn_tenant_for_test(tenant_id, slug, 0)
 
     {peer_pid, actual_node} =
       case peer_result do
         {:ok, pid, node} -> {pid, node}
-        {:ok, pid} -> {pid, node_name}
-        other -> flunk("peer start failed: #{inspect(other)}")
+        {:error, reason} -> flunk("spawn_tenant failed: #{inspect(reason)}")
       end
 
     on_exit(fn ->
@@ -128,19 +123,4 @@ defmodule PkiIntegration.TenantBeamSpawnTest do
              PkiPlatformEngine.TenantLifecycle.create_initial_admin(actual_node, attrs)
   end
 
-  # Matches the naming convention in PkiPlatformEngine.TenantLifecycle.peer_name/1.
-  # Erlang won't let short-name (-sname) and long-name (-name) nodes cluster,
-  # so the peer has to follow whichever style the parent node uses.
-  defp peer_name_for(slug) do
-    parent = Node.self() |> Atom.to_string()
-    short_name = "pki_tenant_spawn_test_#{slug}"
-
-    [_, host] = String.split(parent, "@", parts: 2)
-
-    if String.contains?(host, ".") do
-      {~c"-name", :"#{short_name}@#{host}"}
-    else
-      {~c"-sname", :"#{short_name}@#{host}"}
-    end
-  end
 end

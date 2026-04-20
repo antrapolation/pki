@@ -404,6 +404,14 @@ defmodule PkiPlatformEngine.TenantLifecycle do
     _ -> :ok  # replica unreachable, non-critical
   end
 
+  @doc false
+  # Exposed for integration tests so they exercise the exact same
+  # args-building + :peer.start/1 path the GenServer uses. NOT part of
+  # the public API — call `create_tenant/1` from product code.
+  def spawn_tenant_for_test(tenant_id, slug, port) do
+    spawn_tenant(tenant_id, slug, port)
+  end
+
   defp spawn_tenant(tenant_id, slug, port) do
     platform_node = Atom.to_string(node())
     cookie = Atom.to_string(Node.get_cookie())
@@ -420,10 +428,11 @@ defmodule PkiPlatformEngine.TenantLifecycle do
     # launcher) is missing on the peer, so :application.ensure_all_started(:elixir)
     # fails with "no such file or directory elixir.app". Fix by
     # explicitly forwarding every entry of the parent's code path via -pa.
-    code_path_args =
-      :code.get_path()
-      |> Enum.map(fn path -> [~c"-pa", path] end)
-      |> List.flatten()
+    #
+    # Use Enum.flat_map, NOT Enum.map + List.flatten — charlists ARE lists
+    # of integers, so List.flatten would dissolve them into raw ints and
+    # :peer.start would reject with {:invalid_arg, 45} (the '-' char).
+    code_path_args = Enum.flat_map(:code.get_path(), fn path -> [~c"-pa", path] end)
 
     args =
       [
