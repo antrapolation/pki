@@ -34,6 +34,44 @@ defmodule PkiPlatformEngine.TenantLifecycle do
     GenServer.call(__MODULE__, {:get_tenant, tenant_id})
   end
 
+  @doc """
+  Boot the tenant application stack on a spawned node via RPC.
+
+  After `:peer.start_link` returns, the child BEAM has runtime but no
+  tenant apps running. In dev this call loads `pki_tenant_web` (which
+  pulls in `pki_tenant`, `pki_ca_engine`, `pki_ra_engine`,
+  `pki_validation`, `pki_mnesia` transitively) and waits for the
+  web endpoint to respond.
+
+  Shared code paths mean the spawned node sees the parent's beam files;
+  the actual `Mnesia` schema is created in `PkiTenant.MnesiaBootstrap.init/1`
+  at app start, using the `MNESIA_DIR` env var set in `spawn_tenant/3`.
+  """
+  @spec boot_tenant_apps(node(), timeout()) :: :ok | {:error, term()}
+  def boot_tenant_apps(node, timeout \\ 60_000) do
+    case :rpc.call(node, Application, :ensure_all_started, [:pki_tenant_web], timeout) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, {:app_start_failed, reason}}
+      {:badrpc, reason} -> {:error, {:badrpc, reason}}
+    end
+  end
+
+  @doc """
+  Create the initial ca_admin user on a spawned tenant node via RPC.
+
+  Returns `{:ok, user, plaintext_password}` so the operator can show
+  the password once in the UI (email delivery is a separate concern).
+  """
+  @spec create_initial_admin(node(), map(), timeout()) ::
+          {:ok, map(), String.t()} | {:error, term()}
+  def create_initial_admin(node, attrs, timeout \\ 15_000) do
+    case :rpc.call(node, PkiTenant.PortalUserAdmin, :create_user, [attrs], timeout) do
+      {:ok, user, plaintext} -> {:ok, user, plaintext}
+      {:error, reason} -> {:error, reason}
+      {:badrpc, reason} -> {:error, {:badrpc, reason}}
+    end
+  end
+
   @max_restart_attempts 5
   @base_backoff_ms 5_000
   @max_backoff_ms 300_000

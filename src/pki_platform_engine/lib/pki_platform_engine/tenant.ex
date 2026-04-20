@@ -16,8 +16,11 @@ defmodule PkiPlatformEngine.Tenant do
     timestamps()
   end
 
-  @statuses ["initialized", "active", "suspended"]
-  @schema_modes ["schema", "database"]
+  @statuses ["initialized", "provisioning", "active", "suspended"]
+  # "beam" = per-tenant BEAM (Mnesia, current architecture).
+  # "schema" / "database" are retained for legacy rows; new tenants
+  # are always "beam".
+  @schema_modes ["beam", "schema", "database"]
 
   def changeset(tenant, attrs) do
     tenant
