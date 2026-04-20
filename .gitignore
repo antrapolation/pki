@@ -36,6 +36,9 @@ erl_crash.dump
 # Runtime logs
 logs/
 
+# `mix test --cover` output (per-package)
+src/*/cover/
+
 # Per-tenant BEAM Mnesia dirs (dev)
 _dev_tenants/
 
