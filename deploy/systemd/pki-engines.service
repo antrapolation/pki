@@ -1,5 +1,5 @@
 [Unit]
-Description=PKI Engines (CA Engine, RA Engine, Validation, Audit Trail)
+Description=PKI Engines (Audit Trail receiver + PlatformEngine bootstrap modules)
 Documentation=https://github.com/straptrust/pki
 After=network.target postgresql.service
 Requires=postgresql.service
@@ -11,13 +11,12 @@ Group=pki
 WorkingDirectory=/opt/pki/releases/engines
 
 EnvironmentFile=/opt/pki/.env
-Environment=CA_ENGINE_START_HTTP=true
-Environment=RA_ENGINE_START_HTTP=true
-Environment=VALIDATION_START_HTTP=true
+# CA/RA engines no longer expose HTTP APIs, and Validation (OCSP/CRL/TSA)
+# runs inside each tenant BEAM (via pki_tenant_node). This release only
+# hosts the centralized audit-trail receiver + platform bootstrap modules.
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_engines@127.0.0.1
-# All engine backends share one VM — give it more schedulers
-Environment="ELIXIR_ERL_OPTIONS=+S 4:4 +SDcpu 4:4"
+Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
 
 ExecStart=/opt/pki/releases/engines/bin/pki_engines start
 ExecStop=/opt/pki/releases/engines/bin/pki_engines stop

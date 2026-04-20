@@ -12,10 +12,6 @@ audit_repo_opts = [
 
 config :pki_audit_trail, PkiAuditTrail.Repo, audit_repo_opts
 
-# Internal API secret for CA -> Validation service HTTP calls.
-config :pki_ca_engine, :internal_api_secret, System.get_env("INTERNAL_API_SECRET", "dev-secret")
-config :pki_ca_engine, :validation_url, System.get_env("VALIDATION_URL", "http://localhost:4005")
-
 # Relax rate limiting in dev to avoid being blocked during debugging
 config :pki_ca_engine, :rate_limit_enabled, false
 

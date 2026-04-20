@@ -1,8 +1,5 @@
 import Config
 
-config :pki_ca_engine, :validation_url, nil
-config :pki_ca_engine, :internal_api_secret, "test-secret"
-
 # Audit trail Repo config (shares a test DB used by pki_audit_trail itself).
 config :pki_audit_trail, PkiAuditTrail.Repo,
   username: "postgres",

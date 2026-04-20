@@ -53,16 +53,18 @@ defmodule PkiSystem.MixProject do
 
   defp releases do
     [
-      # Release 1: All engine backends (no web portals)
-      # Runs: CA Engine API (4001), RA Engine API (4003), Validation (4005)
-      # Manages: DB migrations, background jobs, tenant provisioning
+      # Release 1: Platform-side backend services
+      # Runs: Audit Trail receiver + PlatformEngine bootstrap modules.
+      # CA/RA engines are loaded so their EngineBootstrapImpl callbacks
+      # are available but don't run any per-tenant code — that lives in
+      # pki_tenant_node. Validation (OCSP/CRL/TSA) runs inside each
+      # tenant BEAM alongside its CA/RA, so it is not started here.
       pki_engines: [
         validate_compile_env: false,
         applications: [
           pki_platform_engine: :permanent,
-          pki_ca_engine: :permanent,
-          pki_ra_engine: :permanent,
-          pki_validation: :permanent,
+          pki_ca_engine: :load,
+          pki_ra_engine: :load,
           pki_audit_trail: :permanent
         ]
       ],
