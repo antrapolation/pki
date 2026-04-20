@@ -11,7 +11,8 @@ defmodule PkiMnesia.MixProject do
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      test_coverage: [threshold: 70, summary: [threshold: 70]]
     ]
   end
 

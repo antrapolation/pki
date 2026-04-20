@@ -9,7 +9,8 @@ defmodule PkiCaEngine.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps()
+      deps: deps(),
+      test_coverage: [threshold: 70, summary: [threshold: 70]]
     ]
   end
 

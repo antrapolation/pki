@@ -9,7 +9,8 @@ defmodule PkiRaEngine.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
-      deps: deps()
+      deps: deps(),
+      test_coverage: [threshold: 70, summary: [threshold: 70]]
     ]
   end
 
