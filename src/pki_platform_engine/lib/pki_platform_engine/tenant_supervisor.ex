@@ -58,7 +58,20 @@ defmodule PkiPlatformEngine.TenantSupervisor do
         {:ok, info}
 
       {:error, :not_found} ->
-        with {:ok, info} <- TenantLifecycle.create_tenant(%{id: tenant.id, slug: tenant.slug}),
+        # Rehydrate the tenant's SOFTHSM2_CONF from metadata so the
+        # respawned peer points at its own token dir instead of the
+        # system default. Nil is safe (peer boots without per-tenant
+        # HSM isolation). Also tolerates bare test-fixture maps that
+        # don't carry a :metadata field at all.
+        softhsm_conf =
+          case Map.get(tenant, :metadata) do
+            %{"softhsm" => %{"conf_path" => path}} when is_binary(path) -> path
+            _ -> nil
+          end
+
+        create_attrs = %{id: tenant.id, slug: tenant.slug, softhsm_conf: softhsm_conf}
+
+        with {:ok, info} <- TenantLifecycle.create_tenant(create_attrs),
              :ok <- TenantLifecycle.boot_tenant_apps(info.node, info.port) do
           Logger.info(
             "[TenantSupervisor] Respawned BEAM tenant #{tenant.name} (#{tenant.slug}) on port #{info.port}"

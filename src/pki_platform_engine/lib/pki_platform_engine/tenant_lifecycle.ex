@@ -289,10 +289,11 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   def handle_call({:create_tenant, attrs}, _from, state) do
     tenant_id = attrs.id || Uniq.UUID.uuid7()
     slug = attrs.slug
+    softhsm_conf = attrs[:softhsm_conf]
 
     case PortAllocator.allocate(tenant_id) do
       {:ok, port} ->
-        case spawn_tenant(tenant_id, slug, port) do
+        case spawn_tenant(tenant_id, slug, port, softhsm_conf: softhsm_conf) do
           {:ok, peer_pid, node_name} ->
             ref = Process.monitor(peer_pid)
 
@@ -303,7 +304,8 @@ defmodule PkiPlatformEngine.TenantLifecycle do
               slug: slug,
               status: :starting,
               monitor_ref: ref,
-              restart_count: 0
+              restart_count: 0,
+              softhsm_conf: softhsm_conf
             }
 
             _ = CaddyConfigurator.add_route(slug, port)
@@ -347,6 +349,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
         # Save the port before stopping so we can reuse it (do NOT release from PortAllocator)
         saved_port = info.port
         saved_slug = info.slug
+        saved_softhsm_conf = Map.get(info, :softhsm_conf)
 
         graceful_peer_stop(info)
 
@@ -354,7 +357,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
         state_without_tenant = %{state | tenants: Map.delete(state.tenants, tenant_id)}
 
         # Respawn with the same port
-        case spawn_tenant(tenant_id, saved_slug, saved_port) do
+        case spawn_tenant(tenant_id, saved_slug, saved_port, softhsm_conf: saved_softhsm_conf) do
           {:ok, peer_pid, node_name} ->
             ref = Process.monitor(peer_pid)
 
@@ -365,7 +368,8 @@ defmodule PkiPlatformEngine.TenantLifecycle do
               slug: saved_slug,
               status: :starting,
               monitor_ref: ref,
-              restart_count: 0
+              restart_count: 0,
+              softhsm_conf: saved_softhsm_conf
             }
 
             _ = CaddyConfigurator.add_route(saved_slug, saved_port)
@@ -440,7 +444,9 @@ defmodule PkiPlatformEngine.TenantLifecycle do
             {:noreply, put_in(state, [:tenants, tenant_id, :status], :failed)}
 
           port ->
-            case spawn_tenant(tenant_id, slug, port) do
+            saved_softhsm_conf = Map.get(info, :softhsm_conf)
+
+            case spawn_tenant(tenant_id, slug, port, softhsm_conf: saved_softhsm_conf) do
               {:ok, peer_pid, node_name} ->
                 ref = Process.monitor(peer_pid)
 
@@ -451,7 +457,8 @@ defmodule PkiPlatformEngine.TenantLifecycle do
                   slug: slug,
                   status: :starting,
                   monitor_ref: ref,
-                  restart_count: 0
+                  restart_count: 0,
+                  softhsm_conf: saved_softhsm_conf
                 }
 
                 _ = CaddyConfigurator.add_route(slug, port)
@@ -496,16 +503,18 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   # Exposed for integration tests so they exercise the exact same
   # args-building + :peer.start/1 path the GenServer uses. NOT part of
   # the public API — call `create_tenant/1` from product code.
-  def spawn_tenant_for_test(tenant_id, slug, port) do
-    spawn_tenant(tenant_id, slug, port)
+  def spawn_tenant_for_test(tenant_id, slug, port, opts \\ []) do
+    spawn_tenant(tenant_id, slug, port, opts)
   end
 
-  defp spawn_tenant(tenant_id, slug, port) do
+  defp spawn_tenant(tenant_id, slug, port, opts) do
     platform_node = Atom.to_string(node())
     cookie = Atom.to_string(Node.get_cookie())
     mnesia_dir =
       Application.get_env(:pki_platform_engine, :tenant_mnesia_base, "/var/lib/pki/tenants")
       |> Path.join("#{slug}/mnesia")
+
+    softhsm_conf = Keyword.get(opts, :softhsm_conf)
 
     # Match the parent's distribution naming style — Erlang refuses to
     # mix short names (-sname) and long names (-name) in the same cluster.
@@ -530,7 +539,12 @@ defmodule PkiPlatformEngine.TenantLifecycle do
         Atom.to_charlist(node_name)
       ] ++ code_path_args
 
-    env = [
+    # SOFTHSM2_CONF, if set, points the peer's libsofthsm2 at the tenant's
+    # dedicated token directory so PKCS#11 calls land in the right slot.
+    # When nil (test env without softhsm, or wizard step ran before init),
+    # the peer falls back to the system default config — safe but not
+    # per-tenant isolated.
+    base_env = [
       {~c"TENANT_ID", String.to_charlist(tenant_id)},
       {~c"TENANT_SLUG", String.to_charlist(slug)},
       {~c"TENANT_PORT", String.to_charlist(Integer.to_string(port))},
@@ -538,6 +552,13 @@ defmodule PkiPlatformEngine.TenantLifecycle do
       {~c"PLATFORM_NODE", String.to_charlist(platform_node)},
       {~c"RELEASE_COOKIE", String.to_charlist(cookie)}
     ]
+
+    env =
+      if is_binary(softhsm_conf) and softhsm_conf != "" do
+        [{~c"SOFTHSM2_CONF", String.to_charlist(softhsm_conf)} | base_env]
+      else
+        base_env
+      end
 
     # :peer.start/1 (not start_link) — if the spawned BEAM fails to boot, we
     # get back {:error, reason} instead of killing the TenantLifecycle

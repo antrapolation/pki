@@ -52,16 +52,25 @@ defmodule PkiPlatformEngine.TenantOnboarding do
   @doc "Step 2 — spawn the per-tenant BEAM and boot its app stack."
   @spec spawn_beam(Tenant.t()) :: {:ok, map()} | {:error, term()}
   def spawn_beam(%Tenant{} = tenant) do
-    with {:ok, info} <- TenantLifecycle.create_tenant(%{id: tenant.id, slug: tenant.slug}),
+    # SoftHSM2 token init runs BEFORE peer spawn so we can pass
+    # SOFTHSM2_CONF into the peer's process env at boot time — the
+    # tenant's PKCS#11 calls then land in its dedicated slot instead
+    # of the system default config. Best-effort: `:skipped` (no
+    # softhsm2-util) or `{:error, _}` drops through to a non-isolated
+    # peer instead of failing the wizard.
+    softhsm_outcome = provision_softhsm_token(tenant)
+    softhsm_conf = softhsm_conf_path_from(softhsm_outcome)
+
+    create_attrs = %{id: tenant.id, slug: tenant.slug, softhsm_conf: softhsm_conf}
+
+    with {:ok, info} <- TenantLifecycle.create_tenant(create_attrs),
          :ok <- TenantLifecycle.boot_tenant_apps(info.node, info.port) do
-      # Best-effort SoftHSM2 token init. Returns {:ok, :skipped} when
-      # softhsm2-util isn't on PATH (dev boxes without HSM tooling),
-      # so the wizard keeps going either way. Metadata lets the
-      # tenant admin point their HSM keystore at the right slot.
-      _ = provision_softhsm_token(tenant)
-      {:ok, info}
+      {:ok, Map.put(info, :softhsm, softhsm_outcome)}
     end
   end
+
+  defp softhsm_conf_path_from({:ok, %{conf_path: conf_path}}), do: conf_path
+  defp softhsm_conf_path_from(_), do: nil
 
   @doc """
   Allocate a dedicated SoftHSM2 token for a tenant and record the
