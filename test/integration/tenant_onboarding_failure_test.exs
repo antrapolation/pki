@@ -214,7 +214,83 @@ defmodule PkiIntegration.TenantOnboardingFailureTest do
     end
   end
 
-  # --- 6. Peer dies post-spawn, before boot ---------------------------
+  # --- 5b. Two tenants each bind their own Validation HTTP port -------
+
+  test "each tenant BEAM binds its own Validation (OCSP) HTTP port" do
+    slug_a = "ocsp_a#{System.unique_integer([:positive])}"
+    slug_b = "ocsp_b#{System.unique_integer([:positive])}"
+
+    tenant_a = spawn_and_boot(slug_a)
+    tenant_b = spawn_and_boot(slug_b)
+
+    # Each tenant's validation listener is derived as web_port + 1000.
+    validation_port_a = tenant_a.web_port + 1_000
+    validation_port_b = tenant_b.web_port + 1_000
+
+    # Both must be listening.
+    assert http_listening?(validation_port_a),
+           "Tenant A validation should be on #{validation_port_a}"
+
+    assert http_listening?(validation_port_b),
+           "Tenant B validation should be on #{validation_port_b}"
+
+    # And they must not collide.
+    refute validation_port_a == validation_port_b
+  end
+
+  defp http_listening?(port) do
+    case :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false], 2_000) do
+      {:ok, socket} ->
+        :gen_tcp.close(socket)
+        true
+
+      {:error, _} ->
+        false
+    end
+  end
+
+  # --- 6. Graceful stop preserves Mnesia disc_copies ------------------
+
+  test "TenantLifecycle graceful stop flushes Mnesia; respawn sees prior data", %{base: base} do
+    # NOTE: we spawn the peer via spawn_and_boot so the peer is known
+    # to TenantLifecycle's state... except spawn_tenant_for_test doesn't
+    # register the peer with the GenServer. So here we exercise the
+    # graceful shutdown helper by directly calling the same RPC sequence
+    # the helper performs. Task #18 (platform restart recovery) will
+    # flesh out the GenServer-registered flow with a dedicated test.
+    slug = "graceful_stop#{System.unique_integer([:positive])}"
+
+    first = spawn_and_boot(slug)
+
+    attrs = %{
+      username: "survivor",
+      display_name: "S",
+      email: "s@example.test",
+      role: "ca_admin"
+    }
+
+    assert {:ok, _, _} =
+             PkiPlatformEngine.TenantLifecycle.create_initial_admin(first.node, attrs)
+
+    # Graceful shutdown sequence (mirrors TenantLifecycle.graceful_peer_stop).
+    :rpc.call(first.node, :mnesia, :stop, [], 5_000)
+    :ok = stop_peer(first.pid)
+
+    assert File.exists?(Path.join(base, "#{slug}/mnesia"))
+
+    second = spawn_and_boot(slug)
+
+    users =
+      :rpc.call(second.node, PkiTenant.PortalUserAdmin, :list_users, [:ca], @peer_boot_timeout)
+
+    assert "survivor" in Enum.map(users, & &1.username),
+           "data committed before graceful stop must be visible on respawn"
+
+    :rpc.call(second.node, :mnesia, :stop, [], 5_000)
+    stop_peer(second.pid)
+  end
+
+  # --- 7. Peer dies post-spawn, before boot ---------------------------
 
   test "boot_tenant_apps on a dead peer returns {:error, _} not an exit" do
     slug = "dead_peer#{System.unique_integer([:positive])}"

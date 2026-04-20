@@ -38,6 +38,9 @@ defmodule PkiPlatformEngine.PlatformAuditEvent do
     webhook_delivered webhook_failed
     api_key_rate_limited api_key_ip_rejected api_key_scope_denied
     rbac_denied csr_forward_retry_failed
+    tenant_registered tenant_beam_spawned tenant_admin_bootstrapped
+    tenant_activated tenant_provisioning_failed tenant_resumed
+    tenant_admin_invited
   )
 
   # Actions that may not have an actor (automated/system-triggered)

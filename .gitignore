@@ -36,6 +36,16 @@ erl_crash.dump
 # Runtime logs
 logs/
 
+# Per-tenant BEAM Mnesia dirs (dev)
+_dev_tenants/
+
+# Claude runtime lock + per-machine settings
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# hsm-agent compiled binary (source + bin/hsm-agent are tracked)
+/hsm-agent/hsm-agent
+
 # Git worktrees
 .worktrees/
 .superpowers/

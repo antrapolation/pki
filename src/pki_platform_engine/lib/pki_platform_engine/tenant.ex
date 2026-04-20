@@ -16,7 +16,7 @@ defmodule PkiPlatformEngine.Tenant do
     timestamps()
   end
 
-  @statuses ["initialized", "provisioning", "active", "suspended"]
+  @statuses ["initialized", "provisioning", "active", "suspended", "failed"]
   # "beam" = per-tenant BEAM (Mnesia, current architecture).
   # "schema" / "database" are retained for legacy rows; new tenants
   # are always "beam".
@@ -43,6 +43,29 @@ defmodule PkiPlatformEngine.Tenant do
     |> validate_required([:status])
     |> validate_inclusion(:status, @statuses)
   end
+
+  @doc """
+  Mark a tenant as failed to provision. `reason` is any term; it gets
+  stringified into the tenant's metadata under `"failure"` so the
+  admin UI can display it and the row can be retried later.
+  """
+  def failed_changeset(tenant, reason) do
+    failure_entry = %{
+      "step" => to_string(elem_or(reason, 0, "unknown")),
+      "detail" => inspect(reason),
+      "at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    new_metadata = Map.put(tenant.metadata || %{}, "failure", failure_entry)
+
+    tenant
+    |> cast(%{status: "failed", metadata: new_metadata}, [:status, :metadata])
+    |> validate_inclusion(:status, @statuses)
+  end
+
+  defp elem_or(tuple, idx, _default) when is_tuple(tuple) and tuple_size(tuple) > idx,
+    do: elem(tuple, idx)
+  defp elem_or(_, _, default), do: default
 
   defp maybe_generate_id(changeset) do
     if get_field(changeset, :id) do

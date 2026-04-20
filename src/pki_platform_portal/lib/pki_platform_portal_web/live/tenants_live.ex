@@ -14,6 +14,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
      assign(socket,
        page_title: "Tenants",
        tenants: [],
+       runtime_ports: %{},
        loading: true,
        page: 1,
        per_page: @per_page
@@ -23,14 +24,13 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   @impl true
   def handle_info(:load_data, socket) do
     tenants = list_tenants()
-    {:noreply, assign(socket, tenants: tenants, loading: false)}
+    {:noreply, assign(socket, tenants: tenants, runtime_ports: runtime_ports(), loading: false)}
   end
 
   def handle_event("suspend_tenant", %{"id" => id}, socket) do
     case PkiPlatformEngine.Provisioner.suspend_tenant(id) do
       {:ok, _tenant} ->
-        tenants = list_tenants()
-        {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant suspended.")}
+        {:noreply, socket |> reload_tenants() |> put_flash(:info, "Tenant suspended.")}
 
       {:error, reason} ->
         Logger.error("[tenants] Failed to suspend tenant #{id}: #{inspect(reason)}")
@@ -41,8 +41,7 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
   def handle_event("activate_tenant", %{"id" => id}, socket) do
     case PkiPlatformEngine.Provisioner.activate_tenant(id) do
       {:ok, _tenant} ->
-        tenants = list_tenants()
-        {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant activated.")}
+        {:noreply, socket |> reload_tenants() |> put_flash(:info, "Tenant activated.")}
 
       {:error, reason} ->
         Logger.error("[tenants] Failed to activate tenant #{id}: #{inspect(reason)}")
@@ -52,19 +51,56 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
 
   def handle_event("delete_tenant", %{"id" => id}, socket) do
     tenant = Enum.find(socket.assigns.tenants, &(to_string(&1.id) == to_string(id)))
+    deletable = ["suspended", "failed", "provisioning", "initialized"]
 
-    if is_nil(tenant) || tenant.status != "suspended" do
-      {:noreply, put_flash(socket, :error, "Tenant must be suspended before deletion.")}
-    else
-      case PkiPlatformEngine.Provisioner.delete_tenant(id) do
-        {:ok, _tenant} ->
-          tenants = list_tenants()
-          {:noreply, socket |> assign(tenants: tenants) |> put_flash(:info, "Tenant deleted.")}
+    cond do
+      is_nil(tenant) ->
+        {:noreply, put_flash(socket, :error, "Tenant not found.")}
 
-        {:error, reason} ->
-          Logger.error("[tenants] Failed to delete tenant #{id}: #{inspect(reason)}")
-          {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete", reason))}
-      end
+      tenant.status not in deletable ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Active tenants must be suspended before deletion."
+         )}
+
+      true ->
+        case PkiPlatformEngine.Provisioner.delete_tenant(id) do
+          {:ok, _tenant} ->
+            {:noreply, socket |> reload_tenants() |> put_flash(:info, "Tenant deleted.")}
+
+          {:error, reason} ->
+            Logger.error("[tenants] Failed to delete tenant #{id}: #{inspect(reason)}")
+            {:noreply, put_flash(socket, :error, sanitize_error("Failed to delete", reason))}
+        end
+    end
+  end
+
+  def handle_event("resume_provisioning", %{"id" => id}, socket) do
+    case PkiPlatformEngine.TenantOnboarding.resume_provisioning(id) do
+      {:ok, %{tenant: tenant, admin: %{username: username, password: password}} = result} ->
+        audit_resume(socket, tenant, :ok, %{username: username})
+
+        email_hint =
+          case Map.get(result, :email) do
+            {:ok, :sent} -> " A copy was emailed to #{tenant.email}."
+            _ -> ""
+          end
+
+        flash_msg =
+          "Tenant resumed. New ca_admin password for #{username}: #{password} " <>
+            "(shown once — copy now)." <> email_hint
+
+        {:noreply,
+         socket
+         |> reload_tenants()
+         |> put_flash(:info, flash_msg)}
+
+      {:error, reason} ->
+        Logger.error("[tenants] Failed to resume tenant #{id}: #{inspect(reason)}")
+        audit_resume(socket, id, {:error, reason}, %{})
+        {:noreply, put_flash(socket, :error, sanitize_error("Failed to resume", reason))}
     end
   end
 
@@ -79,6 +115,53 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
     PkiPlatformEngine.Provisioner.list_tenants()
   rescue
     _ -> []
+  end
+
+  defp reload_tenants(socket) do
+    assign(socket, tenants: list_tenants(), runtime_ports: runtime_ports())
+  end
+
+  defp runtime_ports do
+    PkiPlatformEngine.TenantLifecycle.list_tenants()
+    |> Enum.filter(&(&1.status in [:running, :starting]))
+    |> Map.new(fn info -> {to_string(info.id), info.port} end)
+  rescue
+    _ -> %{}
+  end
+
+  defp tenant_portal_url(port, host \\ nil) when is_integer(port) do
+    host = host || System.get_env("TENANT_PORTAL_HOST", "localhost")
+    "http://#{host}:#{port}/"
+  end
+
+  defp audit_resume(socket, tenant_or_id, outcome, extra) do
+    admin = socket.assigns.current_user
+    {tenant_id, action, details} = resume_audit_shape(tenant_or_id, outcome, extra)
+
+    _ =
+      PkiPlatformEngine.PlatformAudit.log(action, %{
+        actor_id: admin[:id] || admin["id"],
+        actor_username: admin[:username] || admin["username"],
+        portal: "platform",
+        tenant_id: tenant_id,
+        target_type: "tenant",
+        target_id: tenant_id,
+        details: details
+      })
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("[tenants] audit log failed: #{Exception.message(e)}")
+      :ok
+  end
+
+  defp resume_audit_shape(%{id: id} = _tenant, :ok, extra) do
+    {id, "tenant_resumed", Map.merge(%{outcome: "ok"}, extra)}
+  end
+
+  defp resume_audit_shape(id, {:error, reason}, _extra) when is_binary(id) do
+    {id, "tenant_provisioning_failed", %{step: "resume", reason: inspect(reason)}}
   end
 
   @impl true
@@ -145,7 +228,9 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                       "badge badge-sm",
                       tenant.status == "active" && "badge-success",
                       tenant.status == "suspended" && "badge-warning",
-                      tenant.status == "initialized" && "badge-info badge-outline"
+                      tenant.status == "initialized" && "badge-info badge-outline",
+                      tenant.status == "provisioning" && "badge-info",
+                      tenant.status == "failed" && "badge-error"
                     ]}>{tenant.status}</span>
                   </td>
                   <td class="font-mono text-sm text-base-content/70 overflow-hidden text-ellipsis whitespace-nowrap">{tenant.email}</td>
@@ -159,6 +244,16 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                       >
                         <.icon name="hero-eye" class="size-4" />
                       </.link>
+                      <a
+                        :if={tenant.status == "active" and Map.has_key?(@runtime_ports, to_string(tenant.id))}
+                        href={tenant_portal_url(@runtime_ports[to_string(tenant.id)])}
+                        target="_blank"
+                        rel="noopener"
+                        title={"Open portal (port #{@runtime_ports[to_string(tenant.id)]})"}
+                        class="btn btn-ghost btn-xs text-primary"
+                      >
+                        <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+                      </a>
                       <button
                         :if={tenant.status == "initialized"}
                         phx-click="activate_tenant"
@@ -188,7 +283,17 @@ defmodule PkiPlatformPortalWeb.TenantsLive do
                         <.icon name="hero-play" class="size-4" />
                       </button>
                       <button
-                        :if={tenant.status == "suspended"}
+                        :if={tenant.status in ["provisioning", "failed"]}
+                        phx-click="resume_provisioning"
+                        phx-value-id={tenant.id}
+                        data-confirm="Resume provisioning? This stops any running peer for this tenant, releases its port, and re-runs spawn → admin → active."
+                        title="Resume provisioning"
+                        class="btn btn-ghost btn-xs text-emerald-400"
+                      >
+                        <.icon name="hero-arrow-path" class="size-4" />
+                      </button>
+                      <button
+                        :if={tenant.status in ["suspended", "failed", "provisioning", "initialized"]}
                         phx-click="delete_tenant"
                         phx-value-id={tenant.id}
                         data-confirm="Are you sure? This will permanently delete the tenant and its database."

@@ -9,7 +9,7 @@ defmodule PkiPlatformEngine.TenantSupervisor do
   """
   use DynamicSupervisor
 
-  alias PkiPlatformEngine.{TenantPrefix, TenantProcess, TenantRegistry}
+  alias PkiPlatformEngine.{TenantLifecycle, TenantPrefix, TenantProcess, TenantRegistry}
 
   require Logger
 
@@ -43,6 +43,32 @@ defmodule PkiPlatformEngine.TenantSupervisor do
     {:ok, :schema_mode}
   end
 
+  def start_tenant(%{schema_mode: "beam"} = tenant, _registry) do
+    # BEAM-mode: spawn a per-tenant peer node via TenantLifecycle.
+    # Called on platform boot — PortAllocator rehydrates prior port
+    # assignments from PG so each tenant gets back its previous port.
+    # Already-running peers are a no-op: create_tenant short-circuits
+    # when the tenant id is already in lifecycle state.
+    case TenantLifecycle.get_tenant(tenant.id) do
+      {:ok, info} ->
+        Logger.info(
+          "[TenantSupervisor] BEAM tenant #{tenant.name} (#{tenant.slug}) already running on #{info.node}"
+        )
+
+        {:ok, info}
+
+      {:error, :not_found} ->
+        with {:ok, info} <- TenantLifecycle.create_tenant(%{id: tenant.id, slug: tenant.slug}),
+             :ok <- TenantLifecycle.boot_tenant_apps(info.node, info.port) do
+          Logger.info(
+            "[TenantSupervisor] Respawned BEAM tenant #{tenant.name} (#{tenant.slug}) on port #{info.port}"
+          )
+
+          {:ok, info}
+        end
+    end
+  end
+
   def start_tenant(tenant, registry) do
     # Database-mode (legacy): start per-tenant DynamicRepo processes
     case DynamicSupervisor.start_child(__MODULE__, {TenantProcess, tenant: tenant, registry: registry}) do
@@ -54,6 +80,19 @@ defmodule PkiPlatformEngine.TenantSupervisor do
 
   @doc "Stop engine processes for a tenant."
   def stop_tenant(tenant_id, registry \\ TenantRegistry) do
+    # BEAM tenants are tracked in TenantLifecycle, not TenantRegistry —
+    # check there first and shut the peer down gracefully if present.
+    case TenantLifecycle.get_tenant(tenant_id) do
+      {:ok, _info} ->
+        _ = TenantLifecycle.stop_tenant(tenant_id)
+        :ok
+
+      {:error, :not_found} ->
+        stop_non_beam_tenant(tenant_id, registry)
+    end
+  end
+
+  defp stop_non_beam_tenant(tenant_id, registry) do
     # Check if this is a schema-mode tenant (no process to terminate)
     case TenantRegistry.lookup(registry, tenant_id) do
       {:ok, %{schema_mode: "schema"}} ->

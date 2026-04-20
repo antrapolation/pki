@@ -1,7 +1,7 @@
 defmodule PkiPlatformPortalWeb.TenantNewLive do
   use PkiPlatformPortalWeb, :live_view
 
-  alias PkiPlatformEngine.TenantOnboarding
+  alias PkiPlatformEngine.{PlatformAudit, Provisioner, TenantOnboarding}
 
   require Logger
 
@@ -22,11 +22,34 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
        slug: "",
        email: "",
        form_error: nil,
+       field_errors: %{},
        progress: Enum.map(@steps, fn {key, label} -> {key, label, :pending} end),
        tenant: nil,
        beam_info: nil,
        admin_credentials: nil,
        task_ref: nil
+     )}
+  end
+
+  @impl true
+  def handle_event("validate", params, socket) do
+    name = params["name"] || ""
+    slug = params["slug"] || ""
+    email = params["email"] || ""
+
+    field_errors =
+      %{}
+      |> put_field_error(:name, name, &validate_name/1)
+      |> put_field_error(:slug, slug, &validate_slug_with_uniqueness/1)
+      |> put_field_error(:email, email, &validate_email/1)
+
+    {:noreply,
+     assign(socket,
+       name: name,
+       slug: slug,
+       email: email,
+       field_errors: field_errors,
+       form_error: nil
      )}
   end
 
@@ -37,7 +60,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     email = String.trim(params["email"] || "")
 
     with :ok <- validate_name(name),
-         :ok <- validate_slug(slug),
+         :ok <- validate_slug_with_uniqueness(slug),
          :ok <- validate_email(email) do
       socket =
         assign(socket,
@@ -152,14 +175,22 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp handle_register_result(result, socket) do
     case result do
       {:ok, tenant} ->
+        audit(socket, "tenant_registered", tenant, %{
+          name: tenant.name,
+          slug: tenant.slug,
+          email: tenant.email
+        })
+
         socket = socket |> assign(tenant: tenant) |> update_step(:register, :done)
         send(self(), :start_spawn_step)
         {:noreply, socket}
 
       {:error, %Ecto.Changeset{} = changeset} ->
+        audit_failure(socket, nil, "register", format_changeset_error(changeset))
         {:noreply, update_step(socket, :register, {:error, format_changeset_error(changeset)})}
 
       {:error, reason} ->
+        audit_failure(socket, nil, "register", inspect(reason))
         {:noreply, update_step(socket, :register, {:error, inspect(reason)})}
     end
   end
@@ -167,11 +198,18 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp handle_spawn_result(result, socket) do
     case result do
       {:ok, info} ->
+        audit(socket, "tenant_beam_spawned", socket.assigns.tenant, %{
+          node: to_string(info.node),
+          port: info.port
+        })
+
         socket = socket |> assign(beam_info: info) |> update_step(:spawn, :done)
         send(self(), :start_admin_step)
         {:noreply, socket}
 
       {:error, reason} ->
+        mark_tenant_failed(socket, {:spawn_failed, reason})
+        audit_failure(socket, socket.assigns.tenant, "spawn", inspect(reason))
         {:noreply, update_step(socket, :spawn, {:error, inspect(reason)})}
     end
   end
@@ -179,28 +217,109 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp handle_admin_result(result, socket) do
     case result do
       {:ok, user, password} ->
+        audit(socket, "tenant_admin_bootstrapped", socket.assigns.tenant, %{
+          username: user.username,
+          role: "ca_admin"
+        })
+
+        email_outcome = send_admin_invitation_email(socket, user.username, password)
+
         socket =
           socket
-          |> assign(admin_credentials: %{username: user.username, password: password})
+          |> assign(
+            admin_credentials: %{
+              username: user.username,
+              password: password,
+              email_outcome: email_outcome
+            }
+          )
           |> update_step(:admin, :done)
 
         send(self(), :start_active_step)
         {:noreply, socket}
 
       {:error, reason} ->
+        mark_tenant_failed(socket, {:admin_failed, reason})
+        audit_failure(socket, socket.assigns.tenant, "admin", inspect(reason))
         {:noreply, update_step(socket, :admin, {:error, inspect(reason)})}
     end
   end
 
+  # Best-effort email invitation. The flash that shows the plaintext
+  # password is the primary UX (survives air-gapped and mailer-down
+  # environments); this just delivers the same credentials to the
+  # tenant contact address so they don't have to be forwarded manually.
+  defp send_admin_invitation_email(socket, username, password) do
+    tenant = socket.assigns.tenant
+    beam = socket.assigns.beam_info
+    host = System.get_env("TENANT_PORTAL_HOST", "localhost")
+    portal_url = "http://#{host}:#{beam.port}/"
+
+    outcome =
+      TenantOnboarding.send_admin_invitation(tenant, username, password, portal_url: portal_url)
+
+    audit(socket, "tenant_admin_invited", tenant, %{
+      email: tenant.email,
+      outcome: email_outcome_label(outcome)
+    })
+
+    outcome
+  end
+
+  defp email_outcome_label({:ok, :sent}), do: "sent"
+  defp email_outcome_label({:ok, :skipped}), do: "skipped_no_api_key"
+  defp email_outcome_label({:error, reason}), do: "failed:#{inspect(reason)}"
+
   defp handle_active_result(result, socket) do
     case result do
       {:ok, tenant} ->
+        audit(socket, "tenant_activated", tenant, %{slug: tenant.slug})
         socket = socket |> assign(tenant: tenant) |> update_step(:active, :done)
         {:noreply, socket}
 
       {:error, reason} ->
+        mark_tenant_failed(socket, {:activate_failed, reason})
+        audit_failure(socket, socket.assigns.tenant, "active", inspect(reason))
         {:noreply, update_step(socket, :active, {:error, inspect(reason)})}
     end
+  end
+
+  # Flip the Tenant row to "failed" + record the failure reason so a
+  # future resume from /tenants can pick it up. No-op if the wizard
+  # hasn't created a tenant row yet (step 1 failed).
+  defp mark_tenant_failed(%{assigns: %{tenant: %{id: id}}}, reason) when is_binary(id) do
+    _ = TenantOnboarding.mark_failed(id, reason)
+    :ok
+  end
+
+  defp mark_tenant_failed(_socket, _reason), do: :ok
+
+  # Audit logging — best-effort. A down platform_audit_events table
+  # shouldn't block tenant provisioning, so swallow and log.
+  defp audit(socket, action, tenant, details) do
+    admin = socket.assigns.current_user
+    tenant_id = tenant && tenant.id
+
+    _ =
+      PlatformAudit.log(action, %{
+        actor_id: admin[:id] || admin["id"],
+        actor_username: admin[:username] || admin["username"],
+        portal: "platform",
+        tenant_id: tenant_id,
+        target_type: "tenant",
+        target_id: tenant_id,
+        details: details
+      })
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("[tenant_new] audit log failed for #{action}: #{Exception.message(e)}")
+      :ok
+  end
+
+  defp audit_failure(socket, tenant, step, reason) do
+    audit(socket, "tenant_provisioning_failed", tenant, %{step: step, reason: reason})
   end
 
   # --- Helpers ---
@@ -233,10 +352,53 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp validate_name(_), do: :ok
 
   defp validate_slug(""), do: {:error, "Slug is required."}
+  defp validate_slug(slug) when byte_size(slug) < 3,
+    do: {:error, "Slug must be at least 3 characters."}
+  defp validate_slug(slug) when byte_size(slug) > 63,
+    do: {:error, "Slug must be at most 63 characters."}
   defp validate_slug(slug) do
     if Regex.match?(~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, slug),
       do: :ok,
-      else: {:error, "Slug must contain only lowercase letters, numbers, and hyphens, and must start and end with a letter or number."}
+      else:
+        {:error,
+         "Slug must contain only lowercase letters, numbers, and hyphens, and must start and end with a letter or number."}
+  end
+
+  # Full slug validation: format first, then uniqueness. The uniqueness
+  # lookup hits Postgres on every phx-change keystroke for the slug
+  # field — cheap (indexed get_by/1) and catches collisions before the
+  # wizard starts spinning.
+  defp validate_slug_with_uniqueness(slug) do
+    trimmed = String.trim(slug)
+
+    with :ok <- validate_slug(trimmed) do
+      case Provisioner.get_tenant_by_slug(trimmed) do
+        nil -> :ok
+        _existing -> {:error, "A tenant with that slug already exists."}
+      end
+    end
+  rescue
+    # If the platform DB is unreachable (e.g. transient outage) we
+    # don't block the form — the Postgres unique constraint will
+    # catch the duplicate on submit.
+    _ -> validate_slug(String.trim(slug))
+  end
+
+  # Attach a field error iff the validator returned one AND the user
+  # has typed something (don't yell about empty fields on first render).
+  defp put_field_error(errors, field, value, validator) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        Map.delete(errors, field)
+
+      true ->
+        case validator.(trimmed) do
+          :ok -> Map.delete(errors, field)
+          {:error, msg} -> Map.put(errors, field, msg)
+        end
+    end
   end
 
   defp validate_email(""), do: {:error, "Email is required."}
@@ -282,13 +444,20 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
               </div>
             <% end %>
 
-            <form id="tenant-form" phx-submit="submit" class="space-y-4">
+            <form id="tenant-form" phx-submit="submit" phx-change="validate" class="space-y-4">
               <div>
                 <label for="tenant-name" class="block text-xs font-medium text-base-content/60 mb-1">
                   Name <span class="text-error">*</span>
                 </label>
                 <input type="text" name="name" id="tenant-name" required value={@name}
-                  class="input input-bordered w-full" placeholder="Acme Corporation" />
+                  class={[
+                    "input input-bordered w-full",
+                    @field_errors[:name] && "input-error"
+                  ]}
+                  placeholder="Acme Corporation" />
+                <p :if={@field_errors[:name]} class="text-xs text-error mt-1">
+                  {@field_errors[:name]}
+                </p>
               </div>
 
               <div>
@@ -296,10 +465,17 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                   Slug <span class="text-error">*</span>
                 </label>
                 <input type="text" name="slug" id="tenant-slug" required value={@slug}
-                  class="input input-bordered w-full font-mono" placeholder="acme-corp"
+                  class={[
+                    "input input-bordered w-full font-mono",
+                    @field_errors[:slug] && "input-error"
+                  ]}
+                  placeholder="acme-corp"
                   pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
                   title="Lowercase letters, numbers, and hyphens only." />
-                <p class="text-xs text-base-content/50 mt-1">
+                <p :if={@field_errors[:slug]} class="text-xs text-error mt-1">
+                  {@field_errors[:slug]}
+                </p>
+                <p :if={!@field_errors[:slug]} class="text-xs text-base-content/50 mt-1">
                   Becomes the tenant subdomain. Lowercase alphanumeric with hyphens.
                 </p>
               </div>
@@ -309,13 +485,27 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                   Email <span class="text-error">*</span>
                 </label>
                 <input type="email" name="email" id="tenant-email" required value={@email}
-                  class="input input-bordered w-full" placeholder="admin@acme-corp.com" />
-                <p class="text-xs text-base-content/50 mt-1">Initial ca_admin email.</p>
+                  class={[
+                    "input input-bordered w-full",
+                    @field_errors[:email] && "input-error"
+                  ]}
+                  placeholder="admin@acme-corp.com" />
+                <p :if={@field_errors[:email]} class="text-xs text-error mt-1">
+                  {@field_errors[:email]}
+                </p>
+                <p :if={!@field_errors[:email]} class="text-xs text-base-content/50 mt-1">
+                  Initial ca_admin email.
+                </p>
               </div>
 
               <div class="flex justify-end gap-3 pt-2">
                 <.link navigate="/tenants" class="btn btn-ghost btn-sm">Cancel</.link>
-                <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
+                <button
+                  type="submit"
+                  class="btn btn-primary btn-sm"
+                  disabled={@field_errors != %{}}
+                  phx-disable-with="Creating..."
+                >
                   Create Tenant
                 </button>
               </div>
