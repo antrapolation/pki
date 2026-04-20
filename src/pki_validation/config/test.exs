@@ -39,4 +39,11 @@ config :hammer,
 
 config :pki_ca_engine, :allow_dev_activate, true
 
+# pki_ca_engine's own config.exs sets `:pki_ca_engine, :env, config_env()`,
+# but path-dep configs don't merge when the dep is pulled from a sibling
+# project. Without this line, `PkiCaEngine.Application.assert_dev_activate_safe!`
+# defaults `compile_env` to `:prod` (fail-closed), sees
+# `:allow_dev_activate == true` above, and refuses to boot.
+config :pki_ca_engine, :env, config_env()
+
 config :logger, level: :warning
