@@ -1,7 +1,7 @@
 defmodule PkiPlatformPortalWeb.TenantNewLive do
   use PkiPlatformPortalWeb, :live_view
 
-  alias PkiPlatformEngine.TenantOnboarding
+  alias PkiPlatformEngine.{Provisioner, TenantOnboarding}
 
   require Logger
 
@@ -22,11 +22,34 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
        slug: "",
        email: "",
        form_error: nil,
+       field_errors: %{},
        progress: Enum.map(@steps, fn {key, label} -> {key, label, :pending} end),
        tenant: nil,
        beam_info: nil,
        admin_credentials: nil,
        task_ref: nil
+     )}
+  end
+
+  @impl true
+  def handle_event("validate", params, socket) do
+    name = params["name"] || ""
+    slug = params["slug"] || ""
+    email = params["email"] || ""
+
+    field_errors =
+      %{}
+      |> put_field_error(:name, name, &validate_name/1)
+      |> put_field_error(:slug, slug, &validate_slug_with_uniqueness/1)
+      |> put_field_error(:email, email, &validate_email/1)
+
+    {:noreply,
+     assign(socket,
+       name: name,
+       slug: slug,
+       email: email,
+       field_errors: field_errors,
+       form_error: nil
      )}
   end
 
@@ -37,7 +60,7 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
     email = String.trim(params["email"] || "")
 
     with :ok <- validate_name(name),
-         :ok <- validate_slug(slug),
+         :ok <- validate_slug_with_uniqueness(slug),
          :ok <- validate_email(email) do
       socket =
         assign(socket,
@@ -233,10 +256,53 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp validate_name(_), do: :ok
 
   defp validate_slug(""), do: {:error, "Slug is required."}
+  defp validate_slug(slug) when byte_size(slug) < 3,
+    do: {:error, "Slug must be at least 3 characters."}
+  defp validate_slug(slug) when byte_size(slug) > 63,
+    do: {:error, "Slug must be at most 63 characters."}
   defp validate_slug(slug) do
     if Regex.match?(~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, slug),
       do: :ok,
-      else: {:error, "Slug must contain only lowercase letters, numbers, and hyphens, and must start and end with a letter or number."}
+      else:
+        {:error,
+         "Slug must contain only lowercase letters, numbers, and hyphens, and must start and end with a letter or number."}
+  end
+
+  # Full slug validation: format first, then uniqueness. The uniqueness
+  # lookup hits Postgres on every phx-change keystroke for the slug
+  # field — cheap (indexed get_by/1) and catches collisions before the
+  # wizard starts spinning.
+  defp validate_slug_with_uniqueness(slug) do
+    trimmed = String.trim(slug)
+
+    with :ok <- validate_slug(trimmed) do
+      case Provisioner.get_tenant_by_slug(trimmed) do
+        nil -> :ok
+        _existing -> {:error, "A tenant with that slug already exists."}
+      end
+    end
+  rescue
+    # If the platform DB is unreachable (e.g. transient outage) we
+    # don't block the form — the Postgres unique constraint will
+    # catch the duplicate on submit.
+    _ -> validate_slug(String.trim(slug))
+  end
+
+  # Attach a field error iff the validator returned one AND the user
+  # has typed something (don't yell about empty fields on first render).
+  defp put_field_error(errors, field, value, validator) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        Map.delete(errors, field)
+
+      true ->
+        case validator.(trimmed) do
+          :ok -> Map.delete(errors, field)
+          {:error, msg} -> Map.put(errors, field, msg)
+        end
+    end
   end
 
   defp validate_email(""), do: {:error, "Email is required."}
@@ -282,13 +348,20 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
               </div>
             <% end %>
 
-            <form id="tenant-form" phx-submit="submit" class="space-y-4">
+            <form id="tenant-form" phx-submit="submit" phx-change="validate" class="space-y-4">
               <div>
                 <label for="tenant-name" class="block text-xs font-medium text-base-content/60 mb-1">
                   Name <span class="text-error">*</span>
                 </label>
                 <input type="text" name="name" id="tenant-name" required value={@name}
-                  class="input input-bordered w-full" placeholder="Acme Corporation" />
+                  class={[
+                    "input input-bordered w-full",
+                    @field_errors[:name] && "input-error"
+                  ]}
+                  placeholder="Acme Corporation" />
+                <p :if={@field_errors[:name]} class="text-xs text-error mt-1">
+                  {@field_errors[:name]}
+                </p>
               </div>
 
               <div>
@@ -296,10 +369,17 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                   Slug <span class="text-error">*</span>
                 </label>
                 <input type="text" name="slug" id="tenant-slug" required value={@slug}
-                  class="input input-bordered w-full font-mono" placeholder="acme-corp"
+                  class={[
+                    "input input-bordered w-full font-mono",
+                    @field_errors[:slug] && "input-error"
+                  ]}
+                  placeholder="acme-corp"
                   pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
                   title="Lowercase letters, numbers, and hyphens only." />
-                <p class="text-xs text-base-content/50 mt-1">
+                <p :if={@field_errors[:slug]} class="text-xs text-error mt-1">
+                  {@field_errors[:slug]}
+                </p>
+                <p :if={!@field_errors[:slug]} class="text-xs text-base-content/50 mt-1">
                   Becomes the tenant subdomain. Lowercase alphanumeric with hyphens.
                 </p>
               </div>
@@ -309,13 +389,27 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
                   Email <span class="text-error">*</span>
                 </label>
                 <input type="email" name="email" id="tenant-email" required value={@email}
-                  class="input input-bordered w-full" placeholder="admin@acme-corp.com" />
-                <p class="text-xs text-base-content/50 mt-1">Initial ca_admin email.</p>
+                  class={[
+                    "input input-bordered w-full",
+                    @field_errors[:email] && "input-error"
+                  ]}
+                  placeholder="admin@acme-corp.com" />
+                <p :if={@field_errors[:email]} class="text-xs text-error mt-1">
+                  {@field_errors[:email]}
+                </p>
+                <p :if={!@field_errors[:email]} class="text-xs text-base-content/50 mt-1">
+                  Initial ca_admin email.
+                </p>
               </div>
 
               <div class="flex justify-end gap-3 pt-2">
                 <.link navigate="/tenants" class="btn btn-ghost btn-sm">Cancel</.link>
-                <button type="submit" class="btn btn-primary btn-sm" phx-disable-with="Creating...">
+                <button
+                  type="submit"
+                  class="btn btn-primary btn-sm"
+                  disabled={@field_errors != %{}}
+                  phx-disable-with="Creating..."
+                >
                   Create Tenant
                 </button>
               </div>
