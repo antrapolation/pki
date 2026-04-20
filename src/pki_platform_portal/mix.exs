@@ -59,6 +59,13 @@ defmodule PkiPlatformPortal.MixProject do
       {:pki_ca_engine, path: "../pki_ca_engine"},
       {:pki_ra_engine, path: "../pki_ra_engine"},
       {:pki_validation, path: "../pki_validation"},
+      # pki_tenant / pki_tenant_web / pki_mnesia must be on the platform
+      # node's code path so TenantLifecycle.spawn_tenant/3 can forward
+      # every ebin to spawned tenant BEAMs via -pa. runtime: false keeps
+      # the Phoenix endpoint from auto-starting on the platform node.
+      {:pki_tenant, path: "../pki_tenant", runtime: false},
+      {:pki_tenant_web, path: "../pki_tenant_web", runtime: false},
+      {:pki_mnesia, path: "../pki_mnesia", runtime: false},
       {:logger_json, "~> 6.0"},
       {:phoenix_live_dashboard, "~> 0.8"}
     ]

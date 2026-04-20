@@ -13,6 +13,28 @@ defmodule PkiPlatformEngine.Provisioner do
 
   require Logger
 
+  @doc """
+  Per-tenant BEAM registration: inserts a `Tenant` row in the platform
+  DB with status `"provisioning"`. No Postgres schema creation — tenant
+  state lives in Mnesia on the spawned BEAM. Used by
+  `TenantOnboarding.register_tenant/3`.
+  """
+  @spec register_tenant(String.t(), String.t(), keyword()) ::
+          {:ok, Tenant.t()} | {:error, Ecto.Changeset.t() | term()}
+  def register_tenant(name, slug, opts \\ []) do
+    attrs = %{
+      name: name,
+      slug: slug,
+      email: Keyword.get(opts, :email),
+      schema_mode: "beam",
+      status: "provisioning"
+    }
+
+    %Tenant{}
+    |> Tenant.changeset(attrs)
+    |> PlatformRepo.insert()
+  end
+
   def create_tenant(name, slug, opts \\ []) do
     schema_mode = Keyword.get(opts, :schema_mode, "schema")
 
