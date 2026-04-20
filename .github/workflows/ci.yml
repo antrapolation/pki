@@ -21,81 +21,80 @@ jobs:
     name: Compile
     runs-on: ubuntu-latest
     steps:
-      # Gitea submodules were inlined into this repo, so `recursive`
-      # only has to pull `src/pqc-kaz` from public GitHub now.
-      - name: Checkout (recursive — public pqc-kaz submodule)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: ./.github/actions/setup
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+      - name: Compile (all apps)
+        # NOT using --warnings-as-errors yet — the repo has living
+        # warnings (typespec drift in ex_ccrypto, unreachable
+        # {:error, _} clauses, etc.). Mix still exits non-zero on
+        # *errors*, so new breakage is caught.
+        run: mix compile
 
-      - name: Setup Elixir / OTP
-        uses: erlef/setup-beam@v1
+  test:
+    name: Test ${{ matrix.package }}
+    needs: compile
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - pki_crypto
+          - pki_ca_engine
+          - pki_ra_engine
+          - pki_validation
+          - pki_platform_engine
+          - pki_platform_portal
+          - pki_tenant
+          - pki_tenant_web
+          - pki_mnesia
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - name: Install system build deps
-        # liboqs for pki_oqs_nif. The submodule's Makefile looks
-        # for /usr/local/include/oqs/oqs.h + /usr/local/lib/liboqs.a,
-        # so we build from source with default prefix. Rust toolchain
-        # for strap_softhsm_priv_key_store_provider's NIF.
+      - name: Create test databases
+        # Each package's config/test.exs configures one or more of
+        # these repos. Create them all up front (IF NOT EXISTS via
+        # `|| true`) so any package-specific mix alias that calls
+        # `ecto.create --quiet` is a no-op.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build libssl-dev pkg-config
+          for db in pki_platform_test pki_ca_engine_test pki_ra_engine_test \
+                    pki_validation_test pki_audit_trail_test pki_tenant_test; do
+            PGPASSWORD=postgres psql -h localhost -U postgres \
+              -c "CREATE DATABASE $db;" || true
+          done
 
-      - name: Cache liboqs build
-        id: liboqs-cache
-        uses: actions/cache@v4
-        with:
-          path: /usr/local
-          key: liboqs-0.14.0-ubuntu-latest
-
-      - name: Build + install liboqs
-        if: steps.liboqs-cache.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch 0.14.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
-          cmake -S /tmp/liboqs -B /tmp/liboqs/build \
-            -GNinja \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DOQS_BUILD_ONLY_LIB=ON
-          cmake --build /tmp/liboqs/build --parallel
-          sudo cmake --install /tmp/liboqs/build
-
-      - name: Install Rust toolchain (softhsm NIF)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Mix deps + _build
-        uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-          key: mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
-
-      - name: Fetch dependencies
+      - name: Fetch package deps
+        working-directory: src/${{ matrix.package }}
         run: mix deps.get
 
-      - name: Compile (all apps)
-        # NOT using --warnings-as-errors yet — the repo currently
-        # has living warnings (typespec drift in ex_ccrypto,
-        # unreachable {:error, _} clauses, etc.). Tracked
-        # separately. CI still flags compilation *errors* because
-        # Mix exits non-zero on failure.
-        run: mix compile
-
-  # Per-package test jobs come next. Not enabled yet: current
-  # coverage on 8 of 9 packages is below the 70% threshold in
-  # each mix.exs, so `mix test --cover` would always fail. Plan:
-  #
-  #   1. Separate PR lands test jobs without --cover (pass/fail
-  #      on real test results only).
-  #   2. As per-package coverage climbs past 70% via dedicated
-  #      test-writing PRs, flip that package's job to --cover.
-  #
-  # The compile job is already a meaningful gate — it enforces
-  # that every path dep (including the vendored `kaz_sign`
-  # submodule) resolves and builds on a clean Ubuntu runner.
+      - name: Run tests
+        working-directory: src/${{ matrix.package }}
+        # No --cover yet. Coverage thresholds in mix.exs range
+        # 70% but actual numbers are 2.2%–55% on 8 of 9 packages,
+        # so gating on coverage would keep CI red. Enable per
+        # package as coverage climbs past threshold via focused
+        # test-writing PRs.
+        run: mix test

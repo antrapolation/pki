@@ -1,0 +1,66 @@
+name: Setup PKI build environment
+description: >
+  Shared CI setup — Elixir+OTP, NIF build deps (liboqs, Rust
+  toolchain), and Mix cache. Used by every job in ci.yml so the
+  setup only has to be maintained in one place.
+
+inputs:
+  elixir-version:
+    description: Elixir version to install
+    required: true
+  otp-version:
+    description: Erlang/OTP version to install
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Elixir / OTP
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ inputs.elixir-version }}
+        otp-version: ${{ inputs.otp-version }}
+
+    - name: Install system build deps
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential cmake ninja-build libssl-dev pkg-config
+
+    - name: Cache liboqs build
+      id: liboqs-cache
+      uses: actions/cache@v4
+      with:
+        path: /usr/local
+        key: liboqs-0.14.0-ubuntu-latest
+
+    - name: Build + install liboqs
+      if: steps.liboqs-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        git clone --depth 1 --branch 0.14.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
+        cmake -S /tmp/liboqs -B /tmp/liboqs/build \
+          -GNinja \
+          -DCMAKE_INSTALL_PREFIX=/usr/local \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DOQS_BUILD_ONLY_LIB=ON
+        cmake --build /tmp/liboqs/build --parallel
+        sudo cmake --install /tmp/liboqs/build
+
+    - name: Install Rust toolchain (softhsm NIF)
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Mix deps + _build
+      uses: actions/cache@v4
+      with:
+        path: |
+          deps
+          _build
+        key: mix-${{ inputs.otp-version }}-${{ inputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          mix-${{ inputs.otp-version }}-${{ inputs.elixir-version }}-
+
+    - name: Fetch dependencies (root)
+      shell: bash
+      run: mix deps.get
