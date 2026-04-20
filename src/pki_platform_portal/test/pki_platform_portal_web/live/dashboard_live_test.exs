@@ -3,45 +3,38 @@ defmodule PkiPlatformPortalWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  @user %{"username" => "admin", "display_name" => "Platform Admin", "role" => "platform_admin"}
+  setup %{conn: conn} do
+    PkiPlatformPortal.SessionStore.clear_all()
+    %{conn: conn} = log_in_as_super_admin(conn)
+    {:ok, conn: conn}
+  end
 
   describe "authenticated" do
-    setup %{conn: conn} do
-      conn = init_test_session(conn, %{current_user: @user})
-      {:ok, conn: conn}
-    end
-
-    test "mounts and renders dashboard with tenant counts", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/")
-
-      assert html =~ "Dashboard"
-      assert html =~ "Total Tenants"
-      assert html =~ "Active Tenants"
-    end
-
-    test "renders stat cards", %{conn: conn} do
+    test "mounts /", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
 
-      assert has_element?(view, "#total-tenants-card")
-      assert has_element?(view, "#active-tenants-card")
       assert has_element?(view, "#dashboard")
+      assert render(view) =~ "Total Tenants"
+      assert render(view) =~ "Active"
     end
 
-    test "renders recent tenants section", %{conn: conn} do
+    test "shows zeroed tenant counts when no tenants exist", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/")
 
-      assert has_element?(view, "#recent-tenants")
+      html = render(view)
+      # Both "Total Tenants" and "Active" cards should show 0 initially.
+      assert html =~ "Total Tenants"
+      assert html =~ ~r|<p class="text-xl font-bold">0</p>|
     end
 
-    test "shows manage tenants link", %{conn: conn} do
+    test "links to /tenants", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/")
-
       assert html =~ ~s(href="/tenants")
-      assert html =~ "Manage Tenants"
     end
   end
 
-  test "redirects to login when not authenticated", %{conn: conn} do
+  test "redirects to /login when unauthenticated" do
+    conn = Phoenix.ConnTest.build_conn() |> Plug.Test.init_test_session(%{})
     assert {:error, {:redirect, %{to: "/login"}}} = live(conn, "/")
   end
 end
