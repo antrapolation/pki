@@ -85,6 +85,46 @@ defmodule PkiPlatformEngine.SofthsmTokenManagerTest do
       refute a.conf_path == b.conf_path
     end
 
+    test "with tenant_id + master key: wraps PINs into envelope, skips .pins file", %{base: base} do
+      defmodule StubBackend do
+        @behaviour PkiPlatformEngine.SecretManager
+        @impl true
+        def master_key, do: {:ok, <<9::256>>}
+      end
+
+      prev = Application.get_env(:pki_platform_engine, :secret_manager)
+      Application.put_env(:pki_platform_engine, :secret_manager, StubBackend)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:pki_platform_engine, :secret_manager, prev),
+          else: Application.delete_env(:pki_platform_engine, :secret_manager)
+      end)
+
+      slug = "wrapped-#{System.unique_integer([:positive])}"
+      tenant_id = "01ffffff-0000-7000-8000-#{String.slice(slug <> "000000000000", 0, 12)}"
+
+      assert {:ok, info} =
+               SofthsmTokenManager.init_tenant_token(slug,
+                 base_dir: base,
+                 tenant_id: tenant_id,
+                 user_pin: "4321",
+                 so_pin: "87654321"
+               )
+
+      # Envelope came back, carries the expected v1 shape.
+      assert is_map(info.pin_envelope)
+      assert info.pin_envelope["version"] == "v1"
+
+      # PIN file must NOT be on disk when envelope path is taken.
+      refute File.exists?(Path.join(info.tenant_dir, ".pins"))
+
+      # Round-trip the envelope to confirm it's decryptable with the
+      # same tenant_id + master key.
+      assert {:ok, %{user_pin: "4321", so_pin: "87654321"}} =
+               PkiPlatformEngine.SofthsmPinCustody.unwrap(tenant_id, info.pin_envelope)
+    end
+
     test "cleanup_tenant_token removes an initialized token", %{base: base} do
       slug = "cleanup-#{System.unique_integer([:positive])}"
 

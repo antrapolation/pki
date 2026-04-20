@@ -82,7 +82,7 @@ defmodule PkiPlatformEngine.TenantOnboarding do
   @spec provision_softhsm_token(Tenant.t()) ::
           {:ok, map()} | {:ok, :skipped} | {:error, term()}
   def provision_softhsm_token(%Tenant{} = tenant) do
-    case SofthsmTokenManager.init_tenant_token(tenant.slug) do
+    case SofthsmTokenManager.init_tenant_token(tenant.slug, tenant_id: tenant.id) do
       {:ok, :skipped} = skip ->
         skip
 
@@ -100,11 +100,14 @@ defmodule PkiPlatformEngine.TenantOnboarding do
   end
 
   defp persist_softhsm_metadata(%Tenant{} = tenant, info) do
-    # PINs live on disk in the token dir (`.pins`, mode 0600) for
-    # this first increment — do NOT copy them into metadata where
-    # they'd land in Postgres in plaintext. Only coordinates go in
-    # the DB.
-    softhsm_meta = %{
+    # Coordinates + optional encrypted PIN envelope go into
+    # tenants.metadata.softhsm. When pin_envelope is present
+    # (production path) it carries the ciphertext from
+    # SofthsmPinCustody.wrap/3 — safe to persist in PG since the
+    # decryption KEK comes from PKI_PLATFORM_MASTER_KEY, not the
+    # DB. When pin_envelope is nil, PINs live in .pins on disk
+    # (dev-only fallback) and must not appear in metadata.
+    base_meta = %{
       "conf_path" => info.conf_path,
       "tenant_dir" => info.tenant_dir,
       "slot_id" => info.slot_id,
@@ -112,6 +115,12 @@ defmodule PkiPlatformEngine.TenantOnboarding do
       "library_path" => info.library_path,
       "provisioned_at" => DateTime.utc_now() |> DateTime.to_iso8601()
     }
+
+    softhsm_meta =
+      case info.pin_envelope do
+        nil -> base_meta
+        envelope when is_map(envelope) -> Map.put(base_meta, "pin_envelope", envelope)
+      end
 
     new_meta = Map.put(tenant.metadata || %{}, "softhsm", softhsm_meta)
 
