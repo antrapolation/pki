@@ -214,7 +214,48 @@ defmodule PkiIntegration.TenantOnboardingFailureTest do
     end
   end
 
-  # --- 6. Peer dies post-spawn, before boot ---------------------------
+  # --- 6. Graceful stop preserves Mnesia disc_copies ------------------
+
+  test "TenantLifecycle graceful stop flushes Mnesia; respawn sees prior data", %{base: base} do
+    # NOTE: we spawn the peer via spawn_and_boot so the peer is known
+    # to TenantLifecycle's state... except spawn_tenant_for_test doesn't
+    # register the peer with the GenServer. So here we exercise the
+    # graceful shutdown helper by directly calling the same RPC sequence
+    # the helper performs. Task #18 (platform restart recovery) will
+    # flesh out the GenServer-registered flow with a dedicated test.
+    slug = "graceful_stop#{System.unique_integer([:positive])}"
+
+    first = spawn_and_boot(slug)
+
+    attrs = %{
+      username: "survivor",
+      display_name: "S",
+      email: "s@example.test",
+      role: "ca_admin"
+    }
+
+    assert {:ok, _, _} =
+             PkiPlatformEngine.TenantLifecycle.create_initial_admin(first.node, attrs)
+
+    # Graceful shutdown sequence (mirrors TenantLifecycle.graceful_peer_stop).
+    :rpc.call(first.node, :mnesia, :stop, [], 5_000)
+    :ok = stop_peer(first.pid)
+
+    assert File.exists?(Path.join(base, "#{slug}/mnesia"))
+
+    second = spawn_and_boot(slug)
+
+    users =
+      :rpc.call(second.node, PkiTenant.PortalUserAdmin, :list_users, [:ca], @peer_boot_timeout)
+
+    assert "survivor" in Enum.map(users, & &1.username),
+           "data committed before graceful stop must be visible on respawn"
+
+    :rpc.call(second.node, :mnesia, :stop, [], 5_000)
+    stop_peer(second.pid)
+  end
+
+  # --- 7. Peer dies post-spawn, before boot ---------------------------
 
   test "boot_tenant_apps on a dead peer returns {:error, _} not an exit" do
     slug = "dead_peer#{System.unique_integer([:positive])}"

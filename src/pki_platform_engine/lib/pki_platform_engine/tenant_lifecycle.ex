@@ -188,6 +188,27 @@ defmodule PkiPlatformEngine.TenantLifecycle do
 
   defp normalize_override({key, value}), do: {key, value}
 
+  # Stop a tenant peer gracefully: flush Mnesia to disc first, then
+  # :peer.stop. disc_copies tables use lazy writeback, so an abrupt
+  # :peer.stop loses uncommitted writes. The :mnesia.stop RPC is
+  # bounded (5s) so a wedged tenant can't hold the lifecycle caller.
+  # Any RPC error is swallowed — we want to stop the peer regardless.
+  defp graceful_peer_stop(info) do
+    try do
+      :rpc.call(info.node, :mnesia, :stop, [], 5_000)
+    catch
+      _, _ -> :ok
+    end
+
+    try do
+      :peer.stop(info.peer_pid)
+    catch
+      _, _ -> :ok
+    end
+
+    :ok
+  end
+
   defp ensure_elixir_started(node, timeout) do
     case :rpc.call(node, :application, :ensure_all_started, [:elixir], timeout) do
       {:ok, _} -> :ok
@@ -271,7 +292,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
         {:reply, {:error, :not_found}, state}
 
       info ->
-        :peer.stop(info.peer_pid)
+        graceful_peer_stop(info)
         PortAllocator.release(tenant_id)
         CaddyConfigurator.remove_route(info.slug)
         new_tenants = Map.delete(state.tenants, tenant_id)
@@ -291,7 +312,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
         saved_port = info.port
         saved_slug = info.slug
 
-        :peer.stop(info.peer_pid)
+        graceful_peer_stop(info)
 
         # Remove old monitor ref from state but keep port in PortAllocator
         state_without_tenant = %{state | tenants: Map.delete(state.tenants, tenant_id)}
