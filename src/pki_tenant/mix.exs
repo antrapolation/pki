@@ -8,7 +8,8 @@ defmodule PkiTenant.MixProject do
       elixir: "~> 1.14",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      test_coverage: [threshold: 70, summary: [threshold: 70]]
     ]
   end
 

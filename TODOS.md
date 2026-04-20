@@ -35,8 +35,14 @@ tracks the order we agreed to work through them.
 - [ ] **2d. mTLS at Cowboy listener** (~4-8h)
 
 ### Tier 3 — Quality infrastructure
-- [ ] **3a. Wire `mix test --cover`** — real line-coverage numbers. Target
-  ≥70% for pki_ca_engine / pki_ra_engine / pki_crypto.
+- [x] **3a. Wire `mix test --cover`** — `test_coverage: [threshold: 70,
+  summary: [threshold: 70]]` added to 9 package mix.exs files;
+  `scripts/coverage.sh` runs the sweep and prints a per-package summary.
+  First real numbers (2026-04-21): pki_crypto 80.3% ✅, pki_tenant 53.4%,
+  pki_mnesia 48.0%, pki_ra_engine 46.1%, pki_platform_engine 16.2%,
+  pki_platform_portal 9.7%, pki_tenant_web 2.2%. pki_ca_engine +
+  pki_validation currently fail to boot in test env (separate bugs
+  — PlatformRepo not started; `:allow_dev_activate` in prod env).
 - [ ] **3b. First real E2E test with PG up** — CSR → RA approve → CA sign
   → OCSP check against live engines.
 

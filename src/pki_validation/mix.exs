@@ -10,7 +10,8 @@ defmodule PkiValidation.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       erlc_paths: ["src"],
       compilers: [:asn1] ++ Mix.compilers(),
-      deps: deps()
+      deps: deps(),
+      test_coverage: [threshold: 70, summary: [threshold: 70]]
     ]
   end
 
