@@ -76,18 +76,23 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   ]
 
   # Per-app env overrides applied AFTER the parent's env is forwarded.
-  # The parent may have `start_application: false` on tenant apps (root
-  # test env sets this so the umbrella can run its own tests without the
-  # tenant supervisors fighting over named singletons). The spawned peer
-  # IS a real tenant BEAM though — `pki_tenant` must start so
-  # MnesiaBootstrap + AuditBridge + engine supervisors come up, and
-  # `pki_tenant_web`'s Phoenix endpoint must bind its port. Engine apps
-  # stay `start_application: false` because `pki_tenant` deliberately
-  # owns their supervisors (otherwise both trees would race to start the
-  # same named GenServer).
+  # On the spawned peer:
+  #
+  #   * pki_tenant MUST start (owns MnesiaBootstrap, AuditBridge, and
+  #     the engine supervisors — PkiCaEngine.EngineSupervisor,
+  #     PkiRaEngine.EngineSupervisor, PkiValidation.Supervisor).
+  #   * pki_tenant_web's Phoenix endpoint MUST bind (server: true).
+  #   * pki_ca_engine / pki_ra_engine / pki_validation MUST NOT start
+  #     their own supervisors — pki_tenant owns them. The parent's dev
+  #     env has start_application: true for these (default), which if
+  #     forwarded would race pki_tenant for the same named GenServers,
+  #     surfacing as {:already_started, _}. Force them off here.
   @peer_env_overrides %{
     pki_tenant: [start_application: true],
-    pki_tenant_web: [{{PkiTenantWeb.Endpoint, :server}, true}]
+    pki_tenant_web: [{{PkiTenantWeb.Endpoint, :server}, true}],
+    pki_ca_engine: [start_application: false],
+    pki_ra_engine: [start_application: false],
+    pki_validation: [start_application: false]
   }
 
   defp forward_compile_time_env(node, timeout) do

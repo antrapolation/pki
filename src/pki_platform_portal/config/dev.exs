@@ -83,7 +83,18 @@ config :pki_validation, PkiValidation.Repo,
   database: "pki_validation_dev",
   pool_size: 5
 
-config :pki_validation, :http, start: true, port: 4005
+# pki_validation HTTP is started per-tenant inside each spawned tenant
+# BEAM (post-M5), NOT on the platform node. Leaving start: true here
+# would make the platform grab port 4005 and then every tenant spawn
+# would fail with :eaddrinuse when its own peer starts pki_validation.
+config :pki_validation, :http, start: false
+
+# Put spawned tenants' Mnesia dirs under the repo instead of the prod
+# default /var/lib/pki/tenants — no root perms needed on a dev box.
+# TenantLifecycle.spawn_tenant/3 passes the resolved path as MNESIA_DIR
+# env var to each peer, which MnesiaBootstrap.init_primary/1 reads.
+config :pki_platform_engine,
+  tenant_mnesia_base: Path.expand("../../../_dev_tenants", __DIR__)
 
 # Hammer rate limiter config
 config :hammer,

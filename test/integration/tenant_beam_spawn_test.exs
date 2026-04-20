@@ -53,14 +53,34 @@ defmodule PkiIntegration.TenantBeamSpawnTest do
 
     # Point the production spawn at our temp dir for this test only.
     prev_base = Application.get_env(:pki_platform_engine, :tenant_mnesia_base)
+
+    # The parent's test env has start_application: false for engine apps
+    # (so the umbrella's own test runs don't fight over named supervisors).
+    # That masks a real dev/prod failure mode where engine apps default
+    # to start_application: true → PkiCaEngine.EngineSupervisor races
+    # pki_tenant for the same named GenServer → {:already_started, _}.
+    # Flip engines to true on the PARENT for this test so the peer-side
+    # override in TenantLifecycle is the only thing saving us.
+    engine_apps = [:pki_ca_engine, :pki_ra_engine, :pki_validation]
+    prev_engine_flags =
+      for app <- engine_apps, do: {app, Application.get_env(app, :start_application)}
+
     on_exit(fn ->
       if prev_base,
         do: Application.put_env(:pki_platform_engine, :tenant_mnesia_base, prev_base),
         else: Application.delete_env(:pki_platform_engine, :tenant_mnesia_base)
+
+      for {app, prev} <- prev_engine_flags do
+        if is_nil(prev),
+          do: Application.delete_env(app, :start_application),
+          else: Application.put_env(app, :start_application, prev)
+      end
     end)
 
     test_base = Path.dirname(mnesia_dir)
     Application.put_env(:pki_platform_engine, :tenant_mnesia_base, test_base)
+    for app <- engine_apps, do: Application.put_env(app, :start_application, true)
+
     _ = tenant_id
 
     # 1. Call the REAL production spawn helper (exposed for testing) so
