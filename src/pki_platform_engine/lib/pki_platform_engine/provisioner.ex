@@ -108,6 +108,11 @@ defmodule PkiPlatformEngine.Provisioner do
         _ = PkiPlatformEngine.SofthsmTokenManager.cleanup_tenant_token(tenant.slug)
         result
 
+      %{schema_mode: "beam"} = tenant ->
+        result = delete_beam_mode_tenant(tenant)
+        _ = PkiPlatformEngine.SofthsmTokenManager.cleanup_tenant_token(tenant.slug)
+        result
+
       tenant ->
         result = delete_database_mode_tenant(tenant)
         _ = PkiPlatformEngine.SofthsmTokenManager.cleanup_tenant_token(tenant.slug)
@@ -338,6 +343,22 @@ defmodule PkiPlatformEngine.Provisioner do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # BEAM-mode tenants have no per-tenant Postgres database and no
+  # schema prefixes — their state is a per-tenant Mnesia dir managed
+  # by the spawned peer. TenantSupervisor.stop_tenant routes to
+  # TenantLifecycle.stop_tenant, which gracefully stops the peer,
+  # releases the port (incl. its `tenant_port_assignments` row), and
+  # removes the Caddy route. After that, deleting the platform-DB
+  # row is all that's left.
+  defp delete_beam_mode_tenant(tenant) do
+    _ = PkiPlatformEngine.TenantSupervisor.stop_tenant(tenant.id)
+
+    case PlatformRepo.delete(tenant) do
+      {:ok, deleted} -> {:ok, deleted}
+      {:error, reason} -> {:error, reason}
     end
   end
 

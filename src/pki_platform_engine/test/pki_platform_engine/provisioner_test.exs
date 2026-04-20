@@ -267,6 +267,24 @@ defmodule PkiPlatformEngine.ProvisionerTest do
     test "returns error for unknown tenant" do
       assert {:error, :not_found} = Provisioner.delete_tenant(Uniq.UUID.uuid7())
     end
+
+    test "beam-mode: deletes the row without touching a (non-existent) DB" do
+      # Insert a beam-mode tenant directly (bypasses create_tenant's
+      # schema/database paths; beam tenants have no per-tenant DB).
+      {:ok, tenant} =
+        %PkiPlatformEngine.Tenant{}
+        |> PkiPlatformEngine.Tenant.changeset(%{
+          name: "Beam Co #{System.unique_integer([:positive])}",
+          slug: "beamco#{System.unique_integer([:positive])}",
+          email: "beam@example.test",
+          schema_mode: "beam",
+          status: "active"
+        })
+        |> PlatformRepo.insert()
+
+      assert {:ok, %PkiPlatformEngine.Tenant{}} = Provisioner.delete_tenant(tenant.id)
+      assert PlatformRepo.get(PkiPlatformEngine.Tenant, tenant.id) == nil
+    end
   end
 
   defp errors_on(changeset) do
