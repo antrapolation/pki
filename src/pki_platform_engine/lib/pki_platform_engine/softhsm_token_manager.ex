@@ -7,19 +7,27 @@ defmodule PkiPlatformEngine.SofthsmTokenManager do
   randomly-generated USER / SO PINs. This gives per-tenant PKCS#11
   isolation: tenant A can't touch tenant B's token objects.
 
-  ## PIN custody (scope caveat)
+  ## PIN custody
 
-  This first increment stores the generated PINs **on disk** in the
-  token directory (`.pins` file, mode 0600). That is safe for dev
-  and CI but **not production**. Follow-up work (tracked separately)
-  should:
+  Two modes, chosen automatically:
 
-    * encrypt the PINs with a platform master key (HKDF + AES-GCM)
-      and persist the ciphertext in `tenants.metadata`, or
-    * integrate with a secrets manager (AWS SSM, Vault, HashiVault).
+  1. **Encrypted envelope (production).** When
+     `PkiPlatformEngine.SecretManager.master_key/0` returns a key
+     AND the caller passes `tenant_id:`, the generated PINs are
+     wrapped via `PkiPlatformEngine.SofthsmPinCustody.wrap/3` and
+     returned as `pin_envelope`. No `.pins` file is written.
+     Callers persist the envelope in `tenants.metadata` and
+     decrypt on demand via `SofthsmPinCustody.unwrap/2`.
 
-  Callers get the PINs back in the return map so they can persist
-  them elsewhere if they want to.
+  2. **Plaintext `.pins` file (dev / fallback).** If there's no
+     master key configured, or no `tenant_id` supplied, PINs land
+     in `<tenant_dir>/.pins` (mode 0600) and a warning is logged.
+     Never safe for production.
+
+  Callers always get plaintext `user_pin` / `so_pin` in the return
+  map for this step's immediate use (writing config, login smoke
+  test). Long-term storage is either the envelope or the file —
+  never both.
 
   ## Availability
 
@@ -106,12 +114,13 @@ defmodule PkiPlatformEngine.SofthsmTokenManager do
     label = Keyword.get(opts, :label, "tenant-#{slug}")
     user_pin = Keyword.get(opts, :user_pin, generate_pin())
     so_pin = Keyword.get(opts, :so_pin, generate_pin(12))
+    tenant_id = Keyword.get(opts, :tenant_id)
 
     with :ok <- File.mkdir_p(tenant_dir),
          :ok <- write_conf(conf_path, tenant_dir),
          {:ok, _} <- run_init_token(conf_path, label, user_pin, so_pin),
          {:ok, slot_id} <- detect_slot(conf_path, label),
-         :ok <- write_pin_file(tenant_dir, user_pin, so_pin) do
+         {:ok, pin_envelope} <- store_pins(tenant_dir, tenant_id, user_pin, so_pin, slug) do
       {:ok,
        %{
          conf_path: conf_path,
@@ -120,6 +129,7 @@ defmodule PkiPlatformEngine.SofthsmTokenManager do
          label: label,
          user_pin: user_pin,
          so_pin: so_pin,
+         pin_envelope: pin_envelope,
          library_path: detect_library_path()
        }}
     else
@@ -132,6 +142,39 @@ defmodule PkiPlatformEngine.SofthsmTokenManager do
       other ->
         _ = File.rm_rf(tenant_dir)
         {:error, {:unexpected, other}}
+    end
+  end
+
+  # Either returns an encrypted envelope (production path) or
+  # falls back to writing a plaintext `.pins` file and emitting a
+  # loud warning. In both cases returns {:ok, envelope_or_nil}
+  # — nil means the caller must treat `.pins` on disk as the
+  # PIN source of truth.
+  defp store_pins(tenant_dir, tenant_id, user_pin, so_pin, slug) do
+    if is_binary(tenant_id) and tenant_id != "" do
+      case PkiPlatformEngine.SofthsmPinCustody.wrap(tenant_id, user_pin, so_pin) do
+        {:ok, envelope} ->
+          {:ok, envelope}
+
+        {:error, :no_master_key} ->
+          Logger.warning(
+            "[softhsm] #{slug}: no PKI_PLATFORM_MASTER_KEY — storing PINs in .pins on disk (dev-only)"
+          )
+
+          write_pin_file(tenant_dir, user_pin, so_pin)
+          {:ok, nil}
+
+        {:error, reason} ->
+          Logger.error("[softhsm] #{slug}: PIN wrap failed (#{inspect(reason)}) — aborting")
+          {:error, {:pin_wrap_failed, reason}}
+      end
+    else
+      Logger.warning(
+        "[softhsm] #{slug}: called without :tenant_id — storing PINs in .pins on disk (dev-only)"
+      )
+
+      write_pin_file(tenant_dir, user_pin, so_pin)
+      {:ok, nil}
     end
   end
 
@@ -149,10 +192,12 @@ defmodule PkiPlatformEngine.SofthsmTokenManager do
 
   defp write_pin_file(tenant_dir, user_pin, so_pin) do
     path = Path.join(tenant_dir, ".pins")
-    # WARNING: dev-only. Production must replace this with an
-    # encrypted store — see moduledoc.
+    # WARNING: dev-only fallback. When PKI_PLATFORM_MASTER_KEY is
+    # set and the caller passes :tenant_id, the encrypted envelope
+    # path in store_pins/5 is taken instead.
     :ok = File.write!(path, "user=#{user_pin}\nso=#{so_pin}\n")
-    File.chmod(path, 0o600)
+    _ = File.chmod(path, 0o600)
+    :ok
   end
 
   defp run_init_token(conf_path, label, user_pin, so_pin) do
