@@ -9,16 +9,11 @@ defmodule PkiRaEngine.Application do
   def start(_type, _args) do
     children =
       if Application.get_env(:pki_ra_engine, :start_application, true) do
-        [
-          PkiRaEngine.Repo,
-          {Task.Supervisor, name: PkiRaEngine.TaskSupervisor}
-        ] ++ dcv_poller_children() ++ reconciler_children()
+        [{Task.Supervisor, name: PkiRaEngine.TaskSupervisor}] ++ dcv_poller_children()
       else
         []
       end
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     PkiRaEngine.Telemetry.setup()
 
     if Application.get_env(:pki_ra_engine, :start_application, true) do
@@ -36,13 +31,4 @@ defmodule PkiRaEngine.Application do
       []
     end
   end
-
-  defp reconciler_children do
-    if Application.get_env(:pki_ra_engine, :start_csr_reconciler, true) do
-      [PkiRaEngine.CsrReconciler]
-    else
-      []
-    end
-  end
-
 end

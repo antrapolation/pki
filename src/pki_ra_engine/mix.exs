@@ -27,9 +27,7 @@ defmodule PkiRaEngine.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      setup: ["deps.get"],
       test: ["test"]
     ]
   end
@@ -39,9 +37,6 @@ defmodule PkiRaEngine.MixProject do
       {:pki_mnesia, path: "../pki_mnesia"},
       {:pki_crypto, path: "../pki_crypto"},
       {:pki_ca_engine, path: "../pki_ca_engine"},
-      # Ecto deps kept for legacy modules not yet migrated (user_management, webhook_delivery, etc.)
-      {:ecto_sql, "~> 3.11"},
-      {:postgrex, "~> 0.18"},
       {:jason, "~> 1.4"},
       {:plug, "~> 1.16"},
       {:plug_cowboy, "~> 2.7"},

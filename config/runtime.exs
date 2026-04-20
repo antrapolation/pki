@@ -20,11 +20,8 @@ import Config
 database_url = System.get_env("DATABASE_URL")
 
 platform_db_url = System.get_env("PLATFORM_DATABASE_URL") || database_url
-ca_engine_db_url = System.get_env("CA_ENGINE_DATABASE_URL") || database_url
-ra_engine_db_url = System.get_env("RA_ENGINE_DATABASE_URL") || database_url
 validation_db_url = System.get_env("VALIDATION_DATABASE_URL") || database_url
-# Audit trail defaults to CA engine DB for backward compat (audit_events table lives there)
-audit_trail_db_url = System.get_env("AUDIT_TRAIL_DATABASE_URL") || ca_engine_db_url
+audit_trail_db_url = System.get_env("AUDIT_TRAIL_DATABASE_URL") || database_url
 
 # ─── Platform Engine (all releases) ────────────────────────────────────
 
@@ -65,28 +62,12 @@ if base_domain = System.get_env("BASE_DOMAIN") do
   config :pki_platform_engine, base_domain: base_domain
 end
 
-# ─── CA Engine ──────────────────────────────────────────────────────────
-
-if ca_engine_db_url do
-  config :pki_ca_engine, PkiCaEngine.Repo,
-    url: ca_engine_db_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
-    prepare: :unnamed
-end
+# ─── Audit trail ────────────────────────────────────────────────────────
 
 if audit_trail_db_url do
   config :pki_audit_trail, PkiAuditTrail.Repo,
     url: audit_trail_db_url,
     pool_size: String.to_integer(System.get_env("AUDIT_POOL_SIZE", "5")),
-    prepare: :unnamed
-end
-
-# ─── RA Engine ──────────────────────────────────────────────────────────
-
-if ra_engine_db_url do
-  config :pki_ra_engine, PkiRaEngine.Repo,
-    url: ra_engine_db_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
     prepare: :unnamed
 end
 

@@ -37,23 +37,10 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   username: System.get_env("POSTGRES_USER", "postgres"),
   password: System.get_env("POSTGRES_PASSWORD", "postgres")
 
-# In direct mode, engines run in-process — configure all engine repos
-if ca_engine_db_url = System.get_env("CA_ENGINE_DATABASE_URL") do
-  config :pki_ca_engine, PkiCaEngine.Repo,
-    url: ca_engine_db_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
-    prepare: :unnamed
-
+if audit_trail_db_url = System.get_env("AUDIT_TRAIL_DATABASE_URL") do
   config :pki_audit_trail, PkiAuditTrail.Repo,
-    url: ca_engine_db_url,
+    url: audit_trail_db_url,
     pool_size: String.to_integer(System.get_env("AUDIT_POOL_SIZE", "5")),
-    prepare: :unnamed
-end
-
-if ra_engine_db_url = System.get_env("RA_ENGINE_DATABASE_URL") do
-  config :pki_ra_engine, PkiRaEngine.Repo,
-    url: ra_engine_db_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
     prepare: :unnamed
 end
 

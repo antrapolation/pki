@@ -65,23 +65,7 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   port: 5432,
   pool_size: 2
 
-# Engine database configs (needed for direct admin creation on activation)
-config :pki_ca_engine, PkiCaEngine.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  port: 5432,
-  database: "pki_ca_engine_dev",
-  pool_size: 3
-
-config :pki_ra_engine, PkiRaEngine.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  port: 5432,
-  database: "pki_ra_engine_dev",
-  pool_size: 3
-
+# Audit trail Repo (PkiAuditTrail still uses Postgres).
 config :pki_audit_trail, PkiAuditTrail.Repo,
   username: "postgres",
   password: "postgres",
@@ -89,10 +73,6 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   port: 5432,
   database: "pki_ca_engine_dev",
   pool_size: 2
-
-# Disable CA/RA engine HTTP servers (portals use Direct mode)
-config :pki_ca_engine, :start_http, false
-config :pki_ra_engine, start_http: false
 
 # Validation engine — auto-start HTTP on port 4005
 config :pki_validation, PkiValidation.Repo,

@@ -45,29 +45,11 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   password: "postgres",
   pool_size: 2
 
-config :pki_ca_engine, PkiCaEngine.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  port: 5432,
-  database: "pki_ca_engine_test",
-  pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: 2
-
 config :pki_audit_trail, PkiAuditTrail.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
   port: 5432,
   database: "pki_ca_engine_test",
-  pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: 2
-
-config :pki_ra_engine, PkiRaEngine.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  port: 5432,
-  database: "pki_ra_engine_test",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 2

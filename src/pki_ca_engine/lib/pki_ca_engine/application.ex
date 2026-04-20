@@ -10,7 +10,6 @@ defmodule PkiCaEngine.Application do
     children =
       if Application.get_env(:pki_ca_engine, :start_application, true) do
         [
-          PkiCaEngine.Repo,
           {PkiCaEngine.CeremonyRegistry, name: :ceremony_pid_registry},
           {PkiCaEngine.KeyActivation,
            name: PkiCaEngine.KeyActivation,
@@ -21,38 +20,12 @@ defmodule PkiCaEngine.Application do
         []
       end
 
-    result = if Application.get_env(:pki_ca_engine, :start_application, true) do
+    if Application.get_env(:pki_ca_engine, :start_application, true) do
       opts = [strategy: :rest_for_one, name: PkiCaEngine.Supervisor]
       Supervisor.start_link(children, opts)
     else
       Supervisor.start_link([], strategy: :one_for_one)
     end
-
-    if Application.get_env(:pki_ca_engine, :start_application, true) do
-      ensure_default_instance()
-    end
-
-    result
-  end
-
-  defp ensure_default_instance do
-    import Ecto.Query
-    alias PkiCaEngine.Schema.CaInstance
-
-    case PkiCaEngine.Repo.one(
-           from(i in CaInstance, where: i.name == "default", limit: 1)
-         ) do
-      nil ->
-        %CaInstance{}
-        |> CaInstance.changeset(%{name: "default", status: "active", created_by: "system"})
-        |> PkiCaEngine.Repo.insert!()
-
-      _exists ->
-        :ok
-    end
-  rescue
-    # DB not ready yet (migrations not run) — skip silently
-    _ -> :ok
   end
 
   @doc false
