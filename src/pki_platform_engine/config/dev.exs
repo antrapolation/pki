@@ -14,3 +14,8 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
   username: "postgres",
   password: "postgres",
   pool_size: 2
+
+# Dev-only: put spawned tenants' Mnesia directories under the repo so no
+# root permissions are needed. Prod uses /var/lib/pki/tenants (default).
+config :pki_platform_engine,
+  tenant_mnesia_base: Path.expand("../../../_dev_tenants", __DIR__)

@@ -37,21 +37,140 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   @doc """
   Boot the tenant application stack on a spawned node via RPC.
 
-  After `:peer.start_link` returns, the child BEAM has runtime but no
-  tenant apps running. In dev this call loads `pki_tenant_web` (which
-  pulls in `pki_tenant`, `pki_ca_engine`, `pki_ra_engine`,
-  `pki_validation`, `pki_mnesia` transitively) and waits for the
-  web endpoint to respond.
+  A fresh peer BEAM has only OTP loaded — Elixir, every application's
+  compile-time config, and the tenant apps themselves aren't present.
+  The bootstrap sequence is:
 
-  Shared code paths mean the spawned node sees the parent's beam files;
-  the actual `Mnesia` schema is created in `PkiTenant.MnesiaBootstrap.init/1`
-  at app start, using the `MNESIA_DIR` env var set in `spawn_tenant/3`.
+    1. Start `:elixir` so the stdlib is callable on the peer.
+    2. Forward the parent's application env for every app whose
+       compile-time config lives in `config/config.exs` (Hammer's
+       `expiry_ms` is the poster child — without it the ETS backend
+       crashes at boot with `Missing required config: expiry_ms`).
+    3. Start `:pki_tenant_web`, which pulls in `pki_tenant`,
+       `pki_ca_engine`, `pki_ra_engine`, `pki_validation`,
+       `pki_mnesia` transitively and runs
+       `PkiTenant.MnesiaBootstrap.init/1`.
   """
   @spec boot_tenant_apps(node(), timeout()) :: :ok | {:error, term()}
   def boot_tenant_apps(node, timeout \\ 60_000) do
-    case :rpc.call(node, Application, :ensure_all_started, [:pki_tenant_web], timeout) do
+    with :ok <- ensure_elixir_started(node, timeout),
+         :ok <- forward_compile_time_env(node, timeout),
+         :ok <- ensure_app_started(node, :pki_tenant_web, timeout) do
+      :ok
+    end
+  end
+
+  # Apps whose compile-time config must be mirrored onto the peer so
+  # their application start callbacks see the same env the parent has.
+  @forwarded_apps [
+    :pki_system,
+    :hammer,
+    :phoenix,
+    :logger,
+    :pki_mnesia,
+    :pki_ca_engine,
+    :pki_ra_engine,
+    :pki_validation,
+    :pki_tenant,
+    :pki_tenant_web
+  ]
+
+  # Per-app env overrides applied AFTER the parent's env is forwarded.
+  # The parent may have `start_application: false` on tenant apps (root
+  # test env sets this so the umbrella can run its own tests without the
+  # tenant supervisors fighting over named singletons). The spawned peer
+  # IS a real tenant BEAM though — `pki_tenant` must start so
+  # MnesiaBootstrap + AuditBridge + engine supervisors come up, and
+  # `pki_tenant_web`'s Phoenix endpoint must bind its port. Engine apps
+  # stay `start_application: false` because `pki_tenant` deliberately
+  # owns their supervisors (otherwise both trees would race to start the
+  # same named GenServer).
+  @peer_env_overrides %{
+    pki_tenant: [start_application: true],
+    pki_tenant_web: [{{PkiTenantWeb.Endpoint, :server}, true}]
+  }
+
+  defp forward_compile_time_env(node, timeout) do
+    with :ok <- push_parent_env(node, timeout) do
+      apply_peer_overrides(node, timeout)
+    end
+  end
+
+  defp push_parent_env(node, timeout) do
+    Enum.reduce_while(@forwarded_apps, :ok, fn app, :ok ->
+      case push_env(node, app, timeout) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp push_env(node, app, timeout) do
+    env_pairs = Application.get_all_env(app)
+
+    Enum.reduce_while(env_pairs, :ok, fn {key, value}, :ok ->
+      case :rpc.call(node, :application, :set_env, [app, key, value], timeout) do
+        :ok ->
+          {:cont, :ok}
+
+        {:badrpc, reason} ->
+          {:halt, {:error, {:badrpc, app, key, reason}}}
+
+        other ->
+          {:halt, {:error, {:set_env_failed, app, key, other}}}
+      end
+    end)
+  end
+
+  defp apply_peer_overrides(node, timeout) do
+    Enum.reduce_while(@peer_env_overrides, :ok, fn {app, overrides}, :ok ->
+      Enum.reduce_while(overrides, :ok, fn override, :ok ->
+        {key, value} = normalize_override(override)
+
+        case :rpc.call(node, :application, :set_env, [app, key, value], timeout) do
+          :ok ->
+            {:cont, :ok}
+
+          {:badrpc, reason} ->
+            {:halt, {:error, {:override_badrpc, app, key, reason}}}
+
+          other ->
+            {:halt, {:error, {:override_failed, app, key, other}}}
+        end
+      end)
+      |> case do
+        :ok -> {:cont, :ok}
+        err -> {:halt, err}
+      end
+    end)
+  end
+
+  # The `{{Module, :key}, value}` form mutates a nested keyword list
+  # (Phoenix's endpoint config uses this shape).
+  defp normalize_override({{mod, subkey}, value}) do
+    existing_list =
+      case Application.get_env(:pki_tenant_web, mod, []) do
+        list when is_list(list) -> list
+        _ -> []
+      end
+
+    {mod, Keyword.put(existing_list, subkey, value)}
+  end
+
+  defp normalize_override({key, value}), do: {key, value}
+
+  defp ensure_elixir_started(node, timeout) do
+    case :rpc.call(node, :application, :ensure_all_started, [:elixir], timeout) do
       {:ok, _} -> :ok
-      {:error, reason} -> {:error, {:app_start_failed, reason}}
+      {:error, reason} -> {:error, {:elixir_start_failed, reason}}
+      {:badrpc, reason} -> {:error, {:badrpc, reason}}
+    end
+  end
+
+  defp ensure_app_started(node, app, timeout) do
+    case :rpc.call(node, :application, :ensure_all_started, [app], timeout) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, {:app_start_failed, app, reason}}
       {:badrpc, reason} -> {:error, {:badrpc, reason}}
     end
   end
@@ -288,16 +407,31 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   defp spawn_tenant(tenant_id, slug, port) do
     platform_node = Atom.to_string(node())
     cookie = Atom.to_string(Node.get_cookie())
-    mnesia_dir = "/var/lib/pki/tenants/#{slug}/mnesia"
+    mnesia_dir =
+      Application.get_env(:pki_platform_engine, :tenant_mnesia_base, "/var/lib/pki/tenants")
+      |> Path.join("#{slug}/mnesia")
 
-    node_name = :"pki_tenant_#{slug}@127.0.0.1"
+    # Match the parent's distribution naming style — Erlang refuses to
+    # mix short names (-sname) and long names (-name) in the same cluster.
+    {name_flag, node_name} = peer_name(slug)
 
-    args = [
-      ~c"-setcookie",
-      String.to_charlist(cookie),
-      ~c"-name",
-      Atom.to_charlist(node_name)
-    ]
+    # :peer inherits some but not all code paths from the parent. In
+    # particular Elixir's own ebin (added dynamically by the `elixir`
+    # launcher) is missing on the peer, so :application.ensure_all_started(:elixir)
+    # fails with "no such file or directory elixir.app". Fix by
+    # explicitly forwarding every entry of the parent's code path via -pa.
+    code_path_args =
+      :code.get_path()
+      |> Enum.map(fn path -> [~c"-pa", path] end)
+      |> List.flatten()
+
+    args =
+      [
+        ~c"-setcookie",
+        String.to_charlist(cookie),
+        name_flag,
+        Atom.to_charlist(node_name)
+      ] ++ code_path_args
 
     env = [
       {~c"TENANT_ID", String.to_charlist(tenant_id)},
@@ -308,17 +442,49 @@ defmodule PkiPlatformEngine.TenantLifecycle do
       {~c"RELEASE_COOKIE", String.to_charlist(cookie)}
     ]
 
-    case :peer.start_link(%{
-           name: node_name,
-           args: args,
-           env: env,
-           connection: :standard_io
-         }) do
-      {:ok, pid, actual_node} -> {:ok, pid, actual_node}
-      {:ok, pid} -> {:ok, pid, node_name}
-      {:error, reason} -> {:error, reason}
+    # :peer.start/1 (not start_link) — if the spawned BEAM fails to boot, we
+    # get back {:error, reason} instead of killing the TenantLifecycle
+    # GenServer that called us. Monitor is established by the caller.
+    try do
+      case :peer.start(%{
+             name: node_name,
+             args: args,
+             env: env,
+             connection: :standard_io
+           }) do
+        {:ok, pid, actual_node} -> {:ok, pid, actual_node}
+        {:ok, pid} -> {:ok, pid, node_name}
+        {:error, reason} -> {:error, reason}
+      end
+    rescue
+      e -> {:error, {:spawn_failed, Exception.message(e)}}
+    catch
+      :exit, reason -> {:error, {:peer_boot_failed, reason}}
     end
-  rescue
-    e -> {:error, {:spawn_failed, Exception.message(e)}}
+  end
+
+  # Return {name_flag, node_name} matching the parent's distribution style.
+  # Parent uses -sname if `node()` has no `@` or the host part is a short
+  # hostname; -name if the host part is an FQDN / IP. Mixing styles makes
+  # net_kernel on the peer fail with :nodistribution.
+  defp peer_name(slug) do
+    parent = node() |> Atom.to_string()
+    short_name = "pki_tenant_#{slug}"
+
+    case parent do
+      "nonode@nohost" ->
+        # Parent isn't distributed — fall back to long names on a loopback
+        # host so peer's -name still registers cleanly.
+        {~c"-name", :"#{short_name}@127.0.0.1"}
+
+      _ ->
+        [_, host] = String.split(parent, "@", parts: 2)
+
+        if String.contains?(host, ".") do
+          {~c"-name", :"#{short_name}@#{host}"}
+        else
+          {~c"-sname", :"#{short_name}@#{host}"}
+        end
+    end
   end
 end
