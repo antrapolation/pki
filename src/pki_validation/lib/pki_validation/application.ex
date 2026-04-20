@@ -5,33 +5,15 @@ defmodule PkiValidation.Application do
 
   @impl true
   def start(_type, _args) do
-    children =
-      if Application.get_env(:pki_validation, :start_application, true) do
-        [
-          PkiValidation.CrlPublisher
-        ] ++ http_children()
-      else
-        []
-      end
-
     if Application.get_env(:pki_validation, :start_application, true) do
-      opts = [strategy: :one_for_one, name: PkiValidation.Supervisor]
-      Supervisor.start_link(children, opts)
+      # Standalone mode: pki_validation owns its own supervisor. The HTTP
+      # listener + CrlPublisher are children of PkiValidation.Supervisor.
+      PkiValidation.Supervisor.start_link([])
     else
-      # Don't register the supervisor name — pki_tenant will start it instead
+      # Per-tenant mode: pki_tenant owns PkiValidation.Supervisor; this
+      # app just needs to boot so its modules are loaded. Start an empty
+      # supervisor without registering the named supervisor.
       Supervisor.start_link([], strategy: :one_for_one)
-    end
-  end
-
-  defp http_children do
-    if Application.get_env(:pki_validation, :http, [])[:start] do
-      port = Application.get_env(:pki_validation, :http)[:port] || 4005
-
-      [
-        {Plug.Cowboy, plug: PkiValidation.Api.Router, scheme: :http, port: port}
-      ]
-    else
-      []
     end
   end
 end

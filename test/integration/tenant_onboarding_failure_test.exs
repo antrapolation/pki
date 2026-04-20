@@ -214,6 +214,41 @@ defmodule PkiIntegration.TenantOnboardingFailureTest do
     end
   end
 
+  # --- 5b. Two tenants each bind their own Validation HTTP port -------
+
+  test "each tenant BEAM binds its own Validation (OCSP) HTTP port" do
+    slug_a = "ocsp_a#{System.unique_integer([:positive])}"
+    slug_b = "ocsp_b#{System.unique_integer([:positive])}"
+
+    tenant_a = spawn_and_boot(slug_a)
+    tenant_b = spawn_and_boot(slug_b)
+
+    # Each tenant's validation listener is derived as web_port + 1000.
+    validation_port_a = tenant_a.web_port + 1_000
+    validation_port_b = tenant_b.web_port + 1_000
+
+    # Both must be listening.
+    assert http_listening?(validation_port_a),
+           "Tenant A validation should be on #{validation_port_a}"
+
+    assert http_listening?(validation_port_b),
+           "Tenant B validation should be on #{validation_port_b}"
+
+    # And they must not collide.
+    refute validation_port_a == validation_port_b
+  end
+
+  defp http_listening?(port) do
+    case :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false], 2_000) do
+      {:ok, socket} ->
+        :gen_tcp.close(socket)
+        true
+
+      {:error, _} ->
+        false
+    end
+  end
+
   # --- 6. Graceful stop preserves Mnesia disc_copies ------------------
 
   test "TenantLifecycle graceful stop flushes Mnesia; respawn sees prior data", %{base: base} do

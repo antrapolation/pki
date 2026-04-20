@@ -57,11 +57,22 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   the peer (typically the same port `PortAllocator.allocate/1`
   returned at spawn time). Pass 0 to keep the compile-time default
   (useful for single-tenant local runs).
+
+  The tenant's Validation (OCSP/CRL/TSA) HTTP listener binds on
+  `web_port + 1000` (so 5001 → 6001). The +1000 offset keeps the
+  validation port range (6001-6999) disjoint from the web range
+  (5001-5999) managed by `PortAllocator`. When `web_port == 0` the
+  validation listener is kept disabled — single-tenant local runs
+  wouldn't know which port to use.
   """
+  @validation_port_offset 1000
+
   @spec boot_tenant_apps(node(), non_neg_integer(), timeout()) :: :ok | {:error, term()}
   def boot_tenant_apps(node, web_port \\ 0, timeout \\ 60_000) do
+    validation_port = if web_port > 0, do: web_port + @validation_port_offset, else: 0
+
     with :ok <- ensure_elixir_started(node, timeout),
-         :ok <- forward_compile_time_env(node, web_port, timeout),
+         :ok <- forward_compile_time_env(node, web_port, validation_port, timeout),
          :ok <- ensure_app_started(node, :pki_tenant_web, timeout) do
       :ok
     end
@@ -97,15 +108,14 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   @peer_env_overrides %{
     pki_tenant: [start_application: true],
     pki_ca_engine: [start_application: false],
-    pki_ra_engine: [start_application: false],
-    pki_validation: [start_application: false]
-    # :pki_tenant_web is added dynamically in apply_peer_overrides/3
-    # because it needs the per-tenant web port.
+    pki_ra_engine: [start_application: false]
+    # :pki_tenant_web and :pki_validation are added dynamically in
+    # apply_peer_overrides/4 because both need per-tenant ports.
   }
 
-  defp forward_compile_time_env(node, web_port, timeout) do
+  defp forward_compile_time_env(node, web_port, validation_port, timeout) do
     with :ok <- push_parent_env(node, timeout) do
-      apply_peer_overrides(node, web_port, timeout)
+      apply_peer_overrides(node, web_port, validation_port, timeout)
     end
   end
 
@@ -135,8 +145,11 @@ defmodule PkiPlatformEngine.TenantLifecycle do
     end)
   end
 
-  defp apply_peer_overrides(node, web_port, timeout) do
-    overrides = Map.put(@peer_env_overrides, :pki_tenant_web, tenant_web_overrides(web_port))
+  defp apply_peer_overrides(node, web_port, validation_port, timeout) do
+    overrides =
+      @peer_env_overrides
+      |> Map.put(:pki_tenant_web, tenant_web_overrides(web_port))
+      |> Map.put(:pki_validation, validation_overrides(validation_port))
 
     Enum.reduce_while(overrides, :ok, fn {app, app_overrides}, :ok ->
       Enum.reduce_while(app_overrides, :ok, fn override, :ok ->
@@ -171,6 +184,28 @@ defmodule PkiPlatformEngine.TenantLifecycle do
     [
       {{PkiTenantWeb.Endpoint, :server}, true},
       {{PkiTenantWeb.Endpoint, :http}, [port: web_port]}
+    ]
+  end
+
+  # Validation (OCSP/CRL/TSA) runs inside each tenant BEAM. Each peer
+  # binds its own validation port — derived as web_port + 1000 so the
+  # range stays disjoint from the web range — and the platform's own
+  # config starts validation disabled (its listener isn't needed post-M5).
+  # When validation_port == 0 (single-tenant local run), leave validation
+  # disabled entirely; pki_tenant's supervisor tree still starts
+  # PkiValidation.Supervisor (for CRL publisher, etc.), just not the HTTP
+  # listener.
+  defp validation_overrides(0) do
+    [
+      {:start_application, false},
+      {:http, [start: false]}
+    ]
+  end
+
+  defp validation_overrides(port) when is_integer(port) do
+    [
+      {:start_application, false},
+      {:http, [start: true, port: port]}
     ]
   end
 
