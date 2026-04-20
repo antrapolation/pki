@@ -109,7 +109,8 @@ defmodule PkiIntegration.TenantBeamSpawnTest do
     #    pki_ca_engine, pki_ra_engine, pki_validation, pki_mnesia and
     #    runs PkiTenant.MnesiaBootstrap.init/1 to create the Mnesia
     #    schema at MNESIA_DIR).
-    assert :ok = PkiPlatformEngine.TenantLifecycle.boot_tenant_apps(actual_node, @peer_boot_timeout)
+    assert :ok =
+             PkiPlatformEngine.TenantLifecycle.boot_tenant_apps(actual_node, 0, @peer_boot_timeout)
 
     running_apps =
       :rpc.call(actual_node, :application, :which_applications, [])

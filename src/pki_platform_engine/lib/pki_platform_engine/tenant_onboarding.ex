@@ -43,7 +43,7 @@ defmodule PkiPlatformEngine.TenantOnboarding do
   @spec spawn_beam(Tenant.t()) :: {:ok, map()} | {:error, term()}
   def spawn_beam(%Tenant{} = tenant) do
     with {:ok, info} <- TenantLifecycle.create_tenant(%{id: tenant.id, slug: tenant.slug}),
-         :ok <- TenantLifecycle.boot_tenant_apps(info.node) do
+         :ok <- TenantLifecycle.boot_tenant_apps(info.node, info.port) do
       {:ok, info}
     end
   end

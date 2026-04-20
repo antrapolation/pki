@@ -46,15 +46,22 @@ defmodule PkiPlatformEngine.TenantLifecycle do
        compile-time config lives in `config/config.exs` (Hammer's
        `expiry_ms` is the poster child — without it the ETS backend
        crashes at boot with `Missing required config: expiry_ms`).
-    3. Start `:pki_tenant_web`, which pulls in `pki_tenant`,
+    3. Inject per-tenant overrides — including the allocated web
+       port so multiple tenant BEAMs don't fight over port 4010.
+    4. Start `:pki_tenant_web`, which pulls in `pki_tenant`,
        `pki_ca_engine`, `pki_ra_engine`, `pki_validation`,
        `pki_mnesia` transitively and runs
        `PkiTenant.MnesiaBootstrap.init/1`.
+
+  `web_port` is the port the tenant's Phoenix endpoint will bind on
+  the peer (typically the same port `PortAllocator.allocate/1`
+  returned at spawn time). Pass 0 to keep the compile-time default
+  (useful for single-tenant local runs).
   """
-  @spec boot_tenant_apps(node(), timeout()) :: :ok | {:error, term()}
-  def boot_tenant_apps(node, timeout \\ 60_000) do
+  @spec boot_tenant_apps(node(), non_neg_integer(), timeout()) :: :ok | {:error, term()}
+  def boot_tenant_apps(node, web_port \\ 0, timeout \\ 60_000) do
     with :ok <- ensure_elixir_started(node, timeout),
-         :ok <- forward_compile_time_env(node, timeout),
+         :ok <- forward_compile_time_env(node, web_port, timeout),
          :ok <- ensure_app_started(node, :pki_tenant_web, timeout) do
       :ok
     end
@@ -89,15 +96,16 @@ defmodule PkiPlatformEngine.TenantLifecycle do
   #     surfacing as {:already_started, _}. Force them off here.
   @peer_env_overrides %{
     pki_tenant: [start_application: true],
-    pki_tenant_web: [{{PkiTenantWeb.Endpoint, :server}, true}],
     pki_ca_engine: [start_application: false],
     pki_ra_engine: [start_application: false],
     pki_validation: [start_application: false]
+    # :pki_tenant_web is added dynamically in apply_peer_overrides/3
+    # because it needs the per-tenant web port.
   }
 
-  defp forward_compile_time_env(node, timeout) do
+  defp forward_compile_time_env(node, web_port, timeout) do
     with :ok <- push_parent_env(node, timeout) do
-      apply_peer_overrides(node, timeout)
+      apply_peer_overrides(node, web_port, timeout)
     end
   end
 
@@ -127,9 +135,11 @@ defmodule PkiPlatformEngine.TenantLifecycle do
     end)
   end
 
-  defp apply_peer_overrides(node, timeout) do
-    Enum.reduce_while(@peer_env_overrides, :ok, fn {app, overrides}, :ok ->
-      Enum.reduce_while(overrides, :ok, fn override, :ok ->
+  defp apply_peer_overrides(node, web_port, timeout) do
+    overrides = Map.put(@peer_env_overrides, :pki_tenant_web, tenant_web_overrides(web_port))
+
+    Enum.reduce_while(overrides, :ok, fn {app, app_overrides}, :ok ->
+      Enum.reduce_while(app_overrides, :ok, fn override, :ok ->
         {key, value} = normalize_override(override)
 
         case :rpc.call(node, :application, :set_env, [app, key, value], timeout) do
@@ -148,6 +158,20 @@ defmodule PkiPlatformEngine.TenantLifecycle do
         err -> {:halt, err}
       end
     end)
+  end
+
+  # tenant_web overrides include the per-tenant HTTP port so two
+  # tenant BEAMs on the same host don't fight over port 4010. `0`
+  # means "keep the compile-time default" (single-tenant local
+  # runs).
+  defp tenant_web_overrides(0),
+    do: [{{PkiTenantWeb.Endpoint, :server}, true}]
+
+  defp tenant_web_overrides(web_port) when is_integer(web_port) do
+    [
+      {{PkiTenantWeb.Endpoint, :server}, true},
+      {{PkiTenantWeb.Endpoint, :http}, [port: web_port]}
+    ]
   end
 
   # The `{{Module, :key}, value}` form mutates a nested keyword list
