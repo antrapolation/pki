@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-flight runs on the same ref when a new commit lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
+  ELIXIR_VERSION: "1.18.4"
+  OTP_VERSION: "28.0.1"
+
+jobs:
+  compile:
+    name: Compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (no submodules yet — they need Gitea auth)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Configure git for private Gitea submodules
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          # Most submodules live on the antrapol.tech Gitea with a
+          # self-signed cert + private repos. Rewrite the URL to
+          # include an auth token, and disable SSL verification
+          # SCOPED TO THAT HOST ONLY — never globally.
+          git config --global url."https://amir:${GITEA_TOKEN}@vcs.antrapol.tech:3800/".insteadOf "https://vcs.antrapol.tech:3800/"
+          git config --global http."https://vcs.antrapol.tech:3800/".sslVerify false
+
+      - name: Init submodules
+        run: git submodule update --init --recursive
+
+      - name: Setup Elixir / OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Install system build deps
+        # liboqs for pki_oqs_nif. The submodule's Makefile looks
+        # for /usr/local/include/oqs/oqs.h + /usr/local/lib/liboqs.a,
+        # so we build from source with default prefix. Rust toolchain
+        # for strap_softhsm_priv_key_store_provider's NIF.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build libssl-dev pkg-config
+
+      - name: Cache liboqs build
+        id: liboqs-cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local
+          key: liboqs-0.14.0-ubuntu-latest
+
+      - name: Build + install liboqs
+        if: steps.liboqs-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 0.14.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
+          cmake -S /tmp/liboqs -B /tmp/liboqs/build \
+            -GNinja \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DOQS_BUILD_ONLY_LIB=ON
+          cmake --build /tmp/liboqs/build --parallel
+          sudo cmake --install /tmp/liboqs/build
+
+      - name: Install Rust toolchain (softhsm NIF)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Mix deps + _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            mix-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Compile (all apps)
+        # NOT using --warnings-as-errors yet — the repo currently
+        # has living warnings (typespec drift in ex_ccrypto,
+        # unreachable {:error, _} clauses, etc.). Tracked
+        # separately. CI still flags compilation *errors* because
+        # Mix exits non-zero on failure.
+        run: mix compile
+
+  # Per-package test jobs come next. Not enabled yet: current
+  # coverage on 8 of 9 packages is below the 70% threshold in
+  # each mix.exs, so `mix test --cover` would always fail. Plan:
+  #
+  #   1. Separate PR lands test jobs without --cover (pass/fail
+  #      on real test results only).
+  #   2. As per-package coverage climbs past 70% via dedicated
+  #      test-writing PRs, flip that package's job to --cover.
+  #
+  # The compile job is already a meaningful gate — it enforces
+  # that every path dep (including the vendored `kaz_sign`
+  # submodule) resolves and builds on a clean Ubuntu runner.

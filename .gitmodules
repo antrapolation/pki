@@ -53,3 +53,6 @@
 [submodule "src/x509"]
 	path = src/x509
 	url = https://vcs.antrapol.tech:3800/MDP/x509.git
+[submodule "src/pqc-kaz"]
+	path = src/pqc-kaz
+	url = https://github.com/amiryahaya/pqc-kaz.git
