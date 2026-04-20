@@ -30,5 +30,12 @@ defmodule PkiPlatformEngine.TenantOnboardingTest do
       refute {:create_instances, 1} in exports
       refute {:create_tenant_admin, 1} in exports
     end
+
+    test "exposes failure recovery helpers" do
+      exports = TenantOnboarding.__info__(:functions)
+
+      assert {:mark_failed, 2} in exports
+      assert {:resume_provisioning, 1} in exports
+    end
   end
 end

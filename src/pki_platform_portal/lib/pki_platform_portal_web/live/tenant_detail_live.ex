@@ -23,6 +23,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
         end
         ca_host = System.get_env("CA_PORTAL_HOST", "ca.straptrust.com")
         ra_host = System.get_env("RA_PORTAL_HOST", "ra.straptrust.com")
+        portal_url = tenant_portal_url(tenant.id)
 
         {:ok,
          assign(socket,
@@ -31,6 +32,7 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
            metrics: %{db_size: 0, ca_users: 0, ra_users: 0, certificates_issued: 0, active_certificates: 0, pending_csrs: 0, ca_instances: 0, ra_instances: 0},
            ca_setup_url: "https://#{ca_host}/setup?tenant=#{tenant.slug}",
            ra_setup_url: "https://#{ra_host}/setup?tenant=#{tenant.slug}",
+           portal_url: portal_url,
            editing_email: false,
            ca_engine_status: :checking,
            ra_engine_status: :checking,
@@ -316,6 +318,19 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
     {:noreply, assign(socket, metrics: metrics)}
   end
 
+  defp tenant_portal_url(tenant_id) do
+    case PkiPlatformEngine.TenantLifecycle.get_tenant(tenant_id) do
+      {:ok, %{port: port, status: status}} when status in [:running, :starting] ->
+        host = System.get_env("TENANT_PORTAL_HOST", "localhost")
+        "http://#{host}:#{port}/"
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
   defp verify_role_belongs_to_tenant(role_id, tenant_id) do
     import Ecto.Query
     alias PkiPlatformEngine.{PlatformRepo, UserTenantRole}
@@ -359,6 +374,16 @@ defmodule PkiPlatformPortalWeb.TenantDetailLive do
 
             <%!-- Action buttons --%>
             <div :if={@current_user["role"] == "super_admin"} class="flex items-center gap-2 flex-shrink-0">
+              <a
+                :if={@tenant.status == "active" and @portal_url}
+                href={@portal_url}
+                target="_blank"
+                rel="noopener"
+                class="btn btn-sm btn-primary btn-outline"
+              >
+                <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+                Open Portal
+              </a>
               <button
                 :if={@tenant.status in ["initialized", "suspended"]}
                 phx-click="activate"

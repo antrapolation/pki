@@ -104,10 +104,14 @@ defmodule PkiPlatformEngine.Provisioner do
         {:error, :not_found}
 
       %{schema_mode: "schema"} = tenant ->
-        delete_schema_mode_tenant(tenant)
+        result = delete_schema_mode_tenant(tenant)
+        _ = PkiPlatformEngine.SofthsmTokenManager.cleanup_tenant_token(tenant.slug)
+        result
 
       tenant ->
-        delete_database_mode_tenant(tenant)
+        result = delete_database_mode_tenant(tenant)
+        _ = PkiPlatformEngine.SofthsmTokenManager.cleanup_tenant_token(tenant.slug)
+        result
     end
   end
 

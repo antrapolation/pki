@@ -306,6 +306,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
               restart_count: 0
             }
 
+            _ = CaddyConfigurator.add_route(slug, port)
             new_state = %{state | tenants: Map.put(state.tenants, tenant_id, tenant_info)}
             notify_replica(:tenant_started, %{tenant_id: tenant_id, slug: slug, node: node_name})
             {:reply, {:ok, %{tenant_id: tenant_id, port: port, node: node_name}}, new_state}
@@ -367,6 +368,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
               restart_count: 0
             }
 
+            _ = CaddyConfigurator.add_route(saved_slug, saved_port)
             new_state = %{state_without_tenant | tenants: Map.put(state_without_tenant.tenants, tenant_id, tenant_info)}
             notify_replica(:tenant_started, %{tenant_id: tenant_id, slug: saved_slug, node: node_name})
             {:reply, {:ok, %{tenant_id: tenant_id, port: saved_port, node: node_name}}, new_state}
@@ -452,6 +454,7 @@ defmodule PkiPlatformEngine.TenantLifecycle do
                   restart_count: 0
                 }
 
+                _ = CaddyConfigurator.add_route(slug, port)
                 notify_replica(:tenant_started, %{tenant_id: tenant_id, slug: slug, node: node_name})
                 {:noreply, %{state | tenants: Map.put(state.tenants, tenant_id, new_info)}}
 

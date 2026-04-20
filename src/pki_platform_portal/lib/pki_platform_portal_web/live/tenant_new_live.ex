@@ -1,7 +1,7 @@
 defmodule PkiPlatformPortalWeb.TenantNewLive do
   use PkiPlatformPortalWeb, :live_view
 
-  alias PkiPlatformEngine.{Provisioner, TenantOnboarding}
+  alias PkiPlatformEngine.{PlatformAudit, Provisioner, TenantOnboarding}
 
   require Logger
 
@@ -175,14 +175,22 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp handle_register_result(result, socket) do
     case result do
       {:ok, tenant} ->
+        audit(socket, "tenant_registered", tenant, %{
+          name: tenant.name,
+          slug: tenant.slug,
+          email: tenant.email
+        })
+
         socket = socket |> assign(tenant: tenant) |> update_step(:register, :done)
         send(self(), :start_spawn_step)
         {:noreply, socket}
 
       {:error, %Ecto.Changeset{} = changeset} ->
+        audit_failure(socket, nil, "register", format_changeset_error(changeset))
         {:noreply, update_step(socket, :register, {:error, format_changeset_error(changeset)})}
 
       {:error, reason} ->
+        audit_failure(socket, nil, "register", inspect(reason))
         {:noreply, update_step(socket, :register, {:error, inspect(reason)})}
     end
   end
@@ -190,11 +198,18 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp handle_spawn_result(result, socket) do
     case result do
       {:ok, info} ->
+        audit(socket, "tenant_beam_spawned", socket.assigns.tenant, %{
+          node: to_string(info.node),
+          port: info.port
+        })
+
         socket = socket |> assign(beam_info: info) |> update_step(:spawn, :done)
         send(self(), :start_admin_step)
         {:noreply, socket}
 
       {:error, reason} ->
+        mark_tenant_failed(socket, {:spawn_failed, reason})
+        audit_failure(socket, socket.assigns.tenant, "spawn", inspect(reason))
         {:noreply, update_step(socket, :spawn, {:error, inspect(reason)})}
     end
   end
@@ -202,28 +217,109 @@ defmodule PkiPlatformPortalWeb.TenantNewLive do
   defp handle_admin_result(result, socket) do
     case result do
       {:ok, user, password} ->
+        audit(socket, "tenant_admin_bootstrapped", socket.assigns.tenant, %{
+          username: user.username,
+          role: "ca_admin"
+        })
+
+        email_outcome = send_admin_invitation_email(socket, user.username, password)
+
         socket =
           socket
-          |> assign(admin_credentials: %{username: user.username, password: password})
+          |> assign(
+            admin_credentials: %{
+              username: user.username,
+              password: password,
+              email_outcome: email_outcome
+            }
+          )
           |> update_step(:admin, :done)
 
         send(self(), :start_active_step)
         {:noreply, socket}
 
       {:error, reason} ->
+        mark_tenant_failed(socket, {:admin_failed, reason})
+        audit_failure(socket, socket.assigns.tenant, "admin", inspect(reason))
         {:noreply, update_step(socket, :admin, {:error, inspect(reason)})}
     end
   end
 
+  # Best-effort email invitation. The flash that shows the plaintext
+  # password is the primary UX (survives air-gapped and mailer-down
+  # environments); this just delivers the same credentials to the
+  # tenant contact address so they don't have to be forwarded manually.
+  defp send_admin_invitation_email(socket, username, password) do
+    tenant = socket.assigns.tenant
+    beam = socket.assigns.beam_info
+    host = System.get_env("TENANT_PORTAL_HOST", "localhost")
+    portal_url = "http://#{host}:#{beam.port}/"
+
+    outcome =
+      TenantOnboarding.send_admin_invitation(tenant, username, password, portal_url: portal_url)
+
+    audit(socket, "tenant_admin_invited", tenant, %{
+      email: tenant.email,
+      outcome: email_outcome_label(outcome)
+    })
+
+    outcome
+  end
+
+  defp email_outcome_label({:ok, :sent}), do: "sent"
+  defp email_outcome_label({:ok, :skipped}), do: "skipped_no_api_key"
+  defp email_outcome_label({:error, reason}), do: "failed:#{inspect(reason)}"
+
   defp handle_active_result(result, socket) do
     case result do
       {:ok, tenant} ->
+        audit(socket, "tenant_activated", tenant, %{slug: tenant.slug})
         socket = socket |> assign(tenant: tenant) |> update_step(:active, :done)
         {:noreply, socket}
 
       {:error, reason} ->
+        mark_tenant_failed(socket, {:activate_failed, reason})
+        audit_failure(socket, socket.assigns.tenant, "active", inspect(reason))
         {:noreply, update_step(socket, :active, {:error, inspect(reason)})}
     end
+  end
+
+  # Flip the Tenant row to "failed" + record the failure reason so a
+  # future resume from /tenants can pick it up. No-op if the wizard
+  # hasn't created a tenant row yet (step 1 failed).
+  defp mark_tenant_failed(%{assigns: %{tenant: %{id: id}}}, reason) when is_binary(id) do
+    _ = TenantOnboarding.mark_failed(id, reason)
+    :ok
+  end
+
+  defp mark_tenant_failed(_socket, _reason), do: :ok
+
+  # Audit logging — best-effort. A down platform_audit_events table
+  # shouldn't block tenant provisioning, so swallow and log.
+  defp audit(socket, action, tenant, details) do
+    admin = socket.assigns.current_user
+    tenant_id = tenant && tenant.id
+
+    _ =
+      PlatformAudit.log(action, %{
+        actor_id: admin[:id] || admin["id"],
+        actor_username: admin[:username] || admin["username"],
+        portal: "platform",
+        tenant_id: tenant_id,
+        target_type: "tenant",
+        target_id: tenant_id,
+        details: details
+      })
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("[tenant_new] audit log failed for #{action}: #{Exception.message(e)}")
+      :ok
+  end
+
+  defp audit_failure(socket, tenant, step, reason) do
+    audit(socket, "tenant_provisioning_failed", tenant, %{step: step, reason: reason})
   end
 
   # --- Helpers ---

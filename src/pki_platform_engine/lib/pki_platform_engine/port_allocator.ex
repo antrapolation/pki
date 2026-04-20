@@ -8,10 +8,11 @@ defmodule PkiPlatformEngine.PortAllocator do
 
   alias PkiPlatformEngine.PlatformRepo
 
-  @port_range 5001..5999
+  @default_port_range 5001..5999
 
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
   def allocate(tenant_id) do
@@ -31,13 +32,17 @@ defmodule PkiPlatformEngine.PortAllocator do
   end
 
   @impl true
-  def init(_opts) do
-    assignments = load_from_pg()
+  def init(opts) do
+    port_range = Keyword.get(opts, :port_range, @default_port_range)
+    persist? = Keyword.get(opts, :persist, true)
+    assignments = if persist?, do: load_from_pg(), else: %{}
     used_ports = assignments |> Map.values() |> MapSet.new()
 
     {:ok, %{
       assignments: assignments,
-      used_ports: used_ports
+      used_ports: used_ports,
+      port_range: port_range,
+      persist: persist?
     }}
   end
 
@@ -45,14 +50,14 @@ defmodule PkiPlatformEngine.PortAllocator do
   def handle_call({:allocate, tenant_id}, _from, state) do
     case Map.get(state.assignments, tenant_id) do
       nil ->
-        case find_free_port(state.used_ports) do
+        case find_free_port(state.used_ports, state.port_range) do
           nil ->
             {:reply, {:error, :no_ports_available}, state}
 
           port ->
             new_assignments = Map.put(state.assignments, tenant_id, port)
             new_used = MapSet.put(state.used_ports, port)
-            persist_to_pg(tenant_id, port)
+            if state.persist, do: persist_to_pg(tenant_id, port)
 
             {:reply, {:ok, port}, %{state |
               assignments: new_assignments,
@@ -73,7 +78,7 @@ defmodule PkiPlatformEngine.PortAllocator do
 
       {port, new_assignments} ->
         new_used = MapSet.delete(state.used_ports, port)
-        remove_from_pg(tenant_id)
+        if state.persist, do: remove_from_pg(tenant_id)
 
         {:reply, :ok, %{state |
           assignments: new_assignments,
@@ -92,8 +97,8 @@ defmodule PkiPlatformEngine.PortAllocator do
     {:reply, state.assignments, state}
   end
 
-  defp find_free_port(used_ports) do
-    Enum.find(@port_range, fn port -> not MapSet.member?(used_ports, port) end)
+  defp find_free_port(used_ports, port_range) do
+    Enum.find(port_range, fn port -> not MapSet.member?(used_ports, port) end)
   end
 
   # PostgreSQL persistence via PlatformRepo
