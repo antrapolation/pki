@@ -1,7 +1,6 @@
 import Config
 
 config :pki_ca_engine,
-  ecto_repos: [PkiCaEngine.Repo],
   trusted_proxies: ["127.0.0.1", "::1"],
   env: config_env()
 

@@ -1,7 +1,6 @@
 import Config
 
 config :pki_ra_engine,
-  ecto_repos: [PkiRaEngine.Repo],
   trusted_proxies: ["127.0.0.1", "::1"]
 
 config :hammer,

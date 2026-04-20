@@ -47,14 +47,4 @@ defmodule PkiPlatformEngine.TenantRegistryTest do
     assert length(tenants) == 2
   end
 
-  test "ca_repo returns repo name", %{registry: registry} do
-    :ok = TenantRegistry.register(registry, "t1", %{ca_repo: :my_ca_repo, slug: "x"})
-    assert :my_ca_repo = TenantRegistry.ca_repo(registry, "t1")
-  end
-
-  test "ca_repo raises for unregistered tenant", %{registry: registry} do
-    assert_raise RuntimeError, fn ->
-      TenantRegistry.ca_repo(registry, "unknown")
-    end
-  end
 end
