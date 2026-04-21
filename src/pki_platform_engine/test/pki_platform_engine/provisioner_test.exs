@@ -82,8 +82,13 @@ defmodule PkiPlatformEngine.ProvisionerTest do
   end
 
   # ── Database-mode provisioning (legacy) ───────────────────────────────
+  # Tests below hardcode Postgres port 5434 (the old multi-instance
+  # dev setup). Native PG on 5432 is the new baseline, so tag these
+  # as :legacy_db_mode and exclude by default in test_helper.exs.
 
   describe "create_tenant/3 (database mode)" do
+    @describetag :legacy_db_mode
+
     test "creates database, schemas, and inserts tenant record" do
       {:ok, tenant} = Provisioner.create_tenant("DB Org", "db-org",
         email: "test@example.com", schema_mode: "database")

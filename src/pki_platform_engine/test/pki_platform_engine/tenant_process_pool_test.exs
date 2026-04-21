@@ -1,6 +1,10 @@
 defmodule PkiPlatformEngine.TenantProcessPoolTest do
   use ExUnit.Case
 
+  # Hardcodes Postgres port 5434 (legacy multi-instance dev setup).
+  # Excluded by default via test_helper.exs.
+  @moduletag :legacy_db_mode
+
   alias PkiPlatformEngine.{TenantProcess, TenantRegistry}
 
   @tag :integration
