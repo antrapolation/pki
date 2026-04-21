@@ -1,0 +1,11 @@
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+native/*/target/
+/priv/native/
+native/rustysecretsnif/Cargo.lock
+#mix.lock

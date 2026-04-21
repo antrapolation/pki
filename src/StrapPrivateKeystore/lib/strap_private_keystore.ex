@@ -1,0 +1,2 @@
+defmodule StrapPrivateKeystore do
+end

@@ -21,24 +21,12 @@ jobs:
     name: Compile
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (no submodules yet — they need Gitea auth)
+      # Gitea submodules were inlined into this repo, so `recursive`
+      # only has to pull `src/pqc-kaz` from public GitHub now.
+      - name: Checkout (recursive — public pqc-kaz submodule)
         uses: actions/checkout@v4
         with:
-          submodules: false
-
-      - name: Configure git for private Gitea submodules
-        env:
-          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
-        run: |
-          # Most submodules live on the antrapol.tech Gitea with a
-          # self-signed cert + private repos. Rewrite the URL to
-          # include an auth token, and disable SSL verification
-          # SCOPED TO THAT HOST ONLY — never globally.
-          git config --global url."https://amir:${GITEA_TOKEN}@vcs.antrapol.tech:3800/".insteadOf "https://vcs.antrapol.tech:3800/"
-          git config --global http."https://vcs.antrapol.tech:3800/".sslVerify false
-
-      - name: Init submodules
-        run: git submodule update --init --recursive
+          submodules: recursive
 
       - name: Setup Elixir / OTP
         uses: erlef/setup-beam@v1
