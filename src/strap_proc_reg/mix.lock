@@ -1,0 +1,5 @@
+%{
+  "ex_unit_clustered_case": {:hex, :ex_unit_clustered_case, "0.5.0", "2c3030e5b4edb9e345877b4bd72c8e3680780ea98f23d108b2e9922c4fb4bdb0", [:mix], [], "hexpm", "fb28a2fe7d5d77b8e35c3a5cae6fbf7dc55778fb305224e37c1a246eca8d6a5f"},
+  "typed_struct": {:hex, :typed_struct, "0.3.0", "939789e3c1dca39d7170c87f729127469d1315dcf99fee8e152bb774b17e7ff7", [:mix], [], "hexpm", "c50bd5c3a61fe4e198a8504f939be3d3c85903b382bde4865579bc23111d1b6d"},
+  "typedstruct": {:hex, :typedstruct, "0.5.4", "d1d33d58460a74f413e9c26d55e66fd633abd8ac0fb12639add9a11a60a0462a", [:make, :mix], [], "hexpm", "ffaef36d5dbaebdbf4ed07f7fb2ebd1037b2c1f757db6fb8e7bcbbfabbe608d8"},
+}

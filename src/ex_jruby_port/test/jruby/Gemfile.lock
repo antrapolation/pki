@@ -1,0 +1,13 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    toolrack (0.24.3)
+
+PLATFORMS
+  universal-java-17
+
+DEPENDENCIES
+  toolrack (~> 0.24)
+
+BUNDLED WITH
+   2.4.22
