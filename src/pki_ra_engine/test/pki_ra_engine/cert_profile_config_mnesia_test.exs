@@ -26,7 +26,8 @@ defmodule PkiRaEngine.CertProfileConfigMnesiaTest do
 
   test "delete a profile" do
     {:ok, profile} = CertProfileConfig.create_profile(%{name: "Delete Me"})
-    assert :ok = CertProfileConfig.delete_profile(profile.id)
+    assert {:ok, returned_id} = CertProfileConfig.delete_profile(profile.id)
+    assert returned_id == profile.id
     assert {:error, :not_found} = CertProfileConfig.get_profile(profile.id)
   end
 
