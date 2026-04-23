@@ -10,7 +10,8 @@ defmodule PkiPlatformEngine.AuditReceiver do
   @flush_batch_size 50
 
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    {name, opts} = Keyword.pop(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
   @impl true

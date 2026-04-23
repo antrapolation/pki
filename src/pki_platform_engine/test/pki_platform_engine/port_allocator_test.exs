@@ -4,48 +4,46 @@ defmodule PkiPlatformEngine.PortAllocatorTest do
   alias PkiPlatformEngine.PortAllocator
 
   setup do
-    # Start a fresh PortAllocator for each test (not registered globally).
-    # Stop the globally-registered one first if running, then start our own
-    # with persist: false — these unit tests don't care about Postgres
-    # persistence and using string tenant IDs like "tenant-1" would fail
-    # the UUID cast anyway.
-    if pid = Process.whereis(PortAllocator) do
-      GenServer.stop(pid)
-    end
-
-    {:ok, pid} = PortAllocator.start_link(persist: false)
+    # Start a private, non-global PortAllocator with persist: false.
+    # Do NOT stop the globally-registered one: it's a child of the
+    # app's :rest_for_one supervisor with :permanent restart, so a
+    # normal stop triggers a restart that races the test's re-start
+    # under the same name — the restart loop exceeds max_restarts and
+    # brings down PlatformRepo too.
+    name = :"test_port_allocator_#{System.unique_integer([:positive])}"
+    {:ok, pid} = PortAllocator.start_link(name: name, persist: false)
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    :ok
+    {:ok, allocator: name}
   end
 
-  test "allocate assigns a port from the pool" do
-    {:ok, port} = PortAllocator.allocate("tenant-1")
+  test "allocate assigns a port from the pool", %{allocator: a} do
+    {:ok, port} = GenServer.call(a, {:allocate, "tenant-1"})
     assert port >= 5001
     assert port <= 5999
   end
 
-  test "allocate returns same port for same tenant" do
-    {:ok, port1} = PortAllocator.allocate("tenant-1")
-    {:ok, port2} = PortAllocator.allocate("tenant-1")
+  test "allocate returns same port for same tenant", %{allocator: a} do
+    {:ok, port1} = GenServer.call(a, {:allocate, "tenant-1"})
+    {:ok, port2} = GenServer.call(a, {:allocate, "tenant-1"})
     assert port1 == port2
   end
 
-  test "allocate assigns different ports to different tenants" do
-    {:ok, port1} = PortAllocator.allocate("tenant-1")
-    {:ok, port2} = PortAllocator.allocate("tenant-2")
+  test "allocate assigns different ports to different tenants", %{allocator: a} do
+    {:ok, port1} = GenServer.call(a, {:allocate, "tenant-1"})
+    {:ok, port2} = GenServer.call(a, {:allocate, "tenant-2"})
     assert port1 != port2
   end
 
-  test "release frees a port" do
-    {:ok, _port} = PortAllocator.allocate("tenant-1")
-    :ok = PortAllocator.release("tenant-1")
-    assert PortAllocator.get_port("tenant-1") == nil
+  test "release frees a port", %{allocator: a} do
+    {:ok, _port} = GenServer.call(a, {:allocate, "tenant-1"})
+    :ok = GenServer.call(a, {:release, "tenant-1"})
+    assert GenServer.call(a, {:get_port, "tenant-1"}) == nil
   end
 
-  test "list_assignments shows all active assignments" do
-    {:ok, _} = PortAllocator.allocate("t1")
-    {:ok, _} = PortAllocator.allocate("t2")
-    assignments = PortAllocator.list_assignments()
+  test "list_assignments shows all active assignments", %{allocator: a} do
+    {:ok, _} = GenServer.call(a, {:allocate, "t1"})
+    {:ok, _} = GenServer.call(a, {:allocate, "t2"})
+    assignments = GenServer.call(a, :list)
     assert map_size(assignments) == 2
   end
 

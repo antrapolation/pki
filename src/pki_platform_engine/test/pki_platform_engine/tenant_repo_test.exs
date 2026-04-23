@@ -1,6 +1,11 @@
 defmodule PkiPlatformEngine.TenantRepoTest do
   use ExUnit.Case, async: false
 
+  # Hardcodes Postgres port 5434 (legacy multi-instance dev setup).
+  # Excluded by default via test_helper.exs; run with
+  # `mix test --include legacy_db_mode` if you're on the old stack.
+  @moduletag :legacy_db_mode
+
   alias PkiPlatformEngine.TenantRepo
 
   @test_db "pki_tenant_repo_test"
