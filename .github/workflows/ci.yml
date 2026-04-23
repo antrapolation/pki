@@ -90,6 +90,16 @@ jobs:
         working-directory: src/${{ matrix.package }}
         run: mix deps.get
 
+      - name: Run platform migrations
+        # pki_platform_portal (and any other package sharing
+        # pki_platform_test) uses PkiPlatformEngine.PlatformRepo
+        # but doesn't own the migrations. pki_platform_engine's own
+        # test alias already runs migrations; for other packages that
+        # hit pki_platform_test, migrate from src/pki_platform_engine.
+        if: matrix.package == 'pki_platform_portal'
+        working-directory: src/pki_platform_engine
+        run: mix do deps.get, ecto.migrate --quiet
+
       - name: Run tests
         working-directory: src/${{ matrix.package }}
         # No --cover yet. Coverage thresholds in mix.exs range

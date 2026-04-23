@@ -41,8 +41,9 @@ defmodule PkiPlatformEngine.SofthsmTokenManagerTest do
     end
   end
 
-  @tag :softhsm
   describe "init_tenant_token/2" do
+    @describetag :softhsm
+
     test "creates conf, inits token, returns a slot + PINs", %{base: base} do
       slug = "test-tenant-#{System.unique_integer([:positive])}"
 

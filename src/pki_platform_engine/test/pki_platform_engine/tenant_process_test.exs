@@ -4,6 +4,7 @@ defmodule PkiPlatformEngine.TenantProcessTest do
   alias PkiPlatformEngine.{TenantProcess, TenantRegistry}
 
   @tag :integration
+  @tag :legacy_db_mode
   test "starts and registers repos for a tenant" do
     suffix = System.unique_integer([:positive])
     registry_name = :"test_reg_tp_#{suffix}"

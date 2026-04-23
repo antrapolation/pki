@@ -33,13 +33,13 @@ runs:
       uses: actions/cache@v4
       with:
         path: /usr/local
-        key: liboqs-0.14.0-ubuntu-latest
+        key: liboqs-0.15.0-ubuntu-latest
 
     - name: Build + install liboqs
       if: steps.liboqs-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        git clone --depth 1 --branch 0.14.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
+        git clone --depth 1 --branch 0.15.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
         cmake -S /tmp/liboqs -B /tmp/liboqs/build \
           -GNinja \
           -DCMAKE_INSTALL_PREFIX=/usr/local \
