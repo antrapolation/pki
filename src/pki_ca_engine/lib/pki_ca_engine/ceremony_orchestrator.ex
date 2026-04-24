@@ -703,18 +703,19 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
   # Appends a transcript entry inside an already-open :mnesia.transaction context.
   # Safe to call from within Repo.transaction/1 or bare :mnesia.transaction/1 fns.
+  # Each entry is hash-chained via CeremonyTranscript.append/2 for tamper evidence.
   defp append_transcript_in_tx(ceremony_id, actor, action, details) do
     table = PkiMnesia.Schema.table_name(CeremonyTranscript)
     case :mnesia.index_read(table, ceremony_id, :ceremony_id) do
       [record | _] ->
         transcript = Repo.record_to_struct(CeremonyTranscript, record)
-        entry = %{
-          timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
-          actor: actor,
-          action: action,
-          details: details
+        event_map = %{
+          "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+          "actor" => actor,
+          "action" => action,
+          "details" => details
         }
-        updated = %{transcript | entries: (transcript.entries || []) ++ [entry]}
+        updated = CeremonyTranscript.append(transcript, event_map)
         :mnesia.write(Repo.struct_to_record(table, updated))
       [] -> :ok
     end

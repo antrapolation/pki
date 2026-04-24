@@ -6,6 +6,7 @@ defmodule PkiCaEngine.Application do
   @impl true
   def start(_type, _args) do
     assert_dev_activate_safe!()
+    assert_no_software_keystore_in_prod!()
 
     children =
       if Application.get_env(:pki_ca_engine, :start_application, true) do
@@ -65,6 +66,43 @@ defmodule PkiCaEngine.Application do
        Set :allow_dev_activate to false (or remove it) in your prod config
        and restart.
        """}
+    else
+      :ok
+    end
+  end
+
+  @doc false
+  def assert_no_software_keystore_in_prod! do
+    env = Application.get_env(:pki_ca_engine, :env) ||
+            Application.get_env(:pki_system, :env, :prod)
+
+    allow_flag = Application.get_env(:pki_ca_engine, :allow_software_keystore_in_prod, false)
+
+    if env == :prod and not allow_flag do
+      alias PkiMnesia.{Repo, Structs.IssuerKey}
+
+      case Repo.where(IssuerKey, fn k -> k.status == "active" and k.keystore_type == :software end) do
+        {:ok, [_ | _] = keys} ->
+          aliases = Enum.map_join(keys, ", ", fn k -> k.key_alias || k.id end)
+
+          raise """
+          REFUSING TO BOOT: active software-keystore IssuerKey(s) found in a prod release.
+
+          The following IssuerKey(s) have keystore_type=:software and status=active:
+            #{aliases}
+
+          Software keystores store unprotected private key material in Mnesia. This is
+          never acceptable in production. Migrate each key to an HSM-backed keystore
+          and retry, or set:
+
+            config :pki_ca_engine, :allow_software_keystore_in_prod, true
+
+          in your prod config only if you intentionally accept this risk.
+          """
+
+        _ ->
+          :ok
+      end
     else
       :ok
     end

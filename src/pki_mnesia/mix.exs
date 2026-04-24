@@ -24,7 +24,8 @@ defmodule PkiMnesia.MixProject do
 
   defp deps do
     [
-      {:uniq, "~> 0.6"}
+      {:uniq, "~> 0.6"},
+      {:jason, "~> 1.4"}
     ]
   end
 end
