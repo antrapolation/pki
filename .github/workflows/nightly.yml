@@ -1,0 +1,39 @@
+name: Nightly
+
+on:
+  schedule:
+    # 18:00 UTC = 02:00 MYT daily. GitHub may delay scheduled runs
+    # during high platform load — no SLA on exact start time.
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+env:
+  MIX_ENV: test
+  ELIXIR_VERSION: "1.18.4"
+  OTP_VERSION: "28.0.1"
+
+jobs:
+  load-test:
+    name: Load test ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - pki_validation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Fetch package deps
+        working-directory: src/${{ matrix.package }}
+        run: mix deps.get
+
+      - name: Run nightly tests
+        working-directory: src/${{ matrix.package }}
+        run: mix test --only nightly
