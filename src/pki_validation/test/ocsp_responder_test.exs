@@ -77,9 +77,9 @@ defmodule PkiValidation.OcspResponderTest do
     assert response.status == "good"
   end
 
-  test "signed_response returns unsigned when key not active" do
-    # No KeyActivation server running, so get_active_key will return :not_active
-    # We start a KeyActivation server that reports no active keys
+  test "signed_response returns :try_later when key not active (fail-closed, RFC 6960 §2.3)" do
+    # E3.1: signed_response is now fail-closed — when no active lease exists it
+    # returns {:ok, %{status: :try_later}} instead of an unsigned response.
     {:ok, ka} = PkiCaEngine.KeyActivation.start_link(name: :test_ka_ocsp)
 
     on_exit(fn ->
@@ -97,7 +97,7 @@ defmodule PkiValidation.OcspResponderTest do
     {:ok, response} = OcspResponder.signed_response("sign-test", "key-sign-1",
       activation_server: :test_ka_ocsp)
 
-    assert response.status.status == "good"
-    assert response.unsigned == true
+    assert response.status == :try_later
+    assert response.reason == :no_active_lease
   end
 end
