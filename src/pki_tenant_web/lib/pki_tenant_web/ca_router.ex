@@ -41,6 +41,7 @@ defmodule PkiTenantWeb.CaRouter do
       live "/ca-instances", CaInstancesLive, :index
       live "/ceremonies", CeremonyLive, :index
       live "/ceremonies/custodian", CeremonyCustodianLive, :index
+      live "/ceremonies/:id/witness", CeremonyWitnessLive, :index
       live "/issuer-keys", IssuerKeysLive, :index
       live "/certificates", CertificatesLive, :index
       live "/hsm-devices", HsmDevicesLive, :index

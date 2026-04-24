@@ -507,6 +507,25 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     Repo.get_all_by_index(CeremonyParticipant, :ceremony_id, ceremony_id)
   end
 
+  @doc """
+  Record that an auditor has witnessed the ceremony.
+
+  Appends an `auditor_witnessed` transcript event. Full digital-signature
+  verification of the transcript digest is wired in task E4.2; this is the
+  placeholder that the CeremonyWitnessLive page calls.
+  """
+  def record_auditor_witness(ceremony_id, auditor_name, _opts \\ %{}) do
+    with {:ok, ceremony} <- get_ceremony(ceremony_id) do
+      if ceremony.status == "failed" do
+        {:error, :ceremony_failed}
+      else
+        append_transcript_in_tx(ceremony_id, auditor_name, "auditor_witnessed", %{
+          "note" => "Auditor confirmed presence and reviewed transcript"
+        })
+      end
+    end
+  end
+
   # -- Private --
 
   defp get_ceremony(ceremony_id) do
