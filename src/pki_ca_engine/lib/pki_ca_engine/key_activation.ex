@@ -191,6 +191,13 @@ defmodule PkiCaEngine.KeyActivation do
     }
 
     new_state = %{state | active_leases: Map.put(state.active_leases, key_id, lease)}
+
+    :telemetry.execute(
+      [:pki_ca_engine, :key_activation, :lease],
+      %{ops_remaining: max_ops, expires_in: ttl_seconds},
+      %{key_id: key_id, event: :activated}
+    )
+
     {:reply, {:ok, key_id}, new_state}
   end
 
@@ -214,8 +221,16 @@ defmodule PkiCaEngine.KeyActivation do
 
           true ->
             result = fun.(lease.handle)
-            updated_lease = %{lease | ops_remaining: lease.ops_remaining - 1}
+            new_ops_remaining = lease.ops_remaining - 1
+            updated_lease = %{lease | ops_remaining: new_ops_remaining}
             new_state = %{state | active_leases: Map.put(state.active_leases, key_id, updated_lease)}
+
+            :telemetry.execute(
+              [:pki_ca_engine, :key_activation, :lease],
+              %{ops_remaining: new_ops_remaining},
+              %{key_id: key_id, event: :used}
+            )
+
             {:reply, {:ok, result}, new_state}
         end
     end
@@ -385,6 +400,12 @@ defmodule PkiCaEngine.KeyActivation do
   # -- Private helpers --
 
   defp evict_lease(state, key_id) do
+    :telemetry.execute(
+      [:pki_ca_engine, :key_activation, :lease],
+      %{ops_remaining: 0, expires_in: 0},
+      %{key_id: key_id, event: :expired}
+    )
+
     %{state |
       active_leases: Map.delete(state.active_leases, key_id),
       pending_shares: Map.delete(state.pending_shares, key_id),

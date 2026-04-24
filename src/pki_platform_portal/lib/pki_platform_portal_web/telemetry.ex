@@ -38,7 +38,26 @@ defmodule PkiPlatformPortalWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # HSM session / key-activation lease metrics
+      last_value("pki_hsm_session_active",
+        event_name: [:pki_ca_engine, :key_activation, :lease],
+        measurement: fn m, _meta ->
+          if m.ops_remaining > 0 and Map.get(m, :expires_in, 1) > 0, do: 1, else: 0
+        end,
+        tags: [:key_id]
+      ),
+      last_value("pki_hsm_session_ops_remaining",
+        event_name: [:pki_ca_engine, :key_activation, :lease],
+        measurement: :ops_remaining,
+        tags: [:key_id]
+      ),
+      last_value("pki_hsm_session_expires_in_seconds",
+        event_name: [:pki_ca_engine, :key_activation, :lease],
+        measurement: fn m, _meta -> Map.get(m, :expires_in, 0) end,
+        tags: [:key_id]
+      )
     ]
   end
 
