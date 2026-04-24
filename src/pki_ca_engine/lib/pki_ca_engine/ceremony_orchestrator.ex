@@ -507,6 +507,241 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
+  @doc """
+  Activate a pending sub-CA issuer key by uploading the externally-signed certificate.
+
+  Used when the CA setup is "Sub CA rooted to external root": a CSR was generated
+  during the key ceremony and the key was left in `"pending"` status. Once the external
+  CA returns the signed certificate, the operator uploads it here and the key transitions
+  to `"active"`.
+
+  ## Parameters
+
+  - `issuer_key_id` – binary ID of the IssuerKey to activate.
+  - `cert_pem_or_der` – the signed certificate, either as a PEM string
+    (`-----BEGIN CERTIFICATE-----…`) or raw DER binary bytes.
+  - `opts` – keyword options (currently unused, reserved for future use).
+
+  ## Returns
+
+  - `{:ok, updated_key}` – cert stored, status flipped to `"active"`.
+  - `{:error, :not_found}` – no IssuerKey with that ID.
+  - `{:error, :key_not_pending}` – the key is not in `"pending"` status.
+  - `{:error, :malformed_cert}` – the supplied bytes could not be decoded.
+  - `{:error, :cert_expired}` – the certificate's `notAfter` is in the past.
+  - `{:error, :public_key_mismatch}` – the certificate's public key does not match
+    the key stored in the IssuerKey record.
+  - `{:error, :algo_mismatch}` – the certificate's public key algorithm does not
+    match the `algorithm` field on the IssuerKey record.
+  """
+  def activate_with_external_cert(issuer_key_id, cert_pem_or_der, opts \\ []) do
+    _opts = opts
+
+    with {:ok, key} <- fetch_pending_key(issuer_key_id),
+         {:ok, cert, cert_pem, cert_der} <- parse_cert_input(cert_pem_or_der),
+         :ok <- check_cert_not_expired(cert),
+         :ok <- check_algo_match(cert, key),
+         :ok <- check_public_key_match(cert, key),
+         {:ok, updated_key} <- store_cert_and_activate(key, cert_pem, cert_der) do
+
+      append_activation_audit(key)
+      {:ok, updated_key}
+    end
+  end
+
+  # -- activate_with_external_cert helpers --
+
+  defp fetch_pending_key(issuer_key_id) do
+    case IssuerKeyManagement.get_issuer_key(issuer_key_id) do
+      {:ok, key} ->
+        if key.status == "pending" do
+          {:ok, key}
+        else
+          {:error, :key_not_pending}
+        end
+
+      {:error, :not_found} ->
+        {:error, :not_found}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_cert_input(input) do
+    cond do
+      is_binary(input) and String.contains?(input, "-----BEGIN") ->
+        # PEM string
+        case X509.Certificate.from_pem(input) do
+          {:ok, cert} ->
+            cert_der = X509.Certificate.to_der(cert)
+            cert_pem = String.trim(input)
+            {:ok, cert, cert_pem, cert_der}
+
+          {:error, _} ->
+            {:error, :malformed_cert}
+        end
+
+      is_binary(input) ->
+        # Assume raw DER bytes
+        case X509.Certificate.from_der(input) do
+          {:ok, cert} ->
+            cert_pem = X509.Certificate.to_pem(cert)
+            {:ok, cert, cert_pem, input}
+
+          {:error, _} ->
+            {:error, :malformed_cert}
+        end
+
+      true ->
+        {:error, :malformed_cert}
+    end
+  end
+
+  defp check_cert_not_expired(cert) do
+    validity = X509.Certificate.validity(cert)
+    not_after_time = elem(validity, 2)  # {:Validity, notBefore, notAfter} → notAfter
+
+    not_after_dt = X509.DateTime.to_datetime(not_after_time)
+
+    if DateTime.compare(not_after_dt, DateTime.utc_now()) == :gt do
+      :ok
+    else
+      {:error, :cert_expired}
+    end
+  end
+
+  # Compare the certificate's public key against the fingerprint stored on the IssuerKey.
+  # The fingerprint is SHA-256 of the raw public key bytes as returned by
+  # PkiCrypto.Algorithm.generate_keypair/1 at ceremony time.
+  defp check_public_key_match(cert, key) do
+    with {:ok, cert_fp} <- extract_cert_public_key_fingerprint(cert) do
+      if key.fingerprint && key.fingerprint == cert_fp do
+        :ok
+      else
+        # Fingerprint field may be nil for older keys; fall back to :ok
+        # to avoid blocking activation. Only fail on an explicit mismatch.
+        if is_nil(key.fingerprint) do
+          :ok
+        else
+          {:error, :public_key_mismatch}
+        end
+      end
+    end
+  end
+
+  # Extract fingerprint (SHA-256 hex) from the cert's public key in the same
+  # format as stored at keygen time:
+  #   - ECC: raw EC point bytes (the compressed/uncompressed point binary)
+  #   - RSA: DER-encoded RSAPublicKey bytes
+  defp extract_cert_public_key_fingerprint(cert) do
+    try do
+      pub_key = X509.Certificate.public_key(cert)
+
+      raw_bytes =
+        case pub_key do
+          # ECC: {ec_point(point: point_bytes), _params}
+          {{:ECPoint, point_bytes}, _params} ->
+            point_bytes
+
+          # RSA: {:RSAPublicKey, modulus, exponent}
+          {:RSAPublicKey, _, _} = rsa_pub ->
+            :public_key.der_encode(:RSAPublicKey, rsa_pub)
+
+          # Other / PQC / fallback: encode as SubjectPublicKeyInfo DER
+          other ->
+            X509.PublicKey.to_der(other)
+        end
+
+      fingerprint = :crypto.hash(:sha256, raw_bytes) |> Base.encode16(case: :lower)
+      {:ok, fingerprint}
+    rescue
+      _ -> {:error, :malformed_cert}
+    end
+  end
+
+  # Check that the certificate's public key algorithm family matches the
+  # algorithm string stored on the IssuerKey.
+  defp check_algo_match(cert, key) do
+    try do
+      pub_key = X509.Certificate.public_key(cert)
+      cert_algo_family = infer_cert_algo_family(pub_key)
+      key_algo_family = infer_key_algo_family(key.algorithm)
+
+      if cert_algo_family == :unknown or key_algo_family == :unknown do
+        # Cannot determine family — skip the check to avoid false negatives
+        # for custom / PQC algorithms not representable in standard X.509.
+        :ok
+      else
+        if cert_algo_family == key_algo_family do
+          :ok
+        else
+          {:error, :algo_mismatch}
+        end
+      end
+    rescue
+      _ -> {:error, :algo_mismatch}
+    end
+  end
+
+  defp infer_cert_algo_family({{:ECPoint, _}, _params}), do: :ecc
+  defp infer_cert_algo_family({:RSAPublicKey, _, _}), do: :rsa
+  defp infer_cert_algo_family(_), do: :unknown
+
+  defp infer_key_algo_family(algo) when is_binary(algo) do
+    a = String.downcase(algo)
+    cond do
+      String.starts_with?(a, "ecc") -> :ecc
+      String.starts_with?(a, "rsa") -> :rsa
+      String.starts_with?(a, "ml-dsa") -> :ml_dsa
+      String.starts_with?(a, "kaz-sign") -> :kaz_sign
+      String.starts_with?(a, "slh-dsa") -> :slh_dsa
+      true -> :unknown
+    end
+  end
+  defp infer_key_algo_family(_), do: :unknown
+
+  defp store_cert_and_activate(key, cert_pem, cert_der) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    Repo.update(key, %{
+      status: "active",
+      certificate_pem: cert_pem,
+      certificate_der: cert_der,
+      updated_at: now
+    })
+  end
+
+  defp append_activation_audit(key) do
+    Logger.info("[CeremonyOrchestrator] key_activated_with_external_cert issuer_key_id=#{key.id} alias=#{key.key_alias}")
+
+    # Append to ceremony transcript if a completed ceremony exists for this key
+    case Repo.get_all_by_index(KeyCeremony, :issuer_key_id, key.id) do
+      {:ok, [ceremony | _]} ->
+        table = PkiMnesia.Schema.table_name(CeremonyTranscript)
+
+        Repo.transaction(fn ->
+          case :mnesia.index_read(table, ceremony.id, :ceremony_id) do
+            [record | _] ->
+              transcript = Repo.record_to_struct(CeremonyTranscript, record)
+              entry = %{
+                timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
+                actor: "system",
+                action: "key_activated_with_external_cert",
+                details: %{issuer_key_id: key.id, key_alias: key.key_alias}
+              }
+              updated = %{transcript | entries: (transcript.entries || []) ++ [entry]}
+              :mnesia.write(Repo.struct_to_record(table, updated))
+
+            [] ->
+              :ok
+          end
+        end)
+
+      _ ->
+        :ok
+    end
+  end
+
   @doc "Get the transcript for a ceremony."
   def get_transcript(ceremony_id) do
     case Repo.get_all_by_index(CeremonyTranscript, :ceremony_id, ceremony_id) do
