@@ -67,7 +67,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     KeyCeremony, IssuerKey, ThresholdShare,
     CeremonyParticipant, CeremonyTranscript
   }
-  alias PkiCaEngine.{IssuerKeyManagement, CaInstanceManagement}
+  alias PkiCaEngine.{IssuerKeyManagement, CaInstanceManagement, KeystoreManagement}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
 
   @pbkdf2_iterations 100_000
@@ -85,15 +85,28 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     - custodian_names: list of strings (custodian names, NOT user IDs)
     - auditor_name: string (auditor name)
     - ceremony_mode: :full | :simplified (root CA must be :full)
+    - keystore_mode: "software" | "softhsm" | "hsm" (default "softhsm")
     - key_alias: optional string
     - subject_dn: optional string
     - is_root: boolean (default true)
     - initiated_by: string (name of person initiating)
+
+  ## Keystore mode validation
+
+  In `:prod` env only `"hsm"` is permitted. Passing `"software"` or
+  `"softhsm"` in prod returns `{:error, :software_keystore_not_allowed_in_prod}`.
+
+  When `keystore_mode` is `"hsm"`, the CA must have at least one keystore of
+  type `"hsm"` already configured; otherwise returns
+  `{:error, :no_hsm_keystore_configured}`.
   """
   def initiate(ca_instance_id, params) do
+    keystore_mode = Map.get(params, :keystore_mode, "softhsm")
+
     with :ok <- validate_threshold(params.threshold_k, params.threshold_n),
          :ok <- validate_participants(params.custodian_names, params.threshold_n),
-         :ok <- validate_ceremony_mode(params) do
+         :ok <- validate_ceremony_mode(params),
+         :ok <- validate_keystore_mode(keystore_mode, ca_instance_id) do
 
       Repo.transaction(fn ->
         # Create issuer key
@@ -122,6 +135,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
             "subject_dn" => Map.get(params, :subject_dn, "/CN=CA-#{ca_instance_id}")
           },
           initiated_by: params.initiated_by,
+          keystore_mode: keystore_mode,
           window_expires_at: window_expires_at
         })
         :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), ceremony))
@@ -697,6 +711,38 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   defp validate_ceremony_mode(%{is_root: true, ceremony_mode: :simplified}),
     do: {:error, :root_ca_requires_full_ceremony}
   defp validate_ceremony_mode(_), do: :ok
+
+  # Validate keystore_mode against env policy and HSM availability.
+  #
+  # In :prod, only "hsm" is permitted — "software" and "softhsm" bypass
+  # hardware key custody requirements.
+  #
+  # When the caller requests "hsm", the CA must already have at least one
+  # keystore of type "hsm" configured; the HSM-key mapping at activation time
+  # (IssuerKey.keystore_type derivation from KeyCeremony.keystore_mode) is
+  # handled as a separate task (E1.4+).
+  defp validate_keystore_mode(mode, _ca_instance_id)
+       when mode not in ["software", "softhsm", "hsm"] do
+    {:error, {:invalid_keystore_mode, mode}}
+  end
+
+  defp validate_keystore_mode(mode, _ca_instance_id)
+       when mode in ["software", "softhsm"] do
+    if Application.get_env(:pki_ca_engine, :env) == :prod do
+      {:error, :software_keystore_not_allowed_in_prod}
+    else
+      :ok
+    end
+  end
+
+  defp validate_keystore_mode("hsm", ca_instance_id) do
+    keystores = KeystoreManagement.list_keystores(ca_instance_id)
+    if Enum.any?(keystores, fn ks -> ks.type == "hsm" end) do
+      :ok
+    else
+      {:error, :no_hsm_keystore_configured}
+    end
+  end
 
   defp generate_self_signed(algorithm, private_key, public_key, subject_dn) do
     case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do

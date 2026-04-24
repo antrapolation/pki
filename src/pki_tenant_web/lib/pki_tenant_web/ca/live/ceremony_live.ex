@@ -452,6 +452,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
             ceremony_params = %{
               algorithm: params["algorithm"],
               keystore_id: params["keystore_id"],
+              keystore_mode: params["keystore_mode"] || "softhsm",
               threshold_k: threshold_k,
               threshold_n: threshold_n,
               is_root: is_root,
@@ -471,6 +472,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                   ca_instance_id: ca_id,
                   is_root: is_root,
                   key_alias: params["key_alias"],
+                  keystore_mode: ceremony.keystore_mode,
                   custodian_count: threshold_n,
                   auditor_name: auditor_name
                 })
@@ -1106,6 +1108,28 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                 <option value="" disabled selected>Select Keystore</option>
                 <option :for={ks <- @keystores} value={ks.id}>{keystore_display(ks)}</option>
               </select>
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs font-medium text-base-content/60 mb-2">Key Storage Mode</label>
+              <div class="flex flex-wrap gap-4">
+                <%= if Mix.env() != :prod do %>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="keystore_mode" value="software" class="radio radio-sm" />
+                    <span class="text-sm">Software <span class="text-xs text-base-content/40">(dev/test only)</span></span>
+                  </label>
+                <% end %>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="keystore_mode" value="softhsm" class="radio radio-sm" checked />
+                  <span class="text-sm">SoftHSM <span class="text-xs text-base-content/40">(PKCS#11, default)</span></span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="keystore_mode" value="hsm" class="radio radio-sm" />
+                  <span class="text-sm">Hardware HSM <span class="text-xs text-base-content/40">(required in prod)</span></span>
+                </label>
+              </div>
+              <p class="text-xs text-base-content/40 mt-1">
+                Selects how the generated private key material is protected. HSM mode requires a configured HSM keystore for this CA.
+              </p>
             </div>
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">Key Alias</label>
