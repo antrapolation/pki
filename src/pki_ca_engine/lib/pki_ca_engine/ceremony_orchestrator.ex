@@ -86,6 +86,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     - auditor_name: string (auditor name)
     - ceremony_mode: :full | :simplified (root CA must be :full)
     - keystore_mode: "software" | "softhsm" | "hsm" (default "softhsm")
+    - key_mode: "threshold" | "password" | "single_custodian" (default "threshold").
+      Controls how the private key is protected after generation.
+      "threshold" — Shamir split (k,n as given); "password" and "single_custodian"
+      — single AES-256-GCM envelope, n=1/k=1 required.
     - key_alias: optional string
     - subject_dn: optional string
     - is_root: boolean (default true)
@@ -102,8 +106,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   """
   def initiate(ca_instance_id, params) do
     keystore_mode = Map.get(params, :keystore_mode, "softhsm")
+    key_mode = Map.get(params, :key_mode, "threshold")
 
-    with :ok <- validate_threshold(params.threshold_k, params.threshold_n),
+    with :ok <- validate_key_mode(key_mode),
+         :ok <- validate_threshold(params.threshold_k, params.threshold_n, key_mode),
          :ok <- validate_participants(params.custodian_names, params.threshold_n),
          :ok <- validate_ceremony_mode(params),
          :ok <- validate_keystore_mode(keystore_mode, ca_instance_id) do
@@ -116,6 +122,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           algorithm: params.algorithm,
           is_root: Map.get(params, :is_root, true),
           ceremony_mode: Map.get(params, :ceremony_mode, :full),
+          key_mode: key_mode,
           threshold_config: %{k: params.threshold_k, n: params.threshold_n}
         })
         :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), key))
@@ -422,25 +429,31 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
     case claim_result do
       {:ok, ceremony} ->
-        case Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id) do
-          {:ok, db_shares} ->
-            db_shares = Enum.sort_by(db_shares, & &1.share_index)
-            password_map = Map.new(custodian_passwords)
+        with {:ok, db_shares} <- Repo.get_all_by_index(ThresholdShare, :issuer_key_id, ceremony.issuer_key_id),
+             {:ok, issuer_key} <- Repo.get(IssuerKey, ceremony.issuer_key_id),
+             false <- is_nil(issuer_key) do
+          db_shares = Enum.sort_by(db_shares, & &1.share_index)
+          password_map = Map.new(custodian_passwords)
 
-            # Verify BEFORE keygen. If any custodian password doesn't match the
-            # hash recorded in accept_share, bail out before any key material is
-            # generated. This closes the bypass where a caller could encrypt
-            # shares with passwords the custodians never entered.
-            case verify_custodian_passwords(db_shares, password_map) do
-              :ok ->
-                do_keygen_and_split(ceremony, db_shares, password_map)
+          # Verify BEFORE keygen. If any custodian password doesn't match the
+          # hash recorded in accept_share, bail out before any key material is
+          # generated. This closes the bypass where a caller could encrypt
+          # shares with passwords the custodians never entered.
+          case verify_custodian_passwords(db_shares, password_map) do
+            :ok ->
+              do_keygen_and_split(ceremony, issuer_key, db_shares, password_map)
 
-              {:error, reason} ->
-                fail_ceremony(ceremony.id, "custodian_password_verification_failed")
-                {:error, reason}
-            end
-
-          {:error, _} = err -> err
+            {:error, reason} ->
+              fail_ceremony(ceremony.id, "custodian_password_verification_failed")
+              {:error, reason}
+          end
+        else
+          true ->
+            fail_ceremony(ceremony.id, "issuer_key_not_found")
+            {:error, :issuer_key_not_found}
+          {:error, reason} ->
+            fail_ceremony(ceremony.id, "load_failed")
+            {:error, reason}
         end
 
       {:error, {:invalid_status, _}} -> {:error, :invalid_status}
@@ -792,7 +805,14 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
-  defp do_keygen_and_split(ceremony, db_shares, passwords) do
+  # do_keygen_and_split/4 — dispatches on key_mode from the IssuerKey:
+  #
+  #   "threshold"        — Shamir split into ceremony.threshold_n shares, k-of-n
+  #   "password"         — single AES-GCM envelope keyed from the custodian password,
+  #                        stored as one ThresholdShare with n=1, k=1
+  #   "single_custodian" — identical to "password" mechanically (n=1, k=1);
+  #                        distinguished at the UI/audit layer only
+  defp do_keygen_and_split(ceremony, issuer_key, db_shares, passwords) do
     case generate_keypair(ceremony.algorithm) do
       {:ok, %{public_key: pub, private_key: priv}} ->
         fingerprint = :crypto.hash(:sha256, pub) |> Base.encode16(case: :lower)
@@ -814,10 +834,48 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
         case cert_or_csr_result do
           :ok ->
-            case PkiCrypto.Shamir.split(priv, ceremony.threshold_k, ceremony.threshold_n) do
+            key_mode = Map.get(issuer_key, :key_mode, "threshold")
+
+            split_result =
+              if key_mode in ["password", "single_custodian"] do
+                # n=1, k=1: wrap the entire private key as a single share.
+                # The "share" is just the raw private key bytes; ShareEncryption
+                # applies its own PBKDF2 + AES-256-GCM envelope around it.
+                {:ok, [priv]}
+              else
+                # Standard Shamir threshold split
+                PkiCrypto.Shamir.split(priv, ceremony.threshold_k, ceremony.threshold_n)
+              end
+
+            # Auto-spawn sub-CA while root private key is still in memory.
+            # For non-root ceremonies sub_ca_data is nil and nothing extra is written.
+            sub_ca_data =
+              if is_root and not is_nil(cert_der) do
+                case spawn_sub_ca(ceremony, priv, cert_der) do
+                  {:ok, data} -> data
+                  {:error, reason} ->
+                    Logger.warning("sub-CA auto-spawn failed: #{inspect(reason)}; continuing without sub-CA")
+                    nil
+                end
+              end
+
+            case split_result do
               {:ok, raw_shares} ->
                 :erlang.garbage_collect()
-                encrypt_and_commit(ceremony, db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn)
+
+                # For password / single_custodian we normalise to a single db_share
+                # regardless of how many placeholder shares were created at initiate time.
+                effective_db_shares =
+                  if key_mode in ["password", "single_custodian"] do
+                    # Take the first accepted share; re-stamp n=1, k=1 so the
+                    # ThresholdShare record is self-consistent.
+                    [first | _] = Enum.sort_by(db_shares, & &1.share_index)
+                    [%{first | total_shares: 1, min_shares: 1}]
+                  else
+                    db_shares
+                  end
+
+                encrypt_and_commit(ceremony, effective_db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn, sub_ca_data)
 
               error ->
                 fail_ceremony(ceremony.id, "shamir_split_failed")
@@ -835,7 +893,134 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
-  defp encrypt_and_commit(ceremony, db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn) do
+  # Generate a sub-CA keypair and sign it with the root private key.
+  # Returns {:ok, map} with keys: issuer_key, ceremony record, cert_der, cert_pem, fingerprint.
+  # The root private key is used here and must NOT be stored — it is discarded after signing.
+  defp spawn_sub_ca(root_ceremony, root_priv, root_cert_der) do
+    algorithm = root_ceremony.algorithm
+    ca_instance_id = root_ceremony.ca_instance_id
+    root_subject_dn = Map.get(root_ceremony.domain_info, "subject_dn", "/CN=CA-#{root_ceremony.id}")
+    sub_ca_dn = derive_sub_ca_dn(root_subject_dn)
+
+    with {:ok, %{public_key: sub_pub, private_key: _sub_priv}} <- generate_keypair(algorithm),
+         {:ok, sub_cert_der} <- sign_sub_ca_cert(algorithm, sub_pub, sub_ca_dn, root_cert_der, root_priv) do
+      sub_fingerprint = :crypto.hash(:sha256, sub_pub) |> Base.encode16(case: :lower)
+      sub_cert_pem = :public_key.pem_encode([{:Certificate, sub_cert_der, :not_encrypted}])
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      sub_key = IssuerKey.new(%{
+        ca_instance_id: ca_instance_id,
+        key_alias: "sub-ca-#{:erlang.unique_integer([:positive])}",
+        algorithm: algorithm,
+        is_root: false,
+        status: "active",
+        ceremony_mode: :full,
+        keystore_type: keystore_mode_to_keystore_type(root_ceremony.keystore_mode),
+        threshold_config: %{k: root_ceremony.threshold_k, n: root_ceremony.threshold_n},
+        certificate_der: sub_cert_der,
+        certificate_pem: sub_cert_pem,
+        fingerprint: sub_fingerprint,
+        subject_dn: sub_ca_dn,
+        inserted_at: now,
+        updated_at: now
+      })
+
+      sub_ceremony = KeyCeremony.new(%{
+        ca_instance_id: ca_instance_id,
+        issuer_key_id: sub_key.id,
+        algorithm: algorithm,
+        threshold_k: root_ceremony.threshold_k,
+        threshold_n: root_ceremony.threshold_n,
+        domain_info: %{
+          "is_root" => false,
+          "subject_dn" => sub_ca_dn,
+          "parent_ceremony_id" => root_ceremony.id,
+          "fingerprint" => sub_fingerprint,
+          "auto_spawned" => true
+        },
+        initiated_by: "system",
+        keystore_mode: root_ceremony.keystore_mode,
+        status: "completed",
+        inserted_at: now,
+        updated_at: now
+      })
+
+      {:ok, %{
+        issuer_key: sub_key,
+        ceremony: sub_ceremony,
+        cert_der: sub_cert_der,
+        cert_pem: sub_cert_pem,
+        fingerprint: sub_fingerprint
+      }}
+    end
+  end
+
+  # Sign a sub-CA certificate using the root private key (PQC or classical).
+  # For classical algorithms the private key must be decoded to OTP format
+  # before passing to :public_key.sign (mirroring generate_csr/4 above).
+  defp sign_sub_ca_cert(algorithm, sub_pub, sub_ca_dn, root_cert_der, root_priv) do
+    serial = :crypto.strong_rand_bytes(8) |> :binary.decode_unsigned()
+
+    # Build a minimal CSR-like parsed struct for build_tbs_cert.
+    csr_parsed = %{
+      algorithm_id: algorithm,
+      subject_public_key: extract_raw_pub_bytes(algorithm, sub_pub),
+      raw_tbs: <<>>,
+      signature: <<>>
+    }
+
+    issuer_ref = %{cert_der: root_cert_der, algorithm_id: algorithm}
+
+    # Classical algorithms require OTP-decoded key for :public_key.sign.
+    signing_key =
+      case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+        {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+          root_priv
+        _ ->
+          decode_private_key(root_priv)
+      end
+
+    with {:ok, tbs_der, _sig_oid} <- PkiCrypto.X509Builder.build_tbs_cert(
+           csr_parsed, issuer_ref, sub_ca_dn, 365 * 10, serial
+         ),
+         {:ok, cert_der} <- PkiCrypto.X509Builder.sign_tbs(tbs_der, algorithm, signing_key) do
+      {:ok, cert_der}
+    end
+  end
+
+  # For PQC algorithms, the public key bytes are raw NIF output.
+  # For classical algorithms, mirror extract_spki_public_bytes in X509Builder.
+  defp extract_raw_pub_bytes(algorithm, pub) do
+    case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+      {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+        pub
+
+      {:ok, %{family: :ecdsa}} ->
+        case pub do
+          {{:ECPoint, point}, _params} -> point
+          <<_::binary>> -> pub
+        end
+
+      {:ok, %{family: :rsa}} ->
+        :public_key.der_encode(:RSAPublicKey, pub)
+
+      _ ->
+        pub
+    end
+  end
+
+  # Derive sub-CA DN from root CA DN: prefix "/CN=Sub CA — " to the CN value.
+  defp derive_sub_ca_dn(root_dn) do
+    String.replace(root_dn, ~r{/CN=([^/]+)}, "/CN=Sub CA — \\1", global: false)
+  end
+
+  # Map keystore_mode string to IssuerKey.keystore_type atom.
+  defp keystore_mode_to_keystore_type("hsm"), do: :local_hsm
+  defp keystore_mode_to_keystore_type("softhsm"), do: :local_hsm
+  defp keystore_mode_to_keystore_type(_), do: :software
+
+  defp encrypt_and_commit(ceremony, db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn, sub_ca_data) do
     encrypt_result =
       Enum.zip(db_shares, raw_shares)
       |> Enum.reduce_while({:ok, []}, fn {db_share, raw_share}, {:ok, acc} ->
@@ -914,6 +1099,25 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           end
 
           append_transcript_in_tx(ceremony.id, "system", "ceremony_completed", %{fingerprint: fingerprint})
+
+          # Persist auto-spawned sub-CA records within the same transaction.
+          if not is_nil(sub_ca_data) do
+            now_sub = DateTime.utc_now() |> DateTime.truncate(:second)
+
+            # Write the sub-CA IssuerKey (already status "active")
+            sub_key = sub_ca_data.issuer_key
+            :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), sub_key))
+
+            # Write the sub-CA KeyCeremony (status "completed")
+            sub_ceremony = struct(sub_ca_data.ceremony, %{updated_at: now_sub})
+            :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), sub_ceremony))
+
+            append_transcript_in_tx(ceremony.id, "system", "sub_ca_auto_spawned", %{
+              sub_ca_key_id: sub_key.id,
+              sub_ca_fingerprint: sub_ca_data.fingerprint,
+              sub_ca_dn: sub_key.subject_dn
+            })
+          end
         end) do
           {:ok, _} ->
             :erlang.garbage_collect()
@@ -927,7 +1131,8 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
               _ -> :ok
             end
 
-            {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem}}
+            sub_ca_key_id = if sub_ca_data, do: sub_ca_data.issuer_key.id, else: nil
+            {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem, sub_ca_key_id: sub_ca_key_id}}
 
           {:error, reason} ->
             fail_ceremony(ceremony.id, "transaction_failed: #{inspect(reason)}")
@@ -957,8 +1162,15 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   end
 
 
-  defp validate_threshold(k, n) when is_integer(k) and is_integer(n) and k >= 2 and k <= n, do: :ok
-  defp validate_threshold(_, _), do: {:error, :invalid_threshold}
+  # For threshold mode: k >= 2 and k <= n.
+  # For password / single_custodian: k=1, n=1 is the only valid configuration
+  # (the private key is wrapped as a single encrypted blob, not Shamir-split).
+  defp validate_threshold(1, 1, mode) when mode in ["password", "single_custodian"], do: :ok
+  defp validate_threshold(k, n, "threshold") when is_integer(k) and is_integer(n) and k >= 2 and k <= n, do: :ok
+  defp validate_threshold(_, _, _), do: {:error, :invalid_threshold}
+
+  defp validate_key_mode(mode) when mode in ["threshold", "password", "single_custodian"], do: :ok
+  defp validate_key_mode(mode), do: {:error, {:invalid_key_mode, mode}}
 
   defp validate_participants(names, n) when is_list(names) and length(names) == n, do: :ok
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}
