@@ -3,7 +3,7 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
 
   require Logger
 
-  alias PkiCaEngine.{CaInstanceManagement, IssuerKeyManagement, CertificateSigning, KeyActivation}
+  alias PkiCaEngine.{CaInstanceManagement, IssuerKeyManagement, CertificateSigning, KeyActivation, CeremonyOrchestrator}
   alias PkiMnesia.Repo
   alias PkiMnesia.Structs.{ThresholdShare, KeyCeremony}
   import PkiTenantWeb.ErrorHelpers, only: [sanitize_error: 2]
@@ -356,7 +356,7 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
     else
       socket = assign(socket, modal_busy: true, modal_error: nil)
 
-      # Verify single certificate, parse PEM to DER
+      # Verify single certificate (not a chain)
       begin_count = cert_pem |> String.split("-----BEGIN ") |> length() |> Kernel.-(1)
 
       cond do
@@ -367,35 +367,24 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
           {:noreply, assign(socket, modal_busy: false, modal_error: "No PEM certificate found.")}
 
         true ->
-          cert_b64 =
-            cert_pem
-            |> String.replace(~r/-----BEGIN .*?-----/, "")
-            |> String.replace(~r/-----END .*?-----/, "")
-            |> String.replace(~r/\s/, "")
+          # Delegate to CeremonyOrchestrator for validated external-cert activation.
+          # This verifies: cert not expired, public key matches the pending key,
+          # and the cert's algorithm family is consistent with key.algorithm.
+          case CeremonyOrchestrator.activate_with_external_cert(key.id, cert_pem) do
+            {:ok, _updated} ->
+              PkiTenant.AuditBridge.log("key_activated_with_external_cert", %{
+                issuer_key_id: key.id,
+                key_alias: key.key_alias
+              })
+              keys = load_keys(socket.assigns.effective_ca_id)
+              {:noreply,
+               socket
+               |> reset_modal()
+               |> assign(issuer_keys: keys)
+               |> put_flash(:info, "Issuer key activated successfully.")}
 
-          case Base.decode64(cert_b64) do
-            {:ok, der} ->
-              cert_attrs = %{certificate_der: der, certificate_pem: String.trim(cert_pem)}
-
-              case IssuerKeyManagement.activate_by_certificate(key, cert_attrs) do
-                {:ok, _updated} ->
-                  PkiTenant.AuditBridge.log("issuer_key_activated", %{
-                    issuer_key_id: key.id,
-                    key_alias: key.key_alias
-                  })
-                  keys = load_keys(socket.assigns.effective_ca_id)
-                  {:noreply,
-                   socket
-                   |> reset_modal()
-                   |> assign(issuer_keys: keys)
-                   |> put_flash(:info, "Issuer key activated successfully.")}
-
-                {:error, reason} ->
-                  {:noreply, assign(socket, modal_busy: false, modal_error: "Activation failed: #{format_error(reason)}")}
-              end
-
-            :error ->
-              {:noreply, assign(socket, modal_busy: false, modal_error: "Invalid certificate PEM — could not decode Base64.")}
+            {:error, reason} ->
+              {:noreply, assign(socket, modal_busy: false, modal_error: "Activation failed: #{format_error(reason)}")}
           end
       end
     end
@@ -518,6 +507,11 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
   defp format_error(:invalid_csr), do: "Invalid CSR — signature verification failed"
   defp format_error(:invalid_csr_pem), do: "Invalid CSR PEM format"
   defp format_error({:invalid_status, status}), do: "Key status is '#{status}' — must be 'pending' to activate"
+  defp format_error(:key_not_pending), do: "Key is not in pending status — cannot activate"
+  defp format_error(:malformed_cert), do: "Certificate could not be parsed — ensure it is a valid PEM or DER certificate"
+  defp format_error(:cert_expired), do: "Certificate has expired — upload a valid, unexpired certificate"
+  defp format_error(:public_key_mismatch), do: "Certificate public key does not match this issuer key"
+  defp format_error(:algo_mismatch), do: "Certificate algorithm does not match the issuer key algorithm"
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason) do
     Logger.error("[issuer_keys] Unhandled error reason: #{inspect(reason)}")
