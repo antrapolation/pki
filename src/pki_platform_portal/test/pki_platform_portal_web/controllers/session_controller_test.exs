@@ -1,8 +1,26 @@
 defmodule PkiPlatformPortalWeb.SessionControllerTest do
   use PkiPlatformPortalWeb.ConnCase
 
+  alias PkiPlatformEngine.{PlatformRepo, UserProfile}
+
   setup do
     PkiPlatformPortal.SessionStore.clear_all()
+
+    # Seed a super_admin so RequireSetup stops redirecting to /setup
+    # and login credentials match the test assertions. Insert directly
+    # with pre-hashed password to bypass registration_changeset's
+    # complexity rules (these tests use weak "admin" on purpose).
+    {:ok, _} =
+      PlatformRepo.insert(%UserProfile{
+        id: Uniq.UUID.uuid7(),
+        username: "admin",
+        display_name: "Admin",
+        email: "admin@test.local",
+        password_hash: Argon2.hash_pwd_salt("admin"),
+        global_role: "super_admin",
+        status: "active"
+      })
+
     :ok
   end
 

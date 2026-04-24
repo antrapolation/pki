@@ -49,6 +49,7 @@ defmodule PkiPlatformPortalWeb.Plugs.RateLimiter do
         |> put_resp_header("retry-after", Integer.to_string(div(scale_ms, 1000)))
         |> put_status(429)
         |> Phoenix.Controller.put_view(PkiPlatformPortalWeb.SessionHTML)
+        |> Phoenix.Controller.put_format(:html)
         |> Phoenix.Controller.render(:login,
           layout: false,
           error: "Too many attempts. Please wait a few minutes before trying again."
@@ -61,6 +62,7 @@ defmodule PkiPlatformPortalWeb.Plugs.RateLimiter do
         conn
         |> put_status(503)
         |> Phoenix.Controller.put_view(PkiPlatformPortalWeb.SessionHTML)
+        |> Phoenix.Controller.put_format(:html)
         |> Phoenix.Controller.render(:login,
           layout: false,
           error: "Service temporarily unavailable. Please try again."
