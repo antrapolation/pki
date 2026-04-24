@@ -1027,7 +1027,9 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
         case Map.fetch(passwords, db_share.custodian_name) do
           {:ok, password} ->
             case ShareEncryption.encrypt_share(raw_share, password) do
-              {:ok, encrypted} -> {:cont, {:ok, [{db_share, encrypted} | acc]}}
+              {:ok, encrypted} ->
+                signature = ShareEncryption.sign_share(encrypted, ceremony.id)
+                {:cont, {:ok, [{db_share, encrypted, signature} | acc]}}
               {:error, reason} -> {:halt, {:error, {:share_encryption_failed, reason}}}
             end
           :error ->
@@ -1053,9 +1055,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           # on the encrypted_share ciphertext, not by this hash. Clearing it
           # here limits the post-ceremony attack surface — a DB read no longer
           # yields an offline-crackable password artifact.
-          Enum.each(encrypted_pairs, fn {db_share, encrypted_share} ->
+          Enum.each(encrypted_pairs, fn {db_share, encrypted_share, share_signature} ->
             updated = %{db_share |
               encrypted_share: encrypted_share,
+              share_signature: share_signature,
               password_hash: nil,
               status: "active",
               updated_at: now
