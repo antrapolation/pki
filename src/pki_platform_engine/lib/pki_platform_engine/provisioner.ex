@@ -191,18 +191,17 @@ defmodule PkiPlatformEngine.Provisioner do
   end
 
   defp run_tenant_migrations(prefixes) do
-    # Start a temporary non-sandboxed repo per prefix.
-    # Uses after_connect to SET search_path so raw SQL in `execute` blocks
-    # automatically targets the correct schema.
-    base_config = platform_repo_config()
-
+    # Apply the raw tenant schema SQL files with the literal "ca."/"ra."
+    # schema prefixes rewritten to the tenant-specific dynamic schema.
+    # The engine Ecto migrations were removed in df729af; these SQL files
+    # in priv/ are now the authoritative source for tenant schemas.
     try do
       Logger.info("tenant_migration_start prefix=#{prefixes.ca_prefix} engine=ca")
-      run_prefixed_migrations(base_config, prefixes.ca_prefix, ca_migrations_path())
+      apply_tenant_schema_sql("tenant_ca_schema.sql", "ca", prefixes.ca_prefix)
       Logger.info("tenant_migration_done prefix=#{prefixes.ca_prefix} engine=ca")
 
       Logger.info("tenant_migration_start prefix=#{prefixes.ra_prefix} engine=ra")
-      run_prefixed_migrations(base_config, prefixes.ra_prefix, ra_migrations_path())
+      apply_tenant_schema_sql("tenant_ra_schema.sql", "ra", prefixes.ra_prefix)
       Logger.info("tenant_migration_done prefix=#{prefixes.ra_prefix} engine=ra")
       :ok
     rescue
@@ -212,49 +211,45 @@ defmodule PkiPlatformEngine.Provisioner do
     end
   end
 
-  defp run_prefixed_migrations(base_config, prefix, migrations_path) do
-    Logger.info("tenant_migration migrations_path=#{migrations_path} exists=#{File.dir?(migrations_path)}")
+  defp apply_tenant_schema_sql(filename, source_schema, target_prefix) do
+    safe_prefix = TenantPrefix.validate_prefix!(target_prefix)
 
-    unless File.dir?(migrations_path) do
-      Logger.warning("tenant_migration skipping — path does not exist: #{migrations_path}")
-      # Not an error — just no migrations to run (e.g. empty priv dir in release)
-      return_no_migrations()
-    end
+    sql =
+      "tenant_schema_sql"
+      |> read_schema_sql_file(filename)
+      |> rewrite_schema_prefix(source_schema, safe_prefix)
 
-    config =
-      base_config
-      |> Keyword.put(:after_connect, {Postgrex, :query!, ["SET search_path TO \"#{TenantPrefix.validate_prefix!(prefix)}\"", []]})
-      |> Keyword.put(:connect_timeout, 15_000)
-
-    # Stop any lingering MigrationRepo from a previous run
-    case GenServer.whereis(PkiPlatformEngine.MigrationRepo) do
-      nil -> :ok
-      _pid ->
-        Logger.warning("tenant_migration stopping lingering MigrationRepo")
-        Supervisor.stop(PkiPlatformEngine.MigrationRepo, :normal, 5_000)
-        Process.sleep(500)
-    end
-
-    Logger.info("tenant_migration starting MigrationRepo for prefix=#{prefix}")
-
-    case PkiPlatformEngine.MigrationRepo.start_link(config) do
-      {:ok, repo} ->
-        try do
-          Logger.info("tenant_migration running Ecto.Migrator for prefix=#{prefix}")
-          Ecto.Migrator.run(PkiPlatformEngine.MigrationRepo, migrations_path, :up,
-            all: true, prefix: prefix, log: false)
-          Logger.info("tenant_migration completed for prefix=#{prefix}")
-        after
-          Supervisor.stop(repo, :normal, 10_000)
+    with_platform_conn(fn conn ->
+      # Split on semicolons and run each non-empty statement.
+      sql
+      |> String.split(";")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.reduce_while(:ok, fn stmt, :ok ->
+        case Postgrex.query(conn, stmt, []) do
+          {:ok, _} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
-
-      {:error, reason} ->
-        Logger.error("tenant_migration MigrationRepo start failed: #{inspect(reason)}")
-        raise "MigrationRepo failed to start: #{inspect(reason)}"
+      end)
+    end)
+    |> case do
+      :ok -> :ok
+      {:error, reason} -> raise "apply_tenant_schema_sql failed: #{inspect(reason)}"
     end
   end
 
-  defp return_no_migrations, do: :ok
+  defp read_schema_sql_file(_tag, filename) do
+    priv_dir = :code.priv_dir(:pki_platform_engine)
+    File.read!(Path.join(priv_dir, filename))
+  end
+
+  defp rewrite_schema_prefix(sql, source, target) do
+    # 1. Drop "CREATE SCHEMA IF NOT EXISTS <source>;" — target already exists.
+    # 2. Rewrite "<source>." qualified identifiers to "<target>.".
+    sql
+    |> String.replace(~r/CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+#{source}\s*;/i, "")
+    |> String.replace(~r/\b#{source}\./, "\"#{target}\".")
+  end
 
   defp platform_repo_config do
     config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
@@ -363,33 +358,6 @@ defmodule PkiPlatformEngine.Provisioner do
   end
 
   # ── Migration paths ───────────────────────────────────────────────────
-
-  defp ca_migrations_path do
-    resolve_migrations_path(:pki_ca_engine, "priv/repo/migrations")
-  end
-
-  defp ra_migrations_path do
-    resolve_migrations_path(:pki_ra_engine, "priv/repo/migrations")
-  end
-
-  defp resolve_migrations_path(app, relative_path) do
-    # Try Application.app_dir first (works in releases and when app is loaded)
-    try do
-      path = Application.app_dir(app, relative_path)
-      if File.dir?(path), do: path, else: raise(ArgumentError)
-    rescue
-      ArgumentError ->
-        # Fallback: resolve from sibling source directory (dev/test)
-        # priv_dir is at: src/pki_platform_engine/_build/{env}/lib/pki_platform_engine/priv
-        # Go up 6 levels to reach src/, then into sibling app
-        platform_priv = :code.priv_dir(:pki_platform_engine) |> to_string()
-        src_dir =
-          platform_priv
-          |> Path.join(String.duplicate("/..", 6))
-          |> Path.expand()
-        Path.join([src_dir, to_string(app), relative_path])
-    end
-  end
 
   # ── Database-mode helpers (unchanged) ─────────────────────────────────
 
