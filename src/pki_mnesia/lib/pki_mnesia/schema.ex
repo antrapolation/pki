@@ -12,7 +12,8 @@ defmodule PkiMnesia.Schema do
     RaInstance, RaCaConnection, CertProfile, CsrRequest,
     ApiKey, DcvChallenge, CertificateStatus, PortalUser,
     BackupRecord, ServiceConfig, AuditLogEntry, Keystore,
-    PreSignedCrl
+    PreSignedCrl,
+    ActivationSession
   }
 
   @schema_version 1
@@ -20,6 +21,7 @@ defmodule PkiMnesia.Schema do
   @sync_tables [
     :ca_instances, :issuer_keys, :keystores, :threshold_shares,
     :key_ceremonies, :ceremony_participants, :ceremony_transcripts,
+    :activation_sessions,
     :portal_users, :cert_profiles, :ra_instances, :ra_ca_connections,
     :api_keys, :dcv_challenges, :service_configs, :backup_records,
     :schema_versions
@@ -156,6 +158,7 @@ defmodule PkiMnesia.Schema do
       {CeremonyParticipant, :disc_copies, [:ceremony_id, :name, :role]},
       {CeremonyTranscript, :disc_copies, [:ceremony_id]},
       {ThresholdShare, :disc_copies, [:issuer_key_id, :custodian_name]},
+      {ActivationSession, :disc_copies, [:issuer_key_id, :ceremony_id, :status]},
 
       # CA Engine tables (disc_only_copies - large data)
       {IssuedCertificate, :disc_only_copies, [:serial_number, :issuer_key_id, :status]},
