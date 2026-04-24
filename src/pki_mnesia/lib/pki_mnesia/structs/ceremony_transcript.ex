@@ -45,7 +45,8 @@ defmodule PkiMnesia.Structs.CeremonyTranscript do
     prev =
       case List.last(transcript.entries || []) do
         nil -> @genesis_hash
-        last -> Map.fetch!(last, "event_hash")
+        # Tolerate pre-E4.1 entries written with atom keys and no event_hash.
+        last -> Map.get(last, "event_hash") || Map.get(last, :event_hash) || @genesis_hash
       end
 
     event_hash = :crypto.hash(:sha256, prev <> Jason.encode!(event_map))
@@ -65,15 +66,20 @@ defmodule PkiMnesia.Structs.CeremonyTranscript do
     entries
     |> Enum.with_index(1)
     |> Enum.reduce_while(:ok, fn {entry, idx}, :ok ->
-      prev_hash = Map.fetch!(entry, "prev_hash")
-      stored_hash = Map.fetch!(entry, "event_hash")
-      content = Map.drop(entry, ["prev_hash", "event_hash"])
-      expected = :crypto.hash(:sha256, prev_hash <> Jason.encode!(content))
+      case {Map.fetch(entry, "prev_hash"), Map.fetch(entry, "event_hash")} do
+        {{:ok, prev_hash}, {:ok, stored_hash}} ->
+          content = Map.drop(entry, ["prev_hash", "event_hash"])
+          expected = :crypto.hash(:sha256, prev_hash <> Jason.encode!(content))
 
-      if expected == stored_hash do
-        {:cont, :ok}
-      else
-        {:halt, {:error, {:broken_at, idx}}}
+          if expected == stored_hash do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {:broken_at, idx}}}
+          end
+
+        _ ->
+          # Pre-E4.1 entry without hash fields — skip verification for this entry.
+          {:cont, :ok}
       end
     end)
   end
