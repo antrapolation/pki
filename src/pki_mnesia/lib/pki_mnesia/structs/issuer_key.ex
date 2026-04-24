@@ -2,7 +2,7 @@ defmodule PkiMnesia.Structs.IssuerKey do
   @moduledoc "Issuer key record with ceremony mode and lifecycle status."
 
   @fields [:id, :ca_instance_id, :key_alias, :algorithm, :status, :is_root,
-           :ceremony_mode, :keystore_ref, :certificate_der, :certificate_pem,
+           :ceremony_mode, :key_mode, :keystore_ref, :certificate_der, :certificate_pem,
            :csr_pem, :subject_dn, :fingerprint, :threshold_config,
            :keystore_type, :hsm_config, :hsm_key_handle,
            :inserted_at, :updated_at]
@@ -18,6 +18,7 @@ defmodule PkiMnesia.Structs.IssuerKey do
     status: String.t(),
     is_root: boolean(),
     ceremony_mode: atom(),
+    key_mode: String.t(),
     keystore_ref: binary() | nil,
     certificate_der: binary() | nil,
     certificate_pem: String.t() | nil,
@@ -52,6 +53,7 @@ defmodule PkiMnesia.Structs.IssuerKey do
       status: Map.get(attrs, :status, "pending"),
       is_root: Map.get(attrs, :is_root, true),
       ceremony_mode: Map.get(attrs, :ceremony_mode, :full),
+      key_mode: Map.get(attrs, :key_mode, "threshold"),
       keystore_ref: attrs[:keystore_ref],
       certificate_der: attrs[:certificate_der],
       certificate_pem: attrs[:certificate_pem],
