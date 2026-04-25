@@ -37,7 +37,7 @@ defmodule PkiCaEngine.ActivationCeremony do
   """
 
   alias PkiMnesia.{Repo}
-  alias PkiMnesia.Structs.{ActivationSession, ThresholdShare}
+  alias PkiMnesia.Structs.{ActivationSession, IssuerKey, ThresholdShare}
   alias PkiCaEngine.{KeyActivation, KeyStore.Dispatcher}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
 
@@ -62,7 +62,9 @@ defmodule PkiCaEngine.ActivationCeremony do
   """
   @spec start(binary(), keyword()) :: {:ok, ActivationSession.t()} | {:error, term()}
   def start(issuer_key_id, opts \\ []) do
-    with {:ok, {k, n}} <- resolve_threshold(issuer_key_id, opts) do
+    with {:ok, key} <- load_issuer_key(issuer_key_id),
+         :ok <- validate_activation_policy(key, opts),
+         {:ok, {k, n}} <- resolve_threshold(issuer_key_id, opts) do
       session =
         ActivationSession.new(%{
           issuer_key_id: issuer_key_id,
@@ -111,7 +113,10 @@ defmodule PkiCaEngine.ActivationCeremony do
       case persist_session(updated_session) do
         {:ok, persisted} ->
           if length(new_custodians) >= persisted.threshold_k do
-            maybe_grant_lease(persisted.id, opts)
+            # Pass the in-memory session (with auth_tokens) directly to
+            # do_grant_lease so the tokens are never re-read from Mnesia
+            # where they are deliberately not persisted (H2 fix).
+            do_grant_lease(persisted, opts)
           else
             {:ok, persisted}
           end
@@ -256,17 +261,49 @@ defmodule PkiCaEngine.ActivationCeremony do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     updated = Map.put(session, :updated_at, now)
 
+    # Never persist raw auth tokens — hold only in process memory for the
+    # duration of the threshold-met → do_grant_lease call.
     case Repo.update(updated, %{
       status: updated.status,
       authenticated_custodians: updated.authenticated_custodians,
-      auth_tokens: updated.auth_tokens || [],
+      auth_tokens: [],
       completed_at: updated.completed_at,
       updated_at: now
     }) do
-      {:ok, saved} -> {:ok, saved}
+      {:ok, saved} -> {:ok, Map.put(saved, :auth_tokens, updated.auth_tokens || [])}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp load_issuer_key(issuer_key_id) do
+    case Repo.get(IssuerKey, issuer_key_id) do
+      {:ok, nil} -> {:error, :issuer_key_not_found}
+      {:ok, key} -> {:ok, key}
+      {:error, reason} -> {:error, {:key_lookup_failed, reason}}
+    end
+  end
+
+  # H5: root keys with a non-threshold key_mode cannot be activated at all.
+  defp validate_activation_policy(%{key_role: "root", key_mode: mode}, _opts)
+       when mode != "threshold",
+       do: {:error, :root_requires_threshold}
+
+  # H5: root keys must not be activated with a threshold_k lower than the
+  # threshold recorded at ceremony time.
+  defp validate_activation_policy(%{key_role: "root"} = key, opts) do
+    supplied_k = Keyword.get(opts, :threshold_k)
+    stored_k = key.threshold_config[:k] || key.threshold_config["k"]
+
+    cond do
+      supplied_k != nil and supplied_k < (stored_k || 2) ->
+        {:error, :root_requires_threshold}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_activation_policy(_key, _opts), do: :ok
 
   defp do_grant_lease(session, opts) do
     ka_server = opts[:key_activation] || KeyActivation
@@ -283,30 +320,33 @@ defmodule PkiCaEngine.ActivationCeremony do
     custodian_names = Enum.map(session.authenticated_custodians, & &1.name)
     auth_tokens = session.auth_tokens || []
 
-    with {:ok, handle} <- Dispatcher.authorize_session(session.issuer_key_id, auth_tokens) do
-      case KeyActivation.activate(ka_server, session.issuer_key_id, handle, custodian_names, opts) do
-        {:ok, _key_id} ->
-          now2 = DateTime.utc_now() |> DateTime.truncate(:second)
-          completed =
-            session
-            |> Map.put(:status, "lease_active")
-            |> Map.put(:completed_at, now2)
-            |> Map.put(:updated_at, now2)
-
-          {:ok, _} = persist_session(completed)
-          {:ok, :lease_granted}
-
-        {:error, reason} ->
-          now2 = DateTime.utc_now() |> DateTime.truncate(:second)
-          failed =
-            session
-            |> Map.put(:status, "failed")
-            |> Map.put(:completed_at, now2)
-            |> Map.put(:updated_at, now2)
-
-          {:ok, _} = persist_session(failed)
-          {:error, {:lease_grant_failed, reason}}
+    result =
+      with {:ok, handle} <- Dispatcher.authorize_session(session.issuer_key_id, auth_tokens) do
+        KeyActivation.activate(ka_server, session.issuer_key_id, handle, custodian_names, opts)
       end
+
+    case result do
+      {:ok, _key_id} ->
+        now2 = DateTime.utc_now() |> DateTime.truncate(:second)
+        completed =
+          session
+          |> Map.put(:status, "lease_active")
+          |> Map.put(:completed_at, now2)
+          |> Map.put(:updated_at, now2)
+
+        {:ok, _} = persist_session(completed)
+        {:ok, :lease_granted}
+
+      {:error, reason} ->
+        now2 = DateTime.utc_now() |> DateTime.truncate(:second)
+        failed =
+          session
+          |> Map.put(:status, "failed")
+          |> Map.put(:completed_at, now2)
+          |> Map.put(:updated_at, now2)
+
+        {:ok, _} = persist_session(failed)
+        {:error, {:lease_grant_failed, reason}}
     end
   end
 end
