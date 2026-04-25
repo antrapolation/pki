@@ -169,7 +169,9 @@ defmodule PkiMnesia.Structs.CeremonyTranscript do
     OTP applies SHA-256 internally when verifying with `:sha256`, so signing
     the pre-hashed digest would result in SHA-256(SHA-256(data)) — a mismatch.
     Use `:public_key.sign(raw_bytes, :sha256, priv_key)` where `raw_bytes =
-    :erlang.term_to_binary(signable_entries)`.
+    :erlang.term_to_binary(signable_entries)`. `priv_key` must be an OTP
+    `:ECPrivateKey` record (decoded via `:public_key.der_decode/2`), not
+    raw bytes from `:crypto.generate_key/2`.
   """
   @spec transcript_digest([map()]) :: binary()
   def transcript_digest(entries) when is_list(entries) do
