@@ -53,6 +53,9 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        csr_pem: nil,
        wizard_error: nil,
        wizard_busy: false,
+       # Initiate form state (tracked for reactive warning banner)
+       selected_key_mode: "threshold",
+       selected_key_role: "operational_sub",
        # Progress dashboard state
        participants: [],
        activity_log: [],
@@ -316,7 +319,9 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        wizard_error: nil,
        wizard_busy: false,
        participants: [],
-       activity_log: []
+       activity_log: [],
+       selected_key_mode: "threshold",
+       selected_key_role: "operational_sub"
      )}
   end
 
@@ -397,6 +402,18 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   end
 
   # ---------------------------------------------------------------------------
+  # Step 1: Initiate form changes (tracked for reactive UI)
+  # ---------------------------------------------------------------------------
+
+  def handle_event("change_initiate_form", params, socket) do
+    {:noreply,
+     assign(socket,
+       selected_key_mode: params["key_mode"] || socket.assigns.selected_key_mode,
+       selected_key_role: params["key_role"] || socket.assigns.selected_key_role
+     )}
+  end
+
+  # ---------------------------------------------------------------------------
   # Step 1: Initiate single-session ceremony
   # ---------------------------------------------------------------------------
 
@@ -419,10 +436,10 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
       is_nil(params["keystore_id"]) or params["keystore_id"] == "" ->
         {:noreply, assign(socket, wizard_error: "Please select a Keystore.")}
 
-      threshold_n < 2 or threshold_n > 20 ->
+      (params["key_mode"] || "threshold") == "threshold" and (threshold_n < 2 or threshold_n > 20) ->
         {:noreply, assign(socket, wizard_error: "Threshold N must be between 2 and 20.")}
 
-      threshold_k > threshold_n or threshold_k < 2 ->
+      (params["key_mode"] || "threshold") == "threshold" and (threshold_k > threshold_n or threshold_k < 2) ->
         {:noreply,
          assign(socket,
            wizard_error: "Threshold K must be between 2 and #{threshold_n}."
@@ -448,6 +465,8 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
             is_root = params["is_root"] == "true"
             initiated_by = socket.assigns.current_user[:username] || socket.assigns.current_user[:display_name] || "unknown"
             placeholder_names = Enum.map(1..threshold_n, fn i -> "Custodian #{i}" end)
+            key_mode = params["key_mode"] || "threshold"
+            key_role = params["key_role"] || "operational_sub"
 
             ceremony_params = %{
               algorithm: params["algorithm"],
@@ -461,7 +480,9 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
               auditor_name: auditor_name,
               ceremony_mode: :full,
               initiated_by: initiated_by,
-              subject_dn: params["subject_dn"]
+              subject_dn: params["subject_dn"],
+              key_mode: key_mode,
+              key_role: key_role
             }
 
             case CeremonyOrchestrator.initiate(ca_id, ceremony_params) do
@@ -1090,8 +1111,14 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
           <.icon name="hero-shield-check" class="size-4 inline" /> Step 1 — Initiate Witnessed Key Ceremony
         </h2>
 
-        <form phx-submit="initiate_ceremony" class="space-y-4">
+        <form phx-submit="initiate_ceremony" phx-change="change_initiate_form" class="space-y-4">
           <input type="hidden" name="ca_instance_id" value={@effective_ca_id} />
+
+          <%!-- WebTrust §6.2.2 dual-control warning for non-threshold modes --%>
+          <div :if={@selected_key_mode in ["password", "single_custodian"]} class="alert alert-warning text-sm">
+            <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
+            <span>This mode does not meet WebTrust §6.2.2 dual-control. Use only for internal/private CAs.</span>
+          </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1108,6 +1135,37 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                 <option value="" disabled selected>Select Keystore</option>
                 <option :for={ks <- @keystores} value={ks.id}>{keystore_display(ks)}</option>
               </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-base-content/60 mb-1">Key Role</label>
+              <select name="key_role" class="select select-bordered select-sm w-full">
+                <option value="root" selected={@selected_key_role == "root"}>Root CA</option>
+                <option value="issuing_sub" selected={@selected_key_role == "issuing_sub"}>Issuing Sub-CA</option>
+                <option value="operational_sub" selected={@selected_key_role == "operational_sub"}>Operational Sub-CA</option>
+              </select>
+              <p class="text-xs text-base-content/40 mt-1">
+                Root CA keys require threshold mode (WebTrust §6.2.2).
+              </p>
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs font-medium text-base-content/60 mb-2">Key Protection Mode</label>
+              <div class="flex flex-wrap gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="key_mode" value="threshold" class="radio radio-sm" checked={@selected_key_mode == "threshold"} />
+                  <span class="text-sm">Threshold (k-of-n) <span class="text-xs text-base-content/40">(recommended)</span></span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="key_mode" value="password" class="radio radio-sm" checked={@selected_key_mode == "password"} />
+                  <span class="text-sm">Password <span class="text-xs text-base-content/40">(single envelope)</span></span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="key_mode" value="single_custodian" class="radio radio-sm" checked={@selected_key_mode == "single_custodian"} />
+                  <span class="text-sm">Single Custodian <span class="text-xs text-base-content/40">(internal only)</span></span>
+                </label>
+              </div>
+              <p class="text-xs text-base-content/40 mt-1">
+                Shamir threshold (k-of-n) is required for Root CA and meets WebTrust dual-control. Password and single-custodian modes use a single AES-256-GCM key envelope (k=1, n=1).
+              </p>
             </div>
             <div class="md:col-span-2">
               <label class="block text-xs font-medium text-base-content/60 mb-2">Key Storage Mode</label>
