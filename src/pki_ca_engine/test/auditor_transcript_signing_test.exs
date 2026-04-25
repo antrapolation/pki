@@ -162,4 +162,90 @@ defmodule PkiCaEngine.AuditorTranscriptSigningTest do
                CeremonyTranscript.verify_auditor_signature(transcript)
     end
   end
+
+  # -----------------------------------------------------------------------
+  # ECDSA P-256 round-trip (H1 regression test)
+  # The H1 fix changed ECDSA verify from double-SHA-256 (broken) to
+  # single-SHA-256 by passing raw_bytes + :sha256 to :public_key.verify.
+  # This test confirms the ECDSA path round-trips correctly.
+  # -----------------------------------------------------------------------
+
+  describe "ECDSA P-256 auditor signature round-trip" do
+    test "valid ECDSA P-256 signature verifies correctly" do
+      # Generate an ECDSA P-256 key pair
+      {pub_point, priv_key} = :crypto.generate_key(:ecdh, :secp256r1)
+
+      # Build the SubjectPublicKeyInfo DER for P-256
+      ec_pub_der = :public_key.der_encode(
+        :SubjectPublicKeyInfo,
+        {:SubjectPublicKeyInfo,
+         {:AlgorithmIdentifier, {1, 2, 840, 10045, 2, 1}, {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}},
+         pub_point}
+      )
+      ec_pub_pem = :public_key.pem_encode([{:SubjectPublicKeyInfo, ec_pub_der, :not_encrypted}])
+
+      entries = [%{
+        "timestamp" => "2026-01-01T00:00:00Z",
+        "actor" => "auditor",
+        "action" => "ceremony_initiated",
+        "details" => %{}
+      }]
+
+      # Compute the digest the same way verify_auditor_signature does:
+      # raw_bytes = :erlang.term_to_binary(entries)
+      # OTP will compute SHA-256(raw_bytes) internally when :sha256 is given.
+      raw_bytes = :erlang.term_to_binary(entries)
+
+      # Sign with ECDSA P-256 using SHA-256 (OTP will hash raw_bytes once)
+      ec_priv_key = :public_key.der_decode(
+        :ECPrivateKey,
+        :public_key.der_encode(:ECPrivateKey,
+          {:ECPrivateKey, 1, priv_key,
+           {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}},
+           pub_point, :asn1_NOVALUE})
+      )
+      signature = :public_key.sign(raw_bytes, :sha256, ec_priv_key)
+
+      transcript = %CeremonyTranscript{
+        id: "ecdsa-test",
+        ceremony_id: "ecdsa-ceremony",
+        entries: entries,
+        auditor_public_key: ec_pub_pem,
+        auditor_signature: signature,
+        signed_at: DateTime.utc_now(),
+        inserted_at: DateTime.utc_now(),
+        finalized_at: nil
+      }
+
+      assert :ok = CeremonyTranscript.verify_auditor_signature(transcript)
+    end
+
+    test "ECDSA P-256 wrong signature returns {:error, :invalid_signature}" do
+      {pub_point, _priv_key} = :crypto.generate_key(:ecdh, :secp256r1)
+
+      ec_pub_der = :public_key.der_encode(
+        :SubjectPublicKeyInfo,
+        {:SubjectPublicKeyInfo,
+         {:AlgorithmIdentifier, {1, 2, 840, 10045, 2, 1}, {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}},
+         pub_point}
+      )
+      ec_pub_pem = :public_key.pem_encode([{:SubjectPublicKeyInfo, ec_pub_der, :not_encrypted}])
+
+      entries = [%{"timestamp" => "2026-01-01T00:00:00Z", "actor" => "a", "action" => "b", "details" => %{}}]
+
+      transcript = %CeremonyTranscript{
+        id: "ecdsa-bad",
+        ceremony_id: "ecdsa-bad-ceremony",
+        entries: entries,
+        auditor_public_key: ec_pub_pem,
+        auditor_signature: :crypto.strong_rand_bytes(72),
+        signed_at: DateTime.utc_now(),
+        inserted_at: DateTime.utc_now(),
+        finalized_at: nil
+      }
+
+      assert {:error, :invalid_signature} =
+               CeremonyTranscript.verify_auditor_signature(transcript)
+    end
+  end
 end
