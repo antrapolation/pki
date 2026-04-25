@@ -270,6 +270,34 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
      |> put_flash(:info, "Ceremony completed successfully.")}
   end
 
+  # Vault crash monitor -- fires if the CustodianPinVault GenServer goes down
+  # unexpectedly mid-ceremony. Tokens held by the socket can no longer be
+  # consumed, so we cancel the ceremony and surface a clear error.
+  def handle_info({:DOWN, _ref, :process, pid, _reason}, socket) do
+    if pid == socket.assigns[:vault_pid] do
+      ceremony = socket.assigns[:active_ceremony]
+
+      if ceremony && ceremony.status not in ["completed", "failed"] do
+        CeremonyOrchestrator.fail_ceremony(ceremony.id, "vault_crash")
+      end
+
+      Logger.error("[CeremonyLive] CustodianPinVault #{inspect(pid)} crashed mid-ceremony -- resetting state")
+
+      {:noreply,
+       socket
+       |> assign(
+         vault_pid: nil,
+         entered_tokens: %{},
+         execution_state: :failed,
+         execution_error: "Key entry session lost — ceremony cancelled. Please start a new ceremony.",
+         entering_slot: nil
+       )
+       |> put_flash(:error, "Key entry session lost — ceremony cancelled. Please start a new ceremony.")}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # ---------------------------------------------------------------------------
@@ -529,6 +557,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
                 # Start a fresh vault for this ceremony's PIN isolation.
                 {:ok, vault_pid} = CustodianPinVault.start_link()
+                Process.monitor(vault_pid)
 
                 {:noreply,
                  socket
@@ -697,6 +726,12 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        participants: [],
        activity_log: []
      )}
+  end
+
+  @impl true
+  def terminate(_reason, socket) do
+    if pid = socket.assigns[:vault_pid], do: CustodianPinVault.stop(pid)
+    :ok
   end
 
   # ---------------------------------------------------------------------------
