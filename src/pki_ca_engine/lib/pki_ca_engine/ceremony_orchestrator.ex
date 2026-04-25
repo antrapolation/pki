@@ -868,6 +868,25 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
                   note: "Auditor accepted witness role; ceremony proceeding to preparation"
                 })
 
+                # M3 fix: mark all custodian participants as identity-verified inside
+                # this transaction so the status update and participant writes are
+                # atomic. Previously these verify_identity/3 calls happened after the
+                # transaction closed, so a crash between the two writes left the
+                # ceremony in "preparing" with no identity_verified_at values, which
+                # caused check_readiness/1 to return :waiting indefinitely.
+                participant_table = PkiMnesia.Schema.table_name(CeremonyParticipant)
+                now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+                :mnesia.index_read(participant_table, ceremony_id, :ceremony_id)
+                |> Enum.map(&Repo.record_to_struct(CeremonyParticipant, &1))
+                |> Enum.filter(fn p -> p.role == :custodian end)
+                |> Enum.each(fn p ->
+                  verified = %{p | identity_verified_by: auditor_display_name, identity_verified_at: now}
+                  :mnesia.write(Repo.struct_to_record(participant_table, verified))
+
+                  append_transcript_in_tx(ceremony_id, auditor_display_name, "identity_verified", %{custodian: p.name})
+                end)
+
                 updated
 
               [] ->
@@ -877,12 +896,6 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
         case result do
           {:ok, updated_ceremony} ->
-            {:ok, participants} = list_participants(ceremony_id)
-
-            Enum.each(Enum.filter(participants, fn p -> p.role == :custodian end), fn p ->
-              verify_identity(ceremony_id, p.name, auditor_display_name)
-            end)
-
             {:ok, updated_ceremony}
 
           {:error, :not_found} ->
@@ -1360,6 +1373,13 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
   # validate_auditor_user: no-op for external-auditor (nil) single-session flow.
   # When a portal auditor user ID is supplied, verify it exists and has the :auditor role.
+
+  # Accepted ADR deviation: when auditor_user_id is nil, the ceremony proceeds
+  # without portal auditor acceptance — this supports the "external auditor"
+  # single-session flow where a physical auditor is present but not a portal
+  # user. The ceremony status stays "preparing" (not "awaiting_auditor_acceptance").
+  # Root CA ceremonies should always use a portal-registered auditor; this bypass
+  # is intended for internal/private CA ceremonies only.
   defp validate_auditor_user(nil, _ca_instance_id), do: :ok
 
   defp validate_auditor_user(auditor_user_id, _ca_instance_id) when is_binary(auditor_user_id) do

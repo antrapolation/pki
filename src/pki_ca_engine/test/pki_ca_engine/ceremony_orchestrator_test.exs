@@ -6,6 +6,7 @@ defmodule PkiCaEngine.CeremonyOrchestratorTest do
   use ExUnit.Case, async: false
 
   alias PkiMnesia.TestHelper
+  alias PkiMnesia.{Repo, Structs.PortalUser}
   alias PkiCaEngine.CeremonyOrchestrator
 
   setup do
@@ -327,6 +328,64 @@ defmodule PkiCaEngine.CeremonyOrchestratorTest do
 
       assert {:ok, participants} = CeremonyOrchestrator.list_participants(ceremony.id)
       assert length(participants) == 4  # 3 custodians + 1 auditor
+    end
+  end
+
+  describe "accept_auditor_witness/2" do
+    # M3 regression: verify_identity writes were previously outside the
+    # Repo.transaction that updated ceremony status to "preparing".  A crash
+    # between the two writes left ceremony in "preparing" with no
+    # identity_verified_at set, which caused check_readiness/1 to return
+    # :waiting indefinitely.  After the fix both writes are atomic.
+
+    test "all custodian participants have identity_verified_at set after the call" do
+      # Create an auditor portal user
+      auditor_user = PortalUser.new(%{
+        username: "auditor_m3_#{:erlang.unique_integer([:positive])}",
+        display_name: "Auditor M3",
+        email: "auditor.m3@test.local",
+        role: :auditor,
+        status: "active"
+      })
+      {:ok, _} = Repo.insert(auditor_user)
+
+      # Initiate ceremony with the portal auditor — starts in "awaiting_auditor_acceptance"
+      params = %{
+        algorithm: "ECC-P256",
+        threshold_k: 2,
+        threshold_n: 3,
+        custodian_names: ["Alice", "Bob", "Charlie"],
+        auditor_name: "Auditor M3",
+        is_root: true,
+        ceremony_mode: :full,
+        initiated_by: "Admin",
+        key_alias: "m3-test-key",
+        subject_dn: "/CN=M3 Test CA",
+        auditor_user_id: auditor_user.id
+      }
+
+      {:ok, {ceremony, _key, _shares, _participants, _transcript}} =
+        CeremonyOrchestrator.initiate("ca-m3-test", params)
+
+      assert ceremony.status == "awaiting_auditor_acceptance"
+
+      # Accept the auditor witness — this is the call that was broken pre-M3 fix
+      assert {:ok, updated} = CeremonyOrchestrator.accept_auditor_witness(ceremony.id, auditor_user.id)
+      assert updated.status == "preparing"
+
+      # All custodian participants must now have identity_verified_at set
+      {:ok, all_participants} = CeremonyOrchestrator.list_participants(ceremony.id)
+      custodians = Enum.filter(all_participants, fn p -> p.role == :custodian end)
+
+      assert length(custodians) == 3,
+             "Expected 3 custodian participants, got: #{length(custodians)}"
+
+      for custodian <- custodians do
+        assert custodian.identity_verified_at != nil,
+               "#{custodian.name} should have identity_verified_at set after accept_auditor_witness"
+        assert custodian.identity_verified_by == "Auditor M3",
+               "#{custodian.name} should have identity_verified_by = 'Auditor M3'"
+      end
     end
   end
 
