@@ -874,9 +874,6 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
         case result do
           {:ok, updated_ceremony} ->
-            # Wire verify_identity/3: mark custodian participants as identity-verified
-            # by the accepting auditor. This records the auditor's confirmation that they
-            # have physically verified each custodian before the ceremony begins.
             {:ok, participants} = list_participants(ceremony_id)
 
             Enum.each(Enum.filter(participants, fn p -> p.role == :custodian end), fn p ->
@@ -891,6 +888,82 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           {:error, _} = err ->
             err
         end
+      end
+    end
+  end
+
+  @doc """
+  Register the auditor's public key on the transcript at ceremony start.
+  The key is later used to verify the auditor's signature in record_auditor_signature/3.
+  """
+  def register_auditor_key(ceremony_id, public_key_pem)
+      when is_binary(public_key_pem) do
+    with {:ok, _ceremony} <- get_ceremony(ceremony_id),
+         {:ok, transcript} <- get_transcript(ceremony_id) do
+      Repo.transaction(fn ->
+        table = PkiMnesia.Schema.table_name(CeremonyTranscript)
+        updated = %{transcript | auditor_public_key: public_key_pem}
+        :mnesia.write(Repo.struct_to_record(table, updated))
+
+        append_transcript_in_tx(ceremony_id, "auditor", "auditor_key_registered", %{
+          "note" => "Auditor public key registered for transcript signing"
+        })
+
+        updated
+      end)
+    end
+  end
+
+  @doc """
+  Record an auditor's digital signature over the transcript digest.
+
+  The digest is computed by CeremonyTranscript.transcript_digest/1. The auditor
+  signs this offline (Ed25519 or ECDSA P-256) and uploads the raw signature bytes.
+  On success persists auditor_signature + signed_at and appends an auditor_signed event.
+  """
+  def record_auditor_signature(ceremony_id, auditor_public_key_pem, signature_bytes)
+      when is_binary(auditor_public_key_pem) and is_binary(signature_bytes) do
+    with {:ok, transcript} <- get_transcript(ceremony_id) do
+      key_to_verify =
+        if is_binary(transcript.auditor_public_key) do
+          transcript.auditor_public_key
+        else
+          auditor_public_key_pem
+        end
+
+      check_transcript = %{transcript | auditor_public_key: key_to_verify, auditor_signature: signature_bytes}
+
+      case CeremonyTranscript.verify_auditor_signature(check_transcript) do
+        :ok ->
+          now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+          Repo.transaction(fn ->
+            table = PkiMnesia.Schema.table_name(CeremonyTranscript)
+
+            updated_transcript =
+              case :mnesia.index_read(table, ceremony_id, :ceremony_id) do
+                [record | _] ->
+                  t = Repo.record_to_struct(CeremonyTranscript, record)
+                  %{t | auditor_public_key: key_to_verify, auditor_signature: signature_bytes, signed_at: now}
+                [] ->
+                  :mnesia.abort(:transcript_not_found)
+              end
+
+            :mnesia.write(Repo.struct_to_record(table, updated_transcript))
+
+            append_transcript_in_tx(ceremony_id, "auditor", "auditor_signed", %{
+              "note" => "Auditor digital signature verified and recorded",
+              "signed_at" => DateTime.to_iso8601(now)
+            })
+
+            case :mnesia.index_read(table, ceremony_id, :ceremony_id) do
+              [final | _] -> Repo.record_to_struct(CeremonyTranscript, final)
+              [] -> updated_transcript
+            end
+          end)
+
+        {:error, :invalid_signature} ->
+          {:error, :invalid_signature}
       end
     end
   end

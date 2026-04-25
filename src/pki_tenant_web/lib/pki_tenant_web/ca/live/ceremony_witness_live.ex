@@ -32,7 +32,12 @@ defmodule PkiTenantWeb.Ca.CeremonyWitnessLive do
        witness_error: nil,
        witness_done: false,
        accept_error: nil,
-       accept_done: false
+       accept_done: false,
+       auditor_key_pem: "",
+       auditor_key_registered: false,
+       auditor_signature_hex: "",
+       auditor_sign_error: nil,
+       auditor_sign_done: false
      )}
   end
 
@@ -166,6 +171,78 @@ defmodule PkiTenantWeb.Ca.CeremonyWitnessLive do
     end
   end
 
+  # E4.2: Register auditor public key
+  @impl true
+  def handle_event("register_auditor_key", %{"auditor_key_pem" => pem}, socket) do
+    ceremony = socket.assigns.ceremony
+
+    if is_nil(ceremony) do
+      {:noreply, assign(socket, auditor_sign_error: "Ceremony not loaded.")}
+    else
+      pem = String.trim(pem)
+
+      if pem == "" do
+        {:noreply, assign(socket, auditor_sign_error: "Please paste a PEM public key.")}
+      else
+        case CeremonyOrchestrator.register_auditor_key(ceremony.id, pem) do
+          {:ok, _transcript} ->
+            send(self(), {:load_ceremony, ceremony.id})
+
+            {:noreply,
+             assign(socket,
+               auditor_key_pem: pem,
+               auditor_key_registered: true,
+               auditor_sign_error: nil
+             )}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, auditor_sign_error: format_error(reason))}
+        end
+      end
+    end
+  end
+
+  # E4.2: Submit auditor signature (hex-encoded)
+  def handle_event("submit_auditor_signature", %{"auditor_signature_hex" => hex}, socket) do
+    ceremony = socket.assigns.ceremony
+
+    if is_nil(ceremony) do
+      {:noreply, assign(socket, auditor_sign_error: "Ceremony not loaded.")}
+    else
+      hex = String.trim(hex)
+
+      case Base.decode16(hex, case: :mixed) do
+        {:ok, sig_bytes} ->
+          key_pem = socket.assigns.auditor_key_pem
+
+          case CeremonyOrchestrator.record_auditor_signature(ceremony.id, key_pem, sig_bytes) do
+            {:ok, _transcript} ->
+              PkiTenant.AuditBridge.log("auditor_signed_transcript", %{
+                ceremony_id: ceremony.id
+              })
+
+              send(self(), {:load_ceremony, ceremony.id})
+
+              {:noreply,
+               assign(socket,
+                 auditor_sign_done: true,
+                 auditor_sign_error: nil
+               )}
+
+            {:error, :invalid_signature} ->
+              {:noreply,
+               assign(socket, auditor_sign_error: "Signature verification failed. Check that you signed the correct digest with the registered key.")}
+
+            {:error, reason} ->
+              {:noreply, assign(socket, auditor_sign_error: format_error(reason))}
+          end
+
+        :error ->
+          {:noreply, assign(socket, auditor_sign_error: "Invalid hex encoding. Paste the hex-encoded signature bytes.")}
+      end
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Render
   # ---------------------------------------------------------------------------
@@ -193,6 +270,7 @@ defmodule PkiTenantWeb.Ca.CeremonyWitnessLive do
         {render_participants(assigns)}
         {render_transcript_timeline(assigns)}
         {render_witness_action(assigns)}
+        {render_auditor_signing(assigns)}
       <% end %>
     </div>
     """
@@ -370,6 +448,100 @@ defmodule PkiTenantWeb.Ca.CeremonyWitnessLive do
           <.icon name="hero-eye" class="size-4" />
           Witness ceremony
         </button>
+      </div>
+    </div>
+    """
+  end
+
+  # E4.2: Two-step auditor transcript signing panel
+  defp render_auditor_signing(assigns) do
+    # Compute transcript digest for display.
+    # Uses :erlang.term_to_binary to match CeremonyTranscript.transcript_digest/1 —
+    # entries contain raw binary prev_hash/event_hash fields that aren't JSON-safe.
+    digest_hex =
+      case assigns.transcript do
+        nil -> nil
+        t ->
+          entries = t.entries || []
+          :crypto.hash(:sha256, :erlang.term_to_binary(entries)) |> Base.encode16(case: :lower)
+      end
+
+    assigns = Map.put(assigns, :transcript_digest_hex, digest_hex)
+
+    ~H"""
+    <div class="card bg-base-100 shadow-sm border border-base-300">
+      <div class="card-body space-y-4">
+        <h2 class="text-sm font-semibold text-base-content">
+          <.icon name="hero-key" class="size-4 inline" /> Auditor Digital Signature
+        </h2>
+
+        <p class="text-xs text-base-content/60">
+          Optionally sign the transcript digest with your offline key to provide cryptographic
+          attestation. Step 1: register your public key. Step 2: sign the digest shown below
+          offline and paste the hex-encoded signature.
+        </p>
+
+        <%# Transcript digest display %>
+        <div :if={@transcript_digest_hex} class="bg-base-200/60 rounded p-3">
+          <p class="text-xs text-base-content/50 mb-1">Transcript digest (SHA-256 of entries, sign this):</p>
+          <p class="text-xs font-mono break-all text-base-content/80">{@transcript_digest_hex}</p>
+        </div>
+
+        <%# Success state %>
+        <div :if={@auditor_sign_done} class="alert alert-success text-sm py-2">
+          <.icon name="hero-check-circle" class="size-4" />
+          <span>Auditor signature verified and recorded on the transcript.</span>
+        </div>
+
+        <%# Error state %>
+        <div :if={@auditor_sign_error} class="alert alert-error text-sm py-2">
+          <.icon name="hero-exclamation-circle" class="size-4" />
+          <span>{@auditor_sign_error}</span>
+        </div>
+
+        <%# Step 1: Register public key %>
+        <div :if={not @auditor_sign_done}>
+          <p class="text-xs font-semibold text-base-content/70 mb-1">Step 1 — Register your public key (PEM)</p>
+          <form phx-submit="register_auditor_key" class="flex flex-col gap-2">
+            <textarea
+              name="auditor_key_pem"
+              rows="4"
+              placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
+              class="textarea textarea-bordered text-xs font-mono w-full"
+              disabled={@auditor_key_registered}
+            >{@auditor_key_pem}</textarea>
+            <button
+              type="submit"
+              disabled={@auditor_key_registered}
+              class="btn btn-outline btn-sm self-start"
+            >
+              <.icon name="hero-arrow-up-tray" class="size-4" />
+              <%= if @auditor_key_registered, do: "Key registered", else: "Register key" %>
+            </button>
+          </form>
+        </div>
+
+        <%# Step 2: Submit signature (only shown after key registered) %>
+        <div :if={@auditor_key_registered and not @auditor_sign_done}>
+          <p class="text-xs font-semibold text-base-content/70 mb-1">
+            Step 2 — Paste hex-encoded signature
+          </p>
+          <p class="text-xs text-base-content/50 mb-2">
+            Sign the digest above with your private key offline, then paste the hex bytes here.
+          </p>
+          <form phx-submit="submit_auditor_signature" class="flex flex-col gap-2">
+            <input
+              type="text"
+              name="auditor_signature_hex"
+              placeholder="e.g. 3045022100..."
+              class="input input-bordered text-xs font-mono w-full"
+            />
+            <button type="submit" class="btn btn-accent btn-sm self-start">
+              <.icon name="hero-pencil-square" class="size-4" />
+              Submit signature
+            </button>
+          </form>
+        </div>
       </div>
     </div>
     """
