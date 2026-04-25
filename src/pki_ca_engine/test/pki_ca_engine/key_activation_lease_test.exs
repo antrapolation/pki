@@ -113,8 +113,10 @@ defmodule PkiCaEngine.KeyActivationLeaseTest do
 
     assert match?({:error, _}, result)
     assert Process.alive?(GenServer.whereis(server))
-    # Lease should still be accessible after the raise
+    # Lease must still be accessible and ops_remaining must be unchanged —
+    # a failed call must not consume an operation slot.
     assert KeyActivation.is_active?(server, key_id)
+    assert KeyActivation.lease_status(server, key_id).ops_remaining == 5
   end
 
   # Test 6 — submit_share shim routes through lease system (ops not exhausted)
