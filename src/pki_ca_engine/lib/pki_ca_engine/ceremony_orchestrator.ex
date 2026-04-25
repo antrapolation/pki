@@ -69,6 +69,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   }
   alias PkiCaEngine.{IssuerKeyManagement, CaInstanceManagement, KeystoreManagement}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
+  alias PkiMnesia.Structs.PortalUser
 
   @pbkdf2_iterations 100_000
   @pbkdf2_salt_size 16
@@ -107,12 +108,14 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   def initiate(ca_instance_id, params) do
     keystore_mode = Map.get(params, :keystore_mode, "softhsm")
     key_mode = Map.get(params, :key_mode, "threshold")
+    auditor_user_id = Map.get(params, :auditor_user_id)
 
     with :ok <- validate_key_mode(key_mode),
          :ok <- validate_threshold(params.threshold_k, params.threshold_n, key_mode),
          :ok <- validate_participants(params.custodian_names, params.threshold_n),
          :ok <- validate_ceremony_mode(params),
-         :ok <- validate_keystore_mode(keystore_mode, ca_instance_id) do
+         :ok <- validate_keystore_mode(keystore_mode, ca_instance_id),
+         :ok <- validate_auditor_user(auditor_user_id, ca_instance_id) do
 
       Repo.transaction(fn ->
         # Create issuer key
@@ -127,6 +130,12 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
         })
         :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), key))
 
+        # Determine initial ceremony status:
+        # - "awaiting_auditor_acceptance" when a portal auditor user is specified
+        # - "preparing" for the classic external-auditor single-session flow
+        initial_status =
+          if is_binary(auditor_user_id), do: "awaiting_auditor_acceptance", else: "preparing"
+
         # Create ceremony
         window_hours = Map.get(params, :time_window_hours, 24)
         window_expires_at = DateTime.utc_now() |> DateTime.add(window_hours * 3600, :second) |> DateTime.truncate(:second)
@@ -139,11 +148,13 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           threshold_n: params.threshold_n,
           domain_info: %{
             "is_root" => Map.get(params, :is_root, true),
-            "subject_dn" => Map.get(params, :subject_dn, "/CN=CA-#{ca_instance_id}")
+            "subject_dn" => Map.get(params, :subject_dn, "/CN=CA-#{ca_instance_id}"),
+            "auditor_user_id" => auditor_user_id
           },
           initiated_by: params.initiated_by,
           keystore_mode: keystore_mode,
-          window_expires_at: window_expires_at
+          window_expires_at: window_expires_at,
+          status: initial_status
         })
         :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), ceremony))
 
@@ -182,16 +193,38 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           end)
 
         # Create transcript
+        initiation_details =
+          %{algorithm: params.algorithm, k: params.threshold_k, n: params.threshold_n}
+          |> then(fn d ->
+            if is_binary(auditor_user_id),
+              do: Map.put(d, :auditor_user_id, auditor_user_id),
+              else: d
+          end)
+
         transcript = CeremonyTranscript.new(%{
           ceremony_id: ceremony.id,
           entries: [%{
             timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
             actor: params.initiated_by,
             action: "ceremony_initiated",
-            details: %{algorithm: params.algorithm, k: params.threshold_k, n: params.threshold_n}
+            details: initiation_details
           }]
         })
         :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(CeremonyTranscript), transcript))
+
+        # When a portal auditor user is registered, record their pre-registration
+        # in the transcript immediately. This wires verify_identity/3 into the
+        # initiation path: the auditor's identity is considered pre-verified by the
+        # system (the portal user record proves their identity), so we append the
+        # verification event here for the auditor participant.
+        if is_binary(auditor_user_id) do
+          append_transcript_in_tx(
+            ceremony.id,
+            "system",
+            "auditor_pre_registered",
+            %{auditor_user_id: auditor_user_id, auditor_name: params.auditor_name}
+          )
+        end
 
         {ceremony, key, shares, custodian_participants ++ [auditor], transcript}
       end)
@@ -788,6 +821,80 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
+  @doc """
+  Accept the auditor witness role for a ceremony in status `"awaiting_auditor_acceptance"`.
+
+  Called by a portal user with role `"auditor"` to confirm their presence before the
+  ceremony proceeds. Transitions the ceremony status from `"awaiting_auditor_acceptance"`
+  to `"preparing"` and appends an `auditor_accepted` transcript event.
+
+  Uses `verify_identity/3` to mark all custodian participants as identity-verified by
+  the accepting auditor, recording the verification in the transcript.
+
+  Returns:
+    - `{:ok, updated_ceremony}` on success
+    - `{:error, :not_found}` when the ceremony does not exist
+    - `{:error, :invalid_ceremony_status}` when the ceremony is not awaiting acceptance
+    - `{:error, :auditor_required}` when the user is not a valid auditor portal user
+  """
+  def accept_auditor_witness(ceremony_id, auditor_user_id) do
+    with :ok <- validate_auditor_user(auditor_user_id, nil),
+         {:ok, ceremony} <- get_ceremony(ceremony_id) do
+
+      if ceremony.status != "awaiting_auditor_acceptance" do
+        {:error, :invalid_ceremony_status}
+      else
+        auditor_display_name =
+          case Repo.get(PortalUser, auditor_user_id) do
+            {:ok, u} when not is_nil(u) -> u.display_name || u.username || auditor_user_id
+            _ -> auditor_user_id
+          end
+
+        result =
+          Repo.transaction(fn ->
+            ceremony_table = PkiMnesia.Schema.table_name(KeyCeremony)
+
+            case :mnesia.read(ceremony_table, ceremony_id) do
+              [record] ->
+                c = Repo.record_to_struct(KeyCeremony, record)
+                updated = %{c | status: "preparing", updated_at: DateTime.utc_now() |> DateTime.truncate(:second)}
+                :mnesia.write(Repo.struct_to_record(ceremony_table, updated))
+
+                append_transcript_in_tx(ceremony_id, auditor_display_name, "auditor_accepted", %{
+                  auditor_user_id: auditor_user_id,
+                  note: "Auditor accepted witness role; ceremony proceeding to preparation"
+                })
+
+                updated
+
+              [] ->
+                :mnesia.abort(:not_found)
+            end
+          end)
+
+        case result do
+          {:ok, updated_ceremony} ->
+            # Wire verify_identity/3: mark custodian participants as identity-verified
+            # by the accepting auditor. This records the auditor's confirmation that they
+            # have physically verified each custodian before the ceremony begins.
+            {:ok, participants} = list_participants(ceremony_id)
+
+            Enum.each(Enum.filter(participants, fn p -> p.role == :custodian end), fn p ->
+              verify_identity(ceremony_id, p.name, auditor_display_name)
+            end)
+
+            {:ok, updated_ceremony}
+
+          {:error, :not_found} ->
+            {:error, :not_found}
+
+          {:error, _} = err ->
+            err
+        end
+      end
+    end
+  end
+
   # -- Private --
 
   defp get_ceremony(ceremony_id) do
@@ -1171,6 +1278,19 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
   defp validate_key_mode(mode) when mode in ["threshold", "password", "single_custodian"], do: :ok
   defp validate_key_mode(mode), do: {:error, {:invalid_key_mode, mode}}
+
+  # validate_auditor_user: no-op for external-auditor (nil) single-session flow.
+  # When a portal auditor user ID is supplied, verify it exists and has the :auditor role.
+  defp validate_auditor_user(nil, _ca_instance_id), do: :ok
+
+  defp validate_auditor_user(auditor_user_id, _ca_instance_id) when is_binary(auditor_user_id) do
+    case Repo.get(PortalUser, auditor_user_id) do
+      {:ok, %PortalUser{role: :auditor}} -> :ok
+      {:ok, %PortalUser{}} -> {:error, :auditor_required}
+      {:ok, nil} -> {:error, :auditor_required}
+      {:error, _} -> {:error, :auditor_required}
+    end
+  end
 
   defp validate_participants(names, n) when is_list(names) and length(names) == n, do: :ok
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}

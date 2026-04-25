@@ -30,7 +30,9 @@ defmodule PkiTenantWeb.Ca.CeremonyWitnessLive do
        transcript: nil,
        loading: true,
        witness_error: nil,
-       witness_done: false
+       witness_done: false,
+       accept_error: nil,
+       accept_done: false
      )}
   end
 
@@ -124,6 +126,43 @@ defmodule PkiTenantWeb.Ca.CeremonyWitnessLive do
         {:error, reason} ->
           {:noreply, assign(socket, witness_error: format_error(reason))}
       end
+    end
+  end
+
+  @impl true
+  def handle_event("accept_ceremony", _params, socket) do
+    ceremony = socket.assigns.ceremony
+    current_user = socket.assigns.current_user
+
+    cond do
+      is_nil(ceremony) ->
+        {:noreply, assign(socket, accept_error: "Ceremony not loaded.")}
+
+      ceremony.status != "awaiting_auditor_acceptance" ->
+        {:noreply, assign(socket, accept_error: "Ceremony is not awaiting auditor acceptance.")}
+
+      current_user[:role] != :auditor and current_user[:role] != "auditor" ->
+        {:noreply, assign(socket, accept_error: "Only an auditor may accept this ceremony.")}
+
+      true ->
+        auditor_user_id = current_user[:id]
+
+        case CeremonyOrchestrator.accept_auditor_witness(ceremony.id, auditor_user_id) do
+          {:ok, _updated} ->
+            PkiTenant.AuditBridge.log("auditor_accepted_ceremony", %{
+              ceremony_id: ceremony.id,
+              auditor_user_id: auditor_user_id
+            })
+
+            send(self(), {:load_ceremony, ceremony.id})
+            {:noreply, assign(socket, accept_done: true, accept_error: nil)}
+
+          {:error, :auditor_required} ->
+            {:noreply, assign(socket, accept_error: "You do not have the auditor role.")}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, accept_error: format_error(reason))}
+        end
     end
   end
 
@@ -288,6 +327,30 @@ defmodule PkiTenantWeb.Ca.CeremonyWitnessLive do
           above. This action is recorded in the audit log. Digital signature
           of the transcript digest will be added in a future release.
         </p>
+
+        <%!-- Accept-and-witness button: shown only when status is awaiting_auditor_acceptance
+            and the current user is an auditor. --%>
+        <%= if @ceremony.status == "awaiting_auditor_acceptance" and
+               (@current_user[:role] == :auditor or @current_user[:role] == "auditor") do %>
+          <div :if={@accept_error} class="alert alert-error text-sm mb-3 py-2">
+            <.icon name="hero-exclamation-circle" class="size-4" />
+            <span>{@accept_error}</span>
+          </div>
+
+          <div :if={@accept_done} class="alert alert-success text-sm mb-3 py-2">
+            <.icon name="hero-check-circle" class="size-4" />
+            <span>You have accepted the witness role. The ceremony may now proceed.</span>
+          </div>
+
+          <button
+            phx-click="accept_ceremony"
+            disabled={@accept_done}
+            class="btn btn-warning btn-sm mb-3"
+          >
+            <.icon name="hero-shield-check" class="size-4" />
+            Accept and witness
+          </button>
+        <% end %>
 
         <div :if={@witness_error} class="alert alert-error text-sm mb-3 py-2">
           <.icon name="hero-exclamation-circle" class="size-4" />
