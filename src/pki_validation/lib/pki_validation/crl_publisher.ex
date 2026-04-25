@@ -83,20 +83,8 @@ defmodule PkiValidation.CrlPublisher do
            {:ok, signature} <- Dispatcher.sign(issuer_key_id, crl_data) do
         {:ok, Map.merge(crl, %{signature: signature, algorithm: issuer_key.algorithm})}
       else
-        {:error, :not_active} ->
-          case do_generate_crl() do
-            {:ok, crl} -> {:ok, Map.put(crl, :unsigned, true)}
-            err -> err
-          end
-
-        {:error, :agent_not_connected} ->
-          case do_generate_crl() do
-            {:ok, crl} -> {:ok, Map.put(crl, :unsigned, true)}
-            err -> err
-          end
-
         {:error, reason} ->
-          {:error, reason}
+          {:error, {:signing_failed, reason}}
       end
     else
       {:error, :no_active_lease}
