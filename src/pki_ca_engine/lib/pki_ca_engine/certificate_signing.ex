@@ -80,6 +80,23 @@ defmodule PkiCaEngine.CertificateSigning do
                   %{},
                   %{key_id: issuer_key_id, key_mode: issuer_key.key_mode}
                 )
+
+                # Audit trail: telemetry alone is not queryable by auditors in
+                # the portal. PkiTenant.AuditBridge is not a dependency of
+                # pki_ca_engine, and PkiAuditTrail.Logger requires Postgres +
+                # actor context unavailable at this call site. We emit a
+                # structured Logger.warning so that any log aggregation pipeline
+                # (e.g. Grafana Loki, OpenTelemetry exporter) can surface
+                # low-assurance signing events for security review.
+                # TODO: route through PkiAuditTrail.Logger once a system-actor
+                # DID is provisioned per-tenant and available to the engine.
+                Logger.warning(
+                  "[audit] low_assurance_signing",
+                  key_id: issuer_key_id,
+                  key_mode: issuer_key.key_mode,
+                  serial_number: serial,
+                  severity: "elevated"
+                )
               end
 
               {:ok, cert}

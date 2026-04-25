@@ -406,4 +406,73 @@ defmodule PkiCaEngine.ActivationCeremonyTest do
     {:ok, still_stuck} = Repo.get(ActivationSession, recent_inflight.id)
     assert still_stuck.status == "threshold_met"
   end
+
+  # ---------------------------------------------------------------------------
+  # Test M7-A: lease expiry -> ActivationSession status becomes "expired"
+  # ---------------------------------------------------------------------------
+
+  test "M7: lease expiry transitions ActivationSession status to expired", %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+    custodians = [{"Alice", "pw-alice"}, {"Bob", "pw-bob"}]
+    seed_shares(key_id, custodians, 2)
+
+    {:ok, session} = ActivationCeremony.start(key_id, key_activation: ka)
+
+    {:ok, _} = ActivationCeremony.submit_auth(session.id, "Alice", "pw-alice", key_activation: ka)
+    assert {:ok, :lease_granted} =
+             ActivationCeremony.submit_auth(session.id, "Bob", "pw-bob", key_activation: ka)
+
+    {:ok, active_session} = Repo.get(ActivationSession, session.id)
+    assert active_session.status == "lease_active"
+
+    KeyActivation.deactivate(ka, key_id)
+    {:ok, _} = KeyActivation.activate(ka, key_id, <<>>, ["Alice", "Bob"], ttl_seconds: 0)
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    {:ok, _} = Repo.update(active_session, %{status: "lease_active", updated_at: now})
+
+    assert {:error, :lease_expired} = KeyActivation.with_lease(ka, key_id, fn h -> h end)
+
+    Process.sleep(100)
+
+    {:ok, updated} = Repo.get(ActivationSession, session.id)
+    assert updated.status == "expired"
+    assert updated.completed_at != nil
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test M7-B: ops exhausted -> ActivationSession status becomes "exhausted"
+  # ---------------------------------------------------------------------------
+
+  test "M7: ops exhaustion transitions ActivationSession status to exhausted", %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+    custodians = [{"Alice", "pw-alice"}, {"Bob", "pw-bob"}]
+    seed_shares(key_id, custodians, 2)
+
+    {:ok, session} = ActivationCeremony.start(key_id, key_activation: ka)
+
+    {:ok, _} = ActivationCeremony.submit_auth(session.id, "Alice", "pw-alice", key_activation: ka)
+    assert {:ok, :lease_granted} =
+             ActivationCeremony.submit_auth(session.id, "Bob", "pw-bob", key_activation: ka)
+
+    KeyActivation.deactivate(ka, key_id)
+    {:ok, _} = KeyActivation.activate(ka, key_id, <<>>, ["Alice", "Bob"], max_ops: 1)
+
+    {:ok, active_session} = Repo.get(ActivationSession, session.id)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    {:ok, _} = Repo.update(active_session, %{status: "lease_active", updated_at: now})
+
+    # Consuming the single op also evicts the lease (M7 behavior).
+    # The eviction async-updates Mnesia to "exhausted".
+    assert {:ok, _} = KeyActivation.with_lease(ka, key_id, fn _h -> :done end)
+
+    # Lease is now evicted — subsequent call returns :not_found (not :ops_exhausted)
+    assert match?({:error, _}, KeyActivation.with_lease(ka, key_id, fn _h -> :done end))
+
+    Process.sleep(100)
+
+    {:ok, updated} = Repo.get(ActivationSession, session.id)
+    assert updated.status == "exhausted"
+    assert updated.completed_at != nil
+  end
 end

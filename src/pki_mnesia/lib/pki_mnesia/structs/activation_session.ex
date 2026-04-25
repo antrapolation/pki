@@ -10,6 +10,8 @@ defmodule PkiMnesia.Structs.ActivationSession do
     * `"lease_active"`        — `KeyActivation.activate/4` succeeded; key lease is live
     * `"cancelled"`           — cancelled by an operator before threshold was met
     * `"failed"`              — threshold was met but lease grant failed
+    * `"expired"`             — lease TTL elapsed; key evicted by KeyActivation timer
+    * `"exhausted"`           — ops counter reached zero; key evicted by KeyActivation
 
   ## authenticated_custodians
 
@@ -56,7 +58,7 @@ defmodule PkiMnesia.Structs.ActivationSession do
     updated_at: DateTime.t()
   }
 
-  @valid_statuses ~w(awaiting_custodians threshold_met lease_active cancelled failed)
+  @valid_statuses ~w(awaiting_custodians threshold_met lease_active cancelled failed expired exhausted)
 
   @doc "Valid status values for an ActivationSession."
   def valid_statuses, do: @valid_statuses
