@@ -126,13 +126,14 @@ defmodule PkiCaEngine.KeyActivationPropertyTest do
   end
 
   # ----------------------------------------------------------------------------
-  # Property 4: Ops exhaustion is idempotent
+  # Property 4: Ops exhaustion is fail-closed and non-resurrect
   #
-  # Once the last op is consumed the lease is exhausted. Every subsequent call
-  # to with_lease must return {:error, :ops_exhausted} — not crash, not return
-  # {:ok, _}, and not flip active back to true.
+  # Once the last op is consumed the lease is exhausted and evicted (M7 change).
+  # Every subsequent call to with_lease must return an error — not crash, not
+  # return {:ok, _}, and not flip active back to true. After eviction the error
+  # is :not_found (lease gone) rather than :ops_exhausted (M7 evicts on exhaustion).
   # ----------------------------------------------------------------------------
-  property "ops exhaustion is idempotent — subsequent calls always return ops_exhausted" do
+  property "ops exhaustion is fail-closed — subsequent calls always fail" do
     check all key_id <- string(:alphanumeric, min_length: 1),
               max_runs: 20 do
       {pid, ka} = start_ka()
@@ -144,15 +145,17 @@ defmodule PkiCaEngine.KeyActivationPropertyTest do
         # Consume the single allowed op
         assert {:ok, _} = KeyActivation.with_lease(ka, key_id, fn _ -> :ok end)
 
-        # First call after exhaustion
-        assert {:error, :ops_exhausted} =
-                 KeyActivation.with_lease(ka, key_id, fn _ -> :ok end)
+        # First call after exhaustion — lease is evicted, returns :not_found or :ops_exhausted
+        result1 = KeyActivation.with_lease(ka, key_id, fn _ -> :ok end)
+        assert match?({:error, _}, result1),
+               "expected error after ops exhaustion, got: #{inspect(result1)}"
 
-        # Second call after exhaustion — idempotent, must not crash or change result
-        assert {:error, :ops_exhausted} =
-                 KeyActivation.with_lease(ka, key_id, fn _ -> :ok end)
+        # Second call after exhaustion — must also fail (non-resurrect invariant)
+        result2 = KeyActivation.with_lease(ka, key_id, fn _ -> :ok end)
+        assert match?({:error, _}, result2),
+               "expected error on second post-exhaustion call, got: #{inspect(result2)}"
 
-        # Lease status must reflect exhaustion
+        # Lease status must reflect inactive state
         status = KeyActivation.lease_status(ka, key_id)
         assert status.active == false,
                "expected active: false after ops exhaustion, got: #{inspect(status)}"
