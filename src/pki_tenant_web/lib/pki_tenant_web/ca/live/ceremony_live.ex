@@ -8,6 +8,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   alias PkiCaEngine.KeystoreManagement
   alias PkiMnesia.Repo
   alias PkiMnesia.Structs.{KeyCeremony, CeremonyParticipant, ThresholdShare}
+  alias PkiTenantWeb.Ca.CustodianPinVault
 
   @algorithms [
     {"KAZ-SIGN-128", "Post-Quantum — KAZ-Sign level 1"},
@@ -63,9 +64,10 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
        slot_states: [],
        entering_slot: nil,
        entry_error: nil,
-       # Passwords accumulated during slot entry — held only long enough to
-       # feed execute_keygen when the last custodian submits, then wiped.
-       entered_passwords: %{},
+       # PIN isolation: LiveView holds only opaque tokens; actual PIN bytes
+       # live exclusively in a CustodianPinVault GenServer process.
+       vault_pid: nil,
+       entered_tokens: %{},
        # :idle | :running | :completed | :failed
        execution_state: nil,
        execution_error: nil,
@@ -125,19 +127,27 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
   def handle_info(:execute_keygen, socket) do
     ceremony = socket.assigns.active_ceremony
-    passwords = socket.assigns.entered_passwords
+    vault_pid = socket.assigns.vault_pid
+    entered_tokens = socket.assigns.entered_tokens
 
-    # Wipe the in-memory password map BEFORE calling execute_keygen so if
-    # the call raises we don't leave the map in socket state. Pass the
-    # local `passwords` into the orchestrator; after this function returns,
-    # the BEAM garbage-collects the locals.
-    socket = assign(socket, entered_passwords: %{})
+    # Consume all tokens from the vault, producing a {name, password} list.
+    # The vault removes each PIN from its state on consume, so no plaintext
+    # lingers there after this block. Clear vault_pid and entered_tokens from
+    # the socket BEFORE calling execute_keygen so a raise leaves no residue.
+    passwords =
+      Enum.map(entered_tokens, fn {name, token} ->
+        {:ok, pin} = CustodianPinVault.consume(vault_pid, token)
+        {name, pin}
+      end)
 
-    # Convert map to the list-of-{name, password} tuples the orchestrator
+    if is_pid(vault_pid), do: CustodianPinVault.stop(vault_pid)
+    socket = assign(socket, vault_pid: nil, entered_tokens: %{})
+
+    # Convert to the list-of-{name, password} tuples the orchestrator
     # expects. Wrap in try/rescue so a raise during keygen ends up in
     # :failed state rather than crashing the LiveView.
     try do
-      case CeremonyOrchestrator.execute_keygen(ceremony.id, Map.to_list(passwords)) do
+      case CeremonyOrchestrator.execute_keygen(ceremony.id, passwords) do
         {:ok, _} ->
           # Re-read the ceremony so we have fingerprint + updated status.
           completed =
@@ -187,11 +197,14 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
     rescue
       e ->
         Logger.error("[ceremony_live] execute_keygen raised: #{Exception.message(e)}")
+        if is_pid(socket.assigns.vault_pid), do: CustodianPinVault.stop(socket.assigns.vault_pid)
         :erlang.garbage_collect()
 
         {:noreply,
          socket
          |> assign(
+           vault_pid: nil,
+           entered_tokens: %{},
            execution_state: :failed,
            execution_error: "An unexpected error occurred during key generation."
          )}
@@ -514,6 +527,9 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
                 slot_states = load_slot_states(ceremony)
 
+                # Start a fresh vault for this ceremony's PIN isolation.
+                {:ok, vault_pid} = CustodianPinVault.start_link()
+
                 {:noreply,
                  socket
                  |> assign(
@@ -529,7 +545,8 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                    slot_states: slot_states,
                    entering_slot: next_pending_slot(slot_states),
                    entry_error: nil,
-                   entered_passwords: %{},
+                   vault_pid: vault_pid,
+                   entered_tokens: %{},
                    execution_state: :idle,
                    execution_error: nil,
                    completed_ceremony: nil
@@ -577,7 +594,10 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
 
           new_slot_states = load_slot_states(ceremony)
           next_slot = next_pending_slot(new_slot_states)
-          accumulated = Map.put(socket.assigns.entered_passwords, real_name, password)
+
+          # Store the PIN in the vault; hold only the opaque token in socket state.
+          token = CustodianPinVault.store(socket.assigns.vault_pid, password)
+          accumulated = Map.put(socket.assigns.entered_tokens, real_name, token)
 
           if next_slot do
             {:noreply,
@@ -586,7 +606,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                entering_slot: next_slot,
                entry_error: nil,
                slot_states: new_slot_states,
-               entered_passwords: accumulated
+               entered_tokens: accumulated
              )
              |> put_flash(:info, "#{real_name} accepted Custodian ##{slot}. Now Custodian ##{next_slot}.")}
           else
@@ -602,7 +622,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                entering_slot: nil,
                entry_error: nil,
                slot_states: new_slot_states,
-               entered_passwords: accumulated,
+               entered_tokens: accumulated,
                execution_state: :running
              )
              |> put_flash(:info, "All custodians have accepted. Generating key…")}
@@ -645,6 +665,8 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
       PkiTenant.AuditBridge.log("ceremony_cancelled", %{ceremony_id: ceremony.id})
     end
 
+    if is_pid(socket.assigns.vault_pid), do: CustodianPinVault.stop(socket.assigns.vault_pid)
+
     {ceremonies, _} = load_for_ca(socket.assigns.effective_ca_id)
 
     {:noreply,
@@ -652,6 +674,8 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
      |> assign(
        wizard_step: nil,
        active_ceremony: nil,
+       vault_pid: nil,
+       entered_tokens: %{},
        participants: [],
        activity_log: [],
        ceremonies: ceremonies
