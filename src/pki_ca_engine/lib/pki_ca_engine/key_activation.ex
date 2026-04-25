@@ -220,18 +220,32 @@ defmodule PkiCaEngine.KeyActivation do
             {:reply, {:error, :ops_exhausted}, state}
 
           true ->
-            result = fun.(lease.handle)
-            new_ops_remaining = lease.ops_remaining - 1
-            updated_lease = %{lease | ops_remaining: new_ops_remaining}
-            new_state = %{state | active_leases: Map.put(state.active_leases, key_id, updated_lease)}
+            result =
+              try do
+                {:ok, fun.(lease.handle)}
+              rescue
+                e -> {:error, {:function_raised, Exception.message(e)}}
+              catch
+                kind, reason -> {:error, {:function_raised, {kind, reason}}}
+              end
 
-            :telemetry.execute(
-              [:pki_ca_engine, :key_activation, :lease],
-              %{ops_remaining: new_ops_remaining},
-              %{key_id: key_id, event: :used}
-            )
+            case result do
+              {:ok, value} ->
+                new_ops_remaining = lease.ops_remaining - 1
+                updated_lease = %{lease | ops_remaining: new_ops_remaining}
+                new_state = %{state | active_leases: Map.put(state.active_leases, key_id, updated_lease)}
 
-            {:reply, {:ok, result}, new_state}
+                :telemetry.execute(
+                  [:pki_ca_engine, :key_activation, :lease],
+                  %{ops_remaining: new_ops_remaining},
+                  %{key_id: key_id, event: :used}
+                )
+
+                {:reply, {:ok, value}, new_state}
+
+              {:error, _} = err ->
+                {:reply, err, state}
+            end
         end
     end
   end

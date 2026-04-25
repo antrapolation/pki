@@ -73,7 +73,51 @@ defmodule PkiCaEngine.KeyActivationLeaseTest do
     assert status_after.active == true
   end
 
-  # Test 4 — submit_share shim routes through lease system (ops not exhausted)
+  # Test 4 — double-activation guard
+  test "double activate on same key_id is rejected or replaces lease cleanly", %{ka: server} do
+    # Activate twice with the same key_id.
+    # Expected: either {:error, :already_active} on second call,
+    # OR the second activation cleanly replaces the first (with the new ops count).
+    # The GenServer must survive and not have a leaked timer.
+    key_id = "double-#{System.unique_integer([:positive])}"
+
+    {:ok, ^key_id} = KeyActivation.activate(server, key_id, :handle_1, ["alice"], max_ops: 5)
+    status1 = KeyActivation.lease_status(server, key_id)
+    assert status1.ops_remaining == 5
+
+    result2 = KeyActivation.activate(server, key_id, :handle_2, ["bob"], max_ops: 10)
+
+    # Document actual behavior — either rejected or replaced
+    case result2 do
+      {:error, :already_active} ->
+        # Good: reject double-activation
+        assert KeyActivation.lease_status(server, key_id).ops_remaining == 5
+
+      {:ok, ^key_id} ->
+        # Acceptable: replace lease — new ops count must be consistent
+        assert KeyActivation.lease_status(server, key_id).ops_remaining == 10
+    end
+
+    # GenServer must be alive regardless
+    assert Process.alive?(GenServer.whereis(server))
+  end
+
+  # Test 5 — with_lease exception survival
+  test "with_lease: fun/1 raising does not kill the GenServer", %{ka: server} do
+    key_id = "raise-#{System.unique_integer([:positive])}"
+    {:ok, ^key_id} = KeyActivation.activate(server, key_id, :handle, ["alice"], max_ops: 5)
+
+    result = KeyActivation.with_lease(server, key_id, fn _h ->
+      raise RuntimeError, "intentional"
+    end)
+
+    assert match?({:error, _}, result)
+    assert Process.alive?(GenServer.whereis(server))
+    # Lease should still be accessible after the raise
+    assert KeyActivation.is_active?(server, key_id)
+  end
+
+  # Test 6 — submit_share shim routes through lease system (ops not exhausted)
   test "existing submit_share shim still routes correctly (ops not exhausted)", %{ka: ka} do
     Application.put_env(:pki_ca_engine, :allow_dev_activate, true)
 
