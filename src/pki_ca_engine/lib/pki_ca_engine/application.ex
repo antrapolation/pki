@@ -32,7 +32,9 @@ defmodule PkiCaEngine.Application do
 
   @doc false
   def assert_ceremony_signing_secret_set! do
-    if Application.get_env(:pki_ca_engine, :env) == :prod do
+    env = Application.get_env(:pki_ca_engine, :env) ||
+            Application.get_env(:pki_system, :env, :prod)
+    if env == :prod do
       case Application.get_env(:pki_ca_engine, :ceremony_signing_secret) do
         nil ->
           raise """
