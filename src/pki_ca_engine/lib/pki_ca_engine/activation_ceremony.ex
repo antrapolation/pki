@@ -127,17 +127,12 @@ defmodule PkiCaEngine.ActivationCeremony do
     end
   end
 
-  @doc """
-  Attempt to grant a key lease for the session identified by `session_id`.
-
-  Called automatically by `submit_auth/4` when the threshold is met, but can
-  also be called directly.
-
-  Returns:
-    * `{:ok, :lease_granted}` — `KeyActivation.activate/4` succeeded.
-    * `{:ok, :awaiting_more_custodians}` — threshold not yet met.
-    * `{:error, reason}` — lease grant failed.
-  """
+  # After the H2 auth-token zeroing fix, auth_tokens are not persisted to
+  # Mnesia. Calling this function externally re-reads auth_tokens: [] from
+  # Mnesia and passes empty tokens to Dispatcher.authorize_session/2 —
+  # silently failing for software keystores. Use submit_auth/4 instead;
+  # it grants the lease automatically when threshold is met.
+  @doc false
   @spec maybe_grant_lease(binary(), keyword()) ::
           {:ok, :lease_granted} | {:ok, :awaiting_more_custodians} | {:error, term()}
   def maybe_grant_lease(session_id, opts \\ []) do
@@ -148,6 +143,9 @@ defmodule PkiCaEngine.ActivationCeremony do
 
         length(session.authenticated_custodians) < session.threshold_k ->
           {:ok, :awaiting_more_custodians}
+
+        session.auth_tokens == [] ->
+          {:error, :tokens_not_available_use_submit_auth}
 
         true ->
           do_grant_lease(session, opts)
