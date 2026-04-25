@@ -159,6 +159,17 @@ defmodule PkiMnesia.Structs.CeremonyTranscript do
 
   The Erlang external term format is used rather than JSON to avoid encoding
   errors when entries contain raw binary `prev_hash` / `event_hash` fields.
+
+  ## Algorithm-specific signing instructions
+
+  - **Ed25519**: sign the 32-byte output of `transcript_digest/1` directly.
+    OTP verifies with `:none` (no re-hashing).
+  - **ECDSA P-256**: do NOT sign `transcript_digest/1`. Instead sign the
+    raw `term_to_binary` bytes (the input to this function before hashing).
+    OTP applies SHA-256 internally when verifying with `:sha256`, so signing
+    the pre-hashed digest would result in SHA-256(SHA-256(data)) — a mismatch.
+    Use `:public_key.sign(raw_bytes, :sha256, priv_key)` where `raw_bytes =
+    :erlang.term_to_binary(signable_entries)`.
   """
   @spec transcript_digest([map()]) :: binary()
   def transcript_digest(entries) when is_list(entries) do

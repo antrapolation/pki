@@ -4,8 +4,8 @@ defmodule PkiValidation.CrlPublisher do
 
   Periodically queries Mnesia for all revoked CertificateStatus records and
   builds a CRL data structure. For signed CRLs, calls
-  `PkiCaEngine.KeyActivation.get_active_key/2` directly — no separate
-  SigningKeyStore needed since both engines run in the same tenant BEAM.
+  `PkiCaEngine.KeyActivation.lease_status/2` + `Dispatcher.sign/2` — no
+  separate SigningKeyStore needed since both engines run in the same tenant BEAM.
 
   PQC signing (KAZ-SIGN, ML-DSA) works transparently through PkiCrypto.
   """
