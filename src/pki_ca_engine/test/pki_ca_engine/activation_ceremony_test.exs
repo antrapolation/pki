@@ -6,7 +6,7 @@ defmodule PkiCaEngine.ActivationCeremonyTest do
   use ExUnit.Case, async: false
 
   alias PkiMnesia.{TestHelper, Repo}
-  alias PkiMnesia.Structs.{ThresholdShare, ActivationSession}
+  alias PkiMnesia.Structs.{IssuerKey, ThresholdShare, ActivationSession}
   alias PkiCaEngine.{ActivationCeremony, KeyActivation}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
 
@@ -14,10 +14,26 @@ defmodule PkiCaEngine.ActivationCeremonyTest do
   # Test helpers
   # ---------------------------------------------------------------------------
 
-  # Build and persist n encrypted ThresholdShare records for issuer_key_id.
+  # Build and persist an IssuerKey + n encrypted ThresholdShare records for
+  # issuer_key_id.  The Dispatcher.authorize_session call in do_grant_lease
+  # requires the IssuerKey to be present in Mnesia so it can route to the
+  # correct adapter.
   # Returns a list of {custodian_name, password} tuples.
   defp seed_shares(issuer_key_id, custodians, min_shares) do
     total = length(custodians)
+
+    # Ensure an IssuerKey record exists so Dispatcher.authorize_session can
+    # resolve the keystore_type for this key.
+    key =
+      IssuerKey.new(%{
+        id: issuer_key_id,
+        ca_instance_id: "ca-ceremony-test",
+        algorithm: "ECC-P256",
+        status: "active",
+        keystore_type: :software
+      })
+
+    {:ok, _} = Repo.insert(key)
 
     custodians
     |> Enum.with_index(1)

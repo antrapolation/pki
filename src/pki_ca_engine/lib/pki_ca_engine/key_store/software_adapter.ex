@@ -48,6 +48,21 @@ defmodule PkiCaEngine.KeyStore.SoftwareAdapter do
     KeyActivation.get_active_key(activation_server, issuer_key_id)
   end
 
+  @doc """
+  Backward-compatible session authorization for software keystores.
+
+  For software keys the auth tokens are the custodians' plaintext passwords
+  used during the threshold ceremony.  The "session handle" is the first token
+  (the reconstructed key material or password) so that existing callers that
+  receive the handle can still use it directly.
+
+  Returns `{:ok, %{key_id: key_id, key_material: first_token, type: :software}}`.
+  """
+  @impl true
+  def authorize_session(key_id, auth_tokens) do
+    {:ok, %{key_id: key_id, key_material: List.first(auth_tokens), type: :software}}
+  end
+
   # -- Private --
 
   defp get_issuer_key(issuer_key_id) do

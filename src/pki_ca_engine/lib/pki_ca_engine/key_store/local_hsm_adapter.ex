@@ -43,6 +43,32 @@ defmodule PkiCaEngine.KeyStore.LocalHsmAdapter do
     end
   end
 
+  @doc """
+  Authorize a PKCS#11 session by deriving a deterministic PIN from the sorted
+  custodian auth tokens.
+
+  The PIN is derived as the first 16 hex characters of SHA-256 over the
+  concatenation of sorted auth tokens.  This makes the ceremony repeatable
+  (same k tokens → same PIN) while mixing all custodian contributions.
+
+  The returned handle is `%{key_id: key_id, pin: pin, type: :softhsm}`.  It
+  is stored in the `KeyActivation` lease and presented to the PKCS#11 port at
+  signing time.
+  """
+  @impl true
+  def authorize_session(key_id, auth_tokens) do
+    pin =
+      auth_tokens
+      |> Enum.map(&to_string/1)
+      |> Enum.sort()
+      |> Enum.join()
+      |> then(fn data -> :crypto.hash(:sha256, data) end)
+      |> Base.encode16()
+      |> binary_part(0, 16)
+
+    {:ok, %{key_id: key_id, pin: pin, type: :softhsm}}
+  end
+
   # -- Private --
 
   defp get_issuer_key(issuer_key_id) do

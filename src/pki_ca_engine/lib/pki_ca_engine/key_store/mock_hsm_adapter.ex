@@ -147,6 +147,17 @@ defmodule PkiCaEngine.KeyStore.MockHsmAdapter do
     end
   end
 
+  @doc """
+  Authorize a mock HSM session.
+
+  For the in-memory mock, no real PIN derivation is needed.  Returns a handle
+  with `type: :mock_hsm` so tests can assert on the handle shape.
+  """
+  @impl PkiCaEngine.KeyStore
+  def authorize_session(key_id, auth_tokens) do
+    {:ok, %{key_id: key_id, key_material: List.first(auth_tokens), type: :mock_hsm}}
+  end
+
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
