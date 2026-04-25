@@ -36,4 +36,35 @@ defmodule PkiTenantWeb.Ca.CustodianPinVaultTest do
       refute Process.alive?(vault)
     end
   end
+
+  describe "Process.monitor/1 crash detection" do
+    test "DOWN message arrives after vault is killed" do
+      # Trap exits so the :kill signal does not propagate to the test process.
+      Process.flag(:trap_exit, true)
+
+      {:ok, vault} = CustodianPinVault.start_link()
+      ref = Process.monitor(vault)
+
+      Process.exit(vault, :kill)
+
+      assert_receive {:DOWN, ^ref, :process, ^vault, :killed}, 500
+    end
+
+    test "stored tokens are inaccessible after vault crash" do
+      # Trap exits so the :kill signal does not propagate to the test process.
+      Process.flag(:trap_exit, true)
+
+      {:ok, vault} = CustodianPinVault.start_link()
+      _token = CustodianPinVault.store(vault, "secret-pin")
+
+      ref = Process.monitor(vault)
+      Process.exit(vault, :kill)
+
+      # Confirm the DOWN message arrives (vault is gone)
+      assert_receive {:DOWN, ^ref, :process, ^vault, :killed}, 500
+
+      # Any attempt to call the dead vault exits with :noproc
+      assert catch_exit(CustodianPinVault.consume(vault, "any-token")) == {:noproc, {GenServer, :call, [vault, {:consume, "any-token"}, 5000]}}
+    end
+  end
 end
