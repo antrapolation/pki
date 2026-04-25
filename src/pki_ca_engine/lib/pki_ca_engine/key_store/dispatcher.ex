@@ -42,6 +42,25 @@ defmodule PkiCaEngine.KeyStore.Dispatcher do
     end
   end
 
+  @doc """
+  Authorize a session for the given issuer key using the provided auth tokens.
+
+  Routes to the correct adapter based on `IssuerKey.keystore_type`.  The
+  adapter derives an opaque session handle from `auth_tokens` (e.g. a
+  deterministic PIN for SoftHSM-style adapters, or the raw key material for
+  software keystores).
+
+  Returns `{:ok, handle}` or `{:error, reason}`.
+  """
+  def authorize_session(issuer_key_id, auth_tokens) do
+    with {:ok, key} <- get_issuer_key(issuer_key_id) do
+      case adapter_for(key.keystore_type) do
+        {:error, _} = err -> err
+        adapter -> adapter.authorize_session(issuer_key_id, auth_tokens)
+      end
+    end
+  end
+
   defp adapter_for(:software), do: SoftwareAdapter
   defp adapter_for(:local_hsm), do: LocalHsmAdapter
   defp adapter_for(:remote_hsm), do: RemoteHsmAdapter

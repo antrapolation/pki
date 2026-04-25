@@ -174,6 +174,18 @@ defmodule PkiCaEngine.KeyStore.RemoteHsmAdapter do
     end
   end
 
+  @doc """
+  Authorize a session for a remote HSM adapter.
+
+  Remote HSM authorization is handled externally by the Go agent.  This shim
+  records the auth tokens in the handle so the remote agent can verify them
+  when a signing request arrives.  The agent performs the actual PIN challenge.
+  """
+  @impl true
+  def authorize_session(key_id, auth_tokens) do
+    {:ok, %{key_id: key_id, auth_tokens: auth_tokens, type: :remote_hsm}}
+  end
+
   # -- Private --
 
   defp get_issuer_key(issuer_key_id) do

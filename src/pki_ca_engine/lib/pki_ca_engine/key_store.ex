@@ -15,4 +15,7 @@ defmodule PkiCaEngine.KeyStore do
     {:ok, public_key :: binary()} | {:error, term()}
 
   @callback key_available?(issuer_key_id :: binary()) :: boolean()
+
+  @callback authorize_session(key_id :: binary(), auth_tokens :: [term()]) ::
+    {:ok, session_handle :: term()} | {:error, reason :: term()}
 end

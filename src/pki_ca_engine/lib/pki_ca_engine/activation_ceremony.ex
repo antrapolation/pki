@@ -38,7 +38,7 @@ defmodule PkiCaEngine.ActivationCeremony do
 
   alias PkiMnesia.{Repo}
   alias PkiMnesia.Structs.{ActivationSession, ThresholdShare}
-  alias PkiCaEngine.KeyActivation
+  alias PkiCaEngine.{KeyActivation, KeyStore.Dispatcher}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
 
   # ---------------------------------------------------------------------------
@@ -100,10 +100,12 @@ defmodule PkiCaEngine.ActivationCeremony do
          {:ok, _share} <- verify_auth(session.issuer_key_id, custodian_name, auth_token) do
       entry = %{name: custodian_name, authenticated_at: DateTime.utc_now() |> DateTime.truncate(:second)}
       new_custodians = session.authenticated_custodians ++ [entry]
+      new_tokens = (session.auth_tokens || []) ++ [auth_token]
 
       updated_session =
         session
         |> Map.put(:authenticated_custodians, new_custodians)
+        |> Map.put(:auth_tokens, new_tokens)
         |> Map.put(:updated_at, DateTime.utc_now() |> DateTime.truncate(:second))
 
       case persist_session(updated_session) do
@@ -257,6 +259,7 @@ defmodule PkiCaEngine.ActivationCeremony do
     case Repo.update(updated, %{
       status: updated.status,
       authenticated_custodians: updated.authenticated_custodians,
+      auth_tokens: updated.auth_tokens || [],
       completed_at: updated.completed_at,
       updated_at: now
     }) do
@@ -278,34 +281,32 @@ defmodule PkiCaEngine.ActivationCeremony do
     {:ok, _} = persist_session(transitioning)
 
     custodian_names = Enum.map(session.authenticated_custodians, & &1.name)
+    auth_tokens = session.auth_tokens || []
 
-    # The handle for software keystores is an opaque atom signalling the
-    # ceremony is complete.  E2.4 will replace this with a real Dispatcher
-    # session token.
-    handle = {:activation_ceremony, session.id}
+    with {:ok, handle} <- Dispatcher.authorize_session(session.issuer_key_id, auth_tokens) do
+      case KeyActivation.activate(ka_server, session.issuer_key_id, handle, custodian_names, opts) do
+        {:ok, _key_id} ->
+          now2 = DateTime.utc_now() |> DateTime.truncate(:second)
+          completed =
+            session
+            |> Map.put(:status, "lease_active")
+            |> Map.put(:completed_at, now2)
+            |> Map.put(:updated_at, now2)
 
-    case KeyActivation.activate(ka_server, session.issuer_key_id, handle, custodian_names, opts) do
-      {:ok, _key_id} ->
-        now2 = DateTime.utc_now() |> DateTime.truncate(:second)
-        completed =
-          session
-          |> Map.put(:status, "lease_active")
-          |> Map.put(:completed_at, now2)
-          |> Map.put(:updated_at, now2)
+          {:ok, _} = persist_session(completed)
+          {:ok, :lease_granted}
 
-        {:ok, _} = persist_session(completed)
-        {:ok, :lease_granted}
+        {:error, reason} ->
+          now2 = DateTime.utc_now() |> DateTime.truncate(:second)
+          failed =
+            session
+            |> Map.put(:status, "failed")
+            |> Map.put(:completed_at, now2)
+            |> Map.put(:updated_at, now2)
 
-      {:error, reason} ->
-        now2 = DateTime.utc_now() |> DateTime.truncate(:second)
-        failed =
-          session
-          |> Map.put(:status, "failed")
-          |> Map.put(:completed_at, now2)
-          |> Map.put(:updated_at, now2)
-
-        {:ok, _} = persist_session(failed)
-        {:error, {:lease_grant_failed, reason}}
+          {:ok, _} = persist_session(failed)
+          {:error, {:lease_grant_failed, reason}}
+      end
     end
   end
 end
