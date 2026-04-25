@@ -1373,6 +1373,14 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
   # Guard: root CA keys must use threshold mode (WebTrust §6.2.2 dual-control).
   # "issuing_sub" and "operational_sub" may use any key_mode.
+  #
+  # Atom normalisation: callers may pass atom :root instead of string "root".
+  # Elixir atoms and strings are not equal, so :root would bypass the string
+  # guards below. Normalise to string first so the guard fires correctly.
+  defp validate_key_role(role, key_mode) when is_atom(role) do
+    validate_key_role(Atom.to_string(role), key_mode)
+  end
+
   defp validate_key_role(role, _key_mode) when role not in ["root", "issuing_sub", "operational_sub"],
     do: {:error, {:invalid_key_role, role}}
   defp validate_key_role("root", key_mode) when key_mode != "threshold",

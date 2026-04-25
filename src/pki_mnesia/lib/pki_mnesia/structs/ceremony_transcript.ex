@@ -129,11 +129,16 @@ defmodule PkiMnesia.Structs.CeremonyTranscript do
     # event is appended. Strip that (and any subsequent) trailing entry so the
     # digest computed here matches the one the auditor actually signed offline.
     signable_entries = entries_before_auditor_signed(entries)
-    digest = transcript_digest(signable_entries)
+    # raw_bytes is the pre-image; digest is SHA-256(raw_bytes).
+    # Ed25519 callers sign `digest` (arbitrary bytes, no internal hashing).
+    # ECDSA callers sign `raw_bytes` so that :public_key.verify can apply
+    # SHA-256 exactly once — passing `digest` would cause a double-hash.
+    raw_bytes = :erlang.term_to_binary(signable_entries)
+    digest = :crypto.hash(:sha256, raw_bytes)
 
     try do
       public_key = decode_public_key(pem_or_raw)
-      do_verify(digest, sig, public_key)
+      do_verify(digest, raw_bytes, sig, public_key)
     rescue
       _ -> {:error, :invalid_signature}
     catch
@@ -190,29 +195,58 @@ defmodule PkiMnesia.Structs.CeremonyTranscript do
   end
 
   # Dispatch verification based on public key type.
-  defp do_verify(digest, sig, {:ed_pub, :ed25519, _key_bytes} = pub_key) do
+  #
+  # `digest`    — SHA-256(raw_bytes); used by Ed25519 (:none mode, no re-hash).
+  # `raw_bytes` — :erlang.term_to_binary(signable_entries); used by ECDSA so
+  #               that :public_key.verify applies SHA-256 exactly once.
+  #
+  # ECDSA note: OTP's :public_key.verify does not support :none for ECDSA —
+  # passing :sha256 causes it to hash the input internally. Passing the
+  # pre-computed `digest` would therefore double-hash (SHA-256(SHA-256(data))).
+  # The fix is to pass `raw_bytes` with :sha256 so OTP hashes it once correctly.
+  #
+  # Ed25519 PEM decoding note: OTP's pem_entry_decode returns Ed25519 keys as
+  # {{:ECPoint, key_bytes}, {:namedCurve, {1, 3, 101, 112}}} — the same tuple
+  # shape as ECDSA P-256 but with a different OID. Guard on the OID to route
+  # Ed25519 PEM-decoded keys to the correct (:none) path.
+
+  # Ed25519 OID: {1, 3, 101, 112}
+  @ed25519_oid {1, 3, 101, 112}
+
+  # Ed25519 via {:ed_pub, :ed25519, _} (raw bytes convenience form)
+  defp do_verify(digest, _raw_bytes, sig, {:ed_pub, :ed25519, _key_bytes} = pub_key) do
+    # Ed25519: :none means OTP does not hash; digest is signed as-is.
     case :public_key.verify(digest, :none, sig, pub_key) do
       true -> :ok
       false -> {:error, :invalid_signature}
     end
   end
 
-  defp do_verify(digest, sig, {{:ECPoint, _}, {_, {:namedCurve, _}}} = ec_pub_key) do
-    # ECDSA P-256: the input is the raw SHA-256 digest; pass :sha256 so
-    # :public_key.verify treats the data as a pre-hashed message.
-    case :public_key.verify(digest, :sha256, sig, ec_pub_key) do
+  # Ed25519 decoded from PEM: OTP wraps it as {{:ECPoint, key_bytes}, {:namedCurve, ed25519_oid}}
+  defp do_verify(digest, _raw_bytes, sig, {{:ECPoint, key_bytes}, {:namedCurve, @ed25519_oid}}) do
+    ed_pub_key = {:ed_pub, :ed25519, key_bytes}
+    case :public_key.verify(digest, :none, sig, ed_pub_key) do
       true -> :ok
       false -> {:error, :invalid_signature}
     end
   end
 
-  defp do_verify(digest, sig, {ec_point, params} = ec_pub_key)
+  # ECDSA P-256 (and other named-curve ECDSA): pass raw_bytes so OTP hashes once.
+  defp do_verify(_digest, raw_bytes, sig, {{:ECPoint, _}, {_, {:namedCurve, _}}} = ec_pub_key) do
+    case :public_key.verify(raw_bytes, :sha256, sig, ec_pub_key) do
+      true -> :ok
+      false -> {:error, :invalid_signature}
+    end
+  end
+
+  defp do_verify(_digest, raw_bytes, sig, {ec_point, params} = ec_pub_key)
        when is_tuple(ec_point) and is_tuple(params) do
-    case :public_key.verify(digest, :sha256, sig, ec_pub_key) do
+    # Fallback ECDSA tuple form: same raw_bytes approach.
+    case :public_key.verify(raw_bytes, :sha256, sig, ec_pub_key) do
       true -> :ok
       false -> {:error, :invalid_signature}
     end
   end
 
-  defp do_verify(_digest, _sig, _unknown_key), do: {:error, :invalid_signature}
+  defp do_verify(_digest, _raw_bytes, _sig, _unknown_key), do: {:error, :invalid_signature}
 end
