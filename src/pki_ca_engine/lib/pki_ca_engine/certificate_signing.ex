@@ -73,6 +73,15 @@ defmodule PkiCaEngine.CertificateSigning do
               })
               Repo.insert(cert_status)
 
+              # Emit telemetry for non-threshold key modes to flag low-assurance signings.
+              if issuer_key.key_mode in ["single_custodian", "password"] do
+                :telemetry.execute(
+                  [:pki_ca_engine, :certificate, :low_assurance_signing],
+                  %{},
+                  %{key_id: issuer_key_id, key_mode: issuer_key.key_mode}
+                )
+              end
+
               {:ok, cert}
 
             error -> error

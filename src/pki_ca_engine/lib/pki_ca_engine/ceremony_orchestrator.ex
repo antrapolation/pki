@@ -108,9 +108,11 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   def initiate(ca_instance_id, params) do
     keystore_mode = Map.get(params, :keystore_mode, "softhsm")
     key_mode = Map.get(params, :key_mode, "threshold")
+    key_role = Map.get(params, :key_role, "operational_sub")
     auditor_user_id = Map.get(params, :auditor_user_id)
 
     with :ok <- validate_key_mode(key_mode),
+         :ok <- validate_key_role(key_role, key_mode),
          :ok <- validate_threshold(params.threshold_k, params.threshold_n, key_mode),
          :ok <- validate_participants(params.custodian_names, params.threshold_n),
          :ok <- validate_ceremony_mode(params),
@@ -126,6 +128,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           is_root: Map.get(params, :is_root, true),
           ceremony_mode: Map.get(params, :ceremony_mode, :full),
           key_mode: key_mode,
+          key_role: key_role,
           threshold_config: %{k: params.threshold_k, n: params.threshold_n}
         })
         :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), key))
@@ -1367,6 +1370,14 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
       {:error, _} -> {:error, :auditor_required}
     end
   end
+
+  # Guard: root CA keys must use threshold mode (WebTrust §6.2.2 dual-control).
+  # "issuing_sub" and "operational_sub" may use any key_mode.
+  defp validate_key_role(role, _key_mode) when role not in ["root", "issuing_sub", "operational_sub"],
+    do: {:error, {:invalid_key_role, role}}
+  defp validate_key_role("root", key_mode) when key_mode != "threshold",
+    do: {:error, :root_requires_threshold}
+  defp validate_key_role(_role, _key_mode), do: :ok
 
   defp validate_participants(names, n) when is_list(names) and length(names) == n, do: :ok
   defp validate_participants(_, _), do: {:error, :participant_count_mismatch}
