@@ -157,10 +157,10 @@ defmodule PkiCaEngine.ActivationCeremony do
   Recover sessions that were stuck in `"threshold_met"` due to a crash
   between the first and second Mnesia write in `do_grant_lease/2`.
 
-  Any `ActivationSession` with `status: "threshold_met"` whose `inserted_at`
+  Any `ActivationSession` with `status: "threshold_met"` whose `updated_at`
   is more than 5 minutes ago is reverted to `"awaiting_custodians"` so
-  custodians can re-authenticate on restart.  Sessions that have been in
-  `"threshold_met"` for fewer than 5 minutes are left alone -- they may still
+  custodians can re-authenticate on restart.  Sessions that transitioned to
+  `"threshold_met"` fewer than 5 minutes ago are left alone -- they may still
   have an in-flight grant in progress.
 
   Call this once on application boot, after Mnesia tables are available.
@@ -174,7 +174,7 @@ defmodule PkiCaEngine.ActivationCeremony do
     {:ok, stuck} =
       Repo.where(ActivationSession, fn session ->
         session.status == "threshold_met" and
-          DateTime.compare(session.inserted_at, cutoff) == :lt
+          DateTime.compare(session.updated_at, cutoff) == :lt
       end)
 
     recovered =
