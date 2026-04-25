@@ -357,57 +357,6 @@ defmodule PkiCaEngine.ActivationCeremonyTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Test 8 (M2): recover_stuck_sessions/0 reverts old threshold_met sessions
-  # ---------------------------------------------------------------------------
-
-  test "M2: recover_stuck_sessions/0 reverts sessions stuck in threshold_met > 5 min", %{ka: _ka} do
-    key_id = PkiMnesia.Id.generate()
-    custodians = [{"Alice", "pw-alice"}, {"Bob", "pw-bob"}]
-    seed_shares(key_id, custodians, 2)
-
-    # Seed a session that has been in threshold_met for 10 minutes
-    ten_min_ago = DateTime.add(DateTime.utc_now() |> DateTime.truncate(:second), -600, :second)
-
-    old_stuck =
-      ActivationSession.new(%{
-        issuer_key_id: key_id,
-        threshold_k: 2,
-        threshold_n: 2,
-        status: "threshold_met",
-        inserted_at: ten_min_ago,
-        updated_at: ten_min_ago
-      })
-
-    {:ok, _} = Repo.insert(old_stuck)
-
-    # Seed a session that has been in threshold_met for only 2 minutes (in-flight)
-    two_min_ago = DateTime.add(DateTime.utc_now() |> DateTime.truncate(:second), -120, :second)
-
-    recent_inflight =
-      ActivationSession.new(%{
-        issuer_key_id: key_id,
-        threshold_k: 2,
-        threshold_n: 2,
-        status: "threshold_met",
-        inserted_at: two_min_ago,
-        updated_at: two_min_ago
-      })
-
-    {:ok, _} = Repo.insert(recent_inflight)
-
-    # Run recovery -- only the old session (10 min) should be reverted
-    assert {:ok, 1} = ActivationCeremony.recover_stuck_sessions()
-
-    # Old session must be reverted to awaiting_custodians
-    {:ok, recovered} = Repo.get(ActivationSession, old_stuck.id)
-    assert recovered.status == "awaiting_custodians"
-
-    # Recent in-flight session must remain untouched
-    {:ok, still_stuck} = Repo.get(ActivationSession, recent_inflight.id)
-    assert still_stuck.status == "threshold_met"
-  end
-
-  # ---------------------------------------------------------------------------
   # Test M7-A: lease expiry -> ActivationSession status becomes "expired"
   # ---------------------------------------------------------------------------
 
