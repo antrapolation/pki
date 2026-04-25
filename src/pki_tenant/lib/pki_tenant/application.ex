@@ -45,7 +45,8 @@ defmodule PkiTenant.Application do
             {PkiCaEngine.EngineSupervisor, []},
             {PkiRaEngine.EngineSupervisor, []},
             {PkiValidation.Supervisor, []},
-            {Task.Supervisor, name: PkiTenant.TaskSupervisor}
+            {Task.Supervisor, name: PkiTenant.TaskSupervisor},
+            {Task, fn -> recover_activation_sessions() end}
           ]
 
           base_children ++ maybe_start_hsm_gateway()
@@ -53,6 +54,20 @@ defmodule PkiTenant.Application do
 
     opts = [strategy: :one_for_one, name: PkiTenant.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+
+  # Run boot-time recovery for ActivationSessions stuck in "threshold_met"
+  # after a crash between the two do_grant_lease Mnesia writes.
+  defp recover_activation_sessions do
+    case PkiCaEngine.ActivationCeremony.recover_stuck_sessions() do
+      {:ok, 0} ->
+        :ok
+
+      {:ok, count} ->
+        require Logger
+        Logger.warning("[PkiTenant.Application] Recovered \#{count} stuck activation session(s) from 'threshold_met' to 'awaiting_custodians'")
+    end
   end
 
   # Start HsmGateway only when HSM_GATEWAY_PORT (or HSM_GRPC_PORT) env var is set.

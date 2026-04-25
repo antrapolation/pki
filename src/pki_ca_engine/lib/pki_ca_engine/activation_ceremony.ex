@@ -95,7 +95,7 @@ defmodule PkiCaEngine.ActivationCeremony do
     * `{:error, :authentication_failed}` — wrong auth token (decryption tag mismatch).
   """
   @spec submit_auth(binary(), String.t(), binary(), keyword()) ::
-          {:ok, ActivationSession.t()} | {:error, term()}
+          {:ok, ActivationSession.t()} | {:ok, :lease_granted} | {:error, term()}
   def submit_auth(session_id, custodian_name, auth_token, opts \\ []) do
     with {:ok, session} <- fetch_open_session(session_id),
          :ok <- check_not_duplicate(session, custodian_name),
@@ -151,6 +151,51 @@ defmodule PkiCaEngine.ActivationCeremony do
           do_grant_lease(session, opts)
       end
     end
+  end
+
+  @doc """
+  Recover sessions that were stuck in `"threshold_met"` due to a crash
+  between the first and second Mnesia write in `do_grant_lease/2`.
+
+  Any `ActivationSession` with `status: "threshold_met"` whose `inserted_at`
+  is more than 5 minutes ago is reverted to `"awaiting_custodians"` so
+  custodians can re-authenticate on restart.  Sessions that have been in
+  `"threshold_met"` for fewer than 5 minutes are left alone -- they may still
+  have an in-flight grant in progress.
+
+  Call this once on application boot, after Mnesia tables are available.
+
+  Returns `{:ok, count}` where `count` is the number of sessions recovered.
+  """
+  @spec recover_stuck_sessions() :: {:ok, non_neg_integer()}
+  def recover_stuck_sessions do
+    cutoff = DateTime.add(DateTime.utc_now() |> DateTime.truncate(:second), -300, :second)
+
+    {:ok, stuck} =
+      Repo.where(ActivationSession, fn session ->
+        session.status == "threshold_met" and
+          DateTime.compare(session.inserted_at, cutoff) == :lt
+      end)
+
+    recovered =
+      Enum.reduce(stuck, 0, fn session, count ->
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+        case Repo.update(session, %{
+               status: "awaiting_custodians",
+               updated_at: now
+             }) do
+          {:ok, _} ->
+            count + 1
+
+          {:error, reason} ->
+            require Logger
+            Logger.warning("[ActivationCeremony] recover_stuck_sessions: failed to revert \#{session.id}: \#{inspect(reason)}")
+            count
+        end
+      end)
+
+    {:ok, recovered}
   end
 
   @doc """
