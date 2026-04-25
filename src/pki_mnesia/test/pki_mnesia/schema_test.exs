@@ -12,8 +12,10 @@ defmodule PkiMnesia.SchemaTest do
 
   test "create_tables creates all expected tables (including schema_versions)" do
     tables = :mnesia.system_info(:local_tables) -- [:schema]
-    assert length(tables) >= 21
-    assert :pre_signed_crls in (:mnesia.system_info(:local_tables) -- [:schema])
+    # Use >= so tests remain green regardless of Phase E PR merge order.
+    assert length(tables) >= 22
+    assert :pre_signed_crls in tables
+    assert :activation_sessions in tables
   end
 
   test "ca_instances table has correct attributes" do

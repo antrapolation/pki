@@ -12,7 +12,8 @@ defmodule PkiMnesia.ReplicationTest do
   describe "sync_tables/0" do
     test "includes all expected sync tables" do
       tables = Schema.sync_tables()
-      assert length(tables) >= 16
+      # Use >= so tests stay green regardless of Phase E PR merge order.
+      assert length(tables) >= 17
       assert :ca_instances in tables
       assert :issuer_keys in tables
       assert :keystores in tables
@@ -20,6 +21,7 @@ defmodule PkiMnesia.ReplicationTest do
       assert :key_ceremonies in tables
       assert :ceremony_participants in tables
       assert :ceremony_transcripts in tables
+      assert :activation_sessions in tables
       assert :portal_users in tables
       assert :cert_profiles in tables
       assert :ra_instances in tables
