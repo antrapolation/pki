@@ -182,4 +182,177 @@ defmodule PkiCaEngine.ActivationCeremonyTest do
 
     refute KeyActivation.is_active?(ka, key_id)
   end
+
+  # ---------------------------------------------------------------------------
+  # Test 5 (H5): start/2 with a root key + threshold_k: 1 → root_requires_threshold
+  # ---------------------------------------------------------------------------
+
+  test "H5: start/2 rejects threshold_k: 1 for a root key (threshold_config k=2)", %{ka: _ka} do
+    key_id = PkiMnesia.Id.generate()
+
+    root_key =
+      IssuerKey.new(%{
+        id: key_id,
+        ca_instance_id: "ca-h5-test",
+        algorithm: "ECC-P256",
+        status: "active",
+        keystore_type: :software,
+        key_role: "root",
+        key_mode: "threshold",
+        threshold_config: %{k: 2, n: 3}
+      })
+
+    {:ok, _} = Repo.insert(root_key)
+
+    assert {:error, :root_requires_threshold} =
+             ActivationCeremony.start(key_id, threshold_k: 1, threshold_n: 3)
+  end
+
+  test "H5: start/2 rejects root key with non-threshold key_mode", %{ka: _ka} do
+    key_id = PkiMnesia.Id.generate()
+
+    root_key =
+      IssuerKey.new(%{
+        id: key_id,
+        ca_instance_id: "ca-h5-mode-test",
+        algorithm: "ECC-P256",
+        status: "active",
+        keystore_type: :software,
+        key_role: "root",
+        key_mode: "direct",
+        threshold_config: %{k: 2, n: 3}
+      })
+
+    {:ok, _} = Repo.insert(root_key)
+
+    assert {:error, :root_requires_threshold} =
+             ActivationCeremony.start(key_id, threshold_k: 2, threshold_n: 3)
+  end
+
+  test "H5: start/2 allows root key with threshold_k equal to stored k", %{ka: _ka} do
+    key_id = PkiMnesia.Id.generate()
+    custodians = [{"Alice", "pw-alice"}, {"Bob", "pw-bob"}, {"Charlie", "pw-charlie"}]
+
+    root_key =
+      IssuerKey.new(%{
+        id: key_id,
+        ca_instance_id: "ca-h5-ok-test",
+        algorithm: "ECC-P256",
+        status: "active",
+        keystore_type: :software,
+        key_role: "root",
+        key_mode: "threshold",
+        threshold_config: %{k: 2, n: 3}
+      })
+
+    {:ok, _} = Repo.insert(root_key)
+
+    # Seed shares so resolve_threshold can find them
+    total = length(custodians)
+    custodians
+    |> Enum.with_index(1)
+    |> Enum.each(fn {{name, password}, idx} ->
+      share_data = :crypto.strong_rand_bytes(32)
+      {:ok, encrypted} = ShareEncryption.encrypt_share(share_data, password)
+      record = ThresholdShare.new(%{
+        issuer_key_id: key_id,
+        custodian_name: name,
+        share_index: idx,
+        encrypted_share: encrypted,
+        min_shares: 2,
+        total_shares: total,
+        status: "active"
+      })
+      {:ok, _} = Repo.insert(record)
+    end)
+
+    assert {:ok, session} = ActivationCeremony.start(key_id, threshold_k: 2, threshold_n: 3)
+    assert session.threshold_k == 2
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 6: do_grant_lease failure path — Dispatcher error → session "failed"
+  # ---------------------------------------------------------------------------
+
+  test "do_grant_lease failure: Dispatcher.authorize_session error → session failed, subsequent submit returns session_closed",
+       %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+
+    # Insert an IssuerKey with an unsupported keystore_type to force
+    # Dispatcher.authorize_session to return an error.
+    bad_key =
+      IssuerKey.new(%{
+        id: key_id,
+        ca_instance_id: "ca-grant-fail-test",
+        algorithm: "ECC-P256",
+        status: "active",
+        keystore_type: :unknown_type
+      })
+
+    {:ok, _} = Repo.insert(bad_key)
+
+    # Seed custodians with threshold k=1 so the first submit triggers grant
+    custodians = [{"Alice", "pw-alice"}]
+    total = length(custodians)
+    custodians
+    |> Enum.with_index(1)
+    |> Enum.each(fn {{name, password}, idx} ->
+      share_data = :crypto.strong_rand_bytes(32)
+      {:ok, encrypted} = ShareEncryption.encrypt_share(share_data, password)
+      record = ThresholdShare.new(%{
+        issuer_key_id: key_id,
+        custodian_name: name,
+        share_index: idx,
+        encrypted_share: encrypted,
+        min_shares: 1,
+        total_shares: total,
+        status: "active"
+      })
+      {:ok, _} = Repo.insert(record)
+    end)
+
+    {:ok, session} =
+      ActivationCeremony.start(key_id,
+        threshold_k: 1,
+        threshold_n: 1,
+        key_activation: ka
+      )
+
+    # submit_auth triggers do_grant_lease which calls Dispatcher.authorize_session
+    # — the unknown keystore_type causes an error
+    assert {:error, _reason} =
+             ActivationCeremony.submit_auth(session.id, "Alice", "pw-alice",
+               key_activation: ka
+             )
+
+    # Session status must be "failed" in Mnesia
+    {:ok, persisted} = Repo.get(ActivationSession, session.id)
+    assert persisted.status == "failed"
+    assert not is_nil(persisted.completed_at)
+
+    # Subsequent submit on a failed session returns :session_closed
+    assert {:error, :session_closed} =
+             ActivationCeremony.submit_auth(session.id, "Alice", "pw-alice",
+               key_activation: ka
+             )
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test 7 (H2): auth_tokens must NOT be persisted to Mnesia
+  # ---------------------------------------------------------------------------
+
+  test "H2: auth_tokens are not persisted to Mnesia after custodian submit", %{ka: ka} do
+    key_id = PkiMnesia.Id.generate()
+    custodians = [{"Alice", "pw-alice"}, {"Bob", "pw-bob"}]
+    seed_shares(key_id, custodians, 2)
+
+    {:ok, session} = ActivationCeremony.start(key_id, key_activation: ka)
+
+    # Alice submits — threshold not yet met (k=2)
+    {:ok, _updated} = ActivationCeremony.submit_auth(session.id, "Alice", "pw-alice", key_activation: ka)
+
+    # The persisted record in Mnesia must have auth_tokens == []
+    {:ok, persisted} = Repo.get(ActivationSession, session.id)
+    assert persisted.auth_tokens == []
+  end
 end
