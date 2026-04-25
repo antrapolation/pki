@@ -29,6 +29,7 @@ defmodule PkiTenantWeb.Live.AuthHook do
     "ca_admin" => :all,
     "key_manager" => [
       PkiTenantWeb.Ca.DashboardLive,
+      PkiTenantWeb.Ca.ActivationLive,
       PkiTenantWeb.Ca.IssuerKeysLive,
       PkiTenantWeb.Ca.CeremonyLive,
       PkiTenantWeb.Ca.CeremonyCustodianLive,
