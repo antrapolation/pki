@@ -10,10 +10,10 @@ defmodule PkiMnesia.SchemaTest do
     :ok
   end
 
-  test "create_tables creates all 20 tables (including schema_versions)" do
+  test "create_tables creates all 21 tables (including schema_versions)" do
     # Tables already created by setup_mnesia, verify they exist
     tables = :mnesia.system_info(:local_tables) -- [:schema]
-    assert length(tables) == 20
+    assert length(tables) == 21
   end
 
   test "ca_instances table has correct attributes" do

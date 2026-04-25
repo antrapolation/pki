@@ -11,7 +11,8 @@ defmodule PkiMnesia.Schema do
     CeremonyTranscript, ThresholdShare, IssuedCertificate,
     RaInstance, RaCaConnection, CertProfile, CsrRequest,
     ApiKey, DcvChallenge, CertificateStatus, PortalUser,
-    BackupRecord, ServiceConfig, AuditLogEntry, Keystore
+    BackupRecord, ServiceConfig, AuditLogEntry, Keystore,
+    PreSignedCrl
   }
 
   @schema_version 1
@@ -24,7 +25,8 @@ defmodule PkiMnesia.Schema do
     :schema_versions
   ]
 
-  @async_tables [:issued_certificates, :csr_requests, :certificate_status, :audit_log_entries]
+  @async_tables [:issued_certificates, :csr_requests, :certificate_status, :audit_log_entries,
+                 :pre_signed_crls]
 
   @doc "List of table names replicated synchronously (disc_copies primary, ram_copies replica)."
   def sync_tables, do: @sync_tables
@@ -171,6 +173,7 @@ defmodule PkiMnesia.Schema do
 
       # Validation tables (disc_only_copies)
       {CertificateStatus, :disc_only_copies, [:serial_number, :issuer_key_id, :status]},
+      {PreSignedCrl, :disc_only_copies, [:issuer_key_id, :valid_from, :valid_until]},
 
       # Audit trail (disc_only_copies - grows unbounded)
       {AuditLogEntry, :disc_only_copies, [:timestamp, :action, :category, :actor]},
