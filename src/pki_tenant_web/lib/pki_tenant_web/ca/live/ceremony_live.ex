@@ -289,10 +289,10 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
          vault_pid: nil,
          entered_tokens: %{},
          execution_state: :failed,
-         execution_error: "Key entry session lost â ceremony cancelled. Please start a new ceremony.",
+         execution_error: "Key entry session lost — ceremony cancelled. Please start a new ceremony.",
          entering_slot: nil
        )
-       |> put_flash(:error, "Key entry session lost â ceremony cancelled. Please start a new ceremony.")}
+       |> put_flash(:error, "Key entry session lost — ceremony cancelled. Please start a new ceremony.")}
     else
       {:noreply, socket}
     end
