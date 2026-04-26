@@ -3,15 +3,18 @@ package main
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/miekg/pkcs11"
 )
 
 // HsmClient wraps PKCS#11 operations.
+// mu serializes all PKCS#11 calls — sessions are not thread-safe.
 type HsmClient struct {
 	ctx     *pkcs11.Ctx
 	session pkcs11.SessionHandle
 	labels  []string
+	mu      sync.Mutex
 }
 
 // NewHsmClient loads the PKCS#11 library, opens a session, and logs in.
@@ -54,6 +57,9 @@ func NewHsmClient(libraryPath string, slotID uint, pin string) (*HsmClient, erro
 
 // ListKeyLabels finds all private keys and returns their labels.
 func (h *HsmClient) ListKeyLabels() ([]string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 	}
@@ -93,6 +99,9 @@ func (h *HsmClient) ListKeyLabels() ([]string, error) {
 
 // Sign finds a private key by label and signs the data.
 func (h *HsmClient) Sign(keyLabel string, data []byte, mechanism uint) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	// Find the private key by label
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
@@ -139,19 +148,22 @@ func (h *HsmClient) Close() {
 
 // AvailableKeyLabels returns the discovered key labels.
 func (h *HsmClient) AvailableKeyLabels() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	return h.labels
 }
 
 // MechanismForAlgorithm maps algorithm string to PKCS#11 mechanism.
-func MechanismForAlgorithm(algorithm string) uint {
+// Returns (mechanism, true) on success, or (0, false) for unknown algorithms.
+// Callers must treat false as a hard error — silently using ECDSA for a PQC key
+// would be either a hard HSM error or key misuse on a misbehaving HSM.
+func MechanismForAlgorithm(algorithm string) (uint, bool) {
 	switch algorithm {
 	case "ECC-P256", "ECC-P384":
-		return pkcs11.CKM_ECDSA
+		return pkcs11.CKM_ECDSA, true
 	case "RSA-2048", "RSA-4096":
-		return pkcs11.CKM_RSA_PKCS
+		return pkcs11.CKM_RSA_PKCS, true
 	default:
-		// For PQC algorithms, use vendor-specific mechanisms
-		// or CKM_VENDOR_DEFINED
-		return pkcs11.CKM_ECDSA
+		return 0, false
 	}
 }

@@ -164,13 +164,24 @@ defmodule PkiCaEngine.KeyStore.RemoteHsmAdapter do
       case get_issuer_key(issuer_key_id) do
         {:ok, key} ->
           HsmGateway.agent_connected?(gateway) and
-            key.hsm_config["key_label"] in HsmGateway.available_keys(gateway)
+            key.hsm_config["key_label"] in HsmGateway.available_keys(gateway) and
+            agent_id_matches?(key, gateway)
 
         _ ->
           false
       end
     catch
       :exit, _ -> false
+    end
+  end
+
+  # If the key has an expected_agent_id in hsm_config, verify the connected agent
+  # matches. Prevents a rogue or misconfigured agent from being used to sign
+  # with a key intended for a specific registered agent.
+  defp agent_id_matches?(key, gateway) do
+    case key.hsm_config["expected_agent_id"] do
+      nil -> true
+      expected -> HsmGateway.connected_agent_id(gateway) == expected
     end
   end
 

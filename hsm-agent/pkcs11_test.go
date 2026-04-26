@@ -6,7 +6,7 @@ import (
 )
 
 func TestMechanismForAlgorithm(t *testing.T) {
-	tests := []struct {
+	known := []struct {
 		algo     string
 		expected uint
 	}{
@@ -14,14 +14,25 @@ func TestMechanismForAlgorithm(t *testing.T) {
 		{"ECC-P384", 0x00001041},
 		{"RSA-2048", 0x00000001}, // CKM_RSA_PKCS
 		{"RSA-4096", 0x00000001},
-		{"unknown", 0x00001041}, // defaults to ECDSA
 	}
-
-	for _, tt := range tests {
+	for _, tt := range known {
 		t.Run(tt.algo, func(t *testing.T) {
-			got := MechanismForAlgorithm(tt.algo)
+			got, ok := MechanismForAlgorithm(tt.algo)
+			if !ok {
+				t.Fatalf("MechanismForAlgorithm(%s) returned ok=false, want true", tt.algo)
+			}
 			if got != tt.expected {
 				t.Errorf("MechanismForAlgorithm(%s) = %x, want %x", tt.algo, got, tt.expected)
+			}
+		})
+	}
+
+	// Unknown algorithms must return ok=false — not silently fall back to ECDSA.
+	for _, algo := range []string{"unknown", "ML-DSA-65", "KAZ-SIGN-192"} {
+		t.Run("unknown_"+algo, func(t *testing.T) {
+			_, ok := MechanismForAlgorithm(algo)
+			if ok {
+				t.Errorf("MechanismForAlgorithm(%s) returned ok=true, want false", algo)
 			}
 		})
 	}
@@ -71,7 +82,11 @@ func TestSoftHSMSign(t *testing.T) {
 	}
 
 	data := []byte("test data to sign with HSM")
-	sig, err := hsm.Sign(labels[0], data, MechanismForAlgorithm("ECC-P256"))
+	mech, ok := MechanismForAlgorithm("ECC-P256")
+	if !ok {
+		t.Fatal("MechanismForAlgorithm returned ok=false for ECC-P256")
+	}
+	sig, err := hsm.Sign(labels[0], data, mech)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}

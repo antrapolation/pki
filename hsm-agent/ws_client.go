@@ -15,6 +15,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// signWorkerCount is the number of concurrent PKCS#11 sign operations allowed.
+// One worker is correct: PKCS#11 sessions are not thread-safe even with HsmClient.mu,
+// because FindObjectsInit/FindObjectsFinal must be balanced on the same session handle
+// without interleaving. A single worker makes this a hard guarantee.
+const signWorkerCount = 1
+
 // WsClient handles the WebSocket connection to the backend.
 type WsClient struct {
 	config    *Config
@@ -22,6 +28,7 @@ type WsClient struct {
 	conn      *websocket.Conn
 	mu        sync.Mutex
 	connected bool
+	signCh    chan SignRequest
 }
 
 // NewWsClient creates a new WebSocket client.
@@ -29,6 +36,7 @@ func NewWsClient(config *Config, hsm *HsmClient) *WsClient {
 	return &WsClient{
 		config: config,
 		hsm:    hsm,
+		signCh: make(chan SignRequest, 64),
 	}
 }
 
@@ -106,6 +114,11 @@ func (w *WsClient) RunLoop(ctx context.Context) error {
 	// Start heartbeat goroutine
 	go w.heartbeatLoop(ctx, heartbeatInterval)
 
+	// Start bounded sign workers. signWorkerCount=1 serializes PKCS#11 access.
+	for i := 0; i < signWorkerCount; i++ {
+		go w.signWorker(ctx)
+	}
+
 	// Read loop
 	for {
 		select {
@@ -130,7 +143,12 @@ func (w *WsClient) RunLoop(ctx context.Context) error {
 					log.Printf("Failed to decode sign_request: %v", err)
 					continue
 				}
-				go w.handleSignRequest(req)
+				select {
+				case w.signCh <- req:
+				default:
+					log.Printf("Sign queue full, rejecting request %s", req.RequestID)
+					w.sendSignResponse(req.RequestID, nil, fmt.Errorf("server busy"))
+				}
 			case "heartbeat_ack":
 				// Server is alive
 			default:
@@ -140,18 +158,34 @@ func (w *WsClient) RunLoop(ctx context.Context) error {
 	}
 }
 
+// signWorker drains signCh and processes each request serially.
+func (w *WsClient) signWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case req := <-w.signCh:
+			w.handleSignRequest(req)
+		}
+	}
+}
+
 // handleSignRequest processes a sign request from the backend.
 func (w *WsClient) handleSignRequest(req SignRequest) {
 	log.Printf("Sign request: id=%s, key=%s, algo=%s", req.RequestID, req.KeyLabel, req.Algorithm)
 
-	// Decode base64 TBS data
 	tbsData, err := base64.StdEncoding.DecodeString(req.TbsData)
 	if err != nil {
 		w.sendSignResponse(req.RequestID, nil, fmt.Errorf("invalid tbs_data base64: %w", err))
 		return
 	}
 
-	mechanism := MechanismForAlgorithm(req.Algorithm)
+	mechanism, ok := MechanismForAlgorithm(req.Algorithm)
+	if !ok {
+		w.sendSignResponse(req.RequestID, nil, fmt.Errorf("unsupported algorithm: %s", req.Algorithm))
+		return
+	}
+
 	signature, err := w.hsm.Sign(req.KeyLabel, tbsData, mechanism)
 	w.sendSignResponse(req.RequestID, signature, err)
 }
