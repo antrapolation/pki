@@ -58,6 +58,9 @@ defmodule PkiCaEngine.KeyStore.SoftwareAdapter do
 
     case KeyActivation.with_lease(activation_server, issuer_key_id, fn key -> key end) do
       {:ok, raw_key} -> {:ok, raw_key}
+      {:error, :not_found} -> {:error, :not_active}
+      {:error, :lease_expired} -> {:error, :not_active}
+      {:error, :ops_exhausted} -> {:error, :not_active}
       {:error, _} = err -> err
     end
   end
