@@ -4,21 +4,24 @@
  * Protocol: 4-byte big-endian length prefix + JSON payload on stdin/stdout.
  *
  * Commands (JSON):
- *   {"cmd":"init","library":"/path/to.so","slot":0,"pin":"1234"}
- *   {"cmd":"sign","label":"key-label","data":"base64...","mechanism":"CKM_ECDSA"}
- *   {"cmd":"get_public_key","label":"key-label"}
- *   {"cmd":"ping"}
+ *   {"cmd":"init","library":"/path/to.so","slot":0,"pin":"1234","id":N}
+ *   {"cmd":"sign","label":"key-label","data":"base64...","mechanism":"CKM_ECDSA","id":N}
+ *   {"cmd":"get_public_key","label":"key-label","id":N}
+ *   {"cmd":"ping","id":N}
  *   {"cmd":"shutdown"}
  *
+ * The "id" field is echoed back in every response for request correlation.
+ * Omitting "id" from the command is allowed; the response will also omit it.
+ *
  * Responses (JSON):
- *   {"ok":true,...}
- *   {"error":"message"}
+ *   {"ok":true,...,"id":N}
+ *   {"error":"message","id":N}
  *
  * PQC mechanism mapping:
  *   CKM_ECDSA          = 0x00001041  (ECDSA / EC keys)
  *   CKM_RSA_PKCS       = 0x00000001  (RSA PKCS#1 v1.5)
  *   CKM_VENDOR_DEFINED = 0x80000000  (base for vendor-specific)
- *     KAZ-SIGN: CKM_VENDOR_DEFINED + 0x00010001  (vendor OID: TBD by MYPKI)
+ *     KAZ-SIGN: CKM_VENDOR_DEFINED + 0x00010001
  *     ML-DSA:   CKM_VENDOR_DEFINED + 0x00010002  (NIST PQC, vendor mapping)
  *
  * Crash safety: this process is managed by Pkcs11Port GenServer.
@@ -31,6 +34,7 @@
 #include <stdint.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include "cJSON.h"
 
 /* PKCS#11 headers — we define the minimal subset we need */
 #define CK_PTR *
@@ -203,38 +207,6 @@ static unsigned char *base64_decode(const char *data, size_t len, size_t *out_le
     return out;
 }
 
-/* Simple JSON parsing — we only handle flat objects with string values */
-/* This is intentionally simple. Production would use a proper JSON lib. */
-static int json_get_string(const char *json, const char *key, char *out, size_t out_sz) {
-    char search[256];
-    snprintf(search, sizeof(search), "\"%s\":\"", key);
-    const char *start = strstr(json, search);
-    if (!start) {
-        /* Try without quotes for numbers */
-        snprintf(search, sizeof(search), "\"%s\":", key);
-        start = strstr(json, search);
-        if (!start) return -1;
-        start += strlen(search);
-        /* skip whitespace */
-        while (*start == ' ') start++;
-        const char *end = start;
-        while (*end && *end != ',' && *end != '}' && *end != ' ') end++;
-        size_t len = (size_t)(end - start);
-        if (len >= out_sz) return -1;
-        memcpy(out, start, len);
-        out[len] = '\0';
-        return 0;
-    }
-    start += strlen(search);
-    const char *end = strchr(start, '"');
-    if (!end) return -1;
-    size_t len = (size_t)(end - start);
-    if (len >= out_sz) return -1;
-    memcpy(out, start, len);
-    out[len] = '\0';
-    return 0;
-}
-
 /* Global state */
 static void *pkcs11_lib = NULL;
 static CK_FUNCTION_LIST_PTR fn = NULL;
@@ -290,23 +262,32 @@ static int write_message(const char *msg, size_t len) {
     return 0;
 }
 
-static void send_error(const char *msg) {
+/* id >= 0 means the request had an id field; echo it back */
+static void send_error_r(const char *msg, long id) {
     char buf[1024];
-    int n = snprintf(buf, sizeof(buf), "{\"error\":\"%s\"}", msg);
+    int n;
+    if (id >= 0)
+        n = snprintf(buf, sizeof(buf), "{\"error\":\"%s\",\"id\":%ld}", msg, id);
+    else
+        n = snprintf(buf, sizeof(buf), "{\"error\":\"%s\"}", msg);
     write_message(buf, (size_t)n);
 }
 
-static void send_ok(const char *extra) {
+static void send_ok_r(const char *extra, long id) {
     char buf[65536];
     int n;
-    if (extra)
+    if (id >= 0 && extra)
+        n = snprintf(buf, sizeof(buf), "{\"ok\":true,%s,\"id\":%ld}", extra, id);
+    else if (id >= 0)
+        n = snprintf(buf, sizeof(buf), "{\"ok\":true,\"id\":%ld}", id);
+    else if (extra)
         n = snprintf(buf, sizeof(buf), "{\"ok\":true,%s}", extra);
     else
         n = snprintf(buf, sizeof(buf), "{\"ok\":true}");
     write_message(buf, (size_t)n);
 }
 
-/* Find a private key by label */
+/* find_key_by_label — unchanged from original */
 static CK_RV find_key_by_label(const char *label, CK_OBJECT_CLASS obj_class, CK_OBJECT_HANDLE *handle) {
     CK_ATTRIBUTE tmpl[2];
     tmpl[0].type = CKA_CLASS;
@@ -327,136 +308,139 @@ static CK_RV find_key_by_label(const char *label, CK_OBJECT_CLASS obj_class, CK_
     return CKR_OK;
 }
 
-static void handle_init(const char *json) {
-    char library[512], slot_str[32], pin[256];
-    if (json_get_string(json, "library", library, sizeof(library)) != 0) {
-        send_error("missing library"); return;
-    }
-    if (json_get_string(json, "slot", slot_str, sizeof(slot_str)) != 0) {
-        send_error("missing slot"); return;
-    }
-    if (json_get_string(json, "pin", pin, sizeof(pin)) != 0) {
-        send_error("missing pin"); return;
+/* Returns 0 on success, -1 for unknown mechanism (fail-closed; no ECDSA default) */
+static int parse_mechanism(const char *mech_str, CK_MECHANISM_TYPE *out) {
+    if (strcmp(mech_str, "CKM_RSA_PKCS") == 0)       { *out = CKM_RSA_PKCS; return 0; }
+    if (strcmp(mech_str, "CKM_ECDSA") == 0)            { *out = CKM_ECDSA; return 0; }
+    if (strcmp(mech_str, "CKM_KAZ_SIGN") == 0)         { *out = CKM_KAZ_SIGN; return 0; }
+    if (strcmp(mech_str, "CKM_ML_DSA") == 0)           { *out = CKM_ML_DSA; return 0; }
+    if (strcmp(mech_str, "CKM_VENDOR_DEFINED") == 0)   { *out = CKM_VENDOR_DEFINED; return 0; }
+    return -1;
+}
+
+static void handle_init(cJSON *root, long id) {
+    cJSON *lib_item  = cJSON_GetObjectItemCaseSensitive(root, "library");
+    cJSON *slot_item = cJSON_GetObjectItemCaseSensitive(root, "slot");
+    cJSON *pin_item  = cJSON_GetObjectItemCaseSensitive(root, "pin");
+
+    if (!cJSON_IsString(lib_item))  { send_error_r("missing library", id); return; }
+    if (!cJSON_IsString(pin_item))  { send_error_r("missing pin", id); return; }
+    if (!cJSON_IsNumber(slot_item) && !cJSON_IsString(slot_item)) {
+        send_error_r("missing slot", id); return;
     }
 
-    CK_SLOT_ID slot = (CK_SLOT_ID)atol(slot_str);
+    const char *library = lib_item->valuestring;
+    CK_SLOT_ID slot = (CK_SLOT_ID)(cJSON_IsNumber(slot_item)
+        ? (long)slot_item->valuedouble
+        : atol(slot_item->valuestring));
 
-    /* Load PKCS#11 library */
+    /* Copy PIN to a local buffer and zero the cJSON copy immediately */
+    char pin[256];
+    strncpy(pin, pin_item->valuestring, sizeof(pin) - 1);
+    pin[sizeof(pin) - 1] = '\0';
+    memset(pin_item->valuestring, 0, strlen(pin_item->valuestring));
+
     pkcs11_lib = dlopen(library, RTLD_NOW);
     if (!pkcs11_lib) {
         char err[1024];
         snprintf(err, sizeof(err), "dlopen failed: %s", dlerror());
-        send_error(err);
+        memset(pin, 0, sizeof(pin));
+        send_error_r(err, id);
         return;
     }
 
     CK_C_GetFunctionList getFn = (CK_C_GetFunctionList)dlsym(pkcs11_lib, "C_GetFunctionList");
-    if (!getFn) { send_error("C_GetFunctionList not found"); return; }
+    if (!getFn) { memset(pin, 0, sizeof(pin)); send_error_r("C_GetFunctionList not found", id); return; }
 
     CK_RV rv = getFn(&fn);
-    if (rv != CKR_OK) { send_error("C_GetFunctionList failed"); return; }
+    if (rv != CKR_OK) { memset(pin, 0, sizeof(pin)); send_error_r("C_GetFunctionList failed", id); return; }
 
     rv = fn->C_Initialize(NULL);
-    if (rv != CKR_OK) { send_error("C_Initialize failed"); return; }
+    if (rv != CKR_OK) { memset(pin, 0, sizeof(pin)); send_error_r("C_Initialize failed", id); return; }
 
     rv = fn->C_OpenSession(slot, CKF_SERIAL_SESSION | CKF_RW_SESSION, NULL, NULL, &session);
-    if (rv != CKR_OK) { send_error("C_OpenSession failed"); return; }
+    if (rv != CKR_OK) { memset(pin, 0, sizeof(pin)); send_error_r("C_OpenSession failed", id); return; }
 
     rv = fn->C_Login(session, CKU_USER, (CK_BYTE_PTR)pin, strlen(pin));
-    if (rv != CKR_OK) { send_error("C_Login failed"); return; }
+    memset(pin, 0, sizeof(pin));
+    if (rv != CKR_OK) { send_error_r("C_Login failed", id); return; }
 
     initialized = 1;
-    send_ok(NULL);
+    send_ok_r(NULL, id);
 }
 
-/* Map mechanism string to PKCS#11 mechanism type */
-static CK_MECHANISM_TYPE parse_mechanism(const char *mech_str) {
-    if (strcmp(mech_str, "CKM_RSA_PKCS") == 0)       return CKM_RSA_PKCS;
-    if (strcmp(mech_str, "CKM_ECDSA") == 0)           return CKM_ECDSA;
-    if (strcmp(mech_str, "CKM_KAZ_SIGN") == 0)        return CKM_KAZ_SIGN;
-    if (strcmp(mech_str, "CKM_ML_DSA") == 0)          return CKM_ML_DSA;
-    if (strcmp(mech_str, "CKM_VENDOR_DEFINED") == 0)   return CKM_VENDOR_DEFINED;
-    /* Default to ECDSA */
-    return CKM_ECDSA;
-}
+static void handle_sign(cJSON *root, long id) {
+    if (!initialized) { send_error_r("not initialized", id); return; }
 
-static void handle_sign(const char *json) {
-    if (!initialized) { send_error("not initialized"); return; }
+    cJSON *label_item = cJSON_GetObjectItemCaseSensitive(root, "label");
+    cJSON *data_item  = cJSON_GetObjectItemCaseSensitive(root, "data");
+    cJSON *mech_item  = cJSON_GetObjectItemCaseSensitive(root, "mechanism");
 
-    char label[256], data_b64[65536], mech_str[64];
-    if (json_get_string(json, "label", label, sizeof(label)) != 0) {
-        send_error("missing label"); return;
-    }
-    if (json_get_string(json, "data", data_b64, sizeof(data_b64)) != 0) {
-        send_error("missing data"); return;
-    }
-    if (json_get_string(json, "mechanism", mech_str, sizeof(mech_str)) != 0) {
-        /* default to ECDSA */
-        strcpy(mech_str, "CKM_ECDSA");
+    if (!cJSON_IsString(label_item)) { send_error_r("missing label", id); return; }
+    if (!cJSON_IsString(data_item))  { send_error_r("missing data", id); return; }
+
+    const char *label    = label_item->valuestring;
+    const char *data_b64 = data_item->valuestring;
+
+    /* Default to ECDSA if mechanism field absent; fail-closed if field is present but unknown */
+    CK_MECHANISM_TYPE mech_type = CKM_ECDSA;
+    if (cJSON_IsString(mech_item)) {
+        if (parse_mechanism(mech_item->valuestring, &mech_type) != 0) {
+            send_error_r("unknown mechanism", id); return;
+        }
     }
 
-    CK_MECHANISM_TYPE mech_type = parse_mechanism(mech_str);
-
-    /* Decode base64 data */
     size_t data_len;
     unsigned char *data = base64_decode(data_b64, strlen(data_b64), &data_len);
-    if (!data) { send_error("base64 decode failed"); return; }
+    if (!data) { send_error_r("base64 decode failed", id); return; }
 
-    /* Find the private key */
     CK_OBJECT_HANDLE key_handle;
     CK_RV rv = find_key_by_label(label, CKO_PRIVATE_KEY, &key_handle);
-    if (rv != CKR_OK) { free(data); send_error("key not found"); return; }
+    if (rv != CKR_OK) { free(data); send_error_r("key not found", id); return; }
 
-    /* Sign */
     CK_MECHANISM mech = { mech_type, NULL, 0 };
     rv = fn->C_SignInit(session, &mech, key_handle);
-    if (rv != CKR_OK) { free(data); send_error("C_SignInit failed"); return; }
+    if (rv != CKR_OK) { free(data); send_error_r("C_SignInit failed", id); return; }
 
     /* Two-call pattern: first call with NULL gets required length, then alloc.
-     * Required because PQC signatures (ML-DSA, SLH-DSA) range 2KB to 50KB
-     * and overflow any fixed stack buffer. */
+     * Required because PQC signatures (ML-DSA, SLH-DSA) range 2KB to 50KB. */
     CK_ULONG sig_len = 0;
     rv = fn->C_Sign(session, data, data_len, NULL, &sig_len);
-    if (rv != CKR_OK) { free(data); send_error("C_Sign (size query) failed"); return; }
+    if (rv != CKR_OK) { free(data); send_error_r("C_Sign (size query) failed", id); return; }
     if (sig_len == 0 || sig_len > 10 * 1024 * 1024) {
-        free(data); send_error("C_Sign returned unreasonable size"); return;
+        free(data); send_error_r("C_Sign returned unreasonable size", id); return;
     }
     CK_BYTE *sig = malloc(sig_len);
-    if (!sig) { free(data); send_error("sig alloc failed"); return; }
+    if (!sig) { free(data); send_error_r("sig alloc failed", id); return; }
     rv = fn->C_Sign(session, data, data_len, sig, &sig_len);
     free(data);
-    if (rv != CKR_OK) { free(sig); send_error("C_Sign failed"); return; }
+    if (rv != CKR_OK) { free(sig); send_error_r("C_Sign failed", id); return; }
 
-    /* Encode signature as base64 */
     size_t b64_len;
     char *sig_b64 = base64_encode(sig, sig_len, &b64_len);
     free(sig);
-    if (!sig_b64) { send_error("base64 encode failed"); return; }
+    if (!sig_b64) { send_error_r("base64 encode failed", id); return; }
 
-    /* Response envelope must hold base64 of signature (sig_len * 4/3 + header).
-     * Allocate on heap so we can scale for PQC-sized sigs. */
     size_t extra_sz = b64_len + 32;
     char *extra = malloc(extra_sz);
-    if (!extra) { free(sig_b64); send_error("response alloc failed"); return; }
+    if (!extra) { free(sig_b64); send_error_r("response alloc failed", id); return; }
     snprintf(extra, extra_sz, "\"signature\":\"%s\"", sig_b64);
     free(sig_b64);
-    send_ok(extra);
+    send_ok_r(extra, id);
     free(extra);
 }
 
-static void handle_get_public_key(const char *json) {
-    if (!initialized) { send_error("not initialized"); return; }
+static void handle_get_public_key(cJSON *root, long id) {
+    if (!initialized) { send_error_r("not initialized", id); return; }
 
-    char label[256];
-    if (json_get_string(json, "label", label, sizeof(label)) != 0) {
-        send_error("missing label"); return;
-    }
+    cJSON *label_item = cJSON_GetObjectItemCaseSensitive(root, "label");
+    if (!cJSON_IsString(label_item)) { send_error_r("missing label", id); return; }
+    const char *label = label_item->valuestring;
 
     CK_OBJECT_HANDLE key_handle;
     CK_RV rv = find_key_by_label(label, CKO_PUBLIC_KEY, &key_handle);
-    if (rv != CKR_OK) { send_error("public key not found"); return; }
+    if (rv != CKR_OK) { send_error_r("public key not found", id); return; }
 
-    /* Get the EC_POINT attribute (DER-encoded public key) */
     CK_BYTE value[4096];
     CK_ATTRIBUTE tmpl[1];
     tmpl[0].type = CKA_EC_POINT;
@@ -469,17 +453,17 @@ static void handle_get_public_key(const char *json) {
         tmpl[0].type = CKA_VALUE;
         tmpl[0].ulValueLen = sizeof(value);
         rv = fn->C_GetAttributeValue(session, key_handle, tmpl, 1);
-        if (rv != CKR_OK) { send_error("C_GetAttributeValue failed"); return; }
+        if (rv != CKR_OK) { send_error_r("C_GetAttributeValue failed", id); return; }
     }
 
     size_t b64_len;
     char *val_b64 = base64_encode(value, tmpl[0].ulValueLen, &b64_len);
-    if (!val_b64) { send_error("base64 encode failed"); return; }
+    if (!val_b64) { send_error_r("base64 encode failed", id); return; }
 
     char extra[65536];
     snprintf(extra, sizeof(extra), "\"public_key\":\"%s\"", val_b64);
     free(val_b64);
-    send_ok(extra);
+    send_ok_r(extra, id);
 }
 
 int main(void) {
@@ -492,29 +476,46 @@ int main(void) {
         char *msg = read_message(&msg_len);
         if (!msg) break; /* stdin closed — BEAM terminated */
 
-        char cmd[64];
-        if (json_get_string(msg, "cmd", cmd, sizeof(cmd)) != 0) {
-            send_error("missing cmd");
-            free(msg);
+        cJSON *root = cJSON_Parse(msg);
+        free(msg);
+
+        if (!root) {
+            send_error_r("invalid JSON", -1);
             continue;
         }
 
-        if (strcmp(cmd, "init") == 0) {
-            handle_init(msg);
-        } else if (strcmp(cmd, "sign") == 0) {
-            handle_sign(msg);
-        } else if (strcmp(cmd, "get_public_key") == 0) {
-            handle_get_public_key(msg);
-        } else if (strcmp(cmd, "ping") == 0) {
-            send_ok(NULL);
-        } else if (strcmp(cmd, "shutdown") == 0) {
-            free(msg);
-            break;
-        } else {
-            send_error("unknown command");
+        /* Extract optional request id */
+        long req_id = -1;
+        cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+        if (cJSON_IsNumber(id_item))
+            req_id = (long)id_item->valuedouble;
+
+        /* Dispatch */
+        cJSON *cmd_item = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+        if (!cJSON_IsString(cmd_item)) {
+            send_error_r("missing cmd", req_id);
+            cJSON_Delete(root);
+            continue;
         }
 
-        free(msg);
+        const char *cmd = cmd_item->valuestring;
+
+        if (strcmp(cmd, "init") == 0) {
+            handle_init(root, req_id);
+        } else if (strcmp(cmd, "sign") == 0) {
+            handle_sign(root, req_id);
+        } else if (strcmp(cmd, "get_public_key") == 0) {
+            handle_get_public_key(root, req_id);
+        } else if (strcmp(cmd, "ping") == 0) {
+            send_ok_r(NULL, req_id);
+        } else if (strcmp(cmd, "shutdown") == 0) {
+            cJSON_Delete(root);
+            break;
+        } else {
+            send_error_r("unknown command", req_id);
+        }
+
+        cJSON_Delete(root);
     }
 
     /* Cleanup */
