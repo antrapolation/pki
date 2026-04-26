@@ -48,7 +48,8 @@ defmodule PkiRaEngine.MixProject do
       {:keyx, path: "../keyx", override: true},
       {:x509, path: "../x509", override: true},
       {:ex_ccrypto, path: "../ex_ccrypto"},
-      {:pki_platform_engine, path: "../pki_platform_engine"}
+      {:pki_platform_engine, path: "../pki_platform_engine"},
+      {:pki_validation, path: "../pki_validation", only: :test}
     ]
   end
 end
