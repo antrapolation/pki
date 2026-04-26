@@ -79,145 +79,14 @@ tracks the order we agreed to work through them.
   - [x] `parse_mechanism` fail-closed for unknown mechanisms.
     Done 2026-04-27 (this PR).
 
-## HSM gateway (Phase D)
-
-### mTLS at the Cowboy listener
-**Priority:** P1
-**Notes:** v1.1.0.0 ships bearer-token auth + constant-time compare for the
-HSM agent handler. The production-grade defense in depth is mTLS at the
-Cowboy listener (`verify: :verify_peer` + `cacertfile`) so bad certs never
-reach the handler at all. Then bind `agent_id` to the cert subject instead
-of trusting the body.
-
-### Sync.Mutex + worker pool for HSM agent PKCS#11 session
-**Priority:** P1
-**Source:** pre-landing review (confidence 7/10)
-**Notes:** `hsm-agent/ws_client.go:127` spawns an unbounded goroutine per
-sign_request, and `hsm-agent/pkcs11.go` does `FindObjects/SignInit/Sign`
-on the same session from concurrent goroutines. PKCS#11 sessions are not
-thread-safe — concurrent operations on one session are undefined behavior.
-Add a `sync.Mutex` around HSM operations and a bounded worker pool.
-
-### Bind agent's advertised key labels to tenant at registration
-**Priority:** P1
-**Source:** pre-landing review (confidence 7/10)
-**Notes:** `RemoteHsmAdapter.key_available?/2` trusts
-`HsmGateway.available_keys/1`, which is self-reported by the agent during
-register. v1.1.0.0 adds allowlist-based label checking in `authenticate_agent`
-(labels must be a subset of the agent's configured `key_labels`), but the
-runtime adapter still trusts the gateway's cached list. Cross-check the
-advertised labels against `IssuerKey.hsm_config.expected_agent_id`.
-
-### Fail-closed attestation in CredentialManager
-**Priority:** P1
-**Source:** pre-landing review (confidence 6/10)
-**Notes:** `PkiCaEngine.CredentialManager.verify_credential_attestation/N`
-returns `:ok` when `certificate` or `attested_by_key` is nil with only a
-log warning. Fail closed: require attestation for all non-bootstrap
-credentials.
-
-### Replace hand-rolled JSON parser in pkcs11_port.c
-**Priority:** P2
-**Source:** pre-landing review (confidence 9/10 — JSON bug is small
-surface in practice because input is from the trusted BEAM port driver,
-but still ugly and brittle.)
-**Notes:** `json_get_string` is a `strstr`-based parser with no escape
-handling. Link against jansson or cJSON. Keep the current stack-allocated
-label/pin buffers in mind; they silently truncate at 256 bytes.
-
-### Single source of truth for algorithm registry in SoftwareAdapter
-**Priority:** P2
-**Source:** pre-landing review (confidence 7/10)
-**Notes:** `PkiCaEngine.KeyStore.SoftwareAdapter.do_sign/N` falls back to
-`PkiCrypto.Registry.get/1` if `AlgorithmRegistry.by_id/1` returns `:error`.
-Two registries, one authoritative — they could disagree on algorithm
-semantics for the same identifier. Consolidate to one.
-
-### Correlate port requests by ID in Pkcs11Port
-**Priority:** P2
-**Source:** pre-landing review (confidence 6/10)
-**Notes:** `PkiCaEngine.KeyStore.Pkcs11Port.send_command/N` uses a bare
-`receive do {^port, {:data, data}}` inside handle_call. A stale response
-from a previous (crashed and restarted) port can pile up in the mailbox.
-Add request-id correlation.
-
-### Redact secrets in GenServer state via format_status/2
-**Priority:** P2
-**Source:** pre-landing review (confidence 6/10)
-**Notes:** `PkiCaEngine.KeyActivation` stores reconstructed raw secrets in
-`state.active_keys[id].secret`. `PkiCaEngine.KeyStore.Pkcs11Port` stores
-the HSM PIN in `state.pin`. `:sys.get_state/1` and crash dumps will include
-these. Implement `format_status/2` to replace sensitive values with
-`:redacted`.
-
-### Narrow raw private-key lifetime in CeremonyOrchestrator
-**Priority:** P2
-**Source:** pre-landing review (confidence 6/10)
-**Notes:** `CeremonyOrchestrator` calls `:erlang.garbage_collect()` after
-split, but `decode_private_key` / `self_sign` / `Csr.generate` all touch
-the raw `priv` binary. Narrow the scope and GC after each step.
-
-### Agent `MechanismForAlgorithm` fallback to ECDSA
-**Priority:** P2
-**Source:** pre-landing review (confidence 6/10)
-**Notes:** `hsm-agent/pkcs11.go:146-157` returns `CKM_ECDSA` for any
-unknown algorithm including PQC. If a tenant requests "ML-DSA-65" and the
-agent doesn't know the mechanism, it asks the HSM to do ECDSA with an
-ML-DSA key — either hard error or, on misbehaving HSMs, key misuse. Return
-an explicit error for unmapped algorithms.
-
-### Increase ShareEncryption PBKDF2 iterations
-**Priority:** P2
-**Source:** pre-landing review (confidence 5/10)
-**Notes:** `PkiCaEngine.KeyCeremony.ShareEncryption` uses 100k PBKDF2-SHA256
-iterations. OWASP 2023 guidance is 600k for SHA-256, or switch to Argon2id
-which is already in the dep tree.
-
-## Test infrastructure
-
-### Native PG setup automation
-**Priority:** P3
-**Notes:** Local dev setup is manual today:
-
-- macOS: `brew install postgresql@17 && brew services start postgresql@17`
-  (default port 5432). Create a `postgres` superuser role with password
-  `postgres`, then create databases: `pki_{ca_engine,ra_engine,validation,
-  audit_trail,platform}` and their `_test` counterparts.
-- Linux: system package + systemd, same shape.
-
-Nice-to-have: `scripts/dev-setup-pg.sh` that wraps the flow
-idempotently, and a `make test` wrapper that verifies PG is reachable
-before invoking `mix test`. Current `scripts/init-databases.sh` is
-container-specific and only creates prod databases, not `_test`.
+## Open
 
 ### Real HSM two-server integration test
 **Priority:** P2
 **Notes:** Phase D shipped with MockHsmAdapter + SoftHSM2 scripts. Running
 the backend on one host and the Go agent + a real HSM (YubiKey or
 SoftHSM2 in a container) on another host to exercise mTLS end-to-end is
-still deferred.
-
-## Deployment
-
-### Windows HSM agent build
-**Priority:** P3
-**Notes:** `hsm-agent` is only built for macOS and Linux. Windows support
-needs a cross-compile target in the Makefile plus PKCS#11 library-path
-discovery for Windows HSM vendors.
-
-### HSM wizard UI
-**Priority:** P3
-**Notes:** Today HSM adapters are configured via IEx or config files.
-A LiveView wizard — pick adapter, test connection, import public key —
-would make BYOK-HSM practical for the RA portal's day-2 flow.
-
-## Roadmap
-
-### Phase 4: PQC OCSP + CRL signing
-**Priority:** P1
-**Notes:** Cross-algo cert signing (Phases 1-3) landed earlier. PQC OCSP
-responses and CRL signing are still unbuilt. Tracked separately in memory
-under `project_cross_algo_signing`.
+still deferred. Needs physical hardware or a container-based SoftHSM2 setup.
 
 ### Per-tenant schema mode: audit + validation
 **Priority:** P2
@@ -226,6 +95,41 @@ log and validation service still use the shared-PG path. Tracked in memory
 under `project_schema_mode_outstanding`.
 
 ## Completed
+
+### Native PG setup automation
+**Completed:** 2026-04-27 (this PR)
+`scripts/dev-setup-pg.sh` — idempotent macOS/Linux setup: installs/starts PG, creates
+`postgres` superuser role, creates all prod + `_test` database variants.
+
+### Windows HSM agent build
+**Completed:** 2026-04-27 (this PR)
+`build-windows` target added to `hsm-agent/Makefile`.
+Requires `mingw-w64` cross-compiler (`brew install mingw-w64` on macOS).
+
+### HSM gateway P1/P2 hardening (Tiers 2 + 4c)
+**Completed:** 2026-04-26/27 (PRs #83, #85, #86, #89)
+- mTLS at Cowboy listener with `verify: :verify_peer` + `fail_if_no_peer_cert: true` (2d, #83)
+- `sync.Mutex` + sign serialization via buffered channel in hsm-agent (2c, #83)
+- Agent-id binding at registration; `expected_agent_id` cross-check in `RemoteHsmAdapter` (2b, #83)
+- `CredentialManager` N/A — deleted in earlier refactor (2a, #83)
+- `SoftwareAdapter` dual-registry fallback removed; single `AlgorithmRegistry` source of truth (4c, #86)
+- `CeremonyOrchestrator` private-key GC narrowed after each step (4c, #86)
+- `format_status/2` added to `KeyActivation` and `Pkcs11Port` — redacts secrets from crash dumps (4c, #85)
+- PBKDF2 iterations bumped 100k→600k in `ShareEncryption` and `CeremonyOrchestrator` (4c, #85)
+- `SoftwareAdapter.sign/3` and `get_raw_key/2` migrated to `with_lease/3` (4c, #85)
+- `pkcs11_port.c` hand-rolled strstr JSON parser replaced with cJSON v1.7.18 (4c, #89)
+- `Pkcs11Port` request-ID correlation — `await_response/3` discards stale messages by id (4c, #89)
+- `parse_mechanism` fail-closed for unknown mechanisms; `explicit_bzero` for PIN zeroing (4c, #89)
+- Agent `MechanismForAlgorithm` returns explicit error for unmapped algorithms (2c, #83)
+
+### Phase 4 — PQC OCSP + CRL signing
+**Completed:** 2026-04-26 (PR #84)
+DerResponder + DerGenerator wired to IssuerKey signing path for all supported algorithms.
+
+### HSM wizard UI
+**Completed:** 2026-04-26 (PR #88)
+CA admin 5-step wizard + platform admin 4-step modal. HsmAgentSetup Mnesia struct + context,
+PubSub broadcast on agent registration, resume banner in HsmDevicesLive.
 
 ### KDF domain separation for ACL credential wrap keys
 **Priority:** was P1
