@@ -71,15 +71,27 @@ defmodule PkiValidation.OcspResponder do
         produced_at: DateTime.utc_now() |> DateTime.to_iso8601()
       })
 
-    # TODO E2.4: replace with sign_with_handle once Dispatcher supports it.
-    # For now we verify the lease is active (above) then call the existing
-    # Dispatcher.sign/2 path; with_lease/2 is used here so ops_remaining is
-    # decremented atomically through the GenServer, keeping the lease counter
-    # in sync even though the actual crypto happens via Dispatcher.
+    # Software keystores: SoftwareAdapter.sign → KeyActivation.with_lease already
+    # decrements ops_remaining internally. Wrapping in an outer with_lease causes
+    # a GenServer :calling_self deadlock when activation_server is the default
+    # KeyActivation process. Call Dispatcher.sign directly for software keys.
+    #
+    # HSM keystores: Dispatcher.sign → HsmAdapter.sign does NOT call with_lease,
+    # so the outer with_lease here is the only ops counter. Keep the wrapper.
     sign_result =
-      KeyActivation.with_lease(activation_server, issuer_key_id, fn _handle ->
-        Dispatcher.sign(issuer_key_id, response_data)
-      end)
+      case Repo.get(IssuerKey, issuer_key_id) do
+        {:ok, %IssuerKey{keystore_type: :software}} ->
+          case Dispatcher.sign(issuer_key_id, response_data) do
+            {:ok, sig} -> {:ok, {:ok, sig}}
+            {:error, :not_active} -> {:error, :not_found}
+            {:error, reason} -> {:error, reason}
+          end
+
+        _ ->
+          KeyActivation.with_lease(activation_server, issuer_key_id, fn _handle ->
+            Dispatcher.sign(issuer_key_id, response_data)
+          end)
+      end
 
     case sign_result do
       {:ok, {:ok, signature}} ->
