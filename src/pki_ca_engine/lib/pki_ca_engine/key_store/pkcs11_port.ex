@@ -220,6 +220,11 @@ defmodule PkiCaEngine.KeyStore.Pkcs11Port do
   defp send_command(nil, _cmd), do: {:error, :port_not_running}
 
   defp send_command(port, cmd) do
+    # Drain any stale response left by a previous timed-out command.
+    # Without this, a late-arriving response would be matched by the next
+    # receive and returned as the result of a completely different command.
+    flush_stale_port_messages(port)
+
     json = Jason.encode!(cmd)
     Port.command(port, json)
 
@@ -231,6 +236,14 @@ defmodule PkiCaEngine.KeyStore.Pkcs11Port do
         end
     after
       @call_timeout -> {:error, :timeout}
+    end
+  end
+
+  defp flush_stale_port_messages(port) do
+    receive do
+      {^port, {:data, _}} -> flush_stale_port_messages(port)
+    after
+      0 -> :ok
     end
   end
 end

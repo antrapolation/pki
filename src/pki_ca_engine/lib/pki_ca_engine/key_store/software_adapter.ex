@@ -91,11 +91,7 @@ defmodule PkiCaEngine.KeyStore.SoftwareAdapter do
         {:ok, :public_key.sign(tbs_data, :sha256, native_key)}
 
       :error ->
-        # Fall back to PkiCrypto.Registry for any algorithm not in AlgorithmRegistry
-        case PkiCrypto.Registry.get(algorithm) do
-          nil -> {:error, {:unknown_algorithm, algorithm}}
-          algo -> PkiCrypto.Algorithm.sign(algo, private_key_der, tbs_data)
-        end
+        {:error, {:unknown_algorithm, algorithm}}
     end
   end
 
