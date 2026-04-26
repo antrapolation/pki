@@ -281,6 +281,87 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
     assert :public_key.verify(tbs_bin, :sha256, signature, rsa_pub)
   end
 
+  # ---- Algorithm-dispatch path (IssuerKey / DerResponder format) ----
+  # These tests exercise the second sign_tbs/2 clause added for Phase 4.
+  # The signing_key uses PkiCrypto algorithm strings ("ECC-P256", "ML-DSA-65")
+  # instead of the Signer.Registry format ("ecc_p256").
+
+  describe "algorithm-dispatch path" do
+    test "signs OCSP response via ECC-P256 algorithm string", %{cert_id: cert_id} do
+      {pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
+      ec_priv = {:ECPrivateKey, 1, priv, {:namedCurve, @secp256r1_oid}, pub, :asn1_NOVALUE}
+      %{cert: cert_der} = :public_key.pkix_test_root_cert(~c"P256 Dispatch Test", [{:key, ec_priv}])
+
+      signing_key = %{
+        algorithm: "ECC-P256",
+        private_key: :public_key.der_encode(:ECPrivateKey, ec_priv),
+        certificate_der: cert_der
+      }
+
+      response = %{
+        cert_id: cert_id,
+        status: :good,
+        this_update: DateTime.utc_now(),
+        next_update: nil
+      }
+
+      assert {:ok, der} = ResponseBuilder.build(:successful, [response], signing_key)
+      assert {:ok, {:OCSPResponse, :successful, _}} = :OCSP.decode(:OCSPResponse, der)
+    end
+
+    test "signs OCSP response via ML-DSA-65 (PQC)", %{cert_id: cert_id} do
+      algo = PkiCrypto.Registry.get("ML-DSA-65")
+      {:ok, %{private_key: sk}} = PkiCrypto.Algorithm.generate_keypair(algo)
+
+      # Use a classical cert for build_responder_id — OTP cannot decode PQC certs.
+      # This verifies the signing path works; cert/key pairing is not asserted here.
+      {pub_ecc, priv_ecc} = :crypto.generate_key(:ecdh, :secp256r1)
+      ecc_key = {:ECPrivateKey, 1, priv_ecc, {:namedCurve, @secp256r1_oid}, pub_ecc, :asn1_NOVALUE}
+      %{cert: cert_der} = :public_key.pkix_test_root_cert(~c"ML-DSA-65 Responder", [{:key, ecc_key}])
+
+      signing_key = %{
+        algorithm: "ML-DSA-65",
+        private_key: sk,
+        certificate_der: cert_der
+      }
+
+      response = %{
+        cert_id: cert_id,
+        status: :good,
+        this_update: DateTime.utc_now(),
+        next_update: nil
+      }
+
+      assert {:ok, der} = ResponseBuilder.build(:successful, [response], signing_key)
+      assert {:ok, {:OCSPResponse, :successful, _}} = :OCSP.decode(:OCSPResponse, der)
+    end
+
+    test "signs OCSP response via KAZ-SIGN-192 (PQC)", %{cert_id: cert_id} do
+      algo = PkiCrypto.Registry.get("KAZ-SIGN-192")
+      {:ok, %{private_key: sk}} = PkiCrypto.Algorithm.generate_keypair(algo)
+
+      {pub_ecc, priv_ecc} = :crypto.generate_key(:ecdh, :secp256r1)
+      ecc_key = {:ECPrivateKey, 1, priv_ecc, {:namedCurve, @secp256r1_oid}, pub_ecc, :asn1_NOVALUE}
+      %{cert: cert_der} = :public_key.pkix_test_root_cert(~c"KAZ-SIGN-192 Responder", [{:key, ecc_key}])
+
+      signing_key = %{
+        algorithm: "KAZ-SIGN-192",
+        private_key: sk,
+        certificate_der: cert_der
+      }
+
+      response = %{
+        cert_id: cert_id,
+        status: {:revoked, DateTime.utc_now(), :keyCompromise},
+        this_update: DateTime.utc_now(),
+        next_update: nil
+      }
+
+      assert {:ok, der} = ResponseBuilder.build(:successful, [response], signing_key)
+      assert {:ok, {:OCSPResponse, :successful, _}} = :OCSP.decode(:OCSPResponse, der)
+    end
+  end
+
   # ---- Helpers ----
 
   defp resolve_pub_point(:asn1_NOVALUE, cert_der) do

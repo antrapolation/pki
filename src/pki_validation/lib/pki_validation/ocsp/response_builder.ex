@@ -63,12 +63,13 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
           next_update: DateTime.t() | nil
         }
 
-  @type signing_key :: %{
-          algorithm: String.t(),
-          private_key: binary(),
-          public_key: binary(),
-          certificate_der: binary()
-        }
+  # Two valid shapes:
+  #   1. SigningKeyStore path — pre-resolved signer module (algorithm strings like "ecc_p256")
+  #   2. DerResponder / IssuerKey path — algorithm string resolved at sign time via PkiCrypto
+  #      (algorithm strings like "ECC-P256", "ML-DSA-65")
+  @type signing_key ::
+          %{signer: module(), private_key: binary(), certificate_der: binary()}
+          | %{algorithm: String.t(), private_key: binary(), certificate_der: binary()}
 
   @doc """
   Build a DER-encoded `OCSPResponse`.
@@ -225,13 +226,62 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
 
   # ---- Signing ----
 
-  # Algorithm dispatch lives in the Signer module (cached on the signing_key
-  # at SigningKeyStore load time). The signer exposes both the signing
-  # primitive and the pre-encoded AlgorithmIdentifier DER blob, so sign_tbs/2
-  # is a single clause regardless of whether the underlying algorithm is
-  # ECDSA, RSA, or a future PQC primitive like ML-DSA.
+  # Shape 1 — SigningKeyStore path: signer module pre-resolved at config load time.
   defp sign_tbs(tbs, %{signer: signer_mod, private_key: priv}) do
     signature = signer_mod.sign(tbs, priv)
+    {signer_mod.algorithm_identifier_der(), signature}
+  end
+
+  # Shape 2 — IssuerKey / DerResponder path: algorithm string resolved at sign time
+  # via PkiCrypto. Algorithm strings use the PkiCrypto format ("ECC-P256", "ML-DSA-65").
+  #
+  # Key format for private_key:
+  #   ECC / RSA   — DER-encoded :ECPrivateKey / :RSAPrivateKey (same as SoftwareAdapter)
+  #   PQC         — raw NIF bytes
+  #
+  # AlgorithmIdentifier is sourced from Signer modules (pre-encoded DER blobs)
+  # via @pki_to_signer_alg, because OCSP's BasicOCSPResponse declares signatureAlgorithm
+  # as ANY — the OCSP codec requires a binary, not a tuple.
+  @pki_to_signer_alg %{
+    "ECC-P256"     => "ecc_p256",
+    "ECC-P384"     => "ecc_p384",
+    "RSA-2048"     => "rsa2048",
+    "RSA-4096"     => "rsa4096",
+    "ML-DSA-44"    => "ml_dsa_44",
+    "ML-DSA-65"    => "ml_dsa_65",
+    "ML-DSA-87"    => "ml_dsa_87",
+    "KAZ-SIGN-128" => "kaz_sign_128",
+    "KAZ-SIGN-192" => "kaz_sign_192",
+    "KAZ-SIGN-256" => "kaz_sign_256"
+  }
+
+  defp sign_tbs(tbs, %{algorithm: algorithm, private_key: priv}) do
+    signer_mod =
+      case PkiValidation.Crypto.Signer.Registry.fetch(@pki_to_signer_alg[algorithm] || "") do
+        {:ok, mod} -> mod
+        :error -> raise "no signer registered for algorithm: #{inspect(algorithm)}"
+      end
+
+    signature =
+      case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+        {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
+          algo = PkiCrypto.Registry.get(algorithm)
+          {:ok, sig} = PkiCrypto.Algorithm.sign(algo, priv, tbs)
+          sig
+
+        {:ok, %{family: :ecdsa}} ->
+          hash = if algorithm == "ECC-P384", do: :sha384, else: :sha256
+          native_key = :public_key.der_decode(:ECPrivateKey, priv)
+          :public_key.sign(tbs, hash, native_key)
+
+        {:ok, %{family: :rsa}} ->
+          native_key = :public_key.der_decode(:RSAPrivateKey, priv)
+          :public_key.sign(tbs, :sha256, native_key)
+
+        _ ->
+          raise "unknown algorithm for OCSP signing: #{inspect(algorithm)}"
+      end
+
     {signer_mod.algorithm_identifier_der(), signature}
   end
 end
