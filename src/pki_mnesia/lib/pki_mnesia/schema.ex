@@ -13,7 +13,8 @@ defmodule PkiMnesia.Schema do
     ApiKey, DcvChallenge, CertificateStatus, PortalUser,
     BackupRecord, ServiceConfig, AuditLogEntry, Keystore,
     PreSignedCrl,
-    ActivationSession
+    ActivationSession,
+    HsmAgentSetup
   }
 
   @schema_version 1
@@ -24,6 +25,7 @@ defmodule PkiMnesia.Schema do
     :activation_sessions,
     :portal_users, :cert_profiles, :ra_instances, :ra_ca_connections,
     :api_keys, :dcv_challenges, :service_configs, :backup_records,
+    :hsm_agent_setups,
     :schema_versions
   ]
 
@@ -185,7 +187,10 @@ defmodule PkiMnesia.Schema do
       {PortalUser, :disc_copies, [:username, :email, :role]},
 
       # Operations tables (disc_copies)
-      {BackupRecord, :disc_copies, [:timestamp, :type, :status]}
+      {BackupRecord, :disc_copies, [:timestamp, :type, :status]},
+
+      # HSM wizard draft state (disc_copies)
+      {HsmAgentSetup, :disc_copies, [:ca_instance_id, :agent_id, :status]}
     ]
 
     results = Enum.map(tables, fn {struct_mod, storage_type, indices} ->

@@ -34,7 +34,7 @@ defmodule PkiCaEngine.HsmGateway.AgentHandler do
 
   require Logger
 
-  alias PkiCaEngine.HsmGateway
+  alias PkiCaEngine.{HsmGateway, HsmAgentSetup}
 
   # ---------------------------------------------------------------------------
   # Cowboy WebSocket callbacks
@@ -141,6 +141,9 @@ defmodule PkiCaEngine.HsmGateway.AgentHandler do
             "peer=#{inspect(state.peer)} peer_cert=#{state.peer_cert_fingerprint || "<none>"}"
         )
 
+        broadcast_agent_connected(agent_id, tenant_id, key_labels)
+        update_wizard_setup(agent_id, tenant_id, key_labels)
+
         reply =
           Jason.encode!(%{
             "type" => "register_response",
@@ -242,7 +245,8 @@ defmodule PkiCaEngine.HsmGateway.AgentHandler do
         :ok
 
       configured == [] ->
-        {:error, :no_agents_configured}
+        # Fall through to wizard-registered token path
+        HsmAgentSetup.authenticate_wizard_agent(agent_id, tenant_id, auth_token)
 
       auth_token == "" ->
         {:error, :missing_token}
@@ -252,7 +256,8 @@ defmodule PkiCaEngine.HsmGateway.AgentHandler do
 
         cond do
           entry == nil ->
-            {:error, :unknown_agent}
+            # Try wizard-registered token before rejecting
+            HsmAgentSetup.authenticate_wizard_agent(agent_id, tenant_id, auth_token)
 
           not constant_time_equal?(entry[:token] || entry["token"] || "", auth_token) ->
             {:error, :invalid_token}
@@ -286,4 +291,33 @@ defmodule PkiCaEngine.HsmGateway.AgentHandler do
   end
 
   defp constant_time_equal?(_, _), do: false
+
+  # Broadcast to the tenant PubSub topic so HsmDevicesLive resume banner updates
+  # without a page reload. Uses dynamic dispatch since pki_ca_engine does not
+  # depend on Phoenix directly; the PubSub module is injected via app config.
+  defp broadcast_agent_connected(agent_id, tenant_id, key_labels) do
+    case Application.get_env(:pki_ca_engine, :pubsub_module) do
+      nil ->
+        :ok
+
+      pubsub ->
+        try do
+          apply(Phoenix.PubSub, :broadcast, [
+            pubsub,
+            "hsm_gateway:#{tenant_id}",
+            {:agent_connected, agent_id, key_labels}
+          ])
+        rescue
+          e -> Logger.warning("AgentHandler: PubSub broadcast failed: #{inspect(e)}")
+        end
+    end
+  end
+
+  # Mark the wizard setup record as agent_connected.
+  defp update_wizard_setup(agent_id, tenant_id, key_labels) do
+    case HsmAgentSetup.find_setup_id(agent_id, tenant_id) do
+      {:ok, setup_id} -> HsmAgentSetup.mark_agent_connected(setup_id, key_labels)
+      {:error, :not_found} -> :ok
+    end
+  end
 end

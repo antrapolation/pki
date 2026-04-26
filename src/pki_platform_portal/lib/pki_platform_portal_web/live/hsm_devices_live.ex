@@ -4,6 +4,8 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
   alias PkiPlatformEngine.HsmManagement
   import PkiPlatformPortalWeb.ErrorHelpers, only: [sanitize_error: 2]
 
+  alias PkiPlatformPortalWeb.HsmWizardComponent
+
   require Logger
 
   @impl true
@@ -14,7 +16,8 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
      assign(socket,
        page_title: "HSM Devices",
        devices: [],
-       loading: true
+       loading: true,
+       live_action: nil
      )}
   end
 
@@ -31,6 +34,26 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
     end)
 
     {:noreply, assign(socket, devices: devices_with_counts, loading: false)}
+  end
+
+  @impl true
+  def handle_params(%{"live_action" => "new_device"}, _uri, socket) do
+    {:noreply, assign(socket, live_action: :new_device)}
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_info({:hsm_wizard_done, _device}, socket) do
+    send(self(), :load_data)
+    {:noreply, assign(socket, live_action: nil)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("open_wizard", _params, socket) do
+    {:noreply, assign(socket, live_action: :new_device)}
   end
 
   @impl true
@@ -131,37 +154,22 @@ defmodule PkiPlatformPortalWeb.HsmDevicesLive do
   def render(assigns) do
     ~H"""
     <div id="hsm-devices-page" class="space-y-6">
-      <%!-- Register HSM Device --%>
-      <div class="card bg-base-100 shadow-sm border border-base-300">
-        <div class="card-body">
-          <h2 class="text-sm font-semibold text-base-content mb-2">Register HSM Device</h2>
-          <p class="text-xs text-base-content/50 mb-4">
-            Register any PKCS#11 compatible HSM (SoftHSM2, Thales Luna, YubiHSM 2, etc.).
-            The library will be probed to verify connectivity.
-          </p>
-          <form phx-submit="register_device" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <div>
-              <label class="block text-xs font-medium text-base-content/60 mb-1">Label</label>
-              <input type="text" name="label" required placeholder="e.g. SoftHSM2 Dev" class="input input-bordered input-sm w-full" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-base-content/60 mb-1">PKCS#11 Library Path</label>
-              <input type="text" name="pkcs11_lib_path" required
-                placeholder="/opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so"
-                class="input input-bordered input-sm w-full font-mono text-xs" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-base-content/60 mb-1">Slot ID</label>
-              <input type="number" name="slot_id" value="0" min="0" class="input input-bordered input-sm w-full" />
-            </div>
-            <div>
-              <button type="submit" class="btn btn-primary btn-sm w-full">
-                <.icon name="hero-plus" class="size-4" />
-                Register & Probe
-              </button>
-            </div>
-          </form>
+      <%!-- Wizard modal --%>
+      <.live_component
+        :if={@live_action == :new_device}
+        module={HsmWizardComponent}
+        id="hsm-wizard-modal"
+      />
+
+      <%!-- Header with wizard trigger --%>
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-base font-semibold text-base-content">HSM Devices</h1>
+          <p class="text-xs text-base-content/50">Register and manage PKCS#11 HSM devices for tenants.</p>
         </div>
+        <button phx-click="open_wizard" class="btn btn-primary btn-sm">
+          <.icon name="hero-plus" class="size-4" /> Register Device
+        </button>
       </div>
 
       <%!-- Devices table --%>

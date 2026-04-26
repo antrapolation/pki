@@ -52,12 +52,15 @@ tracks the order we agreed to work through them.
   pki_mnesia 48.3%, pki_validation 47.9%, pki_ra_engine 46.1%,
   pki_platform_engine 16.3%, pki_platform_portal 9.6%,
   pki_tenant_web 2.2%.
-- [ ] **3b. First real E2E test with PG up** — CSR → RA approve → CA sign
-  → OCSP check against live engines.
+- [x] **3b. First real E2E test with PG up** — CSR → RA approve → CA sign
+  → OCSP check against live engines. Merged as PR #87 (2026-04-26).
 
 ### Tier 4 — Product roadmap
-- [ ] **4a. Phase 4 PQC OCSP + CRL signing** (multi-day)
-- [ ] **4b. HSM wizard UI** (1-2 days)
+- [x] **4a. Phase 4 PQC OCSP + CRL signing** — DerResponder + DerGenerator
+  wired to IssuerKey signing path. Merged as PR #84 (2026-04-26).
+- [x] **4b. HSM wizard UI** — CA admin 5-step wizard + platform admin 4-step
+  modal. HsmAgentSetup Mnesia struct + context, PubSub broadcast on agent
+  registration, resume banner in HsmDevicesLive. Done 2026-04-26.
 - [ ] **4c. Remaining P2 hardening items** (see per-component sections)
   - [x] `SoftwareAdapter.sign/3` + `get_raw_key/2` migrated from deprecated
     `get_active_key/2` to `with_lease/3`. Done 2026-04-26.
