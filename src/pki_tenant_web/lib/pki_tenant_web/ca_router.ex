@@ -46,6 +46,8 @@ defmodule PkiTenantWeb.CaRouter do
       live "/issuer-keys", IssuerKeysLive, :index
       live "/certificates", CertificatesLive, :index
       live "/hsm-devices", HsmDevicesLive, :index
+      live "/hsm-wizard", HsmWizardLive, :new
+      live "/hsm-wizard/:setup_id", HsmWizardLive, :resume
       live "/keystores", KeystoresLive, :index
       live "/users", UsersLive, :index
       live "/audit-log", AuditLogLive, :index

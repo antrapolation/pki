@@ -27,6 +27,10 @@ config :hammer,
   backend:
     {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 2, cleanup_interval_ms: 60_000 * 10]}
 
+# Inject PubSub module into pki_ca_engine so AgentHandler can broadcast
+# agent-connected events to HsmDevicesLive without creating a hard dep on Phoenix.
+config :pki_ca_engine, pubsub_module: PkiTenantWeb.PubSub
+
 config :pki_tenant_web, PkiTenantWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,

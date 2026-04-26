@@ -15,17 +15,25 @@ defmodule PkiTenantWeb.Ca.HsmDevicesLive do
 
   require Logger
 
-  alias PkiCaEngine.HsmDeviceManagement
+  alias PkiCaEngine.{HsmDeviceManagement, HsmAgentSetup}
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :load_data)
+    tenant_id = current_tenant_id(socket)
+    ca_instance_id = socket.assigns[:current_user][:ca_instance_id]
+
+    if connected?(socket) do
+      send(self(), :load_data)
+      Phoenix.PubSub.subscribe(PkiTenantWeb.PubSub, "hsm_gateway:#{tenant_id}")
+    end
 
     {:ok,
      assign(socket,
        page_title: "HSM Devices",
        devices: [],
-       loading: true
+       loading: true,
+       pending_setup: nil,
+       ca_instance_id: ca_instance_id
      )}
   end
 
@@ -36,8 +44,27 @@ defmodule PkiTenantWeb.Ca.HsmDevicesLive do
       |> current_tenant_id()
       |> HsmDeviceManagement.list_devices_for_tenant()
 
-    {:noreply, assign(socket, devices: devices, loading: false)}
+    pending =
+      case socket.assigns.ca_instance_id do
+        nil -> nil
+        ca_id -> HsmAgentSetup.pending_for_ca(ca_id) |> elem_if_ok()
+      end
+
+    {:noreply, assign(socket, devices: devices, loading: false, pending_setup: pending)}
   end
+
+  @impl true
+  def handle_info({:agent_connected, agent_id, _key_labels}, socket) do
+    pending =
+      case socket.assigns.pending_setup do
+        %{agent_id: ^agent_id} = s -> %{s | status: "agent_connected"}
+        other -> other
+      end
+
+    {:noreply, assign(socket, pending_setup: pending)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("probe_device", %{"id" => id}, socket) do
@@ -68,6 +95,9 @@ defmodule PkiTenantWeb.Ca.HsmDevicesLive do
     socket.assigns[:tenant_id] || PkiTenant.tenant_id()
   end
 
+  defp elem_if_ok({:ok, val}), do: val
+  defp elem_if_ok(_), do: nil
+
   defp humanize(:not_found), do: "device not found"
   defp humanize(:tenant_id_required), do: "no tenant context"
   defp humanize(atom) when is_atom(atom), do: Atom.to_string(atom) |> String.replace("_", " ")
@@ -78,6 +108,42 @@ defmodule PkiTenantWeb.Ca.HsmDevicesLive do
   def render(assigns) do
     ~H"""
     <div id="hsm-devices-page" class="space-y-6">
+      <%!-- Resume banner: pending wizard setup --%>
+      <div
+        :if={@pending_setup}
+        class={[
+          "alert border",
+          if(@pending_setup.status == "agent_connected",
+            do: "border-success/40 bg-success/5",
+            else: "border-warning/40 bg-warning/5"
+          )
+        ]}
+      >
+        <.icon
+          name={if(@pending_setup.status == "agent_connected", do: "hero-check-circle", else: "hero-clock")}
+          class={["size-5 shrink-0", if(@pending_setup.status == "agent_connected", do: "text-success", else: "text-warning")]}
+        />
+        <div class="flex-1">
+          <%= if @pending_setup.status == "agent_connected" do %>
+            <p class="text-sm font-medium text-base-content">Agent <strong>{@pending_setup.agent_id}</strong> connected!</p>
+            <p class="text-xs text-base-content/60">Continue the wizard to select a key and create the keystore.</p>
+          <% else %>
+            <p class="text-sm font-medium text-base-content">HSM setup in progress — waiting for agent <strong>{@pending_setup.agent_id}</strong>.</p>
+            <p class="text-xs text-base-content/60">This page will update automatically when the agent connects.</p>
+          <% end %>
+        </div>
+        <.link navigate={"/hsm-wizard/#{@pending_setup.id}"} class="btn btn-sm btn-ghost">
+          Resume setup →
+        </.link>
+      </div>
+
+      <%!-- Connect agent CTA --%>
+      <div :if={is_nil(@pending_setup)} class="flex justify-end">
+        <.link navigate="/hsm-wizard" class="btn btn-primary btn-sm">
+          <.icon name="hero-plus" class="size-4" /> Connect HSM Agent
+        </.link>
+      </div>
+
       <div class="alert border border-info/30 bg-info/5">
         <.icon name="hero-information-circle" class="size-5 text-info shrink-0" />
         <div>
