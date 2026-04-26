@@ -1030,6 +1030,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
         case cert_or_csr_result do
           :ok ->
+            # Cert/CSR is computed — GC to release any intermediate crypto buffers
+            # from generate_self_signed / generate_csr before the split step.
+            :erlang.garbage_collect()
+
             key_mode = Map.get(issuer_key, :key_mode, "threshold")
 
             split_result =
@@ -1071,7 +1075,10 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
                     db_shares
                   end
 
-                encrypt_and_commit(ceremony, effective_db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn, sub_ca_data)
+                result = encrypt_and_commit(ceremony, effective_db_shares, passwords, raw_shares, fingerprint, is_root, cert_der, cert_pem, csr_pem, subject_dn, sub_ca_data)
+                # raw_shares (split key material) now committed — release from process heap.
+                :erlang.garbage_collect()
+                result
 
               error ->
                 fail_ceremony(ceremony.id, "shamir_split_failed")
