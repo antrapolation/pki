@@ -4,6 +4,33 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 `MAJOR.MINOR.PATCH.MICRO` (4-digit).
 
+## [1.1.1.0] - 2026-04-26
+
+### Fixed
+
+- **HSM gateway WebSocket listener wired** — `HsmGateway` now starts a Cowboy
+  listener when `HSM_GATEWAY_PORT` is set. Production mode requires mTLS
+  (`HSM_GATEWAY_CERTFILE/KEYFILE/CACERTFILE`); dev falls back to plaintext
+  with a loud warning; production without certs refuses to boot.
+  `terminate/2` now fires for all exit signals (trap_exit added) so the
+  listener is always cleaned up on crash or supervisor kill.
+- **PKCS#11 session serialized in Go agent** — `HsmClient` gains
+  `sync.Mutex`; `ListKeyLabels`, `Sign`, and `AvailableKeyLabels` all hold
+  it. Sign requests now drain through a single worker goroutine via a
+  buffered channel (cap 64) instead of spawning unbounded goroutines — fixes
+  concurrent PKCS#11 session access which is undefined behavior.
+- **`MechanismForAlgorithm` returns error for unknown algorithms** — the Go
+  agent previously fell back to `CKM_ECDSA` for any unrecognized algorithm,
+  including PQC keys. It now returns `(0, false)` so callers can reject the
+  request cleanly rather than risk key misuse on a misbehaving HSM.
+- **HSM agent-id binding at signing time** — `RemoteHsmAdapter.key_available?`
+  now cross-checks `hsm_config["expected_agent_id"]` against the connected
+  agent when the field is set, preventing a rogue or misconfigured agent from
+  being used to sign with a key intended for a specific registered agent.
+- **Legacy Ecto code confirmed retired** — `SyncCeremony`, `AsyncCeremony`,
+  `Schema.*`, `Repo`, `TenantRepo` were deleted in M4c (2026-04-20).
+  TODOS.md now reflects this.
+
 ## [1.1.0.0] - 2026-04-19
 
 Ships the per-tenant BEAM architecture (Phase A), multi-host Mnesia

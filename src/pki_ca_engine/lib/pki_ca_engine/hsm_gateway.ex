@@ -91,6 +91,10 @@ defmodule PkiCaEngine.HsmGateway do
   def init(opts) do
     port = Keyword.get(opts, :port)
 
+    # Ensure terminate/2 is called for all exit signals so the Cowboy listener
+    # is always stopped, including supervisor kill and linked-process crashes.
+    Process.flag(:trap_exit, true)
+
     if port do
       # Stop any stale listener left by a previous crash before re-binding.
       :cowboy.stop_listener(:hsm_gateway_listener)

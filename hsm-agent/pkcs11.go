@@ -148,6 +148,8 @@ func (h *HsmClient) Close() {
 
 // AvailableKeyLabels returns the discovered key labels.
 func (h *HsmClient) AvailableKeyLabels() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	return h.labels
 }
 
