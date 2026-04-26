@@ -36,6 +36,16 @@
 #include <unistd.h>
 #include "cJSON.h"
 
+/* explicit_bzero — defeat dead-store elimination on PIN buffers.
+ * Available on Linux glibc >= 2.25 / musl and macOS >= 10.12.
+ * Fall back to a volatile-indirected memset on toolchains that lack it
+ * (e.g. macOS 26 SDK where the symbol exists in libSystem but has no
+ * header prototype under -std=c11 -D_POSIX_C_SOURCE). */
+#ifndef explicit_bzero
+static void * (* const volatile __explicit_bzero_memset)(void *, int, size_t) = memset;
+#define explicit_bzero(p, n) __explicit_bzero_memset((p), 0, (n))
+#endif
+
 /* PKCS#11 headers — we define the minimal subset we need */
 #define CK_PTR *
 #define CK_DEFINE_FUNCTION(returnType, name) returnType name
@@ -338,31 +348,31 @@ static void handle_init(cJSON *root, long id) {
     char pin[256];
     strncpy(pin, pin_item->valuestring, sizeof(pin) - 1);
     pin[sizeof(pin) - 1] = '\0';
-    memset(pin_item->valuestring, 0, strlen(pin_item->valuestring));
+    explicit_bzero(pin_item->valuestring, strlen(pin_item->valuestring));
 
     pkcs11_lib = dlopen(library, RTLD_NOW);
     if (!pkcs11_lib) {
         char err[1024];
         snprintf(err, sizeof(err), "dlopen failed: %s", dlerror());
-        memset(pin, 0, sizeof(pin));
+        explicit_bzero(pin, sizeof(pin));
         send_error_r(err, id);
         return;
     }
 
     CK_C_GetFunctionList getFn = (CK_C_GetFunctionList)dlsym(pkcs11_lib, "C_GetFunctionList");
-    if (!getFn) { memset(pin, 0, sizeof(pin)); send_error_r("C_GetFunctionList not found", id); return; }
+    if (!getFn) { explicit_bzero(pin, sizeof(pin)); send_error_r("C_GetFunctionList not found", id); return; }
 
     CK_RV rv = getFn(&fn);
-    if (rv != CKR_OK) { memset(pin, 0, sizeof(pin)); send_error_r("C_GetFunctionList failed", id); return; }
+    if (rv != CKR_OK) { explicit_bzero(pin, sizeof(pin)); send_error_r("C_GetFunctionList failed", id); return; }
 
     rv = fn->C_Initialize(NULL);
-    if (rv != CKR_OK) { memset(pin, 0, sizeof(pin)); send_error_r("C_Initialize failed", id); return; }
+    if (rv != CKR_OK) { explicit_bzero(pin, sizeof(pin)); send_error_r("C_Initialize failed", id); return; }
 
     rv = fn->C_OpenSession(slot, CKF_SERIAL_SESSION | CKF_RW_SESSION, NULL, NULL, &session);
-    if (rv != CKR_OK) { memset(pin, 0, sizeof(pin)); send_error_r("C_OpenSession failed", id); return; }
+    if (rv != CKR_OK) { explicit_bzero(pin, sizeof(pin)); send_error_r("C_OpenSession failed", id); return; }
 
     rv = fn->C_Login(session, CKU_USER, (CK_BYTE_PTR)pin, strlen(pin));
-    memset(pin, 0, sizeof(pin));
+    explicit_bzero(pin, sizeof(pin));
     if (rv != CKR_OK) { send_error_r("C_Login failed", id); return; }
 
     initialized = 1;
@@ -509,7 +519,7 @@ int main(void) {
         } else if (strcmp(cmd, "ping") == 0) {
             send_ok_r(NULL, req_id);
         } else if (strcmp(cmd, "shutdown") == 0) {
-            cJSON_Delete(root);
+            cJSON_Delete(root); /* must delete here — break skips the post-dispatch delete below */
             break;
         } else {
             send_error_r("unknown command", req_id);
