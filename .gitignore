@@ -42,7 +42,8 @@ src/*/cover/
 # Per-tenant BEAM Mnesia dirs (dev)
 _dev_tenants/
 
-# Claude runtime lock + per-machine settings
+# Claude runtime files (worktrees, locks, per-machine settings)
+.claude/worktrees/
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 
