@@ -15,9 +15,19 @@ defmodule PkiCaEngine.KeyStore.SoftwareAdapter do
   def sign(issuer_key_id, tbs_data, opts \\ []) do
     activation_server = Keyword.get(opts, :activation_server, KeyActivation)
 
-    with {:ok, key} <- get_issuer_key(issuer_key_id),
-         {:ok, private_key_der} <- KeyActivation.get_active_key(activation_server, issuer_key_id) do
-      do_sign(key.algorithm, private_key_der, tbs_data)
+    with {:ok, key} <- get_issuer_key(issuer_key_id) do
+      result =
+        KeyActivation.with_lease(activation_server, issuer_key_id, fn private_key_der ->
+          do_sign(key.algorithm, private_key_der, tbs_data)
+        end)
+
+      case result do
+        {:ok, sign_result} -> sign_result
+        {:error, :not_found} -> {:error, :not_active}
+        {:error, :lease_expired} -> {:error, :not_active}
+        {:error, :ops_exhausted} -> {:error, :not_active}
+        {:error, _} = err -> err
+      end
     end
   end
 
@@ -45,7 +55,14 @@ defmodule PkiCaEngine.KeyStore.SoftwareAdapter do
   """
   def get_raw_key(issuer_key_id, opts \\ []) do
     activation_server = Keyword.get(opts, :activation_server, KeyActivation)
-    KeyActivation.get_active_key(activation_server, issuer_key_id)
+
+    case KeyActivation.with_lease(activation_server, issuer_key_id, fn key -> key end) do
+      {:ok, raw_key} -> {:ok, raw_key}
+      {:error, :not_found} -> {:error, :not_active}
+      {:error, :lease_expired} -> {:error, :not_active}
+      {:error, :ops_exhausted} -> {:error, :not_active}
+      {:error, _} = err -> err
+    end
   end
 
   @doc """
