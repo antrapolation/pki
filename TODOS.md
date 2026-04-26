@@ -61,13 +61,23 @@ tracks the order we agreed to work through them.
 - [x] **4b. HSM wizard UI** — CA admin 5-step wizard + platform admin 4-step
   modal. HsmAgentSetup Mnesia struct + context, PubSub broadcast on agent
   registration, resume banner in HsmDevicesLive. Done 2026-04-26.
-- [ ] **4c. Remaining P2 hardening items** (see per-component sections)
+- [x] **4c. Remaining P2 hardening items**
   - [x] `SoftwareAdapter.sign/3` + `get_raw_key/2` migrated from deprecated
-    `get_active_key/2` to `with_lease/3`. Done 2026-04-26.
+    `get_active_key/2` to `with_lease/3`. Done 2026-04-26 (PR #85).
   - [x] PBKDF2 iterations bumped 100k→600k in `ShareEncryption` +
-    `CeremonyOrchestrator` (OWASP 2023). Done 2026-04-26.
+    `CeremonyOrchestrator` (OWASP 2023). Done 2026-04-26 (PR #85).
   - [x] `format_status/1` added to `KeyActivation` (redacts lease handles)
-    and `Pkcs11Port` (redacts HSM PIN). Done 2026-04-26.
+    and `Pkcs11Port` (redacts HSM PIN). Done 2026-04-26 (PR #85).
+  - [x] `SoftwareAdapter.do_sign/3` fallback to `PkiCrypto.Registry` removed —
+    single algorithm registry. Done 2026-04-26 (PR #86).
+  - [x] `CeremonyOrchestrator` private key GC narrowed at each step.
+    Done 2026-04-26 (PR #86).
+  - [x] `pkcs11_port.c` hand-rolled JSON parser replaced with cJSON v1.7.18.
+    Done 2026-04-27 (this PR).
+  - [x] `Pkcs11Port` request-ID correlation — stale port responses discarded by id.
+    Done 2026-04-27 (this PR).
+  - [x] `parse_mechanism` fail-closed for unknown mechanisms.
+    Done 2026-04-27 (this PR).
 
 ## HSM gateway (Phase D)
 
