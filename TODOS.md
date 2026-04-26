@@ -20,19 +20,28 @@ tracks the order we agreed to work through them.
   format + 56 TLS-interop sanity tests skipped (library-internal, not
   consumer-facing API). x509 submodule now 0 failures, 90 excluded.
   Done 2026-04-19.
-- [ ] **1d. Retire legacy Ecto-backed code paths** — deleted the Ecto tests
-  but the code they tested still lives: `SyncCeremony`, `AsyncCeremony`,
-  `api/ceremony_controller.ex`, `Schema.KeyCeremony/Keystore/etc.` These
-  call `IssuerKeyManagement.create_issuer_key/3` (undef), `list_issuer_keys/2`
-  (undef), etc. — dead-on-arrival if exercised at runtime. No live caller
-  identified (only tests exercised them). Either delete the modules or
-  gate with a feature flag. Compile warnings flag every call site.
+- [x] **1d. Retire legacy Ecto-backed code paths** — `SyncCeremony`,
+  `AsyncCeremony`, `Schema.*`, `Repo`, `TenantRepo`, `ceremony_controller`
+  all deleted in M4c commits (872eea4, df729af, a7adc0b). `IssuerKeyManagement`
+  functions exist and have live callers. No dead code remains. Done 2026-04-20.
 
 ### Tier 2 — Security P1s (ordered easy → hard)
-- [ ] **2a. Fail-closed attestation in CredentialManager** (~1h)
-- [ ] **2b. Bind advertised key labels to tenant at registration** (~2h)
-- [ ] **2c. PKCS#11 session mutex in hsm-agent** (~2h)
-- [ ] **2d. mTLS at Cowboy listener** (~4-8h)
+- [x] **2a. Fail-closed attestation in CredentialManager** — N/A: `CredentialManager`
+  deleted in M4c (872eea4). No attestation surface remains in pki_ca_engine. Done 2026-04-26.
+- [x] **2b. Bind advertised key labels to tenant at registration** — `HsmGateway.connected_agent_id/1`
+  added; `RemoteHsmAdapter.key_available?` now cross-checks `hsm_config["expected_agent_id"]`
+  when set. Done 2026-04-26.
+- [x] **2c. PKCS#11 session mutex in hsm-agent** — `sync.Mutex` added to `HsmClient`;
+  `ListKeyLabels` and `Sign` both lock it. Sign requests serialized through a single
+  worker goroutine via buffered `signCh` channel (capacity 64) — unbounded goroutine spawn
+  removed. `MechanismForAlgorithm` now returns `(uint, bool)` — returns `false` for unknown
+  algorithms instead of silently falling back to ECDSA. Done 2026-04-26.
+- [x] **2d. mTLS at Cowboy listener** — `HsmGateway.init/1` now starts a Cowboy listener
+  when `port` opt is given (no listener in tests, backwards-compatible). TLS: reads
+  `HSM_GATEWAY_CERTFILE/KEYFILE/CACERTFILE` from env or app config; starts `cowboy_tls`
+  with `verify: :verify_peer` + `fail_if_no_peer_cert: true`. Falls back to plaintext
+  in non-prod with a loud warning; raises in prod without certs. `terminate/2` stops
+  the listener on shutdown/crash. Done 2026-04-26.
 
 ### Tier 3 — Quality infrastructure
 - [x] **3a. Wire `mix test --cover`** — `test_coverage: [threshold: 70,

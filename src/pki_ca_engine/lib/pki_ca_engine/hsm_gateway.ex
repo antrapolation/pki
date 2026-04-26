@@ -73,6 +73,11 @@ defmodule PkiCaEngine.HsmGateway do
     GenServer.cast(server, {:sign_response, request_id, nil, error})
   end
 
+  @doc "Return the agent_id of the currently connected agent, or nil."
+  def connected_agent_id(server \\ __MODULE__) do
+    GenServer.call(server, :connected_agent_id)
+  end
+
   @doc "Notify the gateway that the agent disconnected."
   def agent_disconnected(server \\ __MODULE__) do
     GenServer.cast(server, :agent_disconnected)
@@ -83,7 +88,22 @@ defmodule PkiCaEngine.HsmGateway do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    port = Keyword.get(opts, :port)
+
+    if port do
+      # Stop any stale listener left by a previous crash before re-binding.
+      :cowboy.stop_listener(:hsm_gateway_listener)
+
+      case start_listener(port) do
+        {:ok, _} ->
+          Logger.info("HSM gateway WebSocket listener started on port #{port}")
+
+        {:error, reason} ->
+          raise "Failed to start HSM gateway listener on port #{port}: #{inspect(reason)}"
+      end
+    end
+
     {:ok,
      %{
        agent_id: nil,
@@ -91,6 +111,81 @@ defmodule PkiCaEngine.HsmGateway do
        pending_requests: %{},
        sign_listeners: %{}
      }}
+  end
+
+  @impl true
+  def terminate(_reason, _state) do
+    :cowboy.stop_listener(:hsm_gateway_listener)
+    :ok
+  end
+
+  # Start a TLS listener if certs are configured; plain HTTP otherwise (dev only).
+  defp start_listener(port) do
+    dispatch =
+      :cowboy_router.compile([
+        {:_, [{"/hsm/connect", PkiCaEngine.HsmGateway.AgentHandler, []}]}
+      ])
+
+    case build_tls_opts() do
+      {:ok, ssl_opts} ->
+        :cowboy.start_tls(
+          :hsm_gateway_listener,
+          [{:port, port} | ssl_opts],
+          %{env: %{dispatch: dispatch}}
+        )
+
+      {:error, :no_tls_config} ->
+        env = Application.get_env(:pki_ca_engine, :env) ||
+                Application.get_env(:pki_system, :env, :prod)
+
+        if env == :prod do
+          raise """
+          REFUSING TO BOOT: HSM gateway requires TLS in production.
+          Set HSM_GATEWAY_CERTFILE, HSM_GATEWAY_KEYFILE, HSM_GATEWAY_CACERTFILE
+          or config :pki_ca_engine, :hsm_gateway_certfile/keyfile/cacertfile.
+          """
+        end
+
+        Logger.warning(
+          "HSM gateway: no TLS config found, starting plaintext listener on port #{port}. " <>
+            "DO NOT use in production."
+        )
+
+        :cowboy.start_clear(
+          :hsm_gateway_listener,
+          [{:port, port}],
+          %{env: %{dispatch: dispatch}}
+        )
+    end
+  end
+
+  # Build mTLS socket options from app config or env vars.
+  # Returns {:ok, opts} or {:error, :no_tls_config}.
+  defp build_tls_opts do
+    certfile =
+      Application.get_env(:pki_ca_engine, :hsm_gateway_certfile) ||
+        System.get_env("HSM_GATEWAY_CERTFILE")
+
+    keyfile =
+      Application.get_env(:pki_ca_engine, :hsm_gateway_keyfile) ||
+        System.get_env("HSM_GATEWAY_KEYFILE")
+
+    cacertfile =
+      Application.get_env(:pki_ca_engine, :hsm_gateway_cacertfile) ||
+        System.get_env("HSM_GATEWAY_CACERTFILE")
+
+    if certfile && keyfile && cacertfile do
+      {:ok,
+       [
+         certfile: certfile,
+         keyfile: keyfile,
+         cacertfile: cacertfile,
+         verify: :verify_peer,
+         fail_if_no_peer_cert: true
+       ]}
+    else
+      {:error, :no_tls_config}
+    end
   end
 
   @impl true
@@ -125,6 +220,11 @@ defmodule PkiCaEngine.HsmGateway do
   @impl true
   def handle_call(:available_keys, _from, state) do
     {:reply, state.available_keys, state}
+  end
+
+  @impl true
+  def handle_call(:connected_agent_id, _from, state) do
+    {:reply, state.agent_id, state}
   end
 
   @impl true
