@@ -160,8 +160,9 @@ defmodule PkiCaEngine.KeyActivationPropertyTest do
         assert status.active == false,
                "expected active: false after ops exhaustion, got: #{inspect(status)}"
 
-        assert status.ops_remaining == 0,
-               "expected ops_remaining == 0 after exhaustion, got: #{status.ops_remaining}"
+        # After eviction ops_remaining is nil (lease gone) or 0; both mean exhausted.
+        assert status.ops_remaining in [0, nil],
+               "expected ops_remaining 0 or nil after exhaustion, got: #{status.ops_remaining}"
       after
         stop_ka(pid)
       end
