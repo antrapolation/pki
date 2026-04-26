@@ -16,8 +16,10 @@ TARGET = $(PRIV_DIR)/pkcs11_port
 
 all: $(TARGET)
 
-$(TARGET): pkcs11_port.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+SRCS = pkcs11_port.c cJSON.c
+
+$(TARGET): $(SRCS) cJSON.h
+	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)
 
 clean:
 	rm -f $(TARGET)
