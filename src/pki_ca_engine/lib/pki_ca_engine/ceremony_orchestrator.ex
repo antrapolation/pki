@@ -71,7 +71,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   alias PkiCaEngine.KeyCeremony.ShareEncryption
   alias PkiMnesia.Structs.PortalUser
 
-  @pbkdf2_iterations 100_000
+  @pbkdf2_iterations 600_000
   @pbkdf2_salt_size 16
   @pbkdf2_hash_size 32
 

@@ -59,6 +59,12 @@ tracks the order we agreed to work through them.
 - [ ] **4a. Phase 4 PQC OCSP + CRL signing** (multi-day)
 - [ ] **4b. HSM wizard UI** (1-2 days)
 - [ ] **4c. Remaining P2 hardening items** (see per-component sections)
+  - [x] `SoftwareAdapter.sign/3` + `get_raw_key/2` migrated from deprecated
+    `get_active_key/2` to `with_lease/3`. Done 2026-04-26.
+  - [x] PBKDF2 iterations bumped 100k→600k in `ShareEncryption` +
+    `CeremonyOrchestrator` (OWASP 2023). Done 2026-04-26.
+  - [x] `format_status/1` added to `KeyActivation` (redacts lease handles)
+    and `Pkcs11Port` (redacts HSM PIN). Done 2026-04-26.
 
 ## HSM gateway (Phase D)
 

@@ -450,4 +450,16 @@ defmodule PkiCaEngine.KeyActivation do
       min_shares_cache: Map.delete(state.min_shares_cache, key_id)
     }
   end
+
+  @impl true
+  def format_status(status) do
+    Map.update(status, :state, status[:state], fn state ->
+      redacted =
+        Map.new(state.active_leases, fn {key_id, lease} ->
+          {key_id, %{lease | handle: :redacted}}
+        end)
+
+      %{state | active_leases: redacted}
+    end)
+  end
 end

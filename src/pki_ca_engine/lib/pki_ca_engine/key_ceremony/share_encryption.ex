@@ -23,7 +23,7 @@ defmodule PkiCaEngine.KeyCeremony.ShareEncryption do
   @iv_bytes 12
   @tag_bytes 16
   @key_bytes 32
-  @pbkdf2_iterations 100_000
+  @pbkdf2_iterations 600_000
 
   @doc """
   Encrypts a binary share with a password string.

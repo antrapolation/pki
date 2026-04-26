@@ -217,6 +217,13 @@ defmodule PkiCaEngine.KeyStore.Pkcs11Port do
     end
   end
 
+  @impl true
+  def format_status(status) do
+    Map.update(status, :state, status[:state], fn state ->
+      %{state | pin: :redacted}
+    end)
+  end
+
   defp send_command(nil, _cmd), do: {:error, :port_not_running}
 
   defp send_command(port, cmd) do
