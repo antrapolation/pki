@@ -213,11 +213,13 @@ defmodule PkiCaEngine.KeyActivation do
         cond do
           DateTime.compare(now, lease.expires_at) == :gt ->
             # Expired — evict and report
-            new_state = evict_lease(state, key_id)
+            new_state = evict_lease(state, key_id, :timer_expired)
             {:reply, {:error, :lease_expired}, new_state}
 
           lease.ops_remaining <= 0 ->
-            {:reply, {:error, :ops_exhausted}, state}
+            # Ops exhausted — evict and mark session terminal
+            new_state = evict_lease(state, key_id, :ops_exhausted)
+            {:reply, {:error, :ops_exhausted}, new_state}
 
           true ->
             result =
@@ -408,17 +410,38 @@ defmodule PkiCaEngine.KeyActivation do
 
   @impl true
   def handle_info({:timeout, issuer_key_id}, state) do
-    {:noreply, evict_lease(state, issuer_key_id)}
+    {:noreply, evict_lease(state, issuer_key_id, :timer_expired)}
   end
 
   # -- Private helpers --
 
-  defp evict_lease(state, key_id) do
+  defp evict_lease(state, key_id, reason) do
     :telemetry.execute(
       [:pki_ca_engine, :key_activation, :lease],
       %{ops_remaining: 0, expires_in: 0},
       %{key_id: key_id, event: :expired}
     )
+
+    # Update corresponding ActivationSession(s) in Mnesia to a terminal status
+    # so auditors can query the lifecycle of every session. Spawned to avoid
+    # blocking the GenServer message loop.
+    terminal_status = if reason == :ops_exhausted, do: "exhausted", else: "expired"
+
+    :erlang.spawn(fn ->
+      case Repo.get_all_by_index(PkiMnesia.Structs.ActivationSession, :issuer_key_id, key_id) do
+        {:ok, sessions} ->
+          now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+          Enum.each(sessions, fn s ->
+            if s.status == "lease_active" do
+              Repo.update(s, %{status: terminal_status, completed_at: now, updated_at: now})
+            end
+          end)
+
+        _ ->
+          :ok
+      end
+    end)
 
     %{state |
       active_leases: Map.delete(state.active_leases, key_id),
