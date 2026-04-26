@@ -38,20 +38,29 @@ defmodule PkiValidation.Crl.DerGenerator do
     validity_seconds = Keyword.get(opts, :validity_seconds, @default_validity_seconds)
     activation_server = Keyword.get(opts, :activation_server, KeyActivation)
 
-    with {:ok, private_key} <- KeyActivation.get_active_key(activation_server, issuer_key_id),
-         {:ok, %IssuerKey{} = issuer_key} <- Repo.get(IssuerKey, issuer_key_id),
-         true <- not is_nil(issuer_key.certificate_der) do
-      signing_key = %{
-        algorithm: issuer_key.algorithm,
-        private_key: private_key,
-        certificate_der: issuer_key.certificate_der
-      }
+    with {:ok, %IssuerKey{} = issuer_key} <- Repo.get(IssuerKey, issuer_key_id),
+         false <- is_nil(issuer_key.certificate_der) do
+      result =
+        KeyActivation.with_lease(activation_server, issuer_key_id, fn private_key ->
+          signing_key = %{
+            algorithm: issuer_key.algorithm,
+            private_key: private_key,
+            certificate_der: issuer_key.certificate_der
+          }
 
-      do_generate(issuer_key_id, signing_key, validity_seconds)
+          do_generate(issuer_key_id, signing_key, validity_seconds)
+        end)
+
+      case result do
+        {:ok, inner} -> inner
+        {:error, :not_active} -> {:error, :key_not_active}
+        {:error, :lease_expired} -> {:error, :key_not_active}
+        {:error, :ops_exhausted} -> {:error, :key_not_active}
+        {:error, reason} -> {:error, reason}
+      end
     else
-      {:error, :not_active} -> {:error, :key_not_active}
       {:ok, nil} -> {:error, :issuer_key_not_found}
-      false -> {:error, :no_certificate_der}
+      true -> {:error, :no_certificate_der}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -209,7 +218,7 @@ defmodule PkiValidation.Crl.DerGenerator do
   defp sign_tbs(tbs_der, %{algorithm: algorithm, private_key: priv}) do
     case PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
       {:ok, %{family: family}} when family in [:ml_dsa, :kaz_sign, :slh_dsa] ->
-        {:ok, algo} = PkiCrypto.Registry.get(algorithm)
+        algo = PkiCrypto.Registry.get(algorithm)
         {:ok, sig} = PkiCrypto.Algorithm.sign(algo, priv, tbs_der)
         {pqc_algorithm_identifier(algorithm), sig}
 
