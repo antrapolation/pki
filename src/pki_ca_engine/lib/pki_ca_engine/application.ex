@@ -7,6 +7,7 @@ defmodule PkiCaEngine.Application do
   def start(_type, _args) do
     assert_dev_activate_safe!()
     assert_no_software_keystore_in_prod!()
+    assert_ceremony_signing_secret_set!()
 
     children =
       if Application.get_env(:pki_ca_engine, :start_application, true) do
@@ -26,6 +27,31 @@ defmodule PkiCaEngine.Application do
       Supervisor.start_link(children, opts)
     else
       Supervisor.start_link([], strategy: :one_for_one)
+    end
+  end
+
+  @doc false
+  def assert_ceremony_signing_secret_set! do
+    env = Application.get_env(:pki_ca_engine, :env) ||
+            Application.get_env(:pki_system, :env, :prod)
+    if env == :prod do
+      case Application.get_env(:pki_ca_engine, :ceremony_signing_secret) do
+        nil ->
+          raise """
+          REFUSING TO BOOT: :ceremony_signing_secret is not configured.
+          Set config :pki_ca_engine, :ceremony_signing_secret, <32+ byte secret>
+          in your runtime config. Using the default makes share HMAC signatures trivially forgeable.
+          """
+
+        "dev-only-secret" ->
+          raise """
+          REFUSING TO BOOT: :ceremony_signing_secret is set to the dev default.
+          Replace it with a strong random secret in your runtime config.
+          """
+
+        _ ->
+          :ok
+      end
     end
   end
 

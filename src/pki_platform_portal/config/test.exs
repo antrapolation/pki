@@ -53,3 +53,6 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   database: "pki_ca_engine_test",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 2
+
+# Satisfy ceremony_signing_secret boot guard in test — not used for real signing
+config :pki_ca_engine, :ceremony_signing_secret, "test-only-not-for-production"
