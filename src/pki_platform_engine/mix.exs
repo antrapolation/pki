@@ -33,7 +33,8 @@ defmodule PkiPlatformEngine.MixProject do
       {:plug, "~> 1.14"},
       {:argon2_elixir, "~> 4.0"},
       {:req, "~> 0.5"},
-      {:strap_softhsm_priv_key_store_provider, path: "../strap_softhsm_priv_key_store_provider"}
+      {:strap_softhsm_priv_key_store_provider, path: "../strap_softhsm_priv_key_store_provider"},
+      {:pki_audit_trail, path: "../pki_audit_trail"}
     ]
   end
 

@@ -15,10 +15,64 @@ defmodule PkiAuditTrail do
   """
 
   import Ecto.Query
+  require Logger, as: Log
   alias PkiAuditTrail.{AuditEvent, Logger, Repo, Verifier}
 
   defdelegate log(actor, action, resource), to: Logger
   defdelegate verify_chain(), to: Verifier
+
+  @doc """
+  Write a hash-chained audit event to a tenant's per-tenant audit schema.
+  Only applicable to schema-mode tenants (those with a `t_<hex>_audit` Postgres schema).
+
+  Returns `{:ok, event}` on success. On any failure (missing table, DB error)
+  returns `{:error, reason}` and logs a warning — never raises.
+  """
+  def log(tenant_id, actor, action, resource)
+      when is_binary(tenant_id) and is_map(actor) and is_binary(action) and is_map(resource) do
+    prefix = audit_prefix(tenant_id)
+    prev_hash = PkiAuditTrail.HashChainStore.get_or_seed(tenant_id)
+
+    event_id = Ecto.UUID.generate()
+    timestamp = DateTime.utc_now()
+
+    attrs = %{
+      event_id: event_id,
+      timestamp: timestamp,
+      node_name: Map.get(actor, :node_name, to_string(node())),
+      actor_did: Map.fetch!(actor, :actor_did),
+      actor_role: Map.get(actor, :actor_role, "unknown"),
+      action: action,
+      resource_type: Map.get(resource, :resource_type, ""),
+      resource_id: to_string(Map.get(resource, :resource_id, "")),
+      details: Map.get(resource, :details, %{}),
+      ca_instance_id: Map.get(resource, :ca_instance_id),
+      prev_hash: prev_hash
+    }
+
+    event_hash = PkiAuditTrail.Hasher.compute_hash(attrs)
+    full_attrs = Map.put(attrs, :event_hash, event_hash)
+    changeset = AuditEvent.changeset(%AuditEvent{}, full_attrs)
+
+    case Repo.insert(changeset, prefix: prefix) do
+      {:ok, event} ->
+        PkiAuditTrail.HashChainStore.update(tenant_id, event_hash)
+        {:ok, event}
+
+      {:error, reason} ->
+        Log.warning("[audit_trail] per-tenant write failed tenant_id=#{tenant_id} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  rescue
+    e ->
+      Log.warning("[audit_trail] per-tenant write exception tenant_id=#{tenant_id} error=#{Exception.message(e)}")
+      {:error, :exception}
+  end
+
+  defp audit_prefix(tenant_id) do
+    hex = String.replace(tenant_id, "-", "")
+    "t_#{hex}_audit"
+  end
 
   def query(filters \\ []) do
     AuditEvent

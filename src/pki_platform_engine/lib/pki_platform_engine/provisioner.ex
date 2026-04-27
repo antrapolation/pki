@@ -191,8 +191,8 @@ defmodule PkiPlatformEngine.Provisioner do
   end
 
   defp run_tenant_migrations(prefixes) do
-    # Apply the raw tenant schema SQL files with the literal "ca."/"ra."
-    # schema prefixes rewritten to the tenant-specific dynamic schema.
+    # Apply the raw tenant schema SQL files with the literal source schema
+    # prefixes rewritten to the tenant-specific dynamic schema.
     # The engine Ecto migrations were removed in df729af; these SQL files
     # in priv/ are now the authoritative source for tenant schemas.
     try do
@@ -203,6 +203,15 @@ defmodule PkiPlatformEngine.Provisioner do
       Logger.info("tenant_migration_start prefix=#{prefixes.ra_prefix} engine=ra")
       apply_tenant_schema_sql("tenant_ra_schema.sql", "ra", prefixes.ra_prefix)
       Logger.info("tenant_migration_done prefix=#{prefixes.ra_prefix} engine=ra")
+
+      Logger.info("tenant_migration_start prefix=#{prefixes.audit_prefix} engine=audit")
+      apply_tenant_schema_sql("tenant_audit_schema.sql", "audit", prefixes.audit_prefix)
+      Logger.info("tenant_migration_done prefix=#{prefixes.audit_prefix} engine=audit")
+
+      Logger.info("tenant_migration_start prefix=#{prefixes.validation_prefix} engine=validation")
+      apply_tenant_schema_sql("tenant_validation_schema.sql", "validation", prefixes.validation_prefix)
+      Logger.info("tenant_migration_done prefix=#{prefixes.validation_prefix} engine=validation")
+
       :ok
     rescue
       e ->
@@ -211,12 +220,28 @@ defmodule PkiPlatformEngine.Provisioner do
     end
   end
 
+  @doc "Public: run a single schema SQL file against a target prefix. Idempotent (uses IF NOT EXISTS)."
+  def apply_tenant_schema_file(filename, source_schema, target_prefix) do
+    apply_tenant_schema_sql(filename, source_schema, target_prefix)
+  end
+
+  @doc "Public: create a schema if it does not already exist."
+  def ensure_schema_exists(prefix) do
+    safe = TenantPrefix.validate_prefix!(prefix)
+    with_platform_conn(fn conn ->
+      case Postgrex.query(conn, "CREATE SCHEMA IF NOT EXISTS \"#{safe}\"", []) do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, {:ensure_schema_failed, prefix, reason}}
+      end
+    end)
+  end
+
   defp apply_tenant_schema_sql(filename, source_schema, target_prefix) do
     safe_prefix = TenantPrefix.validate_prefix!(target_prefix)
 
     sql =
-      "tenant_schema_sql"
-      |> read_schema_sql_file(filename)
+      filename
+      |> read_schema_sql_file()
       |> rewrite_schema_prefix(source_schema, safe_prefix)
 
     with_platform_conn(fn conn ->
@@ -238,25 +263,18 @@ defmodule PkiPlatformEngine.Provisioner do
     end
   end
 
-  defp read_schema_sql_file(_tag, filename) do
+  defp read_schema_sql_file(filename) do
     priv_dir = :code.priv_dir(:pki_platform_engine)
     File.read!(Path.join(priv_dir, filename))
   end
 
   defp rewrite_schema_prefix(sql, source, target) do
+    escaped = Regex.escape(source)
     # 1. Drop "CREATE SCHEMA IF NOT EXISTS <source>;" — target already exists.
     # 2. Rewrite "<source>." qualified identifiers to "<target>.".
     sql
-    |> String.replace(~r/CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+#{source}\s*;/i, "")
-    |> String.replace(~r/\b#{source}\./, "\"#{target}\".")
-  end
-
-  defp platform_repo_config do
-    config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
-    # Strip sandbox pool — use standard Postgrex pool for migrations
-    config
-    |> Keyword.delete(:pool)
-    |> Keyword.put_new(:pool_size, 2)
+    |> String.replace(~r/CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+#{escaped}\s*;/i, "")
+    |> String.replace(~r/\b#{escaped}\./, "\"#{target}\".")
   end
 
   defp drop_tenant_schemas(prefixes) do

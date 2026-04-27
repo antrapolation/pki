@@ -20,4 +20,8 @@ config :pki_platform_engine, PkiPlatformEngine.TenantRepo,
 # Disable date log handler in test
 config :pki_platform_engine, :start_date_log_handler, false
 
+# pki_audit_trail is a dep; disable its Repo to prevent missing-DB connection errors.
+# HashChainStore still starts (it only uses ETS).
+config :pki_audit_trail, start_application: false
+
 config :logger, level: :warning
