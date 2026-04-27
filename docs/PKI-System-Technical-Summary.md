@@ -112,7 +112,7 @@ Both synchronous (all present) and asynchronous (join within time window) ceremo
 
 ## REST API (RA Engine)
 
-The RA Engine exposes a scoped REST API at `/api/v1` for external integrations:
+Portal-to-engine calls are in-process (no HTTP). This REST API is exposed externally for third-party integrations only, accessible at `<tenant>.straptrust.com/api/v1`:
 
 - **CSR**: Submit, list, approve, reject
 - **Certificates**: List, retrieve by serial, revoke
@@ -130,8 +130,8 @@ The RA Engine exposes a scoped REST API at `/api/v1` for external integrations:
 | Language & Runtime | Elixir 1.18 / Erlang OTP 26 |
 | Web Framework | Phoenix 1.8 + LiveView 1.1 |
 | HTTP Server | Bandit 1.5 |
-| Database | PostgreSQL (per-tenant isolation) |
-| Distributed Cache | Mnesia (OCSP cache, service registry, rate limits) |
+| Database | PostgreSQL (platform tier only — tenant registry, platform users, platform audit trail) |
+| Tenant State Store | Mnesia disc_copies (keys, certificates, certificate status, CRL data, OCSP cache, rate limits — per-tenant node) |
 | PQC Crypto | liboqs NIF (ML-DSA, SLH-DSA), JRuby bridge (KAZ-SIGN) |
 | Classical Crypto | ex_ccrypto (RSA, ECC, AES, SHA) |
 | X.509 Operations | Custom x509 library (cert/CSR/CRL encoding) |

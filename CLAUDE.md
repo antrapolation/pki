@@ -32,8 +32,8 @@ Portals call engines directly (in-process function calls), not via HTTP. Postgre
 
 ## Key Design Constraints
 
-- **Scalability**: Scale-out via adding processes to pool; can run across locations/hardware/instances
-- **Availability**: Critical internal processes require >1 process registered to a group
+- **Scalability**: Scale-out via provisioning additional per-tenant BEAM nodes via `:peer`; tenant nodes are fully self-contained and can run across locations/hardware/instances
+- **Availability**: Each tenant BEAM node is supervised by `pki_platform`; the platform tier itself can be replicated for HA
 - **Security**: All process API calls authenticated; sensitive info encrypted; private key activation passwords encrypted per-officer (not system-wide); mission-critical encryption must be digitally signed; inter-process communication authenticated and encrypted
 - **PQC large output sizes**: Classical PKI workflows may not work due to bandwidth; new workflows needed
 - **AI agent authentication**: System must support cryptographic authentication for AI agents (certificate issuance for AI delegates)
