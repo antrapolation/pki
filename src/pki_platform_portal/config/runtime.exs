@@ -44,13 +44,6 @@ if audit_trail_db_url = System.get_env("AUDIT_TRAIL_DATABASE_URL") do
     prepare: :unnamed
 end
 
-if validation_db_url = System.get_env("VALIDATION_DATABASE_URL") do
-  config :pki_validation, PkiValidation.Repo,
-    url: validation_db_url,
-    pool_size: String.to_integer(System.get_env("VALIDATION_POOL_SIZE", "20")),
-    prepare: :unnamed
-end
-
 if signing_salt = System.get_env("PLATFORM_SIGNING_SALT") do
   config :pki_platform_portal, signing_salt: signing_salt
 end

@@ -2,10 +2,10 @@ defmodule Mix.Tasks.Pki.MigrateExistingTenants do
   use Mix.Task
   require Logger
 
-  @shortdoc "Idempotent: add audit + validation schemas to existing schema-mode tenants"
+  @shortdoc "Idempotent: add audit schema to existing schema-mode tenants"
 
   @moduledoc """
-  Run after deploying the per-tenant audit/validation schema changes to a VPS
+  Run after deploying the per-tenant audit schema changes to a VPS
   with existing schema-mode tenants. Safe to run multiple times — all SQL
   uses CREATE IF NOT EXISTS.
 
