@@ -45,15 +45,15 @@ defmodule PkiValidation.Ocsp.DerResponder do
           {:ok, der}
 
         :try_later ->
-          ResponseBuilder.build(:tryLater, [], dummy_key())
+          ResponseBuilder.build(:tryLater, [], dummy_key(), nonce: nonce)
 
         :unauthorized ->
-          ResponseBuilder.build(:unauthorized, [], dummy_key())
+          ResponseBuilder.build(:unauthorized, [], dummy_key(), nonce: nonce)
       end
     rescue
-      _ -> ResponseBuilder.build(:internalError, [], dummy_key())
+      _ -> ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
     catch
-      _, _ -> ResponseBuilder.build(:internalError, [], dummy_key())
+      _, _ -> ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
     end
   end
 
@@ -112,7 +112,7 @@ defmodule PkiValidation.Ocsp.DerResponder do
         :try_later
 
       {:error, _reason} ->
-        ResponseBuilder.build(:internalError, [], dummy_key())
+        ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
     end
   end
 
@@ -181,7 +181,23 @@ defmodule PkiValidation.Ocsp.DerResponder do
   defp revocation_reason_to_atom("aa_compromise"), do: :aACompromise
   defp revocation_reason_to_atom(_), do: :unspecified
 
+  @secp256r1_oid {1, 2, 840, 10045, 3, 1, 7}
+
+  # Generates an ephemeral P-256 key+cert for signing error responses that carry
+  # an OCSP nonce. RFC 6960 §4.4.1 requires the nonce to be echoed in all
+  # responses, including error statuses. The client cannot verify this signature
+  # (the cert is anonymous), but the nonce bytes will be present in the DER.
   defp dummy_key do
-    %{algorithm: "ecc_p256", private_key: <<>>, certificate_der: <<>>}
+    {pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
+
+    ec_priv_record =
+      {:ECPrivateKey, 1, priv, {:namedCurve, @secp256r1_oid}, pub, :asn1_NOVALUE}
+
+    %{cert: cert_der} =
+      :public_key.pkix_test_root_cert(~c"OCSP Error Responder", [{:key, ec_priv_record}])
+
+    priv_der = :public_key.der_encode(:ECPrivateKey, ec_priv_record)
+
+    %{algorithm: "ECC-P256", private_key: priv_der, certificate_der: cert_der}
   end
 end
