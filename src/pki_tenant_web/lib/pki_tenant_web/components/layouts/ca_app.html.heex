@@ -23,6 +23,7 @@
       <.sidebar_section :if={role in ["ca_admin", "key_manager"]} label="KEY MANAGEMENT">
         <.sidebar_link :if={role == "ca_admin"} href="/ceremonies" icon="hero-shield-check" label="Key Ceremony" current={@page_title} />
         <.sidebar_link href="/ceremonies/custodian" icon="hero-key" label="My Shares" current={@page_title} />
+        <.sidebar_link href="/activation" icon="hero-lock-open" label="Activation" current={@page_title} />
         <.sidebar_link href="/issuer-keys" icon="hero-finger-print" label="Issuer Keys" current={@page_title} />
         <.sidebar_link href="/certificates" icon="hero-document-text" label="Certificates" current={@page_title} />
       </.sidebar_section>

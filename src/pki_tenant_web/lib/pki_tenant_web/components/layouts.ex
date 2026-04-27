@@ -86,6 +86,7 @@ defmodule PkiTenantWeb.Layouts do
   defp is_active?("Key Ceremony", "Key Ceremony"), do: true
   defp is_active?("My Shares", "My Ceremony Shares"), do: true
   defp is_active?("Witness", "Ceremony Witness"), do: true
+  defp is_active?("Activation", page) when page in ["Activation", "Activation Ceremony"], do: true
   defp is_active?("Issuer Keys", "Issuer Keys"), do: true
   defp is_active?("Certificates", "Certificates"), do: true
   defp is_active?("Audit Log", "Audit Log"), do: true
