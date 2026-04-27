@@ -221,7 +221,7 @@ defmodule PkiPlatformEngine.Provisioner do
   end
 
   @doc "Public: run a single schema SQL file against a target prefix. Idempotent (uses IF NOT EXISTS)."
-  def apply_schema_sql(filename, source_schema, target_prefix) do
+  def apply_tenant_schema_file(filename, source_schema, target_prefix) do
     apply_tenant_schema_sql(filename, source_schema, target_prefix)
   end
 
@@ -231,7 +231,7 @@ defmodule PkiPlatformEngine.Provisioner do
     with_platform_conn(fn conn ->
       case Postgrex.query(conn, "CREATE SCHEMA IF NOT EXISTS \"#{safe}\"", []) do
         {:ok, _} -> :ok
-        {:error, reason} -> raise "ensure_schema_exists failed for #{prefix}: #{inspect(reason)}"
+        {:error, reason} -> {:error, {:ensure_schema_failed, prefix, reason}}
       end
     end)
   end
@@ -240,8 +240,8 @@ defmodule PkiPlatformEngine.Provisioner do
     safe_prefix = TenantPrefix.validate_prefix!(target_prefix)
 
     sql =
-      "tenant_schema_sql"
-      |> read_schema_sql_file(filename)
+      filename
+      |> read_schema_sql_file()
       |> rewrite_schema_prefix(source_schema, safe_prefix)
 
     with_platform_conn(fn conn ->
@@ -263,25 +263,18 @@ defmodule PkiPlatformEngine.Provisioner do
     end
   end
 
-  defp read_schema_sql_file(_tag, filename) do
+  defp read_schema_sql_file(filename) do
     priv_dir = :code.priv_dir(:pki_platform_engine)
     File.read!(Path.join(priv_dir, filename))
   end
 
   defp rewrite_schema_prefix(sql, source, target) do
+    escaped = Regex.escape(source)
     # 1. Drop "CREATE SCHEMA IF NOT EXISTS <source>;" — target already exists.
     # 2. Rewrite "<source>." qualified identifiers to "<target>.".
     sql
-    |> String.replace(~r/CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+#{source}\s*;/i, "")
-    |> String.replace(~r/\b#{source}\./, "\"#{target}\".")
-  end
-
-  defp platform_repo_config do
-    config = Application.get_env(:pki_platform_engine, PlatformRepo, [])
-    # Strip sandbox pool — use standard Postgrex pool for migrations
-    config
-    |> Keyword.delete(:pool)
-    |> Keyword.put_new(:pool_size, 2)
+    |> String.replace(~r/CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+#{escaped}\s*;/i, "")
+    |> String.replace(~r/\b#{escaped}\./, "\"#{target}\".")
   end
 
   defp drop_tenant_schemas(prefixes) do
