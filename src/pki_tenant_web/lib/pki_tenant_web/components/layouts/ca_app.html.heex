@@ -13,7 +13,7 @@
     </div>
 
     <%!-- Navigation --%>
-    <% role = @current_user.role %>
+    <% role = user_role(@current_user) %>
     <nav class="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
       <.sidebar_section label="OVERVIEW">
         <.sidebar_link href="/" icon="hero-home" label="Dashboard" current={@page_title} />

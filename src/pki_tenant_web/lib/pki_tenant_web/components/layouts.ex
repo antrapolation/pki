@@ -105,6 +105,7 @@ defmodule PkiTenantWeb.Layouts do
   defp is_active?("Validation Services", page) when page in ["Validation", "Validation Services"], do: true
   defp is_active?("API Keys", page) when page in ["API Keys", "API Key Management"], do: true
   defp is_active?("CA Connection", "CA Connection"), do: true
+  defp is_active?("Setup Wizard", page) when page in ["Setup Wizard", "RA Setup Wizard"], do: true
   defp is_active?(_, _), do: false
 
   @doc """
