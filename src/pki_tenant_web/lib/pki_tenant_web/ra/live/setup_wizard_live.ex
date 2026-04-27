@@ -297,19 +297,25 @@ defmodule PkiTenantWeb.Ra.SetupWizardLive do
   end
 
   # ---------------------------------------------------------------------------
-  # Step 3: Invite Team (placeholder -- user management TBD for tenant web)
+  # Step 3: Invite Team — delegates to /users (full user management lives there)
   # ---------------------------------------------------------------------------
 
   def handle_event("invite_user", _params, socket) do
-    {:noreply, push_navigate(socket, to: "/users")}
+    {:noreply,
+     socket
+     |> put_flash(:info, "Use the Users page to invite and manage team members.")
+     |> push_navigate(to: "/users")}
   end
 
   # ---------------------------------------------------------------------------
-  # Step 4: Service Configuration (placeholder -- service config TBD)
+  # Step 4: Service Configuration — delegates to /service-configs
   # ---------------------------------------------------------------------------
 
   def handle_event("configure_service", _params, socket) do
-    {:noreply, push_navigate(socket, to: "/service-configs")}
+    {:noreply,
+     socket
+     |> put_flash(:info, "Configure validation endpoints from the Service Configs page.")
+     |> push_navigate(to: "/service-configs")}
   end
 
   # ---------------------------------------------------------------------------
