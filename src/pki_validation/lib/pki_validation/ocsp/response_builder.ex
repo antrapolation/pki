@@ -115,6 +115,10 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
           {:ok, iodata} = :OCSP.encode(:OCSPResponse, ocsp_response)
           {:ok, IO.iodata_to_binary(iodata)}
 
+        # RFC 6960 §4.2.1: responseBytes is technically defined only for the successful
+        # case, but including it on error responses is the only way to echo the nonce
+        # per §4.4.1. Strict clients may ignore responseBytes on non-successful statuses,
+        # but including it is harmless and serves clients that do parse it.
         _ when is_binary(nonce) ->
           basic_der = build_basic_response([], signing_key, nonce)
           response_bytes = {:ResponseBytes, @basic_ocsp_oid, basic_der}

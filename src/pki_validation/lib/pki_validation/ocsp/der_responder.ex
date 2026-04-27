@@ -38,6 +38,7 @@ defmodule PkiValidation.Ocsp.DerResponder do
   def respond(%{cert_ids: cert_ids, nonce: nonce} = _request, opts) do
     activation_server = Keyword.get(opts, :activation_server, KeyActivation)
     issuer_key_id = Keyword.get(opts, :issuer_key_id)
+    error_key = dummy_key()
 
     try do
       case resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce) do
@@ -45,15 +46,15 @@ defmodule PkiValidation.Ocsp.DerResponder do
           {:ok, der}
 
         :try_later ->
-          ResponseBuilder.build(:tryLater, [], dummy_key(), nonce: nonce)
+          ResponseBuilder.build(:tryLater, [], error_key, nonce: nonce)
 
         :unauthorized ->
-          ResponseBuilder.build(:unauthorized, [], dummy_key(), nonce: nonce)
+          ResponseBuilder.build(:unauthorized, [], error_key, nonce: nonce)
       end
     rescue
-      _ -> ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
+      _ -> ResponseBuilder.build(:internalError, [], error_key, nonce: nonce)
     catch
-      _, _ -> ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
+      _, _ -> ResponseBuilder.build(:internalError, [], error_key, nonce: nonce)
     end
   end
 
