@@ -41,8 +41,7 @@ defmodule PkiValidation.CrlPublisher do
 
   @doc """
   Force regeneration of all per-issuer CRLs (useful for testing or on
-  revocation events). Returns `{:ok, crls_map}` with the freshly generated
-  per-issuer CRL data.
+  revocation events). Returns `{:ok, crls_map}` or `{:error, reason}`.
   """
   def regenerate(server \\ __MODULE__) do
     GenServer.call(server, :regenerate)
@@ -70,8 +69,12 @@ defmodule PkiValidation.CrlPublisher do
         {:error, :issuer_key_not_found}
 
       {:ok, issuer_key} ->
-        strategy = Map.get(issuer_key, :crl_strategy, "per_interval") || "per_interval"
-        do_signed_crl(strategy, issuer_key_id, issuer_key, activation_server)
+        if issuer_key.status == "active" do
+          strategy = Map.get(issuer_key, :crl_strategy, "per_interval") || "per_interval"
+          do_signed_crl(strategy, issuer_key_id, issuer_key, activation_server)
+        else
+          {:error, :issuer_key_not_active}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -148,8 +151,8 @@ defmodule PkiValidation.CrlPublisher do
       {:ok, crls} ->
         {:reply, {:ok, crls}, %{state | crls: crls, generation_error: false}}
 
-      {:error, _reason} ->
-        {:reply, {:ok, state.crls}, %{state | generation_error: true}}
+      {:error, reason} ->
+        {:reply, {:error, reason}, %{state | generation_error: true}}
     end
   end
 
@@ -159,7 +162,8 @@ defmodule PkiValidation.CrlPublisher do
       {:ok, crls} ->
         {:noreply, %{state | crls: crls, generation_error: false}}
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning("Initial CRL generation failed: #{inspect(reason)}")
         {:noreply, %{state | generation_error: true}}
     end
   end
@@ -171,7 +175,8 @@ defmodule PkiValidation.CrlPublisher do
         {:ok, crls} ->
           %{state | crls: crls, generation_error: false}
 
-        {:error, _reason} ->
+        {:error, reason} ->
+          Logger.warning("Periodic CRL regeneration failed: #{inspect(reason)}")
           %{state | generation_error: true}
       end
 
@@ -207,10 +212,10 @@ defmodule PkiValidation.CrlPublisher do
   end
 
   defp do_generate_crl(issuer_key_id) do
-    case Repo.where(CertificateStatus, fn cs ->
-           cs.status == "revoked" && cs.issuer_key_id == issuer_key_id
-         end) do
-      {:ok, revoked} ->
+    case Repo.get_all_by_index(CertificateStatus, :issuer_key_id, issuer_key_id) do
+      {:ok, all_for_issuer} ->
+        revoked = Enum.filter(all_for_issuer, fn cs -> cs.status == "revoked" end)
+
         revoked_certs =
           revoked
           |> Enum.map(fn cs ->
