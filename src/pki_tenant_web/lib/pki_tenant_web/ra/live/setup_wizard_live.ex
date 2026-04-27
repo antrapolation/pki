@@ -309,7 +309,7 @@ defmodule PkiTenantWeb.Ra.SetupWizardLive do
   # ---------------------------------------------------------------------------
 
   def handle_event("configure_service", _params, socket) do
-    {:noreply, put_flash(socket, :info, "Service configuration is not yet available in tenant mode.")}
+    {:noreply, push_navigate(socket, to: "/service-configs")}
   end
 
   # ---------------------------------------------------------------------------
