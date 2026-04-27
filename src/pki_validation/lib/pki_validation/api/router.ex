@@ -30,9 +30,12 @@ defmodule PkiValidation.Api.Router do
 
   get "/health" do
     crl_status =
-      case PkiValidation.CrlPublisher.get_current_crl() do
-        {:ok, crl} -> %{type: crl.type, total_revoked: crl.total_revoked}
-        _ -> %{error: "unavailable"}
+      case PkiValidation.CrlPublisher.get_current_crls() do
+        {:ok, crls} ->
+          total = crls |> Enum.map(fn {_, crl} -> crl.total_revoked end) |> Enum.sum()
+          %{issuer_count: map_size(crls), total_revoked: total}
+        _ ->
+          %{error: "unavailable"}
       end
 
     send_json(conn, 200, %{status: "ok", crl: crl_status})
@@ -56,9 +59,18 @@ defmodule PkiValidation.Api.Router do
   end
 
   get "/crl" do
-    case PkiValidation.CrlPublisher.get_current_crl() do
-      {:ok, crl} ->
-        send_json(conn, 200, crl)
+    case PkiValidation.CrlPublisher.get_current_crls() do
+      {:ok, crls} ->
+        summary =
+          Enum.map(crls, fn {issuer_key_id, crl} ->
+            %{
+              issuer_key_id: issuer_key_id,
+              total_revoked: crl.total_revoked,
+              this_update: crl.this_update,
+              next_update: crl.next_update
+            }
+          end)
+        send_json(conn, 200, %{crls: summary})
 
       {:error, reason} ->
         Logger.error("CRL fetch failed: #{inspect(reason)}")
