@@ -459,132 +459,136 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
   # ---------------------------------------------------------------------------
 
   def handle_event("initiate_ceremony", params, socket) do
-    ca_id = params["ca_instance_id"]
+    if socket.assigns.current_user[:role] not in ["ca_admin"] do
+      {:noreply, assign(socket, wizard_error: "Only CA Admins can initiate key ceremonies.")}
+    else
+      ca_id = params["ca_instance_id"]
 
-    # At initiation we only know how many custodians (threshold_n) and who
-    # the auditor is. Each custodian's real name + per-ceremony password is
-    # collected at their turn in the entry step. Mnesia gets placeholder
-    # names "Custodian 1..N" which get overwritten with real names on
-    # accept_share_by_slot.
-    auditor_name = String.trim(params["auditor_name"] || "")
-    threshold_k = parse_int(params["threshold_k"]) || 2
-    threshold_n = parse_int(params["threshold_n"]) || 3
+      # At initiation we only know how many custodians (threshold_n) and who
+      # the auditor is. Each custodian's real name + per-ceremony password is
+      # collected at their turn in the entry step. Mnesia gets placeholder
+      # names "Custodian 1..N" which get overwritten with real names on
+      # accept_share_by_slot.
+      auditor_name = String.trim(params["auditor_name"] || "")
+      threshold_k = parse_int(params["threshold_k"]) || 2
+      threshold_n = parse_int(params["threshold_n"]) || 3
 
-    cond do
-      is_nil(ca_id) or ca_id == "" ->
-        {:noreply, assign(socket, wizard_error: "Please select a CA Instance.")}
+      cond do
+        is_nil(ca_id) or ca_id == "" ->
+          {:noreply, assign(socket, wizard_error: "Please select a CA Instance.")}
 
-      is_nil(params["keystore_id"]) or params["keystore_id"] == "" ->
-        {:noreply, assign(socket, wizard_error: "Please select a Keystore.")}
+        is_nil(params["keystore_id"]) or params["keystore_id"] == "" ->
+          {:noreply, assign(socket, wizard_error: "Please select a Keystore.")}
 
-      (params["key_mode"] || "threshold") == "threshold" and (threshold_n < 2 or threshold_n > 20) ->
-        {:noreply, assign(socket, wizard_error: "Threshold N must be between 2 and 20.")}
+        (params["key_mode"] || "threshold") == "threshold" and (threshold_n < 2 or threshold_n > 20) ->
+          {:noreply, assign(socket, wizard_error: "Threshold N must be between 2 and 20.")}
 
-      (params["key_mode"] || "threshold") == "threshold" and (threshold_k > threshold_n or threshold_k < 2) ->
-        {:noreply,
-         assign(socket,
-           wizard_error: "Threshold K must be between 2 and #{threshold_n}."
-         )}
+        (params["key_mode"] || "threshold") == "threshold" and (threshold_k > threshold_n or threshold_k < 2) ->
+          {:noreply,
+           assign(socket,
+             wizard_error: "Threshold K must be between 2 and #{threshold_n}."
+           )}
 
-      auditor_name == "" ->
-        {:noreply, assign(socket, wizard_error: "Enter the external auditor's name.")}
+        auditor_name == "" ->
+          {:noreply, assign(socket, wizard_error: "Enter the external auditor's name.")}
 
-      true ->
-        # Rate limit ceremony creation: 10 per hour per tenant
-        tenant_id = socket.assigns[:tenant_id] || "global"
-        rate_key = "ceremony_initiate:#{tenant_id}"
+        true ->
+          # Rate limit ceremony creation: 10 per hour per tenant
+          tenant_id = socket.assigns[:tenant_id] || "global"
+          rate_key = "ceremony_initiate:#{tenant_id}"
 
-        case Hammer.check_rate(rate_key, 60 * 60 * 1000, 10) do
-          {:deny, _} ->
-            {:noreply, assign(socket, wizard_error: "Too many ceremonies initiated. Please wait before creating another.")}
+          case Hammer.check_rate(rate_key, 60 * 60 * 1000, 10) do
+            {:deny, _} ->
+              {:noreply, assign(socket, wizard_error: "Too many ceremonies initiated. Please wait before creating another.")}
 
-          {:error, reason} ->
-            Logger.error("[rate_limit] Hammer error for #{rate_key}: #{inspect(reason)}")
-            {:noreply, assign(socket, wizard_error: "Service temporarily unavailable. Please try again.")}
+            {:error, reason} ->
+              Logger.error("[rate_limit] Hammer error for #{rate_key}: #{inspect(reason)}")
+              {:noreply, assign(socket, wizard_error: "Service temporarily unavailable. Please try again.")}
 
-          {:allow, _} ->
-            is_root = params["is_root"] == "true"
-            initiated_by = socket.assigns.current_user[:username] || socket.assigns.current_user[:display_name] || "unknown"
-            placeholder_names = Enum.map(1..threshold_n, fn i -> "Custodian #{i}" end)
-            key_mode = params["key_mode"] || "threshold"
-            key_role = params["key_role"] || "operational_sub"
+            {:allow, _} ->
+              is_root = params["is_root"] == "true"
+              initiated_by = socket.assigns.current_user[:username] || socket.assigns.current_user[:display_name] || "unknown"
+              placeholder_names = Enum.map(1..threshold_n, fn i -> "Custodian #{i}" end)
+              key_mode = params["key_mode"] || "threshold"
+              key_role = params["key_role"] || "operational_sub"
 
-            ceremony_params = %{
-              algorithm: params["algorithm"],
-              keystore_id: params["keystore_id"],
-              keystore_mode: params["keystore_mode"] || "softhsm",
-              threshold_k: threshold_k,
-              threshold_n: threshold_n,
-              is_root: is_root,
-              key_alias: params["key_alias"],
-              custodian_names: placeholder_names,
-              auditor_name: auditor_name,
-              ceremony_mode: :full,
-              initiated_by: initiated_by,
-              subject_dn: params["subject_dn"],
-              key_mode: key_mode,
-              key_role: key_role
-            }
+              ceremony_params = %{
+                algorithm: params["algorithm"],
+                keystore_id: params["keystore_id"],
+                keystore_mode: params["keystore_mode"] || "softhsm",
+                threshold_k: threshold_k,
+                threshold_n: threshold_n,
+                is_root: is_root,
+                key_alias: params["key_alias"],
+                custodian_names: placeholder_names,
+                auditor_name: auditor_name,
+                ceremony_mode: :full,
+                initiated_by: initiated_by,
+                subject_dn: params["subject_dn"],
+                key_mode: key_mode,
+                key_role: key_role
+              }
 
-            case CeremonyOrchestrator.initiate(ca_id, ceremony_params) do
-              {:ok, {ceremony, _key, _shares, participants_list, _transcript}} ->
-                PkiTenant.AuditBridge.log("ceremony_initiated", %{
-                  ceremony_id: ceremony.id,
-                  algorithm: params["algorithm"],
-                  ca_instance_id: ca_id,
-                  is_root: is_root,
-                  key_alias: params["key_alias"],
-                  keystore_mode: ceremony.keystore_mode,
-                  custodian_count: threshold_n,
-                  auditor_name: auditor_name
-                })
+              case CeremonyOrchestrator.initiate(ca_id, ceremony_params) do
+                {:ok, {ceremony, _key, _shares, participants_list, _transcript}} ->
+                  PkiTenant.AuditBridge.log("ceremony_initiated", %{
+                    ceremony_id: ceremony.id,
+                    algorithm: params["algorithm"],
+                    ca_instance_id: ca_id,
+                    is_root: is_root,
+                    key_alias: params["key_alias"],
+                    keystore_mode: ceremony.keystore_mode,
+                    custodian_count: threshold_n,
+                    auditor_name: auditor_name
+                  })
 
-                # Subscribe to PubSub for live updates
-                Phoenix.PubSub.subscribe(PkiTenantWeb.PubSub, "ceremony:#{ceremony.id}")
+                  # Subscribe to PubSub for live updates
+                  Phoenix.PubSub.subscribe(PkiTenantWeb.PubSub, "ceremony:#{ceremony.id}")
 
-                {ceremonies, keystores} = load_for_ca(ca_id)
+                  {ceremonies, keystores} = load_for_ca(ca_id)
 
-                participants = Enum.map(participants_list, fn p ->
-                  %{
-                    name: p.name,
-                    role: to_string(p.role),
-                    status: if(p.role == :auditor, do: "waiting", else: "pending"),
-                    timestamp: nil
-                  }
-                end)
+                  participants = Enum.map(participants_list, fn p ->
+                    %{
+                      name: p.name,
+                      role: to_string(p.role),
+                      status: if(p.role == :auditor, do: "waiting", else: "pending"),
+                      timestamp: nil
+                    }
+                  end)
 
-                slot_states = load_slot_states(ceremony)
+                  slot_states = load_slot_states(ceremony)
 
-                # Start a fresh vault for this ceremony's PIN isolation.
-                {:ok, vault_pid} = CustodianPinVault.start_link()
-                Process.monitor(vault_pid)
+                  # Start a fresh vault for this ceremony's PIN isolation.
+                  {:ok, vault_pid} = CustodianPinVault.start_link()
+                  Process.monitor(vault_pid)
 
-                {:noreply,
-                 socket
-                 |> assign(
-                   ceremonies: ceremonies,
-                   keystores: keystores,
-                   effective_ca_id: ca_id,
-                   active_ceremony: ceremony,
-                   is_root: is_root,
-                   wizard_step: :progress,
-                   wizard_error: nil,
-                   participants: participants,
-                   activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — Custodian #1 up next"}],
-                   slot_states: slot_states,
-                   entering_slot: next_pending_slot(slot_states),
-                   entry_error: nil,
-                   vault_pid: vault_pid,
-                   entered_tokens: %{},
-                   execution_state: :idle,
-                   execution_error: nil,
-                   completed_ceremony: nil
-                 )}
+                  {:noreply,
+                   socket
+                   |> assign(
+                     ceremonies: ceremonies,
+                     keystores: keystores,
+                     effective_ca_id: ca_id,
+                     active_ceremony: ceremony,
+                     is_root: is_root,
+                     wizard_step: :progress,
+                     wizard_error: nil,
+                     participants: participants,
+                     activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — Custodian #1 up next"}],
+                     slot_states: slot_states,
+                     entering_slot: next_pending_slot(slot_states),
+                     entry_error: nil,
+                     vault_pid: vault_pid,
+                     entered_tokens: %{},
+                     execution_state: :idle,
+                     execution_error: nil,
+                     completed_ceremony: nil
+                   )}
 
-              {:error, reason} ->
-                {:noreply, assign(socket, wizard_error: "Failed to initiate: #{format_error(reason)}")}
-            end
-        end
+                {:error, reason} ->
+                  {:noreply, assign(socket, wizard_error: "Failed to initiate: #{format_error(reason)}")}
+              end
+          end
+      end
     end
   end
 
