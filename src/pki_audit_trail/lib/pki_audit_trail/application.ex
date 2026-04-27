@@ -16,20 +16,16 @@ defmodule PkiAuditTrail.Application do
     # in schema mode audit_events has no global home; it lives per-tenant
     # under audit_prefix. Tenant-scoped audit writing goes through
     # PkiCaEngine.Audit. Phase 2 wires per-tenant prefix + hash chain.
-    children =
+    repo_children =
       if Application.get_env(:pki_audit_trail, :start_application, true) do
-        [
-          PkiAuditTrail.Repo
-        ]
+        [PkiAuditTrail.Repo]
       else
         []
       end
 
-    if Application.get_env(:pki_audit_trail, :start_application, true) do
-      Supervisor.start_link(children, strategy: :one_for_one, name: PkiAuditTrail.Supervisor)
-    else
-      Supervisor.start_link([], strategy: :one_for_one)
-    end
+    children = [PkiAuditTrail.HashChainStore | repo_children]
+
+    Supervisor.start_link(children, strategy: :one_for_one, name: PkiAuditTrail.Supervisor)
   end
 
   defp ensure_mnesia_schema do
