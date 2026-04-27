@@ -88,13 +88,32 @@ the backend on one host and the Go agent + a real HSM (YubiKey or
 SoftHSM2 in a container) on another host to exercise mTLS end-to-end is
 still deferred. Needs physical hardware or a container-based SoftHSM2 setup.
 
-### Per-tenant schema mode: audit + validation
-**Priority:** P2
-**Notes:** Schema-mode VPS deployment shipped 2026-04-15; per-tenant audit
-log and validation service still use the shared-PG path. Tracked in memory
-under `project_schema_mode_outstanding`.
+### Per-tenant schema mode: validation repo wiring
+**Priority:** P3
+**Notes:** Per-tenant `audit_events` hash chain and `certificate_status`/`crl_metadata`/
+`signing_key_config` tables provisioned (PR #91, 2026-04-27). Outstanding: wire
+`PkiValidation.Repo` with per-tenant prefix routing for OCSP/CRL — tables exist
+but validation code still uses Mnesia. Also: direct CA-engine audit calls
+(`certificate_signing.ex`) deferred until system-actor DID is provisioned per tenant.
 
 ## Completed
+
+### pki_tenant_web feature parity
+**Completed:** 2026-04-27 (PR #92)
+P1 RBAC guards added to `activation_live` (key_manager/ca_admin), `ceremony_live` (ca_admin),
+`hsm_wizard_live` (mount-level redirect). `/activation` nav link added to CA sidebar with
+`is_active?` clause and route test. `/setup-wizard` added to RA sidebar. `invite_user` and
+`configure_service` wizard stubs wired to `/users` and `/service-configs` with flash.
+CA layout unified to `user_role(@current_user)` helper. 49 tests, 0 failures.
+
+### Per-tenant schema mode: audit + validation
+**Completed:** 2026-04-27 (PR #91)
+Per-tenant `t_<hex>_audit.audit_events` (hash-chained) and
+`t_<hex>_validation.{certificate_status,crl_metadata,signing_key_config}` tables
+provisioned at tenant creation. `PkiAuditTrail.HashChainStore` (ETS, per-tenant
+prev_hash), `PkiAuditTrail.log/4` (write hash-chained events via PlatformRepo with
+prefix), `PlatformAudit.log/2` wired for schema-mode tenants. Actions list expanded
+to 38 entries. `mix pki.migrate_existing_tenants` for existing VPS tenants.
 
 ### Native PG setup automation
 **Completed:** 2026-04-27 (this PR)
