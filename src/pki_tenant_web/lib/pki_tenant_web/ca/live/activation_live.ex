@@ -148,37 +148,41 @@ defmodule PkiTenantWeb.Ca.ActivationLive do
   # ---------------------------------------------------------------------------
 
   def handle_event("start_activation", %{"key_id" => key_id}, socket) do
-    case Enum.find(socket.assigns.issuer_keys, fn k -> k.id == key_id end) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Key not found.")}
+    if socket.assigns.current_user[:role] not in ["key_manager", "ca_admin"] do
+      {:noreply, put_flash(socket, :error, "Only Key Managers and CA Admins can activate keys.")}
+    else
+      case Enum.find(socket.assigns.issuer_keys, fn k -> k.id == key_id end) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "Key not found.")}
 
-      key ->
-        case ActivationCeremony.start(key_id) do
-          {:ok, session} ->
-            {k, _n} = resolve_threshold_display(key_id)
+        key ->
+          case ActivationCeremony.start(key_id) do
+            {:ok, session} ->
+              {k, _n} = resolve_threshold_display(key_id)
 
-            {:noreply,
-             assign(socket,
-               modal_key: key,
-               active_session: session,
-               threshold_k: k,
-               custodians_done: 0,
-               modal_error: nil,
-               modal_busy: false
-             )}
+              {:noreply,
+               assign(socket,
+                 modal_key: key,
+                 active_session: session,
+                 threshold_k: k,
+                 custodians_done: 0,
+                 modal_error: nil,
+                 modal_busy: false
+               )}
 
-          {:error, :no_shares_found} ->
-            {:noreply,
-             put_flash(socket, :error,
-               "No threshold shares found for this key. Run a key ceremony first."
-             )}
+            {:error, :no_shares_found} ->
+              {:noreply,
+               put_flash(socket, :error,
+                 "No threshold shares found for this key. Run a key ceremony first."
+               )}
 
-          {:error, reason} ->
-            Logger.warning("[ActivationLive] start/2 failed: #{inspect(reason)}")
+            {:error, reason} ->
+              Logger.warning("[ActivationLive] start/2 failed: #{inspect(reason)}")
 
-            {:noreply,
-             put_flash(socket, :error, "Could not start activation session: #{format_error(reason)}")}
-        end
+              {:noreply,
+               put_flash(socket, :error, "Could not start activation session: #{format_error(reason)}")}
+          end
+      end
     end
   end
 
