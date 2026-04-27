@@ -208,10 +208,6 @@ defmodule PkiPlatformEngine.Provisioner do
       apply_tenant_schema_sql("tenant_audit_schema.sql", "audit", prefixes.audit_prefix)
       Logger.info("tenant_migration_done prefix=#{prefixes.audit_prefix} engine=audit")
 
-      Logger.info("tenant_migration_start prefix=#{prefixes.validation_prefix} engine=validation")
-      apply_tenant_schema_sql("tenant_validation_schema.sql", "validation", prefixes.validation_prefix)
-      Logger.info("tenant_migration_done prefix=#{prefixes.validation_prefix} engine=validation")
-
       :ok
     rescue
       e ->

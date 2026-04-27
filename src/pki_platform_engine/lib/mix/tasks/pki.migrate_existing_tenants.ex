@@ -32,9 +32,7 @@ defmodule Mix.Tasks.Pki.MigrateExistingTenants do
       errors =
         [
           fn -> Provisioner.ensure_schema_exists(prefixes.audit_prefix) end,
-          fn -> Provisioner.apply_tenant_schema_file("tenant_audit_schema.sql", "audit", prefixes.audit_prefix) end,
-          fn -> Provisioner.ensure_schema_exists(prefixes.validation_prefix) end,
-          fn -> Provisioner.apply_tenant_schema_file("tenant_validation_schema.sql", "validation", prefixes.validation_prefix) end
+          fn -> Provisioner.apply_tenant_schema_file("tenant_audit_schema.sql", "audit", prefixes.audit_prefix) end
         ]
         |> Enum.flat_map(fn f ->
           try do
