@@ -16,38 +16,35 @@ Designed for SaaS multi-tenant deployment and single-tenant on-premises configur
 ## System Architecture
 
 ```
-                          +---------------------------+
-                          |    Platform Portal (:4006)|
-                          |  Tenant & User Management |
-                          +------------+--------------+
-                                       |
-                 +---------------------+---------------------+
-                 |                                           |
-     +-----------+-----------+               +---------------+-----------+
-     |   CA Portal (:4004)  |               |   RA Portal (:4005)       |
-     |   Key & Cert Mgmt UI |               |   CSR & Profile Mgmt UI  |
-     +-----------+-----------+               +---------------+-----------+
-                 |                                           |
-     +-----------+-----------+               +---------------+-----------+
-     |      CA Engine       |               |       RA Engine           |
-     |  Signing & Ceremony  |<--- REST ---->|  CSR Processing & DCV    |
-     |  (key-isolated node) |               |  REST API for Integrations|
-     +-----------+-----------+               +---------------+-----------+
-                 |                                           |
-                 +---------------------+---------------------+
-                                       |
-                          +------------+--------------+
-                          |   Validation Service      |
-                          |   OCSP / CRL / LDAP       |
-                          +---------------------------+
-                                       |
-                              +--------+--------+
-                              |   PostgreSQL    |
-                              |  (per-tenant DB)|
-                              +-----------------+
+Internet
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Caddy (80/443)                     │
+│  admin.* → pki_platform :4006       │
+│  <tenant>.* → pki_tenant (per-node) │
+└────────┬────────────────────────────┘
+         │
+┌────────▼─────────────────────────────────────┐
+│  pki_platform BEAM (1 node)                   │
+│  Platform portal :4006                        │
+│  Tenant lifecycle management                  │
+│  PostgreSQL: tenant registry, platform users, │
+│              platform audit trail             │
+└────────┬─────────────────────────────────────┘
+         │  :peer spawn / distributed Erlang
+┌────────▼─────────────────────────────────────┐
+│  pki_tenant BEAM (one node per tenant)        │
+│  CA portal + CA engine (in-process)           │
+│  RA portal + RA engine (in-process)           │
+│  Validation: OCSP/CRL (in-process)            │
+│  State: local Mnesia (disc_copies)            │
+└──────────────────────────────────────────────┘
 ```
 
-Each box runs as an independent Erlang/OTP node (systemd service). The CA Engine is the only node with access to signing keys -- portals communicate via authenticated internal APIs.
+The platform BEAM manages tenant lifecycle (provision, deprovision, spawn). Each tenant gets its own BEAM node with full CA/RA/Validation capability. Portals and engines are co-located in the tenant BEAM — no inter-process HTTP between them. OCSP and CRL requests are served from the same tenant BEAM; CDP/OCSP URLs in issued certificates point at the tenant's subdomain.
+
+PostgreSQL is used only for platform-tier state (tenant registry, platform user accounts, platform audit trail). All CA, RA, and validation state lives in local Mnesia on the tenant BEAM node — each tenant is isolated by process boundary, not database schema.
 
 ---
 

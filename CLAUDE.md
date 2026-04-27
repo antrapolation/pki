@@ -10,20 +10,25 @@ The product spec is at `docs/Product.Spec-PQC.CA.System-v1.0.docx`.
 
 ## Architecture
 
-The system is composed of two major packages:
+The system runs two tiers of BEAM nodes:
 
-### Core Certificate Authority
-- **CA Portal** — Web portal for system admin to manage the CA engine (user auth, user management, keystore config, key ceremony, audit logs)
-- **Core CA Engine** — Main process providing entry points for CA functions. Each CA owner gets its own process with its own local user set. Supports multiple instances for fault tolerance.
-- **Key Ceremony** — Handles official root key initiation with threshold scheme (Shamir-style secret sharing). Supports both software keystores and HSM keystores.
-- **Issuer Key Management** — Manages sub-issuer keys (generate, update status, self-sign certs, CSR generation, certificate activation)
-- **Private Key Store Management** — CRUD for keystores (software and HSM)
-- **User Management** — Roles: CA Admin, Key Manager, RA Admin, Auditor (least privilege principle)
+**Platform tier (1 node):** `pki_platform` handles tenant lifecycle (provision, deprovision, :peer-spawn per-tenant BEAM), platform user management, and platform audit trail. Backed by PostgreSQL. Caddy routes `admin.*` to this node on port 4006.
 
-### Registration Authority
-- **RA Portal** — Web portal for RA admin (CSR validation, web service config, cert profile config, CRL/LDAP/OCSP service config)
-- **RA Engine** — Processes CSRs (view, verify, approve, reject). Roles: RA Admin, RA Officer, Auditor
-- **Cert Profile Configuration** — Manages subject DN policy, key usage, validity policy, CRL policy, OCSP policy, notification profiles, renewal policy
+**Tenant tier (one node per tenant):** Each tenant gets a dedicated `pki_tenant` BEAM node containing:
+- **CA portal** — Phoenix LiveView UI for CA admin, key manager, auditor roles
+- **CA engine** — key ceremony, issuer key management, certificate signing (in-process, no HTTP API)
+- **RA portal** — Phoenix LiveView UI for RA admin, officer, auditor roles
+- **RA engine** — CSR processing, certificate profile config (in-process, no HTTP API)
+- **pki_validation** — OCSP responder + CRL publisher (in-process, served from tenant subdomain)
+- **Mnesia** — local disc_copies storage for all CA/RA/validation state
+
+Portals call engines directly (in-process function calls), not via HTTP. PostgreSQL is never touched by tenant nodes — all tenant state is in Mnesia.
+
+### Supported Certificate Types
+- **KAZ-SIGN** (Malaysia local PQC algorithm)
+- **ML-DSA** (NIST PQC standard)
+- **SLH-DSA** (NIST PQC hash-based)
+- **RSA & ECC** (classical, for migration compatibility)
 
 ## Key Design Constraints
 
@@ -32,9 +37,3 @@ The system is composed of two major packages:
 - **Security**: All process API calls authenticated; sensitive info encrypted; private key activation passwords encrypted per-officer (not system-wide); mission-critical encryption must be digitally signed; inter-process communication authenticated and encrypted
 - **PQC large output sizes**: Classical PKI workflows may not work due to bandwidth; new workflows needed
 - **AI agent authentication**: System must support cryptographic authentication for AI agents (certificate issuance for AI delegates)
-
-## Supported Certificate Types
-
-- **KAZ-SIGN** (Malaysia local PQC algorithm)
-- **ML-DSA** (NIST PQC standard)
-- **RSA & ECC** (classical, for migration compatibility)

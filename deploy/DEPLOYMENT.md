@@ -1,13 +1,6 @@
 # PKI CA System — Production Deployment Guide
 ## BEAM Direct Deployment (No Containers)
 
-> **⚠️ Doc rewrite pending (Milestone 5).** After the portal deletion (M3) and
-> engine Ecto cleanup (M4) the shared-BEAM sections below are obsolete. The
-> current architecture is summarised here; sections that still reference
-> `pki_portals` / CA Portal / RA Portal / `CA_ENGINE_URL` / schema-per-tenant
-> Postgres will be rewritten in the next docs pass. Scripts under `deploy/`
-> have already been updated — this Markdown is the laggard.
-
 This guide covers deploying all PKI services as native Elixir/OTP releases supervised
 by systemd. No Docker/Podman required. Caddy handles TLS termination; PostgreSQL and
 SoftHSM2 run as system services.

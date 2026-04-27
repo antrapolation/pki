@@ -88,15 +88,14 @@ the backend on one host and the Go agent + a real HSM (YubiKey or
 SoftHSM2 in a container) on another host to exercise mTLS end-to-end is
 still deferred. Needs physical hardware or a container-based SoftHSM2 setup.
 
-### Per-tenant schema mode: validation repo wiring
-**Priority:** P3
-**Notes:** Per-tenant `audit_events` hash chain and `certificate_status`/`crl_metadata`/
-`signing_key_config` tables provisioned (PR #91, 2026-04-27). Outstanding: wire
-`PkiValidation.Repo` with per-tenant prefix routing for OCSP/CRL — tables exist
-but validation code still uses Mnesia. Also: direct CA-engine audit calls
-(`certificate_signing.ex`) deferred until system-actor DID is provisioned per tenant.
-
 ## Completed
+
+### Per-tenant schema mode: validation repo wiring
+**Completed:** 2026-04-28 (this PR)
+PostgreSQL `t_<hex>_validation` tables removed from provisioning and migrate task.
+`validation_prefix/1` removed from `TenantPrefix`. Five orphaned Ecto migration files
+and `ecto_repos: [PkiValidation.Repo]` config deleted. All validation state uses Mnesia
+on the tenant BEAM node — no PostgreSQL validation schema was ever written or read.
 
 ### pki_tenant_web feature parity
 **Completed:** 2026-04-27 (PR #92)
