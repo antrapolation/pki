@@ -23,36 +23,43 @@ defmodule PkiTenantWeb.Ca.HsmWizardLive do
 
   @impl true
   def mount(params, _session, socket) do
-    setup_id = params["setup_id"]
-    ca_instance_id = socket.assigns[:current_user][:ca_instance_id] || PkiTenant.ca_instance_id()
-    tenant_id = socket.assigns[:tenant_id] || PkiTenant.tenant_id()
+    if socket.assigns.current_user[:role] not in ["ca_admin"] do
+      {:ok,
+       socket
+       |> put_flash(:error, "Only CA Admins can configure HSM devices.")
+       |> push_navigate(to: "/")}
+    else
+      setup_id = params["setup_id"]
+      ca_instance_id = socket.assigns[:current_user][:ca_instance_id] || PkiTenant.ca_instance_id()
+      tenant_id = socket.assigns[:tenant_id] || PkiTenant.tenant_id()
 
-    socket =
-      socket
-      |> assign(
-        page_title: "Connect HSM Agent",
-        step: :gateway,
-        setup_id: nil,
-        setup: nil,
-        ca_instance_id: ca_instance_id,
-        tenant_id: tenant_id,
-        cert_mode: :generate,
-        port_input: "8443",
-        agent_id_input: "",
-        token_plaintext: nil,
-        agent_config_yaml: nil,
-        error: nil,
-        busy: false
-      )
-
-    socket =
-      if setup_id do
-        resume_from_id(socket, setup_id)
-      else
+      socket =
         socket
-      end
+        |> assign(
+          page_title: "Connect HSM Agent",
+          step: :gateway,
+          setup_id: nil,
+          setup: nil,
+          ca_instance_id: ca_instance_id,
+          tenant_id: tenant_id,
+          cert_mode: :generate,
+          port_input: "8443",
+          agent_id_input: "",
+          token_plaintext: nil,
+          agent_config_yaml: nil,
+          error: nil,
+          busy: false
+        )
 
-    {:ok, socket}
+      socket =
+        if setup_id do
+          resume_from_id(socket, setup_id)
+        else
+          socket
+        end
+
+      {:ok, socket}
+    end
   end
 
   # ---------------------------------------------------------------------------
