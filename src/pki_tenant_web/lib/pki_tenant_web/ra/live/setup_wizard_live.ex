@@ -301,7 +301,7 @@ defmodule PkiTenantWeb.Ra.SetupWizardLive do
   # ---------------------------------------------------------------------------
 
   def handle_event("invite_user", _params, socket) do
-    {:noreply, put_flash(socket, :info, "User invitation is not yet available in tenant mode.")}
+    {:noreply, push_navigate(socket, to: "/users")}
   end
 
   # ---------------------------------------------------------------------------
