@@ -30,6 +30,7 @@ defmodule PkiValidation.CrlStrategyTest do
         ca_instance_id: "ca-1",
         algorithm: "RSA",
         key_alias: "test-key-per-interval",
+        status: "active",
         crl_strategy: "per_interval"
       })
       {:ok, _} = Repo.insert(issuer_key)
@@ -114,6 +115,7 @@ defmodule PkiValidation.CrlStrategyTest do
         ca_instance_id: "ca-2",
         algorithm: "RSA",
         key_alias: "test-key-pre-signed",
+        status: "active",
         crl_strategy: "pre_signed"
       })
       {:ok, _} = Repo.insert(issuer_key)
@@ -141,6 +143,7 @@ defmodule PkiValidation.CrlStrategyTest do
         ca_instance_id: "ca-3",
         algorithm: "RSA",
         key_alias: "test-key-pre-signed-empty",
+        status: "active",
         crl_strategy: "pre_signed"
       })
       {:ok, _} = Repo.insert(issuer_key)

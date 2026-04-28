@@ -22,23 +22,8 @@ defmodule PkiPlatformEngine.ProvisionerAuditSchemaTest do
     assert [[1]] = result.rows
   end
 
-  test "schema-mode provisioning creates validation tables" do
-    slug = "test-val-#{System.unique_integer([:positive])}"
-    {:ok, tenant} = Provisioner.create_tenant("Test Val Tenant", slug, schema_mode: "schema", email: "val@example.com")
-    on_exit(fn -> Provisioner.delete_tenant(tenant.id) end)
 
-    prefix = TenantPrefix.validation_prefix(tenant.id)
-    {:ok, result} = PlatformRepo.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name",
-      [prefix]
-    )
-    table_names = Enum.map(result.rows, &List.first/1)
-    assert "certificate_status" in table_names
-    assert "crl_metadata" in table_names
-    assert "signing_key_config" in table_names
-  end
-
-  test "delete_tenant cleans up all four schemas" do
+  test "delete_tenant cleans up all three schemas" do
     slug = "test-cleanup-#{System.unique_integer([:positive])}"
     {:ok, tenant} = Provisioner.create_tenant("Test Cleanup", slug, schema_mode: "schema", email: "cleanup@example.com")
     prefixes = TenantPrefix.all_prefixes(tenant.id)

@@ -13,8 +13,7 @@ defmodule PkiPlatformEngine.PoolConfigTest do
     "POOL_SIZE" => 10,
     "AUDIT_POOL_SIZE" => 5,
     "PLATFORM_POOL_SIZE" => 5,
-    "TENANT_POOL_SIZE" => 5,
-    "VALIDATION_POOL_SIZE" => 20
+    "TENANT_POOL_SIZE" => 5
   }
 
   @runtime_configs [

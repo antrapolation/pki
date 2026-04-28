@@ -21,50 +21,39 @@ A Post-Quantum Cryptography ready Certificate Authority infrastructure for issui
 ## Architecture
 
 ```
-                         Internet
-                            |
-                        +-------+
-                        | Caddy |  HTTPS + Auto Let's Encrypt
-                        +---+---+
-         +------------------+------------------+-----------+
-         |                  |                  |           |
-   +-----v------+    +-----v------+    +-----v------+  +-v----------+
-   |  Platform   |    | CA Portal  |    | RA Portal  |  | Validation |
-   |   Portal    |    |   :4002    |    |   :4004    |  |   :4005    |
-   |   :4006     |    +-----+------+    +-----+------+  +------------+
-   +-----+-------+          |                 |               ^
-         |            +-----v------+    +-----v------+        |
-         |            | CA Engine  |    | RA Engine  |--------+
-         |            |   :4001    |<---|   :4003    |  notify
-         |            |            |    +------------+
-         |            | Modules:   |
-         |            | Credential Manager
-         |            | Key Ceremony Manager
-         |            | Key Vault + Keypair ACL
-         |            | Certificate Signing
-         |            +-----+------+
-         |                  |
-   +-----v------------------v-----------------------------------+
-   |                   PostgreSQL 17                             |
-   |                                                             |
-   |  pki_platform    pki_tenant_{uuid}    pki_tenant_{uuid}     |
-   |  (shared)        +-- ca.*             +-- ca.*              |
-   |                  +-- ra.*             +-- ra.*              |
-   |                  +-- validation.*     +-- validation.*      |
-   |                  +-- audit.*          +-- audit.*           |
-   +-------------------------------------------------------------+
+Internet
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Caddy (80/443)                     │
+│  admin.* → pki_platform :4006       │
+│  <tenant>.* → pki_tenant (per-node) │
+└────────┬────────────────────────────┘
+         │
+┌────────▼─────────────────────────────────────┐
+│  pki_platform BEAM (1 node)                   │
+│  Platform portal :4006                        │
+│  Tenant lifecycle management                  │
+│  PostgreSQL: tenant registry, platform users, │
+│              platform audit trail             │
+└────────┬─────────────────────────────────────┘
+         │  :peer spawn / distributed Erlang
+┌────────▼─────────────────────────────────────┐
+│  pki_tenant BEAM (one node per tenant)        │
+│  CA portal + CA engine (in-process)           │
+│  RA portal + RA engine (in-process)           │
+│  Validation: OCSP/CRL (in-process)            │
+│  State: local Mnesia (disc_copies)            │
+└──────────────────────────────────────────────┘
 ```
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| CA Engine | 4001 | Core CA — key ceremonies, certificate signing, credentials |
-| CA Portal | 4002 | CA Admin GUI (Phoenix LiveView) |
-| RA Engine | 4003 | Registration Authority — CSR processing, REST API |
-| RA Portal | 4004 | RA Admin GUI (Phoenix LiveView) |
-| Validation | 4005 | OCSP responder + CRL publisher |
-| Platform Portal | 4006 | Tenant & user management GUI |
-| PostgreSQL | 5432 | Multi-tenant database (one DB per tenant) |
-| SoftHSM2 | — | PKCS#11 HSM simulator |
+| Component | Purpose |
+|-----------|---------|
+| pki_platform | Platform portal + tenant lifecycle; Caddy routes `admin.*` here |
+| pki_tenant | Per-tenant BEAM — CA engine, RA engine, OCSP/CRL, CA/RA portal UI |
+| PostgreSQL | Platform-only: tenant registry, platform users, platform audit trail |
+| Mnesia | Per-tenant state: keys, certificates, certificate status, CRL data |
+| SoftHSM2 / HSM | PKCS#11 key storage for CA signing keys |
 
 ## What's New (since beta.2)
 

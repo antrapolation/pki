@@ -16,38 +16,35 @@ Designed for SaaS multi-tenant deployment and single-tenant on-premises configur
 ## System Architecture
 
 ```
-                          +---------------------------+
-                          |    Platform Portal (:4006)|
-                          |  Tenant & User Management |
-                          +------------+--------------+
-                                       |
-                 +---------------------+---------------------+
-                 |                                           |
-     +-----------+-----------+               +---------------+-----------+
-     |   CA Portal (:4004)  |               |   RA Portal (:4005)       |
-     |   Key & Cert Mgmt UI |               |   CSR & Profile Mgmt UI  |
-     +-----------+-----------+               +---------------+-----------+
-                 |                                           |
-     +-----------+-----------+               +---------------+-----------+
-     |      CA Engine       |               |       RA Engine           |
-     |  Signing & Ceremony  |<--- REST ---->|  CSR Processing & DCV    |
-     |  (key-isolated node) |               |  REST API for Integrations|
-     +-----------+-----------+               +---------------+-----------+
-                 |                                           |
-                 +---------------------+---------------------+
-                                       |
-                          +------------+--------------+
-                          |   Validation Service      |
-                          |   OCSP / CRL / LDAP       |
-                          +---------------------------+
-                                       |
-                              +--------+--------+
-                              |   PostgreSQL    |
-                              |  (per-tenant DB)|
-                              +-----------------+
+Internet
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Caddy (80/443)                     │
+│  admin.* → pki_platform :4006       │
+│  <tenant>.* → pki_tenant (per-node) │
+└────────┬────────────────────────────┘
+         │
+┌────────▼─────────────────────────────────────┐
+│  pki_platform BEAM (1 node)                   │
+│  Platform portal :4006                        │
+│  Tenant lifecycle management                  │
+│  PostgreSQL: tenant registry, platform users, │
+│              platform audit trail             │
+└────────┬─────────────────────────────────────┘
+         │  :peer spawn / distributed Erlang
+┌────────▼─────────────────────────────────────┐
+│  pki_tenant BEAM (one node per tenant)        │
+│  CA portal + CA engine (in-process)           │
+│  RA portal + RA engine (in-process)           │
+│  Validation: OCSP/CRL (in-process)            │
+│  State: local Mnesia (disc_copies)            │
+└──────────────────────────────────────────────┘
 ```
 
-Each box runs as an independent Erlang/OTP node (systemd service). The CA Engine is the only node with access to signing keys -- portals communicate via authenticated internal APIs.
+The platform BEAM manages tenant lifecycle (provision, deprovision, spawn). Each tenant gets its own BEAM node with full CA/RA/Validation capability. Portals and engines are co-located in the tenant BEAM — no inter-process HTTP between them. OCSP and CRL requests are served from the same tenant BEAM; CDP/OCSP URLs in issued certificates point at the tenant's subdomain.
+
+PostgreSQL is used only for platform-tier state (tenant registry, platform user accounts, platform audit trail). All CA, RA, and validation state lives in local Mnesia on the tenant BEAM node — each tenant is isolated by process boundary, not database schema.
 
 ---
 
@@ -68,10 +65,10 @@ PQC operations are performed via native NIFs (liboqs bindings for ML-DSA/SLH-DSA
 
 ## Multi-Tenant Isolation
 
-- **Database-level isolation**: Each tenant gets a dedicated PostgreSQL database (`pki_tenant_<uuid>`) with separate `ca` and `ra` schemas.
-- **Runtime isolation**: A `DynamicSupervisor` spawns per-tenant processes, each with dedicated Ecto Repos routed to the correct database.
-- **Identity isolation**: Platform-level `user_profiles` table with role-based tenant access (`user_tenant_roles`). Per-tenant CA/RA user stores for portal-specific roles.
-- **Lazy start**: Tenant engines start on first request and register in an ETS-backed global registry.
+- **Process-boundary isolation**: Each tenant runs a dedicated `pki_tenant` BEAM node, spawned via `:peer` by `pki_platform`. CA, RA, and Validation services are in-process on that node — not shared with other tenants.
+- **State isolation**: All CA/RA/Validation state (keys, certificates, certificate status, CRL data) lives in local Mnesia (`disc_copies`) on the tenant's BEAM node. No cross-tenant Mnesia replication.
+- **Identity isolation**: Platform-level `user_profiles` table with role-based tenant access (`user_tenant_roles`). Per-tenant CA/RA user stores for portal-specific roles (CA Admin, Key Manager, RA Admin, RA Officer, Auditor).
+- **On-demand start**: Tenant BEAM nodes start on provisioning and are supervised by `pki_platform`. State survives node restarts via Mnesia persistence.
 
 ---
 
@@ -115,7 +112,7 @@ Both synchronous (all present) and asynchronous (join within time window) ceremo
 
 ## REST API (RA Engine)
 
-The RA Engine exposes a scoped REST API at `/api/v1` for external integrations:
+Portal-to-engine calls are in-process (no HTTP). This REST API is exposed externally for third-party integrations only, accessible at `<tenant>.straptrust.com/api/v1`:
 
 - **CSR**: Submit, list, approve, reject
 - **Certificates**: List, retrieve by serial, revoke
@@ -133,8 +130,8 @@ The RA Engine exposes a scoped REST API at `/api/v1` for external integrations:
 | Language & Runtime | Elixir 1.18 / Erlang OTP 26 |
 | Web Framework | Phoenix 1.8 + LiveView 1.1 |
 | HTTP Server | Bandit 1.5 |
-| Database | PostgreSQL (per-tenant isolation) |
-| Distributed Cache | Mnesia (OCSP cache, service registry, rate limits) |
+| Database | PostgreSQL (platform tier only — tenant registry, platform users, platform audit trail) |
+| Tenant State Store | Mnesia disc_copies (keys, certificates, certificate status, CRL data, OCSP cache, rate limits — per-tenant node) |
 | PQC Crypto | liboqs NIF (ML-DSA, SLH-DSA), JRuby bridge (KAZ-SIGN) |
 | Classical Crypto | ex_ccrypto (RSA, ECC, AES, SHA) |
 | X.509 Operations | Custom x509 library (cert/CSR/CRL encoding) |
@@ -146,18 +143,15 @@ The RA Engine exposes a scoped REST API at `/api/v1` for external integrations:
 
 ## Deployment
 
-Six independent systemd services, each an Erlang node with distribution enabled:
+Two systemd service types (no containers required):
 
-| Service | Port | Role |
-|---------|------|------|
-| `pki-platform-portal` | 4006 | Tenant management, cross-tenant admin |
-| `pki-ca-portal` | 4004 | CA admin UI (bundles CA Engine) |
-| `pki-ra-portal` | 4005 | RA admin UI (bundles RA Engine) |
-| `pki-ca-engine` | 4001 | Standalone CA signing (optional HA node) |
-| `pki-ra-engine` | 4002 | Standalone RA processing (optional HA node) |
-| `pki-validation` | 4003 | OCSP, CRL, LDAP (read-only, horizontally scalable) |
+| Service | Count | Port | Role |
+|---------|-------|------|------|
+| `pki-platform` | 1 | 4006 | Platform portal + tenant lifecycle management |
+| `pki-tenant-<slug>` | 1 per tenant | dynamic | CA portal, RA portal, OCSP/CRL — per-tenant BEAM |
 
-**Scaling**: Additional engine nodes join the cluster via Erlang distribution. Validation nodes are stateless and horizontally scalable behind a load balancer. Mnesia replicates activation state across CA Engine nodes for HA.
+**Scaling**: Additional `pki_tenant` nodes are spawned as tenants are provisioned. Each tenant node is fully self-contained — no shared state with other tenant nodes.
 
-**Reverse Proxy**: Caddy with automatic Let's Encrypt TLS (`*.straptrust.com`).
-**Connection Pooling**: PgBouncer in transaction mode for PostgreSQL connection efficiency.
+**Reverse Proxy**: Caddy with automatic Let's Encrypt TLS. Routes `admin.*` to `pki-platform :4006`; routes `<tenant>.*` to the corresponding tenant BEAM node.
+
+**Database**: PostgreSQL is used only by `pki_platform` (tenant registry, platform users, platform audit trail). Tenant nodes use only Mnesia.

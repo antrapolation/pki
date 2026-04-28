@@ -1,11 +1,14 @@
 defmodule PkiValidation.CrlPublisher do
   @moduledoc """
-  CRL Publisher against Mnesia (RFC 5280 simplified).
+  CRL Publisher against Mnesia (RFC 5280 §5 compliant — per-issuer CRLs).
 
-  Periodically queries Mnesia for all revoked CertificateStatus records and
-  builds a CRL data structure. For signed CRLs, calls
-  `PkiCaEngine.KeyActivation.lease_status/2` + `Dispatcher.sign/2` — no
-  separate SigningKeyStore needed since both engines run in the same tenant BEAM.
+  Periodically queries Mnesia for all active IssuerKey records and generates
+  one CRL per issuer containing only that issuer's revoked CertificateStatus
+  records. The result is stored as a map keyed by issuer_key_id.
+
+  For signed CRLs, calls `PkiCaEngine.KeyActivation.lease_status/2` +
+  `Dispatcher.sign/2` — no separate SigningKeyStore needed since both engines
+  run in the same tenant BEAM.
 
   PQC signing (KAZ-SIGN, ML-DSA) works transparently through PkiCrypto.
   """
@@ -27,21 +30,31 @@ defmodule PkiValidation.CrlPublisher do
   end
 
   @doc """
-  Returns the most recently generated CRL.
+  Returns the most recently generated per-issuer CRL map.
 
-  If the last generation failed, returns the last valid CRL with a
-  `generation_error: true` warning flag.
+  Returns `{:ok, %{issuer_key_id => crl_map}}`. If no issuer keys exist,
+  returns `{:ok, %{}}`.
   """
-  def get_current_crl(server \\ __MODULE__) do
-    GenServer.call(server, :get_crl)
+  def get_current_crls(server \\ __MODULE__) do
+    GenServer.call(server, :get_crls)
   end
 
   @doc """
-  Force regeneration of the CRL (useful for testing or on revocation events).
-  Returns `{:ok, crl}` with the freshly generated CRL data.
+  Force regeneration of all per-issuer CRLs (useful for testing or on
+  revocation events). Returns `{:ok, crls_map}` or `{:error, reason}`.
   """
   def regenerate(server \\ __MODULE__) do
     GenServer.call(server, :regenerate)
+  end
+
+  @doc """
+  Returns a status map for the publisher, including whether the last
+  CRL generation attempt failed.
+
+  Returns `%{generation_error: boolean(), issuer_count: non_neg_integer()}`.
+  """
+  def status(server \\ __MODULE__) do
+    GenServer.call(server, :status)
   end
 
   @doc """
@@ -66,8 +79,12 @@ defmodule PkiValidation.CrlPublisher do
         {:error, :issuer_key_not_found}
 
       {:ok, issuer_key} ->
-        strategy = Map.get(issuer_key, :crl_strategy, "per_interval") || "per_interval"
-        do_signed_crl(strategy, issuer_key_id, issuer_key, activation_server)
+        if issuer_key.status == "active" do
+          strategy = Map.get(issuer_key, :crl_strategy, "per_interval") || "per_interval"
+          do_signed_crl(strategy, issuer_key_id, issuer_key, activation_server)
+        else
+          {:error, :issuer_key_not_active}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -78,7 +95,7 @@ defmodule PkiValidation.CrlPublisher do
     status = KeyActivation.lease_status(activation_server, issuer_key_id)
 
     if Map.get(status, :active, false) do
-      with {:ok, crl} <- do_generate_crl(),
+      with {:ok, crl} <- do_generate_crl(issuer_key_id),
            crl_data <- :erlang.term_to_binary(crl),
            {:ok, signature} <- Dispatcher.sign(issuer_key_id, crl_data) do
         {:ok, Map.merge(crl, %{signature: signature, algorithm: issuer_key.algorithm})}
@@ -121,12 +138,12 @@ defmodule PkiValidation.CrlPublisher do
     interval = Keyword.get(opts, :interval, @default_interval_ms)
 
     state = %{
-      crl: empty_crl(),
+      crls: %{},
       interval: interval,
       generation_error: false
     }
 
-    # Generate initial CRL after a short delay to allow Mnesia to be ready
+    # Generate initial CRLs after a short delay to allow Mnesia to be ready
     Process.send_after(self(), :generate, 100)
     schedule_regeneration(interval)
 
@@ -134,42 +151,34 @@ defmodule PkiValidation.CrlPublisher do
   end
 
   @impl true
-  def handle_call(:get_crl, _from, state) do
-    crl =
-      if state.generation_error do
-        Map.put(state.crl, :generation_error, true)
-      else
-        state.crl
-      end
+  def handle_call(:get_crls, _from, state) do
+    {:reply, {:ok, state.crls}, state}
+  end
 
-    {:reply, {:ok, crl}, state}
+  @impl true
+  def handle_call(:status, _from, state) do
+    {:reply, %{generation_error: state.generation_error, issuer_count: map_size(state.crls)}, state}
   end
 
   @impl true
   def handle_call(:regenerate, _from, state) do
-    case do_generate_crl() do
-      {:ok, crl} ->
-        {:reply, {:ok, crl}, %{state | crl: crl, generation_error: false}}
+    case do_generate_all_crls() do
+      {:ok, crls} ->
+        {:reply, {:ok, crls}, %{state | crls: crls, generation_error: false}}
 
-      {:error, _reason} ->
-        crl =
-          if state.generation_error do
-            Map.put(state.crl, :generation_error, true)
-          else
-            state.crl
-          end
-
-        {:reply, {:ok, crl}, %{state | generation_error: true}}
+      {:error, reason} ->
+        {:reply, {:error, reason}, %{state | generation_error: true}}
     end
   end
 
   @impl true
   def handle_info(:generate, state) do
-    case do_generate_crl() do
-      {:ok, crl} ->
-        {:noreply, %{state | crl: crl, generation_error: false}}
+    case do_generate_all_crls() do
+      {:ok, crls} ->
+        {:noreply, %{state | crls: crls, generation_error: false}}
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning("Initial CRL generation failed: #{inspect(reason)}")
         {:noreply, %{state | generation_error: true}}
     end
   end
@@ -177,11 +186,12 @@ defmodule PkiValidation.CrlPublisher do
   @impl true
   def handle_info(:regenerate, state) do
     new_state =
-      case do_generate_crl() do
-        {:ok, crl} ->
-          %{state | crl: crl, generation_error: false}
+      case do_generate_all_crls() do
+        {:ok, crls} ->
+          %{state | crls: crls, generation_error: false}
 
-        {:error, _reason} ->
+        {:error, reason} ->
+          Logger.warning("Periodic CRL regeneration failed: #{inspect(reason)}")
           %{state | generation_error: true}
       end
 
@@ -191,9 +201,36 @@ defmodule PkiValidation.CrlPublisher do
 
   # -- Private helpers --
 
-  defp do_generate_crl do
-    case Repo.where(CertificateStatus, fn cs -> cs.status == "revoked" end) do
-      {:ok, revoked} ->
+  defp do_generate_all_crls do
+    case Repo.all(IssuerKey) do
+      {:ok, issuer_keys} ->
+        active_keys = Enum.filter(issuer_keys, fn key -> key.status == "active" end)
+
+        crls =
+          Enum.reduce(active_keys, %{}, fn key, acc ->
+            case do_generate_crl(key.id) do
+              {:ok, crl} ->
+                Map.put(acc, key.id, crl)
+
+              {:error, reason} ->
+                Logger.warning("CRL generation skipped for issuer #{key.id}: #{inspect(reason)}")
+                acc
+            end
+          end)
+
+        {:ok, crls}
+
+      {:error, reason} ->
+        Logger.error("Failed to fetch issuer keys for CRL generation: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp do_generate_crl(issuer_key_id) do
+    case Repo.get_all_by_index(CertificateStatus, :issuer_key_id, issuer_key_id) do
+      {:ok, all_for_issuer} ->
+        revoked = Enum.filter(all_for_issuer, fn cs -> cs.status == "revoked" end)
+
         revoked_certs =
           revoked
           |> Enum.map(fn cs ->
@@ -208,7 +245,7 @@ defmodule PkiValidation.CrlPublisher do
         {:ok, build_crl(revoked_certs)}
 
       {:error, reason} ->
-        Logger.error("CRL generation failed: #{inspect(reason)}")
+        Logger.error("CRL generation failed for issuer #{issuer_key_id}: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -226,10 +263,7 @@ defmodule PkiValidation.CrlPublisher do
     }
   end
 
-  defp empty_crl, do: build_crl([])
-
   defp schedule_regeneration(interval) do
     Process.send_after(self(), :regenerate, interval)
   end
-
 end

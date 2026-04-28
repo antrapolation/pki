@@ -101,11 +101,31 @@ defmodule PkiValidation.Ocsp.ResponseBuilder do
     end
   end
 
-  def build(status, _responses, _signing_key, _opts) when status in @error_statuses do
+  # Error status with a nonce present: RFC 6960 §4.4.1 requires the nonce be
+  # echoed. Produce a signed BasicOCSPResponse with empty responses but the
+  # nonce in responseExtensions so that the nonce bytes appear in the DER.
+  def build(status, _responses, signing_key, opts)
+      when status in @error_statuses do
+    nonce = Keyword.get(opts, :nonce)
+
     try do
-      ocsp_response = {:OCSPResponse, status, :asn1_NOVALUE}
-      {:ok, iodata} = :OCSP.encode(:OCSPResponse, ocsp_response)
-      {:ok, IO.iodata_to_binary(iodata)}
+      case nonce do
+        nil ->
+          ocsp_response = {:OCSPResponse, status, :asn1_NOVALUE}
+          {:ok, iodata} = :OCSP.encode(:OCSPResponse, ocsp_response)
+          {:ok, IO.iodata_to_binary(iodata)}
+
+        # RFC 6960 §4.2.1: responseBytes is technically defined only for the successful
+        # case, but including it on error responses is the only way to echo the nonce
+        # per §4.4.1. Strict clients may ignore responseBytes on non-successful statuses,
+        # but including it is harmless and serves clients that do parse it.
+        _ when is_binary(nonce) ->
+          basic_der = build_basic_response([], signing_key, nonce)
+          response_bytes = {:ResponseBytes, @basic_ocsp_oid, basic_der}
+          ocsp_response = {:OCSPResponse, status, response_bytes}
+          {:ok, iodata} = :OCSP.encode(:OCSPResponse, ocsp_response)
+          {:ok, IO.iodata_to_binary(iodata)}
+      end
     rescue
       e -> {:error, e}
     catch

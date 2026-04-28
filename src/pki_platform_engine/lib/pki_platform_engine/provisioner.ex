@@ -208,10 +208,6 @@ defmodule PkiPlatformEngine.Provisioner do
       apply_tenant_schema_sql("tenant_audit_schema.sql", "audit", prefixes.audit_prefix)
       Logger.info("tenant_migration_done prefix=#{prefixes.audit_prefix} engine=audit")
 
-      Logger.info("tenant_migration_start prefix=#{prefixes.validation_prefix} engine=validation")
-      apply_tenant_schema_sql("tenant_validation_schema.sql", "validation", prefixes.validation_prefix)
-      Logger.info("tenant_migration_done prefix=#{prefixes.validation_prefix} engine=validation")
-
       :ok
     rescue
       e ->
@@ -459,7 +455,7 @@ defmodule PkiPlatformEngine.Provisioner do
       {:error, reason} -> throw {:error, {:ra_schema_failed, reason}}
     end
 
-    for schema <- ["validation", "audit"] do
+    for schema <- ["audit"] do
       case apply_schema_sql(safe, "CREATE SCHEMA IF NOT EXISTS #{schema}") do
         :ok -> :ok
         {:error, reason} -> throw {:error, {:"#{schema}_schema_failed", reason}}

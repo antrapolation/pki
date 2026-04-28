@@ -74,15 +74,6 @@ config :pki_audit_trail, PkiAuditTrail.Repo,
   database: "pki_ca_engine_dev",
   pool_size: 2
 
-# Validation engine — auto-start HTTP on port 4005
-config :pki_validation, PkiValidation.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  port: 5432,
-  database: "pki_validation_dev",
-  pool_size: 5
-
 # pki_validation HTTP is started per-tenant inside each spawned tenant
 # BEAM (post-M5), NOT on the platform node. Leaving start: true here
 # would make the platform grab port 4005 and then every tenant spawn

@@ -38,45 +38,46 @@ defmodule PkiValidation.Ocsp.DerResponder do
   def respond(%{cert_ids: cert_ids, nonce: nonce} = _request, opts) do
     activation_server = Keyword.get(opts, :activation_server, KeyActivation)
     issuer_key_id = Keyword.get(opts, :issuer_key_id)
+    error_key = dummy_key()
 
     try do
-      case resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce) do
+      case resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce, error_key) do
         {:ok, der} ->
           {:ok, der}
 
         :try_later ->
-          ResponseBuilder.build(:tryLater, [], dummy_key())
+          ResponseBuilder.build(:tryLater, [], error_key, nonce: nonce)
 
         :unauthorized ->
-          ResponseBuilder.build(:unauthorized, [], dummy_key())
+          ResponseBuilder.build(:unauthorized, [], error_key, nonce: nonce)
       end
     rescue
-      _ -> ResponseBuilder.build(:internalError, [], dummy_key())
+      _ -> ResponseBuilder.build(:internalError, [], error_key, nonce: nonce)
     catch
-      _, _ -> ResponseBuilder.build(:internalError, [], dummy_key())
+      _, _ -> ResponseBuilder.build(:internalError, [], error_key, nonce: nonce)
     end
   end
 
   # -- Private helpers --
 
   # No issuer_key_id supplied → the request itself is malformed/unauthorized
-  defp resolve_signing_key(nil, _activation_server, _cert_ids, _nonce), do: :unauthorized
+  defp resolve_signing_key(nil, _activation_server, _cert_ids, _nonce, _error_key), do: :unauthorized
 
   # RFC 6960 §2.3: check lease status before attempting to sign.
   # If the lease is inactive (not yet activated, expired, or ops-exhausted),
   # return :try_later so the caller emits a `tryLater` response — NOT
   # `unauthorized`, which would signal permanent refusal to validators.
-  defp resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce) do
+  defp resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce, error_key) do
     case KeyActivation.lease_status(activation_server, issuer_key_id) do
       %{active: false} ->
         :try_later
 
       %{active: true} ->
-        build_signed_response(issuer_key_id, activation_server, cert_ids, nonce)
+        build_signed_response(issuer_key_id, activation_server, cert_ids, nonce, error_key)
     end
   end
 
-  defp build_signed_response(issuer_key_id, activation_server, cert_ids, nonce) do
+  defp build_signed_response(issuer_key_id, activation_server, cert_ids, nonce, error_key) do
     responses = Enum.map(cert_ids, &lookup_response(&1, issuer_key_id))
 
     lease_result =
@@ -112,7 +113,7 @@ defmodule PkiValidation.Ocsp.DerResponder do
         :try_later
 
       {:error, _reason} ->
-        ResponseBuilder.build(:internalError, [], dummy_key())
+        ResponseBuilder.build(:internalError, [], error_key, nonce: nonce)
     end
   end
 
@@ -181,7 +182,23 @@ defmodule PkiValidation.Ocsp.DerResponder do
   defp revocation_reason_to_atom("aa_compromise"), do: :aACompromise
   defp revocation_reason_to_atom(_), do: :unspecified
 
+  @secp256r1_oid {1, 2, 840, 10045, 3, 1, 7}
+
+  # Generates an ephemeral P-256 key+cert for signing error responses that carry
+  # an OCSP nonce. RFC 6960 §4.4.1 requires the nonce to be echoed in all
+  # responses, including error statuses. The client cannot verify this signature
+  # (the cert is anonymous), but the nonce bytes will be present in the DER.
   defp dummy_key do
-    %{algorithm: "ecc_p256", private_key: <<>>, certificate_der: <<>>}
+    {pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
+
+    ec_priv_record =
+      {:ECPrivateKey, 1, priv, {:namedCurve, @secp256r1_oid}, pub, :asn1_NOVALUE}
+
+    %{cert: cert_der} =
+      :public_key.pkix_test_root_cert(~c"OCSP Error Responder", [{:key, ec_priv_record}])
+
+    priv_der = :public_key.der_encode(:ECPrivateKey, ec_priv_record)
+
+    %{algorithm: "ECC-P256", private_key: priv_der, certificate_der: cert_der}
   end
 end

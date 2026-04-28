@@ -2,14 +2,16 @@ defmodule PkiPlatformEngine.TenantPrefix do
   @moduledoc """
   Generates PostgreSQL schema prefixes for schema-per-tenant isolation.
 
-  Each tenant gets four schemas: `t_{uuid_hex}_ca`, `t_{uuid_hex}_ra`,
-  `t_{uuid_hex}_audit`, and `t_{uuid_hex}_validation`. The uuid_hex is
-  the full 32 hex chars of the tenant UUID (hyphens stripped). The longest
-  prefix is `t_<32hex>_validation` = 45 chars, well within PostgreSQL's
-  63-char limit.
+  Each tenant gets three schemas: `t_{uuid_hex}_ca`, `t_{uuid_hex}_ra`,
+  and `t_{uuid_hex}_audit`. The uuid_hex is the full 32 hex chars of the
+  tenant UUID (hyphens stripped). The longest prefix is `t_<32hex>_audit`
+  = 39 chars, well within PostgreSQL's 63-char limit.
+
+  Validation state lives in Mnesia on the tenant BEAM node — there are no
+  `t_<hex>_validation` PostgreSQL schemas.
   """
 
-  @prefix_pattern ~r/\At_[0-9a-f]{32}_(ca|ra|audit|validation)\z/
+  @prefix_pattern ~r/\At_[0-9a-f]{32}_(ca|ra|audit)\z/
 
   @doc "CA schema prefix for a tenant."
   def ca_prefix(tenant_id), do: "t_#{uuid_hex(tenant_id)}_ca"
@@ -20,16 +22,12 @@ defmodule PkiPlatformEngine.TenantPrefix do
   @doc "Audit schema prefix for a tenant."
   def audit_prefix(tenant_id), do: "t_#{uuid_hex(tenant_id)}_audit"
 
-  @doc "Validation schema prefix for a tenant."
-  def validation_prefix(tenant_id), do: "t_#{uuid_hex(tenant_id)}_validation"
-
-  @doc "Returns all four prefixes as a map."
+  @doc "Returns all three prefixes as a map."
   def all_prefixes(tenant_id) do
     %{
       ca_prefix: ca_prefix(tenant_id),
       ra_prefix: ra_prefix(tenant_id),
-      audit_prefix: audit_prefix(tenant_id),
-      validation_prefix: validation_prefix(tenant_id)
+      audit_prefix: audit_prefix(tenant_id)
     }
   end
 
@@ -42,7 +40,7 @@ defmodule PkiPlatformEngine.TenantPrefix do
     unless prefix =~ @prefix_pattern do
       raise ArgumentError,
         "Invalid schema prefix: #{inspect(prefix)}. " <>
-        "Expected format: t_<32hex>_(ca|ra|audit|validation)"
+        "Expected format: t_<32hex>_(ca|ra|audit)"
     end
     prefix
   end

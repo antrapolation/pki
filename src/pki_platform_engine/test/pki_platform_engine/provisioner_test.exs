@@ -103,12 +103,12 @@ defmodule PkiPlatformEngine.ProvisionerTest do
       end
     end
 
-    test "creates all 4 schemas (ca, ra, validation, audit)" do
+    test "creates all 3 schemas (ca, ra, audit)" do
       {:ok, tenant} = Provisioner.create_tenant("DB Schema Test", "db-schema-test",
         email: "test@example.com", schema_mode: "database")
 
       try do
-        for schema <- ["ca", "ra", "validation", "audit"] do
+        for schema <- ["ca", "ra", "audit"] do
           {:ok, result} = TenantRepo.execute_sql(
             tenant.database_name,
             "public",
