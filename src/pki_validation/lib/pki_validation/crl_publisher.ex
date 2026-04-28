@@ -48,6 +48,16 @@ defmodule PkiValidation.CrlPublisher do
   end
 
   @doc """
+  Returns a status map for the publisher, including whether the last
+  CRL generation attempt failed.
+
+  Returns `%{generation_error: boolean(), issuer_count: non_neg_integer()}`.
+  """
+  def status(server \\ __MODULE__) do
+    GenServer.call(server, :status)
+  end
+
+  @doc """
   Build and return a signed CRL for the given issuer_key_id.
 
   Branches on the `crl_strategy` field of the associated `IssuerKey`:
@@ -143,6 +153,11 @@ defmodule PkiValidation.CrlPublisher do
   @impl true
   def handle_call(:get_crls, _from, state) do
     {:reply, {:ok, state.crls}, state}
+  end
+
+  @impl true
+  def handle_call(:status, _from, state) do
+    {:reply, %{generation_error: state.generation_error, issuer_count: map_size(state.crls)}, state}
   end
 
   @impl true

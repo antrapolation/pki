@@ -41,7 +41,7 @@ defmodule PkiValidation.Ocsp.DerResponder do
     error_key = dummy_key()
 
     try do
-      case resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce) do
+      case resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce, error_key) do
         {:ok, der} ->
           {:ok, der}
 
@@ -61,23 +61,23 @@ defmodule PkiValidation.Ocsp.DerResponder do
   # -- Private helpers --
 
   # No issuer_key_id supplied → the request itself is malformed/unauthorized
-  defp resolve_signing_key(nil, _activation_server, _cert_ids, _nonce), do: :unauthorized
+  defp resolve_signing_key(nil, _activation_server, _cert_ids, _nonce, _error_key), do: :unauthorized
 
   # RFC 6960 §2.3: check lease status before attempting to sign.
   # If the lease is inactive (not yet activated, expired, or ops-exhausted),
   # return :try_later so the caller emits a `tryLater` response — NOT
   # `unauthorized`, which would signal permanent refusal to validators.
-  defp resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce) do
+  defp resolve_signing_key(issuer_key_id, activation_server, cert_ids, nonce, error_key) do
     case KeyActivation.lease_status(activation_server, issuer_key_id) do
       %{active: false} ->
         :try_later
 
       %{active: true} ->
-        build_signed_response(issuer_key_id, activation_server, cert_ids, nonce)
+        build_signed_response(issuer_key_id, activation_server, cert_ids, nonce, error_key)
     end
   end
 
-  defp build_signed_response(issuer_key_id, activation_server, cert_ids, nonce) do
+  defp build_signed_response(issuer_key_id, activation_server, cert_ids, nonce, error_key) do
     responses = Enum.map(cert_ids, &lookup_response(&1, issuer_key_id))
 
     lease_result =
@@ -113,7 +113,7 @@ defmodule PkiValidation.Ocsp.DerResponder do
         :try_later
 
       {:error, _reason} ->
-        ResponseBuilder.build(:internalError, [], dummy_key(), nonce: nonce)
+        ResponseBuilder.build(:internalError, [], error_key, nonce: nonce)
     end
   end
 

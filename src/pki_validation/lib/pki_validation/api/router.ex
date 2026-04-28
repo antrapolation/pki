@@ -32,8 +32,12 @@ defmodule PkiValidation.Api.Router do
     crl_status =
       case PkiValidation.CrlPublisher.get_current_crls() do
         {:ok, crls} ->
+          gen_error = case PkiValidation.CrlPublisher.status() do
+            %{generation_error: err} -> err
+            _ -> false
+          end
           total = crls |> Enum.map(fn {_, crl} -> crl.total_revoked end) |> Enum.sum()
-          %{issuer_count: map_size(crls), total_revoked: total}
+          %{issuer_count: map_size(crls), total_revoked: total, generation_error: gen_error}
         _ ->
           %{error: "unavailable"}
       end
