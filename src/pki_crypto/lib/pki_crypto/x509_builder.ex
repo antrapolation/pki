@@ -103,6 +103,44 @@ defmodule PkiCrypto.X509Builder do
   end
 
   @doc """
+  Build the TBSCertificate DER for a self-signed root certificate without signing it.
+
+  Returns `{:ok, tbs_der, sig_alg_oid}`. The caller can sign `tbs_der` externally
+  (e.g. via an HSM) and assemble the final certificate with `assemble_cert/3`.
+  """
+  @spec build_self_signed_tbs(String.t(), term(), String.t(), pos_integer()) ::
+          {:ok, binary(), tuple()} | {:error, term()}
+  def build_self_signed_tbs(algorithm_id, public_key, subject_dn, validity_days) do
+    with {:ok, %{public_key_oid: pk_oid, sig_alg_oid: sig_oid}} <-
+           AlgorithmRegistry.by_id(algorithm_id) do
+      version = Asn1.tagged(0, :explicit, Asn1.integer(2))
+      serial = Asn1.integer(:crypto.strong_rand_bytes(8) |> :binary.decode_unsigned())
+      sig_alg = Asn1.sequence([Asn1.oid(sig_oid)])
+      name = encode_name_from_dn_string(subject_dn)
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      not_after = DateTime.add(now, validity_days * 86_400, :second)
+      validity = Asn1.sequence([encode_time(now), encode_time(not_after)])
+
+      spki_alg_id = build_spki_alg_id(algorithm_id, pk_oid)
+      spki_pub_bytes = extract_spki_public_bytes(algorithm_id, public_key)
+      spki = Asn1.sequence([spki_alg_id, Asn1.bit_string(spki_pub_bytes)])
+
+      bc = make_extension({2, 5, 29, 19}, true, Asn1.sequence([Asn1.boolean(true)]))
+      ku = make_extension({2, 5, 29, 15}, true, key_usage_keycertsign_crlsign())
+      ski = make_extension({2, 5, 29, 14}, false, Asn1.octet_string(sha1(spki_pub_bytes)))
+      extensions = Asn1.tagged(3, :explicit, Asn1.sequence([bc, ku, ski]))
+
+      tbs =
+        Asn1.sequence([version, serial, sig_alg, name, validity, name, spki, extensions])
+
+      {:ok, tbs, sig_oid}
+    else
+      :error -> {:error, :unknown_algorithm}
+    end
+  end
+
+  @doc """
   Build and sign a self-signed X.509 root certificate.
 
   For classical algorithms the `private_key` in the map is a `:public_key`
@@ -117,42 +155,8 @@ defmodule PkiCrypto.X509Builder do
   @spec self_sign(String.t(), map(), String.t(), pos_integer()) ::
           {:ok, binary()} | {:error, term()}
   def self_sign(algorithm_id, %{public_key: pub, private_key: priv}, subject_dn, validity_days) do
-    with {:ok, %{public_key_oid: pk_oid, sig_alg_oid: sig_oid}} <-
-           AlgorithmRegistry.by_id(algorithm_id) do
-      version = Asn1.tagged(0, :explicit, Asn1.integer(2))
-      serial = Asn1.integer(:crypto.strong_rand_bytes(8) |> :binary.decode_unsigned())
-      sig_alg = Asn1.sequence([Asn1.oid(sig_oid)])
-      name = encode_name_from_dn_string(subject_dn)
-
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
-      not_after = DateTime.add(now, validity_days * 86_400, :second)
-      validity = Asn1.sequence([encode_time(now), encode_time(not_after)])
-
-      spki_alg_id = build_spki_alg_id(algorithm_id, pk_oid)
-      spki_pub_bytes = extract_spki_public_bytes(algorithm_id, pub)
-      spki = Asn1.sequence([spki_alg_id, Asn1.bit_string(spki_pub_bytes)])
-
-      # Root extensions: CA:TRUE, keyCertSign|cRLSign, SKI. AKI omitted on self-signed roots.
-      bc = make_extension({2, 5, 29, 19}, true, Asn1.sequence([Asn1.boolean(true)]))
-      ku = make_extension({2, 5, 29, 15}, true, key_usage_keycertsign_crlsign())
-      ski = make_extension({2, 5, 29, 14}, false, Asn1.octet_string(sha1(spki_pub_bytes)))
-      extensions = Asn1.tagged(3, :explicit, Asn1.sequence([bc, ku, ski]))
-
-      tbs =
-        Asn1.sequence([
-          version,
-          serial,
-          sig_alg,
-          name,
-          validity,
-          name,
-          spki,
-          extensions
-        ])
-
+    with {:ok, tbs, _sig_oid} <- build_self_signed_tbs(algorithm_id, pub, subject_dn, validity_days) do
       sign_tbs(tbs, algorithm_id, priv)
-    else
-      :error -> {:error, :unknown_algorithm}
     end
   end
 

@@ -44,6 +44,36 @@ defmodule PkiCaEngine.KeyStore.LocalHsmAdapter do
   end
 
   @doc """
+  Generate a new key pair in the HSM and return the keygen result map.
+
+  `hsm_config` must contain `"library_path"`, `"slot_id"`, and `"pin"`.
+  `label` becomes the `CKA_LABEL` of both the public and private key objects.
+  `algorithm` is e.g. `"ECC-P256"`, `"ECC-P384"`, `"RSA-2048"`, `"RSA-4096"`.
+
+  Returns:
+    - ECC: `{:ok, %{key_type: "ec", public_key: binary, key_id: hex_string}}`
+    - RSA: `{:ok, %{key_type: "rsa", modulus: binary, public_exponent: binary, key_id: hex_string}}`
+  """
+  def generate_key(hsm_config, label, algorithm) do
+    with {:ok, port_pid} <- get_or_start_port_for_config(hsm_config) do
+      Pkcs11Port.call(port_pid, {:generate_key, label, algorithm})
+    end
+  end
+
+  @doc """
+  Sign `data` using a key identified by `key_label` in the given HSM config.
+
+  Used during key ceremony before the IssuerKey record is written to Mnesia,
+  so the normal `sign/2` path (which reads hsm_config from IssuerKey) is
+  unavailable.
+  """
+  def sign_with_config(hsm_config, key_label, data) do
+    with {:ok, port_pid} <- get_or_start_port_for_config(hsm_config) do
+      Pkcs11Port.call(port_pid, {:sign, key_label, data})
+    end
+  end
+
+  @doc """
   Authorize a PKCS#11 session by deriving a deterministic PIN from the sorted
   custodian auth tokens.
 
@@ -80,6 +110,10 @@ defmodule PkiCaEngine.KeyStore.LocalHsmAdapter do
   end
 
   defp get_or_start_port(%IssuerKey{hsm_config: config}) do
+    get_or_start_port_for_config(config)
+  end
+
+  defp get_or_start_port_for_config(config) do
     port_name = port_name_for(config)
 
     case Process.whereis(port_name) do

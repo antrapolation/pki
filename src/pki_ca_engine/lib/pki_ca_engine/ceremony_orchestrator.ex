@@ -69,6 +69,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   }
   alias PkiCaEngine.{IssuerKeyManagement, CaInstanceManagement, KeystoreManagement}
   alias PkiCaEngine.KeyCeremony.ShareEncryption
+  alias PkiCaEngine.KeyStore.LocalHsmAdapter
   alias PkiMnesia.Structs.PortalUser
 
   @pbkdf2_iterations 600_000
@@ -99,7 +100,7 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
   ## Keystore mode validation
 
   In `:prod` env only `"hsm"` is permitted. Passing `"software"` or
-  `"softhsm"` in prod returns `{:error, :software_keystore_not_allowed_in_prod}`.
+  `"software"` in prod returns `{:error, :software_keystore_not_allowed_in_prod}`.
 
   When `keystore_mode` is `"hsm"`, the CA must have at least one keystore of
   type `"hsm"` already configured; otherwise returns
@@ -1001,6 +1002,76 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     end
   end
 
+  # Candidate SoftHSM2 library paths, checked in order at runtime.
+  @softhsm_library_candidates [
+    "/opt/homebrew/lib/softhsm/libsofthsm2.so",
+    "/usr/lib/softhsm/libsofthsm2.so",
+    "/usr/lib64/softhsm/libsofthsm2.so",
+    "/usr/local/lib/softhsm/libsofthsm2.so"
+  ]
+
+  # do_keygen_and_split/4 — dispatches on keystore_type from the IssuerKey:
+  #
+  #   :local_hsm — generate key in PKCS#11 HSM; sign cert/CSR via port; no Shamir split
+  #   :software  — Shamir split / password / single_custodian (software key material)
+
+  defp do_keygen_and_split(ceremony, %IssuerKey{keystore_type: :local_hsm} = issuer_key, _db_shares, _passwords) do
+    with {:ok, hsm_config} <- resolve_hsm_config(ceremony),
+         key_label = issuer_key.id,
+         {:ok, key_result} <- LocalHsmAdapter.generate_key(hsm_config, key_label, ceremony.algorithm),
+         {:ok, public_key} <- hsm_keygen_to_public_key(ceremony.algorithm, key_result) do
+      fingerprint =
+        hsm_keygen_fingerprint_bytes(key_result)
+        |> then(&:crypto.hash(:sha256, &1))
+        |> Base.encode16(case: :lower)
+
+      is_root = Map.get(ceremony.domain_info, "is_root", true)
+      subject_dn = Map.get(ceremony.domain_info, "subject_dn", "/CN=CA-#{ceremony.id}")
+
+      signing_fn = fn data -> LocalHsmAdapter.sign_with_config(hsm_config, key_label, data) end
+
+      {cert_or_csr_result, cert_der, cert_pem, csr_pem} =
+        if is_root do
+          case generate_self_signed_via_hsm(ceremony.algorithm, public_key, subject_dn, signing_fn) do
+            {:ok, der, pem} -> {:ok, der, pem, nil}
+            error -> {error, nil, nil, nil}
+          end
+        else
+          case generate_csr_via_hsm(ceremony.algorithm, public_key, subject_dn, signing_fn) do
+            {:ok, pem} -> {:ok, nil, nil, pem}
+            error -> {error, nil, nil, nil}
+          end
+        end
+
+      case cert_or_csr_result do
+        :ok ->
+          populated_hsm_config =
+            Map.merge(hsm_config, %{"key_label" => key_label, "key_id" => key_result.key_id})
+
+          sub_ca_data =
+            if is_root and not is_nil(cert_der) do
+              case spawn_sub_ca_via_hsm(ceremony, populated_hsm_config, cert_der, subject_dn) do
+                {:ok, data} -> data
+                {:error, reason} ->
+                  Logger.warning("HSM sub-CA auto-spawn failed: #{inspect(reason)}; continuing without sub-CA")
+                  nil
+              end
+            end
+
+          commit_hsm_key(ceremony, issuer_key, populated_hsm_config, fingerprint, is_root,
+                         cert_der, cert_pem, csr_pem, subject_dn, sub_ca_data)
+
+        error ->
+          fail_ceremony(ceremony.id, "cert_generation_failed")
+          error
+      end
+    else
+      {:error, reason} ->
+        fail_ceremony(ceremony.id, "hsm_keygen_failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
   # do_keygen_and_split/4 — dispatches on key_mode from the IssuerKey:
   #
   #   "threshold"        — Shamir split into ceremony.threshold_n shares, k-of-n
@@ -1218,6 +1289,300 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
     String.replace(root_dn, ~r{/CN=([^/]+)}, "/CN=Sub CA — \\1", global: false)
   end
 
+  # Resolve HSM connection config from env vars (softhsm) or Keystore record (hsm).
+  defp resolve_hsm_config(%{keystore_mode: "softhsm"}) do
+    library_path =
+      System.get_env("PKI_SOFTHSM_LIBRARY_PATH") || detect_softhsm_library_path()
+
+    slot_str = System.get_env("PKI_SOFTHSM_SLOT_ID")
+
+    cond do
+      is_nil(library_path) -> {:error, :softhsm_library_path_not_configured}
+      is_nil(slot_str) -> {:error, :softhsm_slot_id_not_configured}
+      true ->
+        case fetch_softhsm_user_pin() do
+          {:ok, pin} ->
+            {:ok, %{"library_path" => library_path, "slot_id" => String.to_integer(slot_str), "pin" => pin}}
+          {:error, _} = err ->
+            err
+        end
+    end
+  end
+
+  defp resolve_hsm_config(%{keystore_mode: "hsm", ca_instance_id: ca_instance_id}) do
+    keystores = KeystoreManagement.available_keystores(ca_instance_id)
+
+    case Enum.find(keystores, fn ks -> ks.type == "hsm" end) do
+      nil ->
+        {:error, :no_hsm_keystore_configured}
+
+      keystore ->
+        config = keystore.config
+        pin = System.get_env("PKI_HSM_USER_PIN", "")
+        {:ok, %{
+          "library_path" => config["pkcs11_lib_path"],
+          "slot_id" => config["slot_id"],
+          "pin" => pin
+        }}
+    end
+  end
+
+  defp resolve_hsm_config(_), do: {:error, :unsupported_keystore_mode_for_hsm}
+
+  defp detect_softhsm_library_path do
+    Enum.find(@softhsm_library_candidates, &File.exists?/1)
+  end
+
+  # Retrieve the SoftHSM2 user PIN.
+  #
+  # Resolution order:
+  #   1. PKI_SOFTHSM_USER_PIN env var — works in dev/test without a platform node.
+  #   2. RPC to the platform node → SofthsmPinCustody.get_user_pin/1, which
+  #      reads the encrypted envelope from PostgreSQL and decrypts it with
+  #      the platform master key. Production path.
+  defp fetch_softhsm_user_pin do
+    case System.get_env("PKI_SOFTHSM_USER_PIN") do
+      pin when is_binary(pin) and pin != "" ->
+        {:ok, pin}
+
+      _ ->
+        tenant_id = System.get_env("TENANT_ID")
+        platform_node_str = System.get_env("PLATFORM_NODE")
+
+        cond do
+          is_nil(tenant_id) ->
+            {:error, :softhsm_pin_not_configured}
+
+          is_nil(platform_node_str) ->
+            {:error, :softhsm_pin_not_configured}
+
+          true ->
+            platform_node = String.to_atom(platform_node_str)
+
+            case :rpc.call(platform_node, PkiPlatformEngine.SofthsmPinCustody, :get_user_pin,
+                           [tenant_id], 10_000) do
+              {:ok, pin} -> {:ok, pin}
+              {:badrpc, reason} -> {:error, {:rpc_failed, reason}}
+              {:error, _} = err -> err
+            end
+        end
+    end
+  end
+
+  # Convert Pkcs11Port generate_key result to the public key form expected by X509Builder.
+  # ECC: raw EC point bytes (pass-through).
+  # RSA: reconstruct OTP {:RSAPublicKey, modulus_int, exp_int} so X509Builder can DER-encode it.
+  defp hsm_keygen_to_public_key(_algorithm, %{key_type: "ec", public_key: pk}), do: {:ok, pk}
+
+  defp hsm_keygen_to_public_key(_algorithm, %{key_type: "rsa", modulus: mod, public_exponent: exp}) do
+    {:ok, {:RSAPublicKey, :binary.decode_unsigned(mod), :binary.decode_unsigned(exp)}}
+  end
+
+  defp hsm_keygen_to_public_key(_algorithm, result),
+    do: {:error, {:unsupported_hsm_key_type, result}}
+
+  # Return the raw bytes used for fingerprint computation.
+  defp hsm_keygen_fingerprint_bytes(%{key_type: "ec", public_key: pk}), do: pk
+  defp hsm_keygen_fingerprint_bytes(%{key_type: "rsa", modulus: mod}), do: mod
+
+  defp generate_self_signed_via_hsm(algorithm, public_key, subject_dn, signing_fn) do
+    with {:ok, tbs_der, sig_oid} <-
+           PkiCrypto.X509Builder.build_self_signed_tbs(algorithm, public_key, subject_dn, 365 * 25),
+         {:ok, signature} <- signing_fn.(tbs_der) do
+      cert_der = PkiCrypto.X509Builder.assemble_cert(tbs_der, sig_oid, signature)
+      cert_pem = :public_key.pem_encode([{:Certificate, cert_der, :not_encrypted}])
+      {:ok, cert_der, cert_pem}
+    end
+  end
+
+  defp generate_csr_via_hsm(algorithm, public_key, subject_dn, signing_fn) do
+    PkiCrypto.Csr.generate_with_signing_fn(algorithm, public_key, subject_dn, signing_fn)
+  end
+
+  # Auto-spawn a sub-CA during an HSM root CA ceremony.
+  # The sub-CA key is also generated in the same HSM slot; the root HSM key signs its cert.
+  defp spawn_sub_ca_via_hsm(root_ceremony, root_hsm_config, root_cert_der, root_subject_dn) do
+    algorithm = root_ceremony.algorithm
+    ca_instance_id = root_ceremony.ca_instance_id
+    sub_ca_dn = derive_sub_ca_dn(root_subject_dn)
+
+    sub_label = "sub-ca-#{:erlang.unique_integer([:positive, :monotonic])}"
+
+    with {:ok, sub_key_result} <- LocalHsmAdapter.generate_key(root_hsm_config, sub_label, algorithm),
+         {:ok, sub_pub} <- hsm_keygen_to_public_key(algorithm, sub_key_result) do
+      root_key_label = root_hsm_config["key_label"]
+      root_signing_fn = fn data -> LocalHsmAdapter.sign_with_config(root_hsm_config, root_key_label, data) end
+
+      serial = :crypto.strong_rand_bytes(8) |> :binary.decode_unsigned()
+      csr_parsed = %{
+        algorithm_id: algorithm,
+        subject_public_key: extract_raw_pub_bytes(algorithm, sub_pub),
+        raw_tbs: <<>>,
+        signature: <<>>
+      }
+      issuer_ref = %{cert_der: root_cert_der, algorithm_id: algorithm}
+
+      with {:ok, tbs_der, _} <-
+             PkiCrypto.X509Builder.build_tbs_cert(csr_parsed, issuer_ref, sub_ca_dn, 365 * 10, serial),
+           {:ok, signature} <- root_signing_fn.(tbs_der),
+           {:ok, meta} <- PkiCrypto.AlgorithmRegistry.by_id(algorithm) do
+        sub_cert_der = PkiCrypto.X509Builder.assemble_cert(tbs_der, meta.sig_alg_oid, signature)
+        sub_cert_pem = :public_key.pem_encode([{:Certificate, sub_cert_der, :not_encrypted}])
+        sub_fingerprint =
+          hsm_keygen_fingerprint_bytes(sub_key_result)
+          |> then(&:crypto.hash(:sha256, &1))
+          |> Base.encode16(case: :lower)
+
+        sub_hsm_config = Map.merge(root_hsm_config, %{
+          "key_label" => sub_label,
+          "key_id" => sub_key_result.key_id
+        })
+
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+        sub_key = IssuerKey.new(%{
+          ca_instance_id: ca_instance_id,
+          key_alias: "sub-ca-#{:erlang.unique_integer([:positive])}",
+          algorithm: algorithm,
+          is_root: false,
+          status: "active",
+          ceremony_mode: :full,
+          keystore_type: :local_hsm,
+          hsm_config: sub_hsm_config,
+          threshold_config: %{k: root_ceremony.threshold_k, n: root_ceremony.threshold_n},
+          certificate_der: sub_cert_der,
+          certificate_pem: sub_cert_pem,
+          fingerprint: sub_fingerprint,
+          subject_dn: sub_ca_dn,
+          inserted_at: now,
+          updated_at: now
+        })
+
+        sub_ceremony = KeyCeremony.new(%{
+          ca_instance_id: ca_instance_id,
+          issuer_key_id: sub_key.id,
+          algorithm: algorithm,
+          threshold_k: root_ceremony.threshold_k,
+          threshold_n: root_ceremony.threshold_n,
+          domain_info: %{
+            "is_root" => false,
+            "subject_dn" => sub_ca_dn,
+            "parent_ceremony_id" => root_ceremony.id,
+            "fingerprint" => sub_fingerprint,
+            "auto_spawned" => true
+          },
+          initiated_by: "system",
+          keystore_mode: root_ceremony.keystore_mode,
+          status: "completed",
+          inserted_at: now,
+          updated_at: now
+        })
+
+        {:ok, %{
+          issuer_key: sub_key,
+          ceremony: sub_ceremony,
+          cert_der: sub_cert_der,
+          cert_pem: sub_cert_pem,
+          fingerprint: sub_fingerprint
+        }}
+      end
+    end
+  end
+
+  # Activate an HSM-backed issuer key without Shamir split or share encryption.
+  # Writes IssuerKey (with hsm_config) and completes the ceremony in one transaction.
+  defp commit_hsm_key(ceremony, issuer_key, hsm_config, fingerprint, is_root,
+                      cert_der, cert_pem, csr_pem, subject_dn, sub_ca_data) do
+    case Repo.transaction(fn ->
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      # Activate the issuer key with populated hsm_config.
+      if is_root and cert_der do
+        case :mnesia.read(PkiMnesia.Schema.table_name(IssuerKey), issuer_key.id) do
+          [record] ->
+            key = Repo.record_to_struct(IssuerKey, record)
+            activated = %{key |
+              status: "active",
+              hsm_config: hsm_config,
+              certificate_der: cert_der,
+              certificate_pem: cert_pem,
+              fingerprint: fingerprint,
+              subject_dn: subject_dn,
+              updated_at: now
+            }
+            :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), activated))
+          [] -> :ok
+        end
+      else
+        # Sub-CA: store CSR, leave status "pending" until external CA signs
+        case :mnesia.read(PkiMnesia.Schema.table_name(IssuerKey), issuer_key.id) do
+          [record] ->
+            key = Repo.record_to_struct(IssuerKey, record)
+            updated = %{key |
+              hsm_config: hsm_config,
+              csr_pem: csr_pem,
+              fingerprint: fingerprint,
+              subject_dn: subject_dn,
+              updated_at: now
+            }
+            :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), updated))
+          [] -> :ok
+        end
+      end
+
+      # Complete ceremony
+      case :mnesia.read(PkiMnesia.Schema.table_name(KeyCeremony), ceremony.id) do
+        [record] ->
+          c = Repo.record_to_struct(KeyCeremony, record)
+          completed = %{c |
+            status: "completed",
+            domain_info: Map.merge(c.domain_info || %{}, %{
+              "fingerprint" => fingerprint,
+              "csr_pem" => csr_pem,
+              "subject_dn" => subject_dn
+            }),
+            updated_at: now
+          }
+          :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), completed))
+        [] -> :ok
+      end
+
+      append_transcript_in_tx(ceremony.id, "system", "ceremony_completed", %{
+        fingerprint: fingerprint,
+        keystore: "hsm"
+      })
+
+      if not is_nil(sub_ca_data) do
+        now_sub = DateTime.utc_now() |> DateTime.truncate(:second)
+        sub_key = sub_ca_data.issuer_key
+        :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(IssuerKey), sub_key))
+        sub_ceremony = struct(sub_ca_data.ceremony, %{updated_at: now_sub})
+        :mnesia.write(Repo.struct_to_record(PkiMnesia.Schema.table_name(KeyCeremony), sub_ceremony))
+        append_transcript_in_tx(ceremony.id, "system", "sub_ca_auto_spawned", %{
+          sub_ca_key_id: sub_key.id,
+          sub_ca_fingerprint: sub_ca_data.fingerprint,
+          sub_ca_dn: sub_key.subject_dn
+        })
+      end
+    end) do
+      {:ok, _} ->
+        if is_root do
+          case Repo.get(PkiMnesia.Structs.CaInstance, ceremony.ca_instance_id) do
+            {:ok, ca} when not is_nil(ca) ->
+              if CaInstanceManagement.is_root?(ca), do: CaInstanceManagement.set_offline(ceremony.ca_instance_id)
+            _ -> :ok
+          end
+        end
+
+        sub_ca_key_id = if sub_ca_data, do: sub_ca_data.issuer_key.id, else: nil
+        {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem, sub_ca_key_id: sub_ca_key_id}}
+
+      {:error, reason} ->
+        fail_ceremony(ceremony.id, "transaction_failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
   # Map keystore_mode string to IssuerKey.keystore_type atom.
   defp keystore_mode_to_keystore_type("hsm"), do: :local_hsm
   defp keystore_mode_to_keystore_type("softhsm"), do: :local_hsm
@@ -1423,26 +1788,27 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
 
   # Validate keystore_mode against env policy and HSM availability.
   #
-  # In :prod, only "hsm" is permitted — "software" and "softhsm" bypass
-  # hardware key custody requirements.
+  # In :prod, only "softhsm" and "hsm" are permitted — "software" stores raw
+  # private key bytes in BEAM process memory, which violates key custody
+  # requirements. SoftHSM2 is a proper PKCS#11 token (software-based but
+  # key-isolated via the HSM port), so it is permitted everywhere.
   #
   # When the caller requests "hsm", the CA must already have at least one
-  # keystore of type "hsm" configured; the HSM-key mapping at activation time
-  # (IssuerKey.keystore_type derivation from KeyCeremony.keystore_mode) is
-  # handled as a separate task (E1.4+).
+  # keystore of type "hsm" configured.
   defp validate_keystore_mode(mode, _ca_instance_id)
        when mode not in ["software", "softhsm", "hsm"] do
     {:error, {:invalid_keystore_mode, mode}}
   end
 
-  defp validate_keystore_mode(mode, _ca_instance_id)
-       when mode in ["software", "softhsm"] do
+  defp validate_keystore_mode("software", _ca_instance_id) do
     if Application.get_env(:pki_ca_engine, :env) == :prod do
       {:error, :software_keystore_not_allowed_in_prod}
     else
       :ok
     end
   end
+
+  defp validate_keystore_mode("softhsm", _ca_instance_id), do: :ok
 
   defp validate_keystore_mode("hsm", ca_instance_id) do
     keystores = KeystoreManagement.list_keystores(ca_instance_id)

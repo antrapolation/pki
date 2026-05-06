@@ -109,6 +109,72 @@ defmodule PkiCrypto.Csr do
     end
   end
 
+  @doc """
+  Generate a PKCS#10 CSR where the private-key signing is delegated to a function.
+
+  `signing_fn` receives the raw CRI DER and must return `{:ok, signature}` or
+  `{:error, reason}`. Used by HSM-backed ceremony paths where the private key
+  never leaves the token.
+
+  Builds a well-formed SPKI including named-curve parameters for ECDSA and a
+  NULL parameter for RSA. For RSA, `public_key` must be an OTP `:RSAPublicKey`
+  record `{:RSAPublicKey, modulus_int, exp_int}`.
+  """
+  @spec generate_with_signing_fn(
+          String.t(),
+          term(),
+          String.t(),
+          (binary() -> {:ok, binary()} | {:error, term()})
+        ) :: {:ok, binary()} | {:error, term()}
+  def generate_with_signing_fn(algorithm_id, public_key, subject_dn, signing_fn) do
+    case AlgorithmRegistry.by_id(algorithm_id) do
+      {:ok, %{public_key_oid: pk_oid, sig_alg_oid: sig_oid}} ->
+        spki_alg = build_signing_fn_spki_alg(algorithm_id, pk_oid)
+        spki_pub = signing_fn_pub_bytes(algorithm_id, public_key)
+        spki = Asn1.sequence([spki_alg, Asn1.bit_string(spki_pub)])
+
+        version = Asn1.integer(0)
+        subject = encode_name(subject_dn)
+        attrs = Asn1.tagged(0, :explicit, <<>>)
+        cri_der = Asn1.sequence([version, subject, spki, attrs])
+
+        sig_alg_der = Asn1.sequence([Asn1.oid(sig_oid)])
+
+        case signing_fn.(cri_der) do
+          {:ok, signature} ->
+            csr_der = Asn1.sequence([cri_der, sig_alg_der, Asn1.bit_string(signature)])
+            pem = :public_key.pem_encode([{:CertificationRequest, csr_der, :not_encrypted}])
+            {:ok, pem}
+
+          {:error, _} = error ->
+            error
+        end
+
+      :error ->
+        {:error, {:unknown_algorithm, algorithm_id}}
+    end
+  end
+
+  defp build_signing_fn_spki_alg("ECC-P256", pk_oid),
+    do: Asn1.sequence([Asn1.oid(pk_oid), Asn1.oid({1, 2, 840, 10045, 3, 1, 7})])
+
+  defp build_signing_fn_spki_alg("ECC-P384", pk_oid),
+    do: Asn1.sequence([Asn1.oid(pk_oid), Asn1.oid({1, 3, 132, 0, 34})])
+
+  defp build_signing_fn_spki_alg(algorithm_id, pk_oid) do
+    case AlgorithmRegistry.by_id(algorithm_id) do
+      {:ok, %{family: :rsa}} -> Asn1.sequence([Asn1.oid(pk_oid), Asn1.null()])
+      _ -> Asn1.sequence([Asn1.oid(pk_oid)])
+    end
+  end
+
+  defp signing_fn_pub_bytes(algorithm_id, pub) do
+    case AlgorithmRegistry.by_id(algorithm_id) do
+      {:ok, %{family: :rsa}} -> :public_key.der_encode(:RSAPublicKey, pub)
+      _ -> pub
+    end
+  end
+
   # Build CertificationRequestInfo body.
   defp build_cri(pk_oid, public_key, subject_dn) do
     version = Asn1.integer(0)

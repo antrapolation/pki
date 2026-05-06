@@ -7,6 +7,7 @@
  *   {"cmd":"init","library":"/path/to.so","slot":0,"pin":"1234","id":N}
  *   {"cmd":"sign","label":"key-label","data":"base64...","mechanism":"CKM_ECDSA","id":N}
  *   {"cmd":"get_public_key","label":"key-label","id":N}
+ *   {"cmd":"generate_key","label":"key-label","algorithm":"ECC-P256|RSA-2048|RSA-4096","id":N}
  *   {"cmd":"ping","id":N}
  *   {"cmd":"shutdown"}
  *
@@ -16,6 +17,12 @@
  * Responses (JSON):
  *   {"ok":true,...,"id":N}
  *   {"error":"message","id":N}
+ *
+ * generate_key response fields:
+ *   ECC: {"ok":true,"key_type":"ec","public_key":"<b64>","key_id":"<16hex>","id":N}
+ *   RSA: {"ok":true,"key_type":"rsa","modulus":"<b64>","public_exponent":"<b64>","key_id":"<16hex>","id":N}
+ *   key_id is the hex of the random CKA_ID set on both key objects; private key is
+ *   CKA_EXTRACTABLE=FALSE and never leaves the token.
  *
  * PQC mechanism mapping:
  *   CKM_ECDSA          = 0x00001041  (ECDSA / EC keys)
@@ -33,6 +40,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include "cJSON.h"
 
@@ -80,13 +88,26 @@ typedef unsigned long CK_OBJECT_CLASS;
 #define CKA_VALUE               0x00000011
 #define CKO_PRIVATE_KEY         0x00000003
 #define CKO_PUBLIC_KEY          0x00000002
-#define CKM_ECDSA               0x00001041
-#define CKM_RSA_PKCS            0x00000001
+#define CKM_RSA_PKCS_KEY_PAIR_GEN  0x00000000UL
+#define CKM_EC_KEY_PAIR_GEN        0x00001040UL
+#define CKM_ECDSA               0x00001041UL
+#define CKM_RSA_PKCS            0x00000001UL
 #define CKM_VENDOR_DEFINED      0x80000000UL
 #define CK_TRUE                 1
 #define CK_FALSE                0
-#define CKA_SIGN                0x00000108
-#define CKA_EC_POINT            0x00000180
+/* CKA_ attribute types */
+#define CKA_TOKEN               0x00000001UL
+#define CKA_PRIVATE_BOOL        0x00000002UL  /* boolean "private" attr, not CKO_PRIVATE_KEY */
+#define CKA_SENSITIVE           0x00000103UL
+#define CKA_ENCRYPT             0x00000104UL
+#define CKA_SIGN                0x00000108UL
+#define CKA_VERIFY              0x0000010AUL
+#define CKA_EXTRACTABLE         0x00000162UL
+#define CKA_MODULUS             0x00000120UL
+#define CKA_MODULUS_BITS        0x00000121UL
+#define CKA_PUBLIC_EXPONENT     0x00000122UL
+#define CKA_EC_PARAMS           0x00000180UL  /* DER-encoded curve OID */
+#define CKA_EC_POINT            0x00000181UL  /* DER-encoded EC public key point */
 
 /* Vendor-specific PQC mechanism IDs */
 #define CKM_KAZ_SIGN            (CKM_VENDOR_DEFINED + 0x00010001UL)
@@ -157,7 +178,26 @@ struct CK_FUNCTION_LIST {
     void *C_DigestFinal;
     CK_RV (*C_SignInit)(CK_SESSION_HANDLE, CK_MECHANISM*, CK_OBJECT_HANDLE);
     CK_RV (*C_Sign)(CK_SESSION_HANDLE, CK_BYTE_PTR, CK_ULONG, CK_BYTE_PTR, CK_ULONG*);
-    /* remaining functions omitted — not needed */
+    /* slots 45-58: unused, kept as void* to preserve ABI offsets */
+    void *C_SignUpdate;
+    void *C_SignFinal;
+    void *C_SignRecoverInit;
+    void *C_SignRecover;
+    void *C_VerifyInit;
+    void *C_Verify;
+    void *C_VerifyUpdate;
+    void *C_VerifyFinal;
+    void *C_VerifyRecoverInit;
+    void *C_VerifyRecover;
+    void *C_DigestEncryptUpdate;
+    void *C_DecryptDigestUpdate;
+    void *C_SignEncryptUpdate;
+    void *C_DecryptVerifyUpdate;
+    void *C_GenerateKey;
+    CK_RV (*C_GenerateKeyPair)(CK_SESSION_HANDLE, CK_MECHANISM*,
+                               CK_ATTRIBUTE*, CK_ULONG,
+                               CK_ATTRIBUTE*, CK_ULONG,
+                               CK_OBJECT_HANDLE*, CK_OBJECT_HANDLE*);
 };
 
 /* Base64 encode/decode — minimal inline implementation */
@@ -215,6 +255,29 @@ static unsigned char *base64_decode(const char *data, size_t len, size_t *out_le
     }
     *out_len = olen;
     return out;
+}
+
+/* DER-encoded curve OIDs for CKA_EC_PARAMS */
+static const CK_BYTE ec_oid_p256[] = {
+    0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07  /* 1.2.840.10045.3.1.7 */
+};
+static const CK_BYTE ec_oid_p384[] = {
+    0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22                     /* 1.3.132.0.34 */
+};
+static const CK_BYTE ec_oid_p521[] = {
+    0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x23                     /* 1.3.132.0.35 */
+};
+
+/* RSA public exponent: 65537 = 0x010001 */
+static const CK_BYTE rsa_pub_exp[] = {0x01, 0x00, 0x01};
+
+/* Fill buf with n random bytes from /dev/urandom. Returns 0 on success. */
+static int read_random_bytes(CK_BYTE *buf, size_t n) {
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) return -1;
+    ssize_t r = read(fd, buf, n);
+    close(fd);
+    return ((size_t)r == n) ? 0 : -1;
 }
 
 /* Global state */
@@ -451,16 +514,18 @@ static void handle_get_public_key(cJSON *root, long id) {
     CK_RV rv = find_key_by_label(label, CKO_PUBLIC_KEY, &key_handle);
     if (rv != CKR_OK) { send_error_r("public key not found", id); return; }
 
+    /* CKA_EC_POINT (0x00000181) is the actual uncompressed EC public key point.
+     * Fall back to CKA_MODULUS for RSA — note RSA public keys don't have CKA_VALUE. */
     CK_BYTE value[4096];
     CK_ATTRIBUTE tmpl[1];
-    tmpl[0].type = CKA_EC_POINT;
+    tmpl[0].type = CKA_EC_POINT;  /* 0x00000181 — the real EC point, not CKA_EC_PARAMS */
     tmpl[0].pValue = value;
     tmpl[0].ulValueLen = sizeof(value);
 
     rv = fn->C_GetAttributeValue(session, key_handle, tmpl, 1);
     if (rv != CKR_OK) {
-        /* Try CKA_VALUE for RSA */
-        tmpl[0].type = CKA_VALUE;
+        /* Try CKA_MODULUS for RSA public keys */
+        tmpl[0].type = CKA_MODULUS;
         tmpl[0].ulValueLen = sizeof(value);
         rv = fn->C_GetAttributeValue(session, key_handle, tmpl, 1);
         if (rv != CKR_OK) { send_error_r("C_GetAttributeValue failed", id); return; }
@@ -470,10 +535,173 @@ static void handle_get_public_key(cJSON *root, long id) {
     char *val_b64 = base64_encode(value, tmpl[0].ulValueLen, &b64_len);
     if (!val_b64) { send_error_r("base64 encode failed", id); return; }
 
-    char extra[65536];
-    snprintf(extra, sizeof(extra), "\"public_key\":\"%s\"", val_b64);
+    size_t extra_sz = b64_len + 32;
+    char *extra = malloc(extra_sz);
+    if (!extra) { free(val_b64); send_error_r("response alloc failed", id); return; }
+    snprintf(extra, extra_sz, "\"public_key\":\"%s\"", val_b64);
     free(val_b64);
     send_ok_r(extra, id);
+    free(extra);
+}
+
+static void handle_generate_key(cJSON *root, long id) {
+    if (!initialized) { send_error_r("not initialized", id); return; }
+    if (!fn->C_GenerateKeyPair) { send_error_r("C_GenerateKeyPair not available", id); return; }
+
+    cJSON *label_item = cJSON_GetObjectItemCaseSensitive(root, "label");
+    cJSON *algo_item  = cJSON_GetObjectItemCaseSensitive(root, "algorithm");
+
+    if (!cJSON_IsString(label_item)) { send_error_r("missing label", id); return; }
+    if (!cJSON_IsString(algo_item))  { send_error_r("missing algorithm", id); return; }
+
+    const char *label     = label_item->valuestring;
+    const char *algorithm = algo_item->valuestring;
+
+    /* Random 8-byte CKA_ID — same value on both public and private key objects */
+    CK_BYTE key_id_bytes[8];
+    if (read_random_bytes(key_id_bytes, sizeof(key_id_bytes)) != 0) {
+        send_error_r("failed to generate key id", id); return;
+    }
+
+    CK_BBOOL ck_true  = CK_TRUE;
+    CK_BBOOL ck_false = CK_FALSE;
+
+    CK_OBJECT_HANDLE pub_handle  = 0;
+    CK_OBJECT_HANDLE priv_handle = 0;
+    CK_RV rv;
+
+    /* ---- RSA key generation ----------------------------------------- */
+    if (strncmp(algorithm, "RSA-", 4) == 0) {
+        CK_ULONG key_bits = (CK_ULONG)atol(algorithm + 4);
+        if (key_bits < 1024 || key_bits > 8192) {
+            send_error_r("invalid RSA key size (1024-8192)", id); return;
+        }
+
+        CK_ATTRIBUTE pub_tmpl[] = {
+            { CKA_TOKEN,           &ck_true,        sizeof(ck_true) },
+            { CKA_VERIFY,          &ck_true,        sizeof(ck_true) },
+            { CKA_ENCRYPT,         &ck_true,        sizeof(ck_true) },
+            { CKA_MODULUS_BITS,    &key_bits,       sizeof(key_bits) },
+            { CKA_PUBLIC_EXPONENT, (void*)rsa_pub_exp, sizeof(rsa_pub_exp) },
+            { CKA_LABEL,           (void*)label,    strlen(label) },
+            { CKA_ID,              key_id_bytes,    sizeof(key_id_bytes) }
+        };
+        CK_ATTRIBUTE priv_tmpl[] = {
+            { CKA_TOKEN,        &ck_true,     sizeof(ck_true) },
+            { CKA_PRIVATE_BOOL, &ck_true,     sizeof(ck_true) },
+            { CKA_SENSITIVE,    &ck_true,     sizeof(ck_true) },
+            { CKA_EXTRACTABLE,  &ck_false,    sizeof(ck_false) },
+            { CKA_SIGN,         &ck_true,     sizeof(ck_true) },
+            { CKA_LABEL,        (void*)label, strlen(label) },
+            { CKA_ID,           key_id_bytes, sizeof(key_id_bytes) }
+        };
+
+        CK_MECHANISM mech = { CKM_RSA_PKCS_KEY_PAIR_GEN, NULL, 0 };
+        rv = fn->C_GenerateKeyPair(session, &mech,
+                                   pub_tmpl,  7,
+                                   priv_tmpl, 7,
+                                   &pub_handle, &priv_handle);
+        if (rv != CKR_OK) { send_error_r("C_GenerateKeyPair (RSA) failed", id); return; }
+
+        /* Read modulus and public exponent from the generated public key */
+        CK_BYTE mod_buf[1024];
+        CK_BYTE exp_buf[64];
+        CK_ATTRIBUTE read_tmpl[2] = {
+            { CKA_MODULUS,         mod_buf, sizeof(mod_buf) },
+            { CKA_PUBLIC_EXPONENT, exp_buf, sizeof(exp_buf) }
+        };
+        rv = fn->C_GetAttributeValue(session, pub_handle, read_tmpl, 2);
+        if (rv != CKR_OK) { send_error_r("C_GetAttributeValue (RSA pubkey) failed", id); return; }
+
+        size_t mod_b64_len, exp_b64_len;
+        char *mod_b64 = base64_encode(mod_buf, read_tmpl[0].ulValueLen, &mod_b64_len);
+        char *exp_b64 = base64_encode(exp_buf, read_tmpl[1].ulValueLen, &exp_b64_len);
+        if (!mod_b64 || !exp_b64) {
+            free(mod_b64); free(exp_b64);
+            send_error_r("base64 encode failed", id); return;
+        }
+
+        /* Build hex key_id string */
+        char key_id_hex[17];
+        for (int i = 0; i < 8; i++)
+            snprintf(key_id_hex + i*2, 3, "%02x", key_id_bytes[i]);
+
+        size_t extra_sz = mod_b64_len + exp_b64_len + 128;
+        char *extra = malloc(extra_sz);
+        if (!extra) { free(mod_b64); free(exp_b64); send_error_r("alloc failed", id); return; }
+        snprintf(extra, extra_sz,
+                 "\"key_type\":\"rsa\",\"modulus\":\"%s\",\"public_exponent\":\"%s\",\"key_id\":\"%s\"",
+                 mod_b64, exp_b64, key_id_hex);
+        free(mod_b64); free(exp_b64);
+        send_ok_r(extra, id);
+        free(extra);
+        return;
+    }
+
+    /* ---- ECC key generation ----------------------------------------- */
+    const CK_BYTE *ec_oid     = NULL;
+    CK_ULONG       ec_oid_len = 0;
+
+    if (strcmp(algorithm, "ECC-P256") == 0 || strcmp(algorithm, "EC-P256") == 0) {
+        ec_oid = ec_oid_p256; ec_oid_len = sizeof(ec_oid_p256);
+    } else if (strcmp(algorithm, "ECC-P384") == 0 || strcmp(algorithm, "EC-P384") == 0) {
+        ec_oid = ec_oid_p384; ec_oid_len = sizeof(ec_oid_p384);
+    } else if (strcmp(algorithm, "ECC-P521") == 0 || strcmp(algorithm, "EC-P521") == 0) {
+        ec_oid = ec_oid_p521; ec_oid_len = sizeof(ec_oid_p521);
+    } else {
+        send_error_r("unsupported algorithm (use RSA-<bits> or ECC-P256/P384/P521)", id);
+        return;
+    }
+
+    CK_ATTRIBUTE pub_tmpl[] = {
+        { CKA_TOKEN,     &ck_true,       sizeof(ck_true) },
+        { CKA_VERIFY,    &ck_true,       sizeof(ck_true) },
+        { CKA_EC_PARAMS, (void*)ec_oid,  ec_oid_len },
+        { CKA_LABEL,     (void*)label,   strlen(label) },
+        { CKA_ID,        key_id_bytes,   sizeof(key_id_bytes) }
+    };
+    CK_ATTRIBUTE priv_tmpl[] = {
+        { CKA_TOKEN,        &ck_true,     sizeof(ck_true) },
+        { CKA_PRIVATE_BOOL, &ck_true,     sizeof(ck_true) },
+        { CKA_SENSITIVE,    &ck_true,     sizeof(ck_true) },
+        { CKA_EXTRACTABLE,  &ck_false,    sizeof(ck_false) },
+        { CKA_SIGN,         &ck_true,     sizeof(ck_true) },
+        { CKA_LABEL,        (void*)label, strlen(label) },
+        { CKA_ID,           key_id_bytes, sizeof(key_id_bytes) }
+    };
+
+    CK_MECHANISM mech = { CKM_EC_KEY_PAIR_GEN, NULL, 0 };
+    rv = fn->C_GenerateKeyPair(session, &mech,
+                               pub_tmpl,  5,
+                               priv_tmpl, 7,
+                               &pub_handle, &priv_handle);
+    if (rv != CKR_OK) { send_error_r("C_GenerateKeyPair (ECC) failed", id); return; }
+
+    /* Read CKA_EC_POINT (0x00000181) — the DER-encoded uncompressed EC point */
+    CK_BYTE ec_point_buf[512];
+    CK_ATTRIBUTE ec_tmpl[1] = {
+        { CKA_EC_POINT, ec_point_buf, sizeof(ec_point_buf) }
+    };
+    rv = fn->C_GetAttributeValue(session, pub_handle, ec_tmpl, 1);
+    if (rv != CKR_OK) { send_error_r("C_GetAttributeValue (EC point) failed", id); return; }
+
+    size_t pub_b64_len;
+    char *pub_b64 = base64_encode(ec_point_buf, ec_tmpl[0].ulValueLen, &pub_b64_len);
+    if (!pub_b64) { send_error_r("base64 encode failed", id); return; }
+
+    char key_id_hex[17];
+    for (int i = 0; i < 8; i++)
+        snprintf(key_id_hex + i*2, 3, "%02x", key_id_bytes[i]);
+
+    size_t extra_sz = pub_b64_len + 64;
+    char *extra = malloc(extra_sz);
+    if (!extra) { free(pub_b64); send_error_r("alloc failed", id); return; }
+    snprintf(extra, extra_sz,
+             "\"key_type\":\"ec\",\"public_key\":\"%s\",\"key_id\":\"%s\"",
+             pub_b64, key_id_hex);
+    free(pub_b64);
+    send_ok_r(extra, id);
+    free(extra);
 }
 
 int main(void) {
@@ -516,6 +744,8 @@ int main(void) {
             handle_sign(root, req_id);
         } else if (strcmp(cmd, "get_public_key") == 0) {
             handle_get_public_key(root, req_id);
+        } else if (strcmp(cmd, "generate_key") == 0) {
+            handle_generate_key(root, req_id);
         } else if (strcmp(cmd, "ping") == 0) {
             send_ok_r(NULL, req_id);
         } else if (strcmp(cmd, "shutdown") == 0) {

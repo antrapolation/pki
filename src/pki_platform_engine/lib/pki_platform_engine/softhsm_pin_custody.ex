@@ -47,7 +47,7 @@ defmodule PkiPlatformEngine.SofthsmPinCustody do
     future scheme; upgrade platform or run the re-wrap task.
   """
 
-  alias PkiPlatformEngine.SecretManager
+  alias PkiPlatformEngine.{SecretManager, PlatformRepo, Tenant}
 
   @version "v1"
   @info_prefix "pki_softhsm_pin/v1/"
@@ -131,6 +131,33 @@ defmodule PkiPlatformEngine.SofthsmPinCustody do
   end
 
   def unwrap(_tenant_id, _other), do: {:error, :malformed_envelope}
+
+  @doc """
+  Fetch and unwrap the SoftHSM2 user PIN for a tenant.
+
+  Called via `:rpc.call` from a tenant BEAM node, which has no direct
+  access to the platform PostgreSQL. Looks up the `pin_envelope` from
+  `tenants.metadata["softhsm"]["pin_envelope"]` and unwraps it.
+
+  Returns `{:ok, user_pin}` or `{:error, reason}`.
+  """
+  @spec get_user_pin(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def get_user_pin(tenant_id) when is_binary(tenant_id) do
+    case PlatformRepo.get(Tenant, tenant_id) do
+      {:ok, %Tenant{metadata: %{"softhsm" => %{"pin_envelope" => envelope}}}}
+      when is_map(envelope) ->
+        case unwrap(tenant_id, envelope) do
+          {:ok, %{user_pin: pin}} -> {:ok, pin}
+          {:error, _} = err -> err
+        end
+
+      {:ok, _} ->
+        {:error, :no_pin_envelope}
+
+      {:error, _} = err ->
+        err
+    end
+  end
 
   # --- internals -------------------------------------------------------
 

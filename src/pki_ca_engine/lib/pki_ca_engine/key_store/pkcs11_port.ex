@@ -38,7 +38,18 @@ defmodule PkiCaEngine.KeyStore.Pkcs11Port do
     GenServer.start_link(__MODULE__, opts, gen_opts)
   end
 
-  @doc "Send a command to the port. Command is {:sign, label, data} | {:get_public_key, label}."
+  @doc """
+  Send a command to the port.
+
+  Commands:
+    {:sign, label, data_binary}
+    {:get_public_key, label}
+    {:generate_key, label, algorithm}  — algorithm: "ECC-P256"|"ECC-P384"|"ECC-P521"|"RSA-2048"|"RSA-4096"
+
+  generate_key returns {:ok, map} where map contains:
+    ECC: %{key_type: "ec", public_key: binary, key_id: hex_string}
+    RSA: %{key_type: "rsa", modulus: binary, public_exponent: binary, key_id: hex_string}
+  """
   def call(server, command) do
     GenServer.call(server, {:command, command}, @call_timeout)
   end
@@ -120,6 +131,35 @@ defmodule PkiCaEngine.KeyStore.Pkcs11Port do
         {:ok, %{"ok" => true, "public_key" => pk_b64}} ->
           case Base.decode64(pk_b64) do
             {:ok, pk} -> {:ok, pk}
+            :error -> {:error, :invalid_key_encoding}
+          end
+
+        {:ok, %{"error" => err}} ->
+          {:error, err}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call({:command, {:generate_key, label, algorithm}}, _from, state) do
+    result =
+      case send_command(state.port, %{cmd: "generate_key", label: label, algorithm: algorithm}) do
+        {:ok, %{"ok" => true, "key_type" => "ec", "public_key" => pk_b64, "key_id" => key_id}} ->
+          case Base.decode64(pk_b64) do
+            {:ok, pk} -> {:ok, %{key_type: "ec", public_key: pk, key_id: key_id}}
+            :error -> {:error, :invalid_key_encoding}
+          end
+
+        {:ok, %{"ok" => true, "key_type" => "rsa", "modulus" => mod_b64,
+                "public_exponent" => exp_b64, "key_id" => key_id}} ->
+          with {:ok, modulus} <- Base.decode64(mod_b64),
+               {:ok, exponent} <- Base.decode64(exp_b64) do
+            {:ok, %{key_type: "rsa", modulus: modulus, public_exponent: exponent, key_id: key_id}}
+          else
             :error -> {:error, :invalid_key_encoding}
           end
 
