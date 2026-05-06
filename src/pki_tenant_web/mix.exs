@@ -39,7 +39,8 @@ defmodule PkiTenantWeb.MixProject do
       {:pki_ra_engine, path: "../pki_ra_engine"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
-      {:phoenix_live_reload, "~> 1.2", only: :dev}
+      {:phoenix_live_reload, "~> 1.2", only: :dev},
+      {:lazy_html, ">= 0.1.0", only: :test}
     ]
   end
 end
