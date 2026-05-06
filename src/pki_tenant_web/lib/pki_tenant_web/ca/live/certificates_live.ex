@@ -195,15 +195,6 @@ defmodule PkiTenantWeb.Ca.CertificatesLive do
   end
 
   @impl true
-  def handle_event("revoke_cert", _params, socket) do
-    role = socket.assigns.current_user[:role]
-    if role != "ca_admin" do
-      {:noreply, put_flash(socket, :error, "Only CA administrators can revoke certificates.")}
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_event("revoke_cert", %{"serial" => serial, "reason" => reason}, socket) do
     if socket.assigns.current_user[:role] != "ca_admin" do
       {:noreply, put_flash(socket, :error, "Only CA administrators can revoke certificates.")}
@@ -224,6 +215,15 @@ defmodule PkiTenantWeb.Ca.CertificatesLive do
           {:noreply,
            put_flash(socket, :error, PkiTenantWeb.ErrorHelpers.sanitize_error("Failed to revoke certificate", reason))}
       end
+    end
+  end
+
+  def handle_event("revoke_cert", _params, socket) do
+    role = socket.assigns.current_user[:role]
+    if role != "ca_admin" do
+      {:noreply, put_flash(socket, :error, "Only CA administrators can revoke certificates.")}
+    else
+      {:noreply, socket}
     end
   end
 
