@@ -361,6 +361,9 @@ static void send_ok_r(const char *extra, long id) {
         n = snprintf(buf, buf_sz, "{\"ok\":true,%s}", extra);
     else
         n = snprintf(buf, buf_sz, "{\"ok\":true}");
+    if (n < 0 || (size_t)n >= buf_sz) { free(buf); send_error_r("format error", id); return; }
+    /* write_message may return -1 on broken pipe (BEAM terminated the port),
+       but we always free — the process exits on broken pipe anyway. */
     write_message(buf, (size_t)n);
     free(buf);
 }

@@ -182,8 +182,8 @@ defmodule PkiCaEngine.Integration.SofthsmKeygenTest do
   # Test 2 — full root CA ceremony via CeremonyOrchestrator
   # ---------------------------------------------------------------------------
 
-  test "full root CA ceremony with keystore_mode softhsm produces activated IssuerKey", context do
-    _ = context
+  test "full root CA ceremony with keystore_mode softhsm produces activated IssuerKey", _context do
+    # HSM config is injected via env vars by setup/1 (PKI_SOFTHSM_LIBRARY_PATH etc.)
     ca_id = "ca-softhsm-root-#{System.unique_integer()}"
 
     params = %{
@@ -247,8 +247,8 @@ defmodule PkiCaEngine.Integration.SofthsmKeygenTest do
   # Test 3 — sub-CA ceremony (produces CSR, not self-signed cert)
   # ---------------------------------------------------------------------------
 
-  test "sub-CA ceremony with keystore_mode softhsm produces CSR and activated IssuerKey", context do
-    _ = context
+  test "sub-CA ceremony with keystore_mode softhsm produces CSR and activated IssuerKey", _context do
+    # HSM config is injected via env vars by setup/1 (PKI_SOFTHSM_LIBRARY_PATH etc.)
     ca_id = "ca-softhsm-sub-#{System.unique_integer()}"
 
     params = %{
@@ -273,6 +273,11 @@ defmodule PkiCaEngine.Integration.SofthsmKeygenTest do
     assert %IssuerKey{} = activated_key
     assert activated_key.keystore_type == :local_hsm
     assert is_map(activated_key.hsm_config)
+
+    # Sub-CA key must stay pending until an external CA signs the CSR.
+    # A status of "active" here would mean the key is immediately usable for
+    # signing — a security-relevant regression.
+    assert activated_key.status == "pending"
 
     # Sub-CA produces a CSR, not a self-signed cert
     assert is_binary(activated_key.csr_pem) and

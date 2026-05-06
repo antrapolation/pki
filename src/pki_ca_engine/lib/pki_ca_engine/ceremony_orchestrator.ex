@@ -1381,7 +1381,15 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
                     {:error, _} = err -> err
                   end
                 rescue
-                  e -> {:error, {:rpc_failed, inspect(e)}}
+                  e ->
+                    case e do
+                      %ErlangError{original: {:erpc, :timeout}} ->
+                        {:error, :platform_rpc_timeout}
+                      %ErlangError{original: {:erpc, :noconnection}} ->
+                        {:error, :platform_node_unreachable}
+                      _ ->
+                        {:error, {:rpc_failed, inspect(e)}}
+                    end
                 end
             end
         end
@@ -1594,7 +1602,11 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
         end
 
         # Return the activated IssuerKey struct so callers can inspect its fields.
-        Repo.get(IssuerKey, issuer_key.id)
+        case Repo.get(IssuerKey, issuer_key.id) do
+          {:ok, %IssuerKey{} = key} -> {:ok, key}
+          {:ok, nil} -> {:error, :issuer_key_disappeared_after_commit}
+          {:error, _} = err -> err
+        end
 
       {:error, reason} ->
         fail_ceremony(ceremony.id, "transaction_failed: #{inspect(reason)}")

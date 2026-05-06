@@ -44,7 +44,7 @@ defmodule PkiCaEngine.KeyStore.Pkcs11Port do
   Commands:
     {:sign, label, data_binary}
     {:get_public_key, label}
-    {:generate_key, label, algorithm}  — algorithm: "ECC-P256"|"ECC-P384"|"ECC-P521"|"RSA-2048"|"RSA-4096"
+    {:generate_key, label, algorithm}  — algorithm: "ECC-P256"|"ECC-P384"|"RSA-2048"|"RSA-4096"
 
   generate_key returns {:ok, map} where map contains:
     ECC: %{key_type: "ec", public_key: binary, key_id: hex_string}
