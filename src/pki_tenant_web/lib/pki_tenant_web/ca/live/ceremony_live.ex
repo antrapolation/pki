@@ -477,8 +477,9 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
         is_nil(ca_id) or ca_id == "" ->
           {:noreply, assign(socket, wizard_error: "Please select a CA Instance.")}
 
-        is_nil(params["keystore_id"]) or params["keystore_id"] == "" ->
-          {:noreply, assign(socket, wizard_error: "Please select a Keystore.")}
+        (params["keystore_mode"] || "softhsm") == "hsm" and
+          (is_nil(params["keystore_id"]) or params["keystore_id"] == "") ->
+          {:noreply, assign(socket, wizard_error: "Please select a Keystore for Hardware HSM mode.")}
 
         (params["key_mode"] || "threshold") == "threshold" and (threshold_n < 2 or threshold_n > 20) ->
           {:noreply, assign(socket, wizard_error: "Threshold N must be between 2 and 20.")}
@@ -556,33 +557,63 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
                     }
                   end)
 
-                  slot_states = load_slot_states(ceremony)
+                  hsm_mode = ceremony.keystore_mode in ["softhsm", "hsm"]
 
-                  # Start a fresh vault for this ceremony's PIN isolation.
-                  {:ok, vault_pid} = CustodianPinVault.start_link()
-                  Process.monitor(vault_pid)
+                  if hsm_mode do
+                    # HSM path: private key never leaves the token; no Shamir shares,
+                    # no custodian entry. Fire execute_keygen immediately with [].
+                    send(self(), :execute_keygen)
 
-                  {:noreply,
-                   socket
-                   |> assign(
-                     ceremonies: ceremonies,
-                     keystores: keystores,
-                     effective_ca_id: ca_id,
-                     active_ceremony: ceremony,
-                     is_root: is_root,
-                     wizard_step: :progress,
-                     wizard_error: nil,
-                     participants: participants,
-                     activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — Custodian #1 up next"}],
-                     slot_states: slot_states,
-                     entering_slot: next_pending_slot(slot_states),
-                     entry_error: nil,
-                     vault_pid: vault_pid,
-                     entered_tokens: %{},
-                     execution_state: :idle,
-                     execution_error: nil,
-                     completed_ceremony: nil
-                   )}
+                    {:noreply,
+                     socket
+                     |> assign(
+                       ceremonies: ceremonies,
+                       keystores: keystores,
+                       effective_ca_id: ca_id,
+                       active_ceremony: ceremony,
+                       is_root: is_root,
+                       wizard_step: :progress,
+                       wizard_error: nil,
+                       participants: participants,
+                       activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — generating key in HSM…"}],
+                       slot_states: [],
+                       entering_slot: nil,
+                       entry_error: nil,
+                       vault_pid: nil,
+                       entered_tokens: %{},
+                       execution_state: :running,
+                       execution_error: nil,
+                       completed_ceremony: nil
+                     )}
+                  else
+                    slot_states = load_slot_states(ceremony)
+
+                    # Start a fresh vault for this ceremony's PIN isolation.
+                    {:ok, vault_pid} = CustodianPinVault.start_link()
+                    Process.monitor(vault_pid)
+
+                    {:noreply,
+                     socket
+                     |> assign(
+                       ceremonies: ceremonies,
+                       keystores: keystores,
+                       effective_ca_id: ca_id,
+                       active_ceremony: ceremony,
+                       is_root: is_root,
+                       wizard_step: :progress,
+                       wizard_error: nil,
+                       participants: participants,
+                       activity_log: [%{timestamp: DateTime.utc_now(), message: "Ceremony initiated — Custodian #1 up next"}],
+                       slot_states: slot_states,
+                       entering_slot: next_pending_slot(slot_states),
+                       entry_error: nil,
+                       vault_pid: vault_pid,
+                       entered_tokens: %{},
+                       execution_state: :idle,
+                       execution_error: nil,
+                       completed_ceremony: nil
+                     )}
+                  end
 
                 {:error, reason} ->
                   {:noreply, assign(socket, wizard_error: "Failed to initiate: #{format_error(reason)}")}
@@ -993,7 +1024,7 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
         </form>
       </div>
       <button
-        :if={@effective_ca_id && not Enum.empty?(@keystores)}
+        :if={@effective_ca_id}
         phx-click="start_wizard"
         class="btn btn-primary btn-sm"
       >
@@ -1010,9 +1041,9 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
     </div>
 
     <%!-- No keystores warning --%>
-    <div :if={@effective_ca_id && Enum.empty?(@keystores)} class="alert alert-warning text-sm">
-      <.icon name="hero-exclamation-triangle" class="size-4" />
-      <span>No keystores configured for this CA instance. <a href="/keystores" class="link link-primary">Configure one first.</a></span>
+    <div :if={@effective_ca_id && Enum.empty?(@keystores)} class="alert alert-info text-sm">
+      <.icon name="hero-information-circle" class="size-4" />
+      <span>No hardware keystores registered for this CA — SoftHSM and software modes are still available. <a href="/keystores" class="link link-primary">Register a hardware keystore</a> to use Hardware HSM mode.</span>
     </div>
 
     <%!-- Ceremony history table --%>
@@ -1193,11 +1224,14 @@ defmodule PkiTenantWeb.Ca.CeremonyLive do
               </select>
             </div>
             <div>
-              <label class="block text-xs font-medium text-base-content/60 mb-1">Keystore</label>
-              <select name="keystore_id" class="select select-bordered select-sm w-full" required>
-                <option value="" disabled selected>Select Keystore</option>
+              <label class="block text-xs font-medium text-base-content/60 mb-1">Keystore <span class="text-base-content/30">(Hardware HSM only)</span></label>
+              <select name="keystore_id" class="select select-bordered select-sm w-full">
+                <option value="">— not required for SoftHSM / software mode —</option>
                 <option :for={ks <- @keystores} value={ks.id}>{keystore_display(ks)}</option>
               </select>
+              <p class="text-xs text-base-content/40 mt-1">
+                Only required when Key Storage Mode is set to Hardware HSM.
+              </p>
             </div>
             <div>
               <label class="block text-xs font-medium text-base-content/60 mb-1">Key Role</label>
