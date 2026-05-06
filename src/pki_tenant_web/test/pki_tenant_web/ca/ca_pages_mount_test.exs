@@ -10,17 +10,17 @@ defmodule PkiTenantWeb.Ca.CaPagesMountTest do
 
     test "ca-instances mounts", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/ca-instances")
-      assert html =~ "CA Instances" or is_binary(html)
+      assert is_binary(html)
     end
 
     test "users mounts", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/users")
-      assert html =~ "Users" or is_binary(html)
+      assert is_binary(html)
     end
 
     test "audit-log mounts", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/audit-log")
-      assert html =~ "Audit" or is_binary(html)
+      assert is_binary(html)
     end
 
     test "hsm-devices mounts", %{conn: conn} do
@@ -40,7 +40,7 @@ defmodule PkiTenantWeb.Ca.CaPagesMountTest do
 
     test "profile mounts", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/profile")
-      assert html =~ "Profile" or is_binary(html)
+      assert is_binary(html)
     end
   end
 

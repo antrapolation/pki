@@ -3,8 +3,6 @@ defmodule PkiTenantWeb.Ra.RaPagesMountTest do
   use PkiTenantWeb.LiveCase, async: false
 
   setup do
-    dir = PkiMnesia.TestHelper.setup_mnesia()
-    on_exit(fn -> PkiMnesia.TestHelper.teardown_mnesia(dir) end)
     {:ok, conn: build_ra_conn_for_role(:ra_admin)}
   end
 

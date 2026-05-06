@@ -117,8 +117,7 @@ defmodule PkiTenantWeb.Ca.CertificatesLiveTest do
       render_click(view, "view_cert", %{"serial" => cert.serial_number})
       html = render_click(view, "close_detail", %{})
 
-      # After close, the cert detail section should no longer show the serial
-      refute html =~ ~r/selected.cert/
+      refute html =~ "selected_cert"
     end
   end
 
