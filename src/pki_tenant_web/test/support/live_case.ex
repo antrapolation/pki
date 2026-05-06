@@ -16,7 +16,7 @@ defmodule PkiTenantWeb.LiveCase do
   # Public helpers — called from setup and from test modules via using
   # ---------------------------------------------------------------------------
 
-  def build_conn_for_role(role) do
+  def build_conn_for_role(role, opts \\ []) do
     {:ok, sid} =
       PkiTenantWeb.SessionStore.create(%{
         user_id: "test-#{role}-#{System.unique_integer()}",
@@ -28,9 +28,15 @@ defmodule PkiTenantWeb.LiveCase do
         email: "#{role}@test.local"
       })
 
+    host = Keyword.get(opts, :host, "localhost")
+
     Phoenix.ConnTest.build_conn()
-    |> Map.put(:host, "localhost")
+    |> Map.put(:host, host)
     |> Phoenix.ConnTest.init_test_session(%{"session_id" => sid})
+  end
+
+  def build_ra_conn_for_role(role) do
+    build_conn_for_role(role, host: "tenant.ra.localhost")
   end
 
   def seed_issuer_key(attrs \\ %{}) do
@@ -92,7 +98,8 @@ defmodule PkiTenantWeb.LiveCase do
       alias PkiMnesia.Repo
       alias PkiMnesia.Structs.{IssuerKey, IssuedCertificate}
 
-      defdelegate build_conn_for_role(role), to: PkiTenantWeb.LiveCase
+      defdelegate build_conn_for_role(role, opts \\ []), to: PkiTenantWeb.LiveCase
+      defdelegate build_ra_conn_for_role(role), to: PkiTenantWeb.LiveCase
       defdelegate seed_issuer_key(attrs \\ %{}), to: PkiTenantWeb.LiveCase
       defdelegate seed_certificate(attrs \\ %{}), to: PkiTenantWeb.LiveCase
     end
