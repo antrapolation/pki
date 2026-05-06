@@ -84,7 +84,7 @@ defmodule PkiCaEngine.Integration.SofthsmKeygenTest do
 
   setup context do
     unless context[:softhsm_available] do
-      skip(Map.get(context, :skip_reason, "SoftHSM2 not available"))
+      raise ExUnit.SkipError, Map.get(context, :skip_reason, "SoftHSM2 not available")
     end
 
     %{library_path: lib, conf_path: conf, slot_id: slot} = context
