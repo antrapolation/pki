@@ -14,13 +14,15 @@ defmodule PkiMnesia.Structs.StructsTest do
     DcvChallenge,
     HsmAgentSetup,
     IssuedCertificate,
+    IssuerKey,
     KeyCeremony,
     Keystore,
     PortalUser,
     PreSignedCrl,
     RaCaConnection,
     RaInstance,
-    ServiceConfig
+    ServiceConfig,
+    ThresholdShare
   }
 
   # ---------------------------------------------------------------------------
@@ -434,6 +436,89 @@ defmodule PkiMnesia.Structs.StructsTest do
     test "new/1 accepts permissions" do
       ak = ApiKey.new(%{ra_instance_id: "ra-1", name: "k", key_hash: "h", key_prefix: "p", permissions: ["csr:submit"]})
       assert ak.permissions == ["csr:submit"]
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # IssuerKey
+  # ---------------------------------------------------------------------------
+
+  describe "IssuerKey" do
+    test "new/0 sets defaults" do
+      ik = IssuerKey.new()
+      assert ik.id != nil
+      assert ik.status == "pending"
+      assert ik.is_root == true
+      assert ik.key_mode == "threshold"
+      assert ik.key_role == "operational_sub"
+      assert ik.crl_strategy == "per_interval"
+      assert %DateTime{} = ik.inserted_at
+    end
+
+    test "new/1 accepts custom attrs" do
+      ik = IssuerKey.new(%{
+        ca_instance_id: "ca-1",
+        key_alias: "root-key",
+        algorithm: "ECC-P256",
+        status: "active",
+        key_role: "issuing_sub"
+      })
+      assert ik.ca_instance_id == "ca-1"
+      assert ik.algorithm == "ECC-P256"
+      assert ik.status == "active"
+      assert ik.key_role == "issuing_sub"
+    end
+
+    test "validate/1 returns :ok when required fields present" do
+      ik = IssuerKey.new(%{ca_instance_id: "ca-1", algorithm: "RSA-2048"})
+      assert IssuerKey.validate(ik) == :ok
+    end
+
+    test "validate/1 returns error listing missing fields" do
+      ik = IssuerKey.new()
+      assert {:error, {:missing_fields, fields}} = IssuerKey.validate(ik)
+      assert :ca_instance_id in fields
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # ThresholdShare
+  # ---------------------------------------------------------------------------
+
+  describe "ThresholdShare" do
+    test "new/0 sets defaults" do
+      ts = ThresholdShare.new()
+      assert ts.id != nil
+      assert ts.status == "pending"
+      assert is_nil(ts.encrypted_share)
+      assert is_nil(ts.password_hash)
+      assert %DateTime{} = ts.inserted_at
+    end
+
+    test "new/1 accepts custom attrs" do
+      ts = ThresholdShare.new(%{
+        issuer_key_id: "key-1",
+        custodian_name: "Alice",
+        share_index: 1,
+        min_shares: 2,
+        total_shares: 3
+      })
+      assert ts.issuer_key_id == "key-1"
+      assert ts.custodian_name == "Alice"
+      assert ts.share_index == 1
+      assert ts.min_shares == 2
+    end
+
+    test "validate/1 returns :ok when required fields present" do
+      ts = ThresholdShare.new(%{issuer_key_id: "key-1", custodian_name: "Alice", share_index: 1})
+      assert ThresholdShare.validate(ts) == :ok
+    end
+
+    test "validate/1 returns error listing missing required fields" do
+      ts = ThresholdShare.new()
+      assert {:error, {:missing_fields, fields}} = ThresholdShare.validate(ts)
+      assert :issuer_key_id in fields
+      assert :custodian_name in fields
     end
   end
 end

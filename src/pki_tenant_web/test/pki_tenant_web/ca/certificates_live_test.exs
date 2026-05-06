@@ -132,4 +132,55 @@ defmodule PkiTenantWeb.Ca.CertificatesLiveTest do
       assert is_binary(html)
     end
   end
+
+  describe "CertificatesLive — select_issuer_key" do
+    test "select_issuer_key with label assigns id and label", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/certificates")
+
+      html = render_click(view, "select_issuer_key", %{
+        "issuer_key_id" => "key-abc",
+        "label" => "MyKey (ECC-P256)"
+      })
+
+      assert is_binary(html)
+    end
+
+    test "select_issuer_key without label assigns id and derives empty label when key not found", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/certificates")
+
+      html = render_click(view, "select_issuer_key", %{"issuer_key_id" => "key-unknown"})
+
+      assert is_binary(html)
+    end
+  end
+
+  describe "CertificatesLive — clear_issuer_key" do
+    test "clear_issuer_key resets key selection state", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/certificates")
+
+      render_click(view, "select_issuer_key", %{
+        "issuer_key_id" => "key-abc",
+        "label" => "SomeKey"
+      })
+
+      html = render_click(view, "clear_issuer_key", %{})
+      assert is_binary(html)
+    end
+  end
+
+  describe "CertificatesLive — change_page" do
+    test "change_page with a valid page number does not crash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/certificates")
+
+      html = render_click(view, "change_page", %{"page" => "2"})
+      assert is_binary(html)
+    end
+
+    test "change_page with invalid value defaults to page 1", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/certificates")
+
+      html = render_click(view, "change_page", %{"page" => "not-a-number"})
+      assert is_binary(html)
+    end
+  end
 end

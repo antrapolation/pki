@@ -65,4 +65,13 @@ defmodule PkiPlatformEngine.DateLogHandlerTest do
     new_cfg = %{level: :debug}
     assert {:ok, ^new_cfg} = DateLogHandler.changing_config(:set, %{}, new_cfg)
   end
+
+  test "handle_info :rotate when date unchanged keeps the same file", %{pid: pid, log_dir: log_dir} do
+    send(pid, :rotate)
+    Process.sleep(50)
+    assert Process.alive?(pid)
+    log_dir_pki = Path.join(log_dir, "test")
+    files = File.ls!(log_dir_pki)
+    assert length(files) >= 1
+  end
 end

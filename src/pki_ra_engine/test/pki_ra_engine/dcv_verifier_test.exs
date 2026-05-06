@@ -50,4 +50,24 @@ defmodule PkiRaEngine.DcvVerifierTest do
     end
 
   end
+
+  describe "check_dns_01/2 — error paths" do
+    test "returns error when no TXT records found for a domain" do
+      # localhost has no _pki-validation TXT records — returns [] from :inet_res
+      result = DcvVerifier.check_dns_01("localhost", "sometoken")
+      assert {:error, _msg} = result
+    end
+
+    test "returns error when token value not present in TXT records" do
+      # Any real domain without our token — either no records or no match
+      result = DcvVerifier.check_dns_01("example.com", "token-that-will-never-match-in-dns-records")
+      assert {:error, _msg} = result
+    end
+
+    test "returns error tuple on DNS lookup failure" do
+      # A syntactically invalid domain triggers rescue in check_dns_01
+      result = DcvVerifier.check_dns_01("", "token")
+      assert {:error, _msg} = result
+    end
+  end
 end
