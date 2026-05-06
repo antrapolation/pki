@@ -110,6 +110,39 @@ defmodule PkiValidation.Ocsp.ResponseBuilderTest do
     {:ok, {:OCSPResponse, :unauthorized, :asn1_NOVALUE}} = :OCSP.decode(:OCSPResponse, der)
   end
 
+  # RFC 6960 §4.4.1 — error responses with a nonce must echo it in a signed
+  # BasicOCSPResponse so clients can detect replay. This test covers the
+  # nonce-binary branch of `build/4` for error statuses.
+  test "error response with nonce produces signed BasicOCSPResponse containing the nonce",
+       %{signing_key: key} do
+    nonce = :crypto.strong_rand_bytes(16)
+
+    for status <- [:unauthorized, :tryLater, :internalError, :malformedRequest] do
+      assert {:ok, der} = ResponseBuilder.build(status, [], key, nonce: nonce),
+             "build/4 returned error for status #{status}"
+
+      {:ok, {:OCSPResponse, ^status, {:ResponseBytes, _oid, basic_der}}} =
+        :OCSP.decode(:OCSPResponse, der)
+
+      {:ok, {:BasicOCSPResponse, response_data, _alg, _sig, _certs}} =
+        :OCSP.decode(:BasicOCSPResponse, basic_der)
+
+      {:ResponseData, _v, _rid, _produced, [], extensions_der} = response_data
+      refute extensions_der == :asn1_NOVALUE,
+             "Expected nonce extension for status #{status} but got :asn1_NOVALUE"
+
+      parsed = :public_key.der_decode(:Extensions, extensions_der)
+      found = Enum.find_value(parsed, fn
+        {:Extension, @nonce_oid, _critical, value} -> value
+        _ -> nil
+      end)
+
+      expected_wrapped = <<0x04, byte_size(nonce)::8, nonce::binary>>
+      assert found == expected_wrapped,
+             "Nonce mismatch for status #{status}: got #{inspect(found)}"
+    end
+  end
+
   test "echoes nonce bytes exactly when provided", %{signing_key: key, cert_id: cert_id} do
     nonce = :crypto.strong_rand_bytes(16)
 

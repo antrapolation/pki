@@ -79,4 +79,43 @@ defmodule PkiValidation.CrlPublisherTest do
     {:ok, crls} = CrlPublisher.regenerate(crl)
     refute Map.has_key?(crls, key_id)
   end
+
+  test "status/1 returns generation_error false and issuer_count after successful generation", %{crl: crl} do
+    Process.sleep(200)
+    s = CrlPublisher.status(crl)
+    assert is_map(s)
+    assert Map.has_key?(s, :generation_error)
+    assert Map.has_key?(s, :issuer_count)
+    assert s.generation_error == false
+    assert s.issuer_count == 0
+  end
+
+  test "status/1 reflects issuer count after keys are present", %{crl: crl} do
+    key_id = "key-status-#{System.unique_integer()}"
+    key = IssuerKey.new(%{
+      id: key_id, ca_instance_id: "ca-1", key_alias: "status-key",
+      algorithm: "ECC_P256", status: "active", crl_strategy: "per_interval"
+    })
+    {:ok, _} = Repo.insert(key)
+    {:ok, _} = CrlPublisher.regenerate(crl)
+
+    s = CrlPublisher.status(crl)
+    assert s.issuer_count == 1
+    assert s.generation_error == false
+  end
+
+  test "signed_crl/2 returns error for non-active issuer key" do
+    key_id = "key-suspended-#{System.unique_integer()}"
+    key = IssuerKey.new(%{
+      id: key_id, ca_instance_id: "ca-1", key_alias: "suspended-key",
+      algorithm: "ECC_P256", status: "suspended", crl_strategy: "per_interval"
+    })
+    {:ok, _} = Repo.insert(key)
+
+    assert {:error, :issuer_key_not_active} = CrlPublisher.signed_crl(key_id)
+  end
+
+  test "signed_crl/2 returns error for unknown issuer key" do
+    assert {:error, :issuer_key_not_found} = CrlPublisher.signed_crl("nonexistent-key-id")
+  end
 end
