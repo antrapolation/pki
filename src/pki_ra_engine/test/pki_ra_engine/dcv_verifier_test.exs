@@ -58,9 +58,9 @@ defmodule PkiRaEngine.DcvVerifierTest do
       assert {:error, _msg} = result
     end
 
-    test "returns error when token value not present in TXT records" do
-      # Any real domain without our token — either no records or no match
-      result = DcvVerifier.check_dns_01("example.com", "token-that-will-never-match-in-dns-records")
+    test "returns error for another domain with no _pki-validation TXT records" do
+      # RFC 2606 .invalid TLD is guaranteed to produce no valid DNS records
+      result = DcvVerifier.check_dns_01("test.invalid", "token-value")
       assert {:error, _msg} = result
     end
 
