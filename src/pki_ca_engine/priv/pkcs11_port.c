@@ -264,10 +264,6 @@ static const CK_BYTE ec_oid_p256[] = {
 static const CK_BYTE ec_oid_p384[] = {
     0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22                     /* 1.3.132.0.34 */
 };
-static const CK_BYTE ec_oid_p521[] = {
-    0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x23                     /* 1.3.132.0.35 */
-};
-
 /* RSA public exponent: 65537 = 0x010001 */
 static const CK_BYTE rsa_pub_exp[] = {0x01, 0x00, 0x01};
 
@@ -275,9 +271,14 @@ static const CK_BYTE rsa_pub_exp[] = {0x01, 0x00, 0x01};
 static int read_random_bytes(CK_BYTE *buf, size_t n) {
     int fd = open("/dev/urandom", O_RDONLY);
     if (fd < 0) return -1;
-    ssize_t r = read(fd, buf, n);
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, buf + got, n - got);
+        if (r <= 0) { close(fd); return -1; }
+        got += (size_t)r;
+    }
     close(fd);
-    return ((size_t)r == n) ? 0 : -1;
+    return 0;
 }
 
 /* Global state */
@@ -347,17 +348,21 @@ static void send_error_r(const char *msg, long id) {
 }
 
 static void send_ok_r(const char *extra, long id) {
-    char buf[65536];
+    size_t extra_len = extra ? strlen(extra) : 0;
+    size_t buf_sz = extra_len + 64; /* headroom for ok/id boilerplate */
+    char *buf = malloc(buf_sz);
+    if (!buf) { send_error_r("alloc failed", id); return; }
     int n;
     if (id >= 0 && extra)
-        n = snprintf(buf, sizeof(buf), "{\"ok\":true,%s,\"id\":%ld}", extra, id);
+        n = snprintf(buf, buf_sz, "{\"ok\":true,%s,\"id\":%ld}", extra, id);
     else if (id >= 0)
-        n = snprintf(buf, sizeof(buf), "{\"ok\":true,\"id\":%ld}", id);
+        n = snprintf(buf, buf_sz, "{\"ok\":true,\"id\":%ld}", id);
     else if (extra)
-        n = snprintf(buf, sizeof(buf), "{\"ok\":true,%s}", extra);
+        n = snprintf(buf, buf_sz, "{\"ok\":true,%s}", extra);
     else
-        n = snprintf(buf, sizeof(buf), "{\"ok\":true}");
+        n = snprintf(buf, buf_sz, "{\"ok\":true}");
     write_message(buf, (size_t)n);
+    free(buf);
 }
 
 /* find_key_by_label — unchanged from original */
@@ -578,13 +583,12 @@ static void handle_generate_key(cJSON *root, long id) {
         }
 
         CK_ATTRIBUTE pub_tmpl[] = {
-            { CKA_TOKEN,           &ck_true,        sizeof(ck_true) },
-            { CKA_VERIFY,          &ck_true,        sizeof(ck_true) },
-            { CKA_ENCRYPT,         &ck_true,        sizeof(ck_true) },
-            { CKA_MODULUS_BITS,    &key_bits,       sizeof(key_bits) },
+            { CKA_TOKEN,           &ck_true,           sizeof(ck_true) },
+            { CKA_VERIFY,          &ck_true,           sizeof(ck_true) },
+            { CKA_MODULUS_BITS,    &key_bits,          sizeof(key_bits) },
             { CKA_PUBLIC_EXPONENT, (void*)rsa_pub_exp, sizeof(rsa_pub_exp) },
-            { CKA_LABEL,           (void*)label,    strlen(label) },
-            { CKA_ID,              key_id_bytes,    sizeof(key_id_bytes) }
+            { CKA_LABEL,           (void*)label,       strlen(label) },
+            { CKA_ID,              key_id_bytes,       sizeof(key_id_bytes) }
         };
         CK_ATTRIBUTE priv_tmpl[] = {
             { CKA_TOKEN,        &ck_true,     sizeof(ck_true) },
@@ -598,7 +602,7 @@ static void handle_generate_key(cJSON *root, long id) {
 
         CK_MECHANISM mech = { CKM_RSA_PKCS_KEY_PAIR_GEN, NULL, 0 };
         rv = fn->C_GenerateKeyPair(session, &mech,
-                                   pub_tmpl,  7,
+                                   pub_tmpl,  6,
                                    priv_tmpl, 7,
                                    &pub_handle, &priv_handle);
         if (rv != CKR_OK) { send_error_r("C_GenerateKeyPair (RSA) failed", id); return; }
@@ -642,14 +646,12 @@ static void handle_generate_key(cJSON *root, long id) {
     const CK_BYTE *ec_oid     = NULL;
     CK_ULONG       ec_oid_len = 0;
 
-    if (strcmp(algorithm, "ECC-P256") == 0 || strcmp(algorithm, "EC-P256") == 0) {
+    if (strcmp(algorithm, "ECC-P256") == 0) {
         ec_oid = ec_oid_p256; ec_oid_len = sizeof(ec_oid_p256);
-    } else if (strcmp(algorithm, "ECC-P384") == 0 || strcmp(algorithm, "EC-P384") == 0) {
+    } else if (strcmp(algorithm, "ECC-P384") == 0) {
         ec_oid = ec_oid_p384; ec_oid_len = sizeof(ec_oid_p384);
-    } else if (strcmp(algorithm, "ECC-P521") == 0 || strcmp(algorithm, "EC-P521") == 0) {
-        ec_oid = ec_oid_p521; ec_oid_len = sizeof(ec_oid_p521);
     } else {
-        send_error_r("unsupported algorithm (use RSA-<bits> or ECC-P256/P384/P521)", id);
+        send_error_r("unsupported algorithm (use RSA-<bits>, ECC-P256, or ECC-P384)", id);
         return;
     }
 

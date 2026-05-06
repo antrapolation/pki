@@ -1053,9 +1053,14 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
               case spawn_sub_ca_via_hsm(ceremony, populated_hsm_config, cert_der, subject_dn) do
                 {:ok, data} -> data
                 {:error, reason} ->
+                  # The sub-CA key pair was already generated in the HSM token before this
+                  # failure. An orphaned key pair with label "#{key_label}-sub-ca" may
+                  # remain in the token. Clean it up manually via pkcs11-tool if needed.
                   Logger.warning("HSM sub-CA auto-spawn failed: #{inspect(reason)}; continuing without sub-CA")
                   nil
               end
+            else
+              nil
             end
 
           commit_hsm_key(ceremony, issuer_key, populated_hsm_config, fingerprint, is_root,
@@ -1357,13 +1362,27 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
             {:error, :softhsm_pin_not_configured}
 
           true ->
-            platform_node = String.to_atom(platform_node_str)
+            platform_node =
+              try do
+                String.to_existing_atom(platform_node_str)
+              rescue
+                ArgumentError -> nil
+              end
 
-            case :rpc.call(platform_node, PkiPlatformEngine.SofthsmPinCustody, :get_user_pin,
-                           [tenant_id], 10_000) do
-              {:ok, pin} -> {:ok, pin}
-              {:badrpc, reason} -> {:error, {:rpc_failed, reason}}
-              {:error, _} = err -> err
+            case platform_node do
+              nil ->
+                {:error, :invalid_platform_node}
+
+              node ->
+                try do
+                  case :erpc.call(node, PkiPlatformEngine.SofthsmPinCustody, :get_user_pin,
+                                  [tenant_id], 10_000) do
+                    {:ok, pin} -> {:ok, pin}
+                    {:error, _} = err -> err
+                  end
+                rescue
+                  e -> {:error, {:rpc_failed, inspect(e)}}
+                end
             end
         end
     end
@@ -1574,8 +1593,8 @@ defmodule PkiCaEngine.CeremonyOrchestrator do
           end
         end
 
-        sub_ca_key_id = if sub_ca_data, do: sub_ca_data.issuer_key.id, else: nil
-        {:ok, %{fingerprint: fingerprint, csr_pem: csr_pem, sub_ca_key_id: sub_ca_key_id}}
+        # Return the activated IssuerKey struct so callers can inspect its fields.
+        Repo.get(IssuerKey, issuer_key.id)
 
       {:error, reason} ->
         fail_ceremony(ceremony.id, "transaction_failed: #{inspect(reason)}")
