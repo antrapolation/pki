@@ -4,6 +4,17 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 `MAJOR.MINOR.PATCH.MICRO` (4-digit).
 
+## [1.1.2.0] - 2026-05-06
+
+### Added
+
+- **Test coverage for validation service hardening** — `CrlPublisher.status/1`
+  is now tested (structure, `generation_error` flag, per-issuer `issuer_count`);
+  `signed_crl/2` guard paths tested (`issuer_key_not_active`,
+  `issuer_key_not_found`); `ResponseBuilder.build/4` error-status nonce path
+  verified via ASN.1 decode across all four error statuses (`unauthorized`,
+  `tryLater`, `internalError`, `malformedRequest`).
+
 ## [1.1.1.0] - 2026-04-26
 
 ### Fixed
