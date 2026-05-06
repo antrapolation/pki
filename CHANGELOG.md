@@ -4,6 +4,38 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 `MAJOR.MINOR.PATCH.MICRO` (4-digit).
 
+## [1.1.4.0] - 2026-05-07
+
+### Added
+
+- **SoftHSM2 PKCS#11 local-HSM ceremony path** — Full end-to-end key generation
+  ceremony support using a local SoftHSM2 token via the existing `Pkcs11Port` C
+  port. `LocalHsmAdapter.generate_key/3` drives `C_GenerateKeyPair` for ECC-P256,
+  ECC-P384, RSA-2048, and RSA-4096; private keys never leave the token.
+  `SofthsmPinCustody` wraps and unwraps per-tenant user/SO PINs with AES-256-GCM
+  using an HKDF-SHA256 DEK derived from the platform master key, binding ciphertext
+  to `tenant_id` in both the HKDF `info` and AES-GCM AAD to prevent cross-tenant
+  envelope reuse. `CeremonyOrchestrator` now handles `keystore_mode: "softhsm"`
+  exactly like a real HSM: no Shamir shares are created, `execute_keygen/2` accepts
+  an empty password list, and the resulting `IssuerKey` has `keystore_type: :local_hsm`
+  with a fully-populated `hsm_config` including `key_label`, `key_id` (CKA_ID hex),
+  `library_path`, `slot_id`, and `pin`.
+
+- **CA portal ceremony wizard — HSM bypass flow** — When `keystore_mode` is
+  `"softhsm"` or `"hsm"`, the wizard no longer enters the custodian slot-entry
+  phase. After a successful `initiate`, it fires `:execute_keygen` immediately
+  (no vault, no custodian tokens), displays an in-progress banner, and transitions
+  directly to the completed/pending state. The keystore dropdown is now optional
+  (only required for hardware HSM mode); the "New Key Ceremony" button is enabled
+  for all CA instances regardless of registered keystores.
+
+- **SoftHSM2 integration test suite** — `softhsm_keygen_test.exs` in
+  `pki_ca_engine` (tagged `@moduletag :softhsm`, excluded from default CI run).
+  Tests: low-level `LocalHsmAdapter` generate + sign + verify for ECC-P256 and
+  RSA-2048 against a real `libsofthsm2.so`; full root CA ceremony producing a
+  self-signed certificate; full sub-CA ceremony producing a CSR (status `"pending"`).
+  Run with `mix test --include softhsm test/integration/softhsm_keygen_test.exs`.
+
 ## [1.1.3.0] - 2026-05-06
 
 ### Added
