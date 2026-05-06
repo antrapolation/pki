@@ -23,7 +23,7 @@ defmodule PkiReplicationTest do
     assert :portal_users in sync
     assert :backup_records in sync
     assert :schema_versions in sync
-    assert length(sync) == 14
+    assert length(sync) == 18
   end
 
   test "async tables list is complete" do
@@ -31,7 +31,7 @@ defmodule PkiReplicationTest do
     assert :issued_certificates in async
     assert :csr_requests in async
     assert :certificate_status in async
-    assert length(async) == 3
+    assert length(async) == 5
   end
 
   test "write to primary, verify data persists through promote_to_primary" do
