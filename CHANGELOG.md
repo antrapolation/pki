@@ -4,6 +4,26 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 `MAJOR.MINOR.PATCH.MICRO` (4-digit).
 
+## [1.1.3.0] - 2026-05-06
+
+### Added
+
+- **Test coverage across four packages** — 158 net-new tests across
+  `pki_mnesia` (38% → 72%), `pki_ra_engine` (49% → 54%), `pki_platform_engine`
+  (24% → 28%), and `pki_tenant_web` (9% → 20%). Covers 19+ Mnesia struct
+  constructors and validators, Ecto changeset validation logic, DcvVerifier
+  SSRF-blocked domain paths, DateLogHandler OTP callbacks, SystemHealth metrics
+  helpers, CA portal LiveView lifecycle events for certificates and issuer keys,
+  and full mount smoke tests for all CA and RA portal pages.
+
+### Fixed
+
+- **`certificates_live.ex` revoke clause ordering** — the catch-all
+  `handle_event("revoke_cert", _params, ...)` clause was defined before the
+  specific `%{"serial" => ..., "reason" => ...}` pattern, making the specific
+  clause unreachable. Clause order corrected so revocations with valid params
+  are processed correctly rather than silently dropped.
+
 ## [1.1.2.0] - 2026-05-06
 
 ### Added
