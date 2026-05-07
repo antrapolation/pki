@@ -40,9 +40,16 @@ fi
 
 # ── 2. Directory structure ───────────────────────────────────────────────────
 info "Creating /opt/pki directory structure..."
-mkdir -p /opt/pki/{releases/{engines,portals,audit},.cookies,logs}
+mkdir -p /opt/pki/{releases/{platform,engines,tenant,audit},.cookies,logs}
 chown -R pki:pki /opt/pki
 chmod 750 /opt/pki/.cookies
+
+# Mnesia disc_copies directories — one per static BEAM node.
+# Tenant node directories (tenant-<id>) are created by the provisioner at runtime.
+info "Creating Mnesia data directories..."
+mkdir -p /var/lib/pki/mnesia/{platform,engines,audit}
+chown -R pki:pki /var/lib/pki
+chmod 750 /var/lib/pki/mnesia
 
 # ── 3. System packages ───────────────────────────────────────────────────────
 info "Installing system packages..."
@@ -151,17 +158,57 @@ info "Starting PostgreSQL..."
 systemctl enable postgresql
 systemctl start postgresql
 
-# Tune max_connections — default 100 is too low for 2 BEAM nodes with multiple repos.
-# Each node opens pools for ~7 repos × pool_size ≈ 70 connections per node.
-# With 2 nodes (engines + portals) that's ~140 idle + headroom needed.
+# Detect available RAM for PostgreSQL memory tuning.
+# Targets: shared_buffers=25% RAM, effective_cache_size=75% RAM, work_mem=16 MB.
+# Falls back to conservative defaults if detection fails.
+TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 4194304)
+TOTAL_RAM_GB=$(( TOTAL_RAM_KB / 1024 / 1024 ))
+SHARED_BUFFERS_GB=$(( TOTAL_RAM_GB / 4 ))
+EFFECTIVE_CACHE_GB=$(( TOTAL_RAM_GB * 3 / 4 ))
+# Floor at 1 GB shared_buffers even on small boxes
+[[ "$SHARED_BUFFERS_GB" -lt 1 ]] && SHARED_BUFFERS_GB=1
+[[ "$EFFECTIVE_CACHE_GB" -lt 2 ]] && EFFECTIVE_CACHE_GB=2
+
+info "PostgreSQL memory tuning (${TOTAL_RAM_GB} GB RAM detected)..."
+info "  shared_buffers=${SHARED_BUFFERS_GB}GB, effective_cache_size=${EFFECTIVE_CACHE_GB}GB"
+
+# max_connections: platform and engines BEAM nodes each open pools per repo.
+# With up to 25 tenant nodes (each with small audit/validation pools) headroom
+# to 500 is safe; PgBouncer can be layered in front if this box grows further.
 PG_MAX_CONN=$(sudo -u postgres psql -tAc "SHOW max_connections;" 2>/dev/null || echo "100")
-if [[ "$PG_MAX_CONN" -lt 300 ]]; then
-  info "Increasing PostgreSQL max_connections from ${PG_MAX_CONN} to 300..."
-  sudo -u postgres psql -qc "ALTER SYSTEM SET max_connections = 300;" 2>/dev/null
-  systemctl restart postgresql
-  info "  ✓ PostgreSQL restarted with max_connections = 300"
+PG_NEEDS_RESTART=0
+
+if [[ "$PG_MAX_CONN" -lt 500 ]]; then
+  info "  max_connections ${PG_MAX_CONN} → 500"
+  sudo -u postgres psql -q << PGSQL 2>/dev/null
+ALTER SYSTEM SET max_connections = 500;
+ALTER SYSTEM SET shared_buffers = '${SHARED_BUFFERS_GB}GB';
+ALTER SYSTEM SET effective_cache_size = '${EFFECTIVE_CACHE_GB}GB';
+ALTER SYSTEM SET work_mem = '16MB';
+ALTER SYSTEM SET maintenance_work_mem = '256MB';
+ALTER SYSTEM SET wal_buffers = '64MB';
+ALTER SYSTEM SET checkpoint_completion_target = 0.9;
+ALTER SYSTEM SET random_page_cost = 1.5;
+PGSQL
+  PG_NEEDS_RESTART=1
 else
-  info "PostgreSQL max_connections already ${PG_MAX_CONN} (≥300), no change needed."
+  # max_connections already adequate — still apply memory settings idempotently
+  sudo -u postgres psql -q << PGSQL 2>/dev/null
+ALTER SYSTEM SET shared_buffers = '${SHARED_BUFFERS_GB}GB';
+ALTER SYSTEM SET effective_cache_size = '${EFFECTIVE_CACHE_GB}GB';
+ALTER SYSTEM SET work_mem = '16MB';
+ALTER SYSTEM SET maintenance_work_mem = '256MB';
+ALTER SYSTEM SET wal_buffers = '64MB';
+ALTER SYSTEM SET checkpoint_completion_target = 0.9;
+ALTER SYSTEM SET random_page_cost = 1.5;
+PGSQL
+  PG_NEEDS_RESTART=1
+  info "  max_connections already ${PG_MAX_CONN} (≥500), memory settings updated"
+fi
+
+if [[ "$PG_NEEDS_RESTART" -eq 1 ]]; then
+  systemctl restart postgresql
+  info "  ✓ PostgreSQL restarted with tuned settings"
 fi
 
 # ── 7. Caddy ─────────────────────────────────────────────────────────────────

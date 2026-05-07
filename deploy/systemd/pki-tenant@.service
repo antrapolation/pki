@@ -1,0 +1,79 @@
+[Unit]
+Description=PKI Tenant Node (%i)
+Documentation=https://github.com/straptrust/pki
+# Tenant nodes require the platform to be running (for distributed Erlang
+# cluster membership and :rpc calls) but are NOT bound to it — a platform
+# restart does not kill running tenant nodes. This allows rolling platform
+# upgrades without disrupting active certificate signing or OCSP responses.
+After=network.target pki-platform.service
+Wants=pki-platform.service
+
+[Service]
+Type=exec
+User=pki
+Group=pki
+WorkingDirectory=/opt/pki/releases/tenant
+
+EnvironmentFile=/opt/pki/.env
+# %i is the instance specifier — the tenant ID passed via systemctl start/enable.
+# Example: systemctl start pki-tenant@acme-corp.service
+#          sets RELEASE_NODE=pki_tenant_acme-corp@127.0.0.1 and
+#          MNESIA_DIR=/var/lib/pki/mnesia/tenant-acme-corp
+Environment=PHX_SERVER=true
+Environment=RELEASE_DISTRIBUTION=name
+Environment=RELEASE_NODE=pki_tenant_%i@127.0.0.1
+Environment=PKI_TENANT_ID=%i
+
+# ── Mnesia ────────────────────────────────────────────────────────────────────
+# Each tenant gets its own isolated disc_copies directory.
+# The pki user must have write access; install.sh creates the parent.
+Environment=MNESIA_DIR=/var/lib/pki/mnesia/tenant-%i
+
+# ── BEAM runtime flags ────────────────────────────────────────────────────────
+# Tenant nodes handle: CA engine, RA engine, OCSP/CRL, Phoenix LiveView,
+# and optionally a PKCS#11 port for SoftHSM2 key operations.
+#
+# +S 0:0       — use all cores; tenant nodes are the primary workload
+# +SDcpu 2:2   — cap dirty-CPU schedulers; NIF usage is bounded (PQC signing)
+# +SDio 8:8    — 8 dirty-I/O schedulers: Mnesia disc_copies + PKCS#11 port I/O
+# +A 32        — 32-thread async pool; adequate for one tenant's port load
+# +sbwt none   — don't spin on idle (most tenants are idle most of the time)
+# +swt very_low — wake schedulers only for real work
+# +sub true    — balance load across schedulers within the tenant node
+# +MBas aobf +MBlmbcs 512 — allocator tuning for long-lived process
+Environment="ELIXIR_ERL_OPTIONS=+S 0:0 +SDcpu 2:2 +SDio 8:8 +A 32 +sbwt none +swt very_low +sub true +MBas aobf +MBlmbcs 512"
+
+Environment=ERL_FULLSWEEP_AFTER=20
+
+ExecStart=/opt/pki/releases/tenant/bin/pki_tenant_node start
+ExecStop=/opt/pki/releases/tenant/bin/pki_tenant_node stop
+
+Restart=on-failure
+RestartSec=10
+RestartMaxDelaySec=120
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStartSec=120
+TimeoutStopSec=60
+
+# ── Resource limits ───────────────────────────────────────────────────────────
+# Each tenant node opens fds for: all active TLS connections (Phoenix),
+# Mnesia table files, PKCS#11 C port, OCSP/CRL sockets, internal timers.
+# 65536 per node is appropriate; if you run many tenants on one VPS and hit
+# the system-wide fs.file-max, raise that in /etc/sysctl.d/99-pki-beam.conf.
+LimitNOFILE=65536
+LimitNPROC=65536
+OOMScoreAdjust=-400
+
+# ── Hardening ─────────────────────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pki/releases/tenant /var/lib/pki /var/lib/softhsm /tmp
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pki-tenant-%i
+
+[Install]
+WantedBy=multi-user.target

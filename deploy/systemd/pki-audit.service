@@ -13,8 +13,16 @@ WorkingDirectory=/opt/pki/releases/audit
 EnvironmentFile=/opt/pki/.env
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_audit@127.0.0.1
-# Lightweight service — minimal schedulers
-Environment="ELIXIR_ERL_OPTIONS=+S 1:1 +SDcpu 1:1"
+
+# ── Mnesia ────────────────────────────────────────────────────────────────────
+Environment=MNESIA_DIR=/var/lib/pki/mnesia/audit
+
+# ── BEAM runtime flags ────────────────────────────────────────────────────────
+# Audit is deliberately lightweight — 1 scheduler core, minimal async pool.
+# +sbwt none prevents wasted CPU on a process that handles only sporadic writes.
+Environment="ELIXIR_ERL_OPTIONS=+S 1:1 +SDcpu 1:1 +A 8 +sbwt none +swt very_low"
+
+Environment=ERL_FULLSWEEP_AFTER=20
 
 ExecStart=/opt/pki/releases/audit/bin/pki_audit start
 ExecStop=/opt/pki/releases/audit/bin/pki_audit stop
@@ -27,10 +35,16 @@ StartLimitBurst=5
 TimeoutStartSec=90
 TimeoutStopSec=30
 
+# ── Resource limits ───────────────────────────────────────────────────────────
+LimitNOFILE=32768
+LimitNPROC=32768
+OOMScoreAdjust=-300
+
+# ── Hardening ─────────────────────────────────────────────────────────────────
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pki/releases/audit /tmp
+ReadWritePaths=/opt/pki/releases/audit /var/lib/pki/mnesia/audit /tmp
 
 StandardOutput=journal
 StandardError=journal
