@@ -31,6 +31,14 @@ defmodule PkiTenantWeb.SessionController do
 
           Logger.info("User #{username} logged in via #{portal} portal from #{ip}")
 
+          PkiTenant.AuditBridge.log("user_login", %{
+            actor: username,
+            actor_role: to_string(user.role),
+            ip: ip,
+            user_agent: ua,
+            portal: portal
+          })
+
           conn
           |> configure_session(renew: true)
           |> put_session(:session_id, session_id)
@@ -53,6 +61,18 @@ defmodule PkiTenantWeb.SessionController do
 
   def delete(conn, _params) do
     if session_id = get_session(conn, :session_id) do
+      case PkiTenantWeb.SessionStore.lookup(session_id) do
+        {:ok, record} ->
+          PkiTenant.AuditBridge.log("user_logout", %{
+            actor: record.username,
+            actor_role: record.role,
+            portal: record.portal
+          })
+
+        _ ->
+          :ok
+      end
+
       PkiTenantWeb.SessionStore.delete(session_id)
     end
 
