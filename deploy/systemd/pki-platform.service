@@ -32,10 +32,12 @@ Environment=MNESIA_DIR=/var/lib/pki/mnesia/platform
 # +swt very_low — only wake a sleeping scheduler when there's real work queued
 # +sub true    — migrate processes across schedulers to balance utilisation;
 #                important when one tenant drives load and others are idle
-# +MBas aobf   — address-order best-fit allocator; reduces heap fragmentation
-#                on long-lived CA processes (weeks/months of uptime)
-# +MBlmbcs 512 — 512 KB max multiblock carrier before memory is returned to OS
-Environment="ELIXIR_ERL_OPTIONS=+S 0:0 +SDcpu 2:2 +SDio 10:10 +A 64 +sbwt none +swt very_low +sub true +MBas aobf +MBlmbcs 512"
+# +MBas aobf    — address-order best-fit allocator; reduces heap fragmentation
+#                 on long-lived CA processes (weeks/months of uptime)
+# +MBlmbcs 1024 — 1 MB max multiblock carrier; larger than the default 512 KB
+#                 because 24 GB RAM means we can hold carriers longer and avoid
+#                 the churn of OS alloc/free cycles on busy CA heaps
+Environment="ELIXIR_ERL_OPTIONS=+S 0:0 +SDcpu 2:2 +SDio 10:10 +A 64 +sbwt none +swt very_low +sub true +MBas aobf +MBlmbcs 1024"
 
 # Force full GC sweep after 20 heap growths. BEAM default (65535) lets long-
 # lived CA processes accumulate large retired heaps between sweeps. 20 is
