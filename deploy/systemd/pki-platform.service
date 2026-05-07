@@ -15,9 +15,33 @@ EnvironmentFile=/opt/pki/.env
 Environment=PHX_SERVER=true
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_platform@127.0.0.1
-# Platform runs the admin portal (port 4006) and spawns per-tenant BEAM
-# nodes via :peer, so it needs headroom for dynamic tenant supervisors.
-Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
+
+# ── Mnesia ────────────────────────────────────────────────────────────────────
+# Isolated disc_copies directory — keeps platform Mnesia off the release path.
+Environment=MNESIA_DIR=/var/lib/pki/mnesia/platform
+
+# ── BEAM runtime flags ────────────────────────────────────────────────────────
+# +S 0:0       — auto-detect online CPUs; use all cores for normal schedulers
+# +SDcpu 2:2   — cap dirty-CPU schedulers (run NIFs) at 2; prevents NIF bursts
+#                from starving the normal scheduler pool
+# +SDio 10:10  — 10 dirty-I/O schedulers; Mnesia disc_copies, S3 backup,
+#                PKCS#11 port I/O all land here
+# +A 64        — 64-thread async pool; Erlang ports (PKCS#11 C binary) use this
+# +sbwt none   — don't spin schedulers on empty run queues; VPS CPUs are shared
+#                quota — spinning wastes it for zero gain on idle tenants
+# +swt very_low — only wake a sleeping scheduler when there's real work queued
+# +sub true    — migrate processes across schedulers to balance utilisation;
+#                important when one tenant drives load and others are idle
+# +MBas aobf   — address-order best-fit allocator; reduces heap fragmentation
+#                on long-lived CA processes (weeks/months of uptime)
+# +MBlmbcs 512 — 512 KB max multiblock carrier before memory is returned to OS
+Environment="ELIXIR_ERL_OPTIONS=+S 0:0 +SDcpu 2:2 +SDio 10:10 +A 64 +sbwt none +swt very_low +sub true +MBas aobf +MBlmbcs 512"
+
+# Force full GC sweep after 20 heap growths. BEAM default (65535) lets long-
+# lived CA processes accumulate large retired heaps between sweeps. 20 is
+# aggressive but appropriate for a security process that must not retain stale
+# key material in heap memory longer than necessary.
+Environment=ERL_FULLSWEEP_AFTER=20
 
 ExecStart=/opt/pki/releases/platform/bin/pki_platform start
 ExecStop=/opt/pki/releases/platform/bin/pki_platform stop
@@ -30,11 +54,24 @@ StartLimitBurst=5
 TimeoutStartSec=90
 TimeoutStopSec=30
 
-# Basic hardening
+# ── Resource limits ───────────────────────────────────────────────────────────
+# BEAM needs one fd per: socket, port, open file, pipe end, timer fd.
+# With N tenants × (Phoenix connections + Mnesia fds + PKCS#11 ports) the
+# default 1024 is exhausted immediately. 131072 is safe for a single-VPS setup;
+# raise to 524288 on hosts running many concurrent tenants.
+LimitNOFILE=131072
+LimitNPROC=131072
+
+# Protect the platform BEAM from the OOM killer. Score -500 means the kernel
+# will kill almost any other process before touching this one.
+# Range: -1000 (never kill) to 1000 (kill first).
+OOMScoreAdjust=-500
+
+# ── Hardening ─────────────────────────────────────────────────────────────────
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pki/releases/platform /var/lib/pki/tenants /tmp
+ReadWritePaths=/opt/pki/releases/platform /var/lib/pki /var/lib/softhsm /tmp
 
 StandardOutput=journal
 StandardError=journal

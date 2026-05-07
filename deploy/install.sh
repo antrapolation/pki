@@ -40,9 +40,16 @@ fi
 
 # ── 2. Directory structure ───────────────────────────────────────────────────
 info "Creating /opt/pki directory structure..."
-mkdir -p /opt/pki/{releases/{engines,portals,audit},.cookies,logs}
+mkdir -p /opt/pki/{releases/{platform,engines,tenant,audit},.cookies,logs}
 chown -R pki:pki /opt/pki
 chmod 750 /opt/pki/.cookies
+
+# Mnesia disc_copies directories — one per static BEAM node.
+# Tenant node directories (tenant-<id>) are created by the provisioner at runtime.
+info "Creating Mnesia data directories..."
+mkdir -p /var/lib/pki/mnesia/{platform,engines,audit}
+chown -R pki:pki /var/lib/pki
+chmod 750 /var/lib/pki/mnesia
 
 # ── 3. System packages ───────────────────────────────────────────────────────
 info "Installing system packages..."

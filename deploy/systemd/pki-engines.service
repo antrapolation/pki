@@ -1,5 +1,5 @@
 [Unit]
-Description=PKI Engines (Audit Trail receiver + PlatformEngine bootstrap modules)
+Description=PKI Engines (audit-trail receiver + platform bootstrap modules)
 Documentation=https://github.com/straptrust/pki
 After=network.target postgresql.service
 Requires=postgresql.service
@@ -11,12 +11,25 @@ Group=pki
 WorkingDirectory=/opt/pki/releases/engines
 
 EnvironmentFile=/opt/pki/.env
-# CA/RA engines no longer expose HTTP APIs, and Validation (OCSP/CRL/TSA)
-# runs inside each tenant BEAM (via pki_tenant_node). This release only
-# hosts the centralized audit-trail receiver + platform bootstrap modules.
+# CA/RA engines no longer expose HTTP APIs, and validation (OCSP/CRL)
+# runs inside each tenant BEAM. This release hosts the centralized
+# audit-trail receiver and platform bootstrap modules only.
 Environment=RELEASE_DISTRIBUTION=name
 Environment=RELEASE_NODE=pki_engines@127.0.0.1
-Environment="ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2:2"
+
+# ── Mnesia ────────────────────────────────────────────────────────────────────
+Environment=MNESIA_DIR=/var/lib/pki/mnesia/engines
+
+# ── BEAM runtime flags ────────────────────────────────────────────────────────
+# +S 0:0      — use all cores; engines is lightweight but don't waste headroom
+# +SDcpu 1:1  — only 1 dirty-CPU scheduler; minimal NIF usage in this release
+# +SDio 4:4   — 4 dirty-I/O schedulers for Mnesia and audit log writes
+# +A 16       — 16-thread async pool; smaller than platform, adequate for audit
+# +sbwt none +swt very_low — don't spin schedulers; engines is mostly idle
+# +MBas aobf +MBlmbcs 512  — allocator tuning (same as platform)
+Environment="ELIXIR_ERL_OPTIONS=+S 0:0 +SDcpu 1:1 +SDio 4:4 +A 16 +sbwt none +swt very_low +MBas aobf +MBlmbcs 512"
+
+Environment=ERL_FULLSWEEP_AFTER=20
 
 ExecStart=/opt/pki/releases/engines/bin/pki_engines start
 ExecStop=/opt/pki/releases/engines/bin/pki_engines stop
@@ -29,11 +42,16 @@ StartLimitBurst=5
 TimeoutStartSec=90
 TimeoutStopSec=30
 
-# Basic hardening
+# ── Resource limits ───────────────────────────────────────────────────────────
+LimitNOFILE=65536
+LimitNPROC=65536
+OOMScoreAdjust=-400
+
+# ── Hardening ─────────────────────────────────────────────────────────────────
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pki/releases/engines /var/lib/softhsm /tmp
+ReadWritePaths=/opt/pki/releases/engines /var/lib/pki/mnesia/engines /var/lib/softhsm /tmp
 
 StandardOutput=journal
 StandardError=journal
