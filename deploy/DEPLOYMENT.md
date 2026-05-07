@@ -1,60 +1,58 @@
 # PKI CA System — Production Deployment Guide
 ## BEAM Direct Deployment (No Containers)
 
-This guide covers deploying all PKI services as native Elixir/OTP releases supervised
-by systemd. No Docker/Podman required. Caddy handles TLS termination; PostgreSQL and
-SoftHSM2 run as system services.
+All PKI services run as native Elixir/OTP releases supervised by systemd.
+Caddy handles TLS termination and dynamically updates its routing as tenants
+are provisioned. PostgreSQL and SoftHSM2 run as system services.
 
 ---
 
-## Architecture Overview (current, as of Milestone 5)
+## Architecture
 
 ```
 Internet
     │
     ▼
-┌─────────────────────────────────────────────┐
-│  Caddy (ports 80/443)                        │
-│  admin.straptrust.com → localhost:4006       │
-│  <tenant>.straptrust.com → per-tenant BEAM   │
-└────────────┬─────────────────────────────────┘
-             │
-┌────────────▼────────────────────────────────┐
-│  pki_platform (1 BEAM VM, +S 2:2)            │
-│  Platform portal :4006                       │
-│  Tenant lifecycle: spawns per-tenant BEAM    │
-│    via :peer for each tenant                 │
-└────────────┬────────────────────────────────┘
-             │ :peer spawn / distributed Erlang
-┌────────────▼────────────────────────────────┐
-│  pki_tenant_node (one per tenant)            │
-│  CA + RA engines in-process (no HTTP API)    │
-│  pki_validation (OCSP/CRL/TSA) in-process    │
-│  pki_tenant_web serves the portal UI         │
-│  State lives in local Mnesia                 │
-└─────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────┐
-│  pki_engines (1 BEAM VM, +S 2:2)            │
-│  Audit Trail receiver (forwards → Postgres) │
-│  PlatformEngine bootstrap modules            │
-└────────────┬────────────────────────────────┘
-             │
-┌────────────▼────────────────────────────────┐
-│  pki_audit (1 BEAM VM, +S 1:1)              │
-│  Lightweight audit trail service             │
-└────────────┬────────────────────────────────┘
-             │
-    ┌────────▼───────────────────────────────────┐
-    │ PostgreSQL :5432  │  SoftHSM2              │
-    │ (platform + audit_trail only)              │
-    └────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Caddy  (ports 80 / 443)                                     │
+│                                                              │
+│  admin.<domain>             → localhost:4006                 │
+│  <slug>.ca.<domain>         → localhost:<tenant-port>  ┐     │
+│  <slug>.ra.<domain>         → localhost:<tenant-port>  ├─ dynamic,│
+│  <slug>.ocsp.<domain>       → localhost:<tenant-port>  ┘ via API  │
+└──────────────────────────────────────────────────────────────┘
+         │                            │
+         ▼                            ▼
+┌──────────────────┐      ┌───────────────────────────────────┐
+│  pki_platform    │      │  pki_tenant_node (one per tenant) │
+│  port 4006       │      │  port 5001–5999  (PortAllocator)  │
+│                  │      │                                   │
+│  Platform admin  │      │  CA engine     (in-process)       │
+│  portal          │      │  RA engine     (in-process)       │
+│  Tenant lifecycle│      │  pki_validation OCSP/CRL          │
+│  CaddyConfigurator│     │  pki_tenant_web portal UI         │
+│  PortAllocator   │      │  Mnesia disc_copies               │
+└──────────────────┘      └───────────────────────────────────┘
+         │
+         ├── pki_engines  (audit-trail receiver, platform bootstrap)
+         └── pki_audit    (lightweight audit trail)
+                │
+       ┌────────▼────────────────────┐
+       │ PostgreSQL :5432             │
+       │ pki_platform DB only         │
+       │ (tenant data lives in Mnesia)│
+       └──────────────────────────────┘
 ```
 
-- Per-tenant CA/RA/Validation data lives in **Mnesia** on each tenant BEAM.
-- Postgres hosts only: platform admin metadata + centralized audit trail.
-- CA/RA engines no longer expose HTTP APIs — tenant portal calls them in-process.
-- OCSP/CRL/TSA queries are served by the tenant's own Validation service (colocated with CA/RA on the tenant BEAM); the cert's CDP/OCSP URLs point at the tenant's subdomain.
+**Key points:**
+
+- Tenant CA/RA/Validation data lives in **Mnesia** on each tenant BEAM node —
+  PostgreSQL is only used by the platform node and audit service.
+- CA and RA engines are **in-process** — no HTTP API between them and the portals.
+- When a tenant is provisioned, `pki_platform` allocates a port (5001–5999),
+  starts a `pki_tenant_node` BEAM, and calls the Caddy admin API to add a
+  reverse-proxy route. Deprovisioning removes the route automatically.
+- UFW only exposes ports 80 and 443. All tenant ports are localhost-only.
 
 ---
 
@@ -62,597 +60,465 @@ Internet
 
 1. [Server Requirements](#1-server-requirements)
 2. [DNS Setup](#2-dns-setup)
-3. [Secure the VPS](#3-secure-the-vps)
-4. [Initial Server Setup](#4-initial-server-setup)
-5. [Configure Environment](#5-configure-environment)
-6. [Database & HSM Initialisation](#6-database--hsm-initialisation)
-7. [Build Releases](#7-build-releases)
-8. [Deploy Releases](#8-deploy-releases)
-9. [Service Startup Order](#9-service-startup-order)
-10. [Verify Deployment](#10-verify-deployment)
-11. [Operations Reference](#11-operations-reference)
-12. [Upgrading](#12-upgrading)
-13. [Troubleshooting](#13-troubleshooting)
+3. [VPS Setup — One Time](#3-vps-setup--one-time)
+4. [Configure Environment](#4-configure-environment)
+5. [Build Releases (on VPS)](#5-build-releases-on-vps)
+6. [Deploy](#6-deploy)
+7. [Service Startup Order](#7-service-startup-order)
+8. [Verify Deployment](#8-verify-deployment)
+9. [Provisioning Tenants](#9-provisioning-tenants)
+10. [Operations Reference](#10-operations-reference)
+11. [Upgrading](#11-upgrading)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
 ## 1. Server Requirements
 
-| Resource | Minimum | Recommended |
+| Resource | Minimum | Target (current VPS) |
 |---|---|---|
 | OS | Ubuntu 22.04 LTS | Ubuntu 22.04 LTS |
-| CPU | 2 vCPU | 4 vCPU |
-| RAM | 2 GB | 4 GB |
-| Disk | 20 GB | 40 GB SSD |
+| CPU | 2 vCPU | 8 vCPU |
+| RAM | 4 GB | 24 GB |
+| Disk | 40 GB SSD | 400 GB SSD |
 | Network | Public IP | Public IP |
 
-All three domains must resolve to this server's public IP before deployment
-(Caddy needs to reach Let's Encrypt for TLS certificate issuance).
+**Tenant capacity on 8 vCPU / 24 GB:** ~25–30 idle tenants; ~10–12 tenants
+under active signing load before a second VPS is warranted.
 
 ---
 
 ## 2. DNS Setup
 
-Create three A records pointing to your server's public IP:
+You need **four sets of DNS A records** all pointing to the VPS public IP.
+Caddy uses them to obtain Let's Encrypt TLS certificates automatically.
 
-| Record | Type | Value |
+| Record | Type | Example |
 |---|---|---|
-| `ca.straptrust.com` | A | `217.15.161.93` |
-| `ra.straptrust.com` | A | `217.15.161.93` |
-| `admin.straptrust.com` | A | `217.15.161.93` |
+| `admin.straptrust.com` | A | `<VPS_IP>` |
+| `*.ca.straptrust.com` | A | `<VPS_IP>` |
+| `*.ra.straptrust.com` | A | `<VPS_IP>` |
+| `*.ocsp.straptrust.com` | A | `<VPS_IP>` |
+
+> The wildcard records cover all tenants — when `acme-corp` is provisioned,
+> `acme-corp.ca.straptrust.com`, `acme-corp.ra.straptrust.com`, and
+> `acme-corp.ocsp.straptrust.com` resolve automatically.
 
 Verify propagation before continuing:
+
 ```bash
-dig +short ca.straptrust.com
-dig +short ra.straptrust.com
 dig +short admin.straptrust.com
-# All three should return 217.15.161.93
+dig +short test.ca.straptrust.com   # wildcard test
+# Both should return <VPS_IP>
 ```
 
 ---
 
-## 3. Secure the VPS
+## 3. VPS Setup — One Time
 
-Run this **first** on a fresh server before installing anything. This is especially
-important for a PKI/CA system that handles cryptographic keys.
+### 3.1 Create a non-root deploy user
 
-### 3.1 Create a deploy user (from your local machine)
-
-**Do not use root for day-to-day access.** Create a non-root user with sudo:
+SSH in as root for the first and last time:
 
 ```bash
-# SSH into the VPS as root (first and last time)
-ssh root@217.15.161.93
+ssh root@<VPS_IP>
 
-# Create deploy user
 adduser deploy
-  usermod -aG sudo deploy
-
-# Copy your SSH key to the deploy user
+usermod -aG sudo deploy
 mkdir -p /home/deploy/.ssh
-cp ~/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys
+cp ~/.ssh/authorized_keys /home/deploy/.ssh/
 chown -R deploy:deploy /home/deploy/.ssh
-chmod 700 /home/deploy/.ssh
-chmod 600 /home/deploy/.ssh/authorized_keys
-
-# Verify you can SSH as deploy (from another terminal!)
-# ssh deploy@217.15.161.93
-# Only proceed after confirming this works
+chmod 700 /home/deploy/.ssh && chmod 600 /home/deploy/.ssh/authorized_keys
 ```
 
-### 3.2 Run VPS hardening script
+Open a second terminal and verify `ssh deploy@<VPS_IP>` works **before disconnecting root**.
+
+### 3.2 Clone the repository
 
 ```bash
-# As the deploy user
-ssh deploy@217.15.161.93
-cd ~/pki
+ssh deploy@<VPS_IP>
 
-# Harden the VPS (runs as root via sudo)
-sudo bash deploy/secure-vps.sh
-```
-
-Or with a custom SSH port:
-```bash
-sudo bash deploy/secure-vps.sh --ssh-port 2222
-```
-
-### 3.3 What `secure-vps.sh` does
-
-| Layer | What | Detail |
-|---|---|---|
-| Firewall | UFW | Only SSH, HTTP (80), HTTPS (443) open — all other ports blocked |
-| SSH | Key-only auth | Root login disabled, password auth disabled, max 3 attempts |
-| Brute-force | Fail2ban | 3 failed SSH attempts → 1 hour IP ban |
-| Network | sysctl hardening | SYN flood protection, no IP forwarding, no ICMP redirects, anti-spoofing |
-| Kernel | ASLR + restrictions | Randomized memory layout, restricted ptrace/dmesg/kernel pointers |
-| Memory | /dev/shm noexec | Prevents executable code in shared memory |
-| Updates | Unattended upgrades | Nightly security patches (Erlang/PostgreSQL excluded from auto-update) |
-
-### 3.4 After hardening
-
-```bash
-# Verify firewall
-sudo ufw status
-
-# Verify fail2ban
-sudo fail2ban-client status sshd
-
-# Verify SSH (from another terminal — don't disconnect yet!)
-ssh deploy@217.15.161.93          # default port
-ssh -p 2222 deploy@217.15.161.93  # if you changed SSH port
-```
-
-> **If locked out:** Use your VPS provider's web console to fix SSH config.
-
----
-
-## 4. Initial Server Setup
-
-Run once on the hardened server. This installs system packages, creates the
-`pki` OS user, sets up directory structure, and auto-generates all secrets.
-
-```bash
-ssh deploy@217.15.161.93
-
-# Clone the repo with submodules (Gitea self-hosted, SSL disabled for internal cert)
 git clone -c http.sslVerify=false --recurse-submodules \
   https://vcs.antrapol.tech:3800/Incubator/pki.git ~/pki
 
-# Persist the SSL skip for this repo only (so git pull works later)
 cd ~/pki
-git config http.sslVerify false
+git config http.sslVerify false   # persists for future git pulls on this repo
+```
 
-# If submodules were not cloned (e.g. cloned without --recurse-submodules)
-# git submodule update --init --recursive
+### 3.3 Harden the VPS
 
-# Install everything
+```bash
+sudo bash deploy/secure-vps.sh
+# Custom SSH port (optional):
+sudo bash deploy/secure-vps.sh --ssh-port 2222
+```
+
+What it does (9 steps):
+
+| Step | What |
+|---|---|
+| 1 | System package updates |
+| 2 | Install ufw, fail2ban, unattended-upgrades |
+| 3 | UFW firewall — SSH, HTTP :80, HTTPS :443 only |
+| 4 | SSH hardening — key-only auth, no root login |
+| 5 | Fail2ban — 3 failures → 1 hour IP ban |
+| 6 | Kernel sysctl — ASLR, SYN protection, BEAM tuning (`vm.swappiness=1`, `fs.file-max=2M`, large socket buffers) |
+| 7 | Transparent Huge Pages disabled — BEAM allocator incompatible with 2 MB THP pages |
+| 8 | `/dev/shm` mounted `noexec,nosuid,nodev` |
+| 9 | Unattended security upgrades (Erlang/PostgreSQL excluded) |
+
+After hardening, verify:
+
+```bash
+sudo ufw status
+sudo fail2ban-client status sshd
+# From a second terminal — confirm you can still SSH in
+```
+
+> **Locked out?** Use your VPS provider's web console to fix SSH config.
+
+### 3.4 Install system packages and services
+
+```bash
 sudo bash deploy/install.sh
 ```
 
-> **Note:** `http.sslVerify=false` is set per-repo only — it does not affect other
-> git operations on the server. This is needed because the Gitea instance at
-> `vcs.antrapol.tech:3800` uses a self-signed or internal TLS certificate.
+What it does:
 
-What `install.sh` does:
-- Runs **VPS hardening** if not already done (calls `secure-vps.sh`)
-- Installs **Erlang/OTP + Elixir**, **PostgreSQL**, **SoftHSM2**, **Caddy**, **argon2**
-- Creates OS user `pki` with home at `/opt/pki`
-- Creates `/opt/pki/releases/{engines,portals,audit}` directories
-- Generates a unique Erlang cookie per release in `/opt/pki/.cookies/` (mode 400)
-- Writes `/etc/softhsm2.conf` with token directory `/var/lib/softhsm/tokens/`
+- Runs VPS hardening if not already done
+- Creates `pki` OS user with home at `/opt/pki`
+- Creates `/opt/pki/releases/{platform,engines,tenant,audit}/` directories
+- Creates `/var/lib/pki/mnesia/{platform,engines,audit}/` directories
+- Installs: Erlang/OTP, Elixir 1.18, PostgreSQL, SoftHSM2, Caddy, Rust, liboqs, argon2
+- Generates Erlang cookies in `/opt/pki/.cookies/` (mode 400)
+- Writes `/etc/softhsm2.conf`
 - Copies `Caddyfile` to `/etc/caddy/Caddyfile`
-- Installs 3 systemd `.service` files to `/etc/systemd/system/`
-- **Auto-generates `/opt/pki/.env`** with all passwords, salts, and keys (via `generate-env.sh`)
+- Installs all systemd `.service` files (including `pki-tenant@.service` template)
+- **Auto-generates `/opt/pki/.env`** with all passwords, salts, and keys
+- Tunes PostgreSQL: `shared_buffers=25% RAM`, `effective_cache_size=75% RAM`,
+  `work_mem=16 MB`, `max_connections=500`
+
+**Save the admin password printed at the end.**
 
 ---
 
-## 5. Configure Environment
+## 4. Configure Environment
 
-`install.sh` automatically generates `/opt/pki/.env` with fresh cryptographic
-secrets using `deploy/generate-env.sh`. All passwords, salts, keys, and the admin
-password hash are generated automatically.
-
-### 4.1 Review the generated .env
+`install.sh` auto-generates `/opt/pki/.env`. The only things you need to set manually:
 
 ```bash
-sudo cat /opt/pki/.env
+sudo nano /opt/pki/.env
 ```
 
-Everything is pre-filled except:
-- **RESEND_API_KEY** — set this to your Resend API key for email delivery
-- **Portal hostnames** — defaults to `ca.straptrust.com` etc; change if needed
+| Variable | Required | Description |
+|---|---|---|
+| `PLATFORM_HOST` | Yes | `admin.straptrust.com` |
+| `BASE_DOMAIN` | Yes | `straptrust.com` (used for tenant subdomains) |
+| `CADDY_ACME_EMAIL` | Yes | Email for Let's Encrypt registration |
+| `RESEND_API_KEY` | No | Email delivery (optional for initial setup) |
 
-### 4.2 (Optional) Regenerate interactively
+Everything else (passwords, salts, secret keys, HSM PINs) is auto-generated.
 
-If you need to customise hostnames, admin username, or provide your own admin password:
+### Optional: regenerate interactively
 
 ```bash
 sudo bash deploy/generate-env.sh --force --interactive
 ```
 
-This prompts for each configurable value while still auto-generating all secrets.
-
-### 4.3 What gets generated
-
-| Variable | How it's generated |
-|---|---|
-| `POSTGRES_PASSWORD` | `openssl rand -base64 18` |
-| `SECRET_KEY_BASE` | `openssl rand -base64 64` |
-| `INTERNAL_API_SECRET` | `openssl rand -base64 32` |
-| `*_SIGNING_SALT` (×3) | `openssl rand -base64 16` |
-| `*_ENCRYPTION_SALT` (×3) | `openssl rand -base64 16` |
-| `SOFTHSM_SO_PIN` | `openssl rand -hex 4` |
-| `SOFTHSM_USER_PIN` | `openssl rand -hex 4` |
-| `PLATFORM_ADMIN_PASSWORD_HASH` | Random password → `argon2` hash |
-| `DATABASE_URL` (×5) | Derived from generated `POSTGRES_PASSWORD` |
-
-The admin password is displayed once during generation — save it.
-
-### 4.4 Manual password hash generation
-
-If you need to change the admin password later:
+### Change admin password later
 
 ```bash
-# Using argon2 CLI (installed by install.sh)
 echo -n "new_password" | argon2 $(openssl rand -hex 8) -id -t 3 -m 16 -p 4 -l 32 -e
-
-# Or using the portals release
-/opt/pki/releases/portals/bin/pki_portals eval \
-  'IO.puts Argon2.hash_pwd_salt("new_password")'
-```
-
-Then update `/opt/pki/.env` and restart portals:
-```bash
-sudo systemctl restart pki-portals
+# Paste the output into /opt/pki/.env as PLATFORM_ADMIN_PASSWORD_HASH
+sudo systemctl restart pki-platform
 ```
 
 ---
 
-## 6. Database & HSM Initialisation
+## 5. Build Releases (on VPS)
 
-Database creation, SoftHSM2 token initialisation, and Caddy startup are all handled
-automatically by `deploy.sh setup` (Section 8). You can skip to Section 7 (Build).
-
-If you prefer to do it manually:
-
-<details>
-<summary>Manual database creation</summary>
+Building directly on the VPS is the recommended approach — `install.sh` already
+provides all build dependencies (Erlang/OTP, Elixir, Rust, liboqs, cmake).
 
 ```bash
-# As postgres superuser
-# Schema-per-tenant: only one database is needed. All tenant schemas
-# (t_<id>_ca, t_<id>_ra, t_<id>_audit) live inside pki_platform.
-sudo -u postgres psql << 'SQL'
-CREATE DATABASE pki_platform;
-SQL
-
-# Set the postgres user password to match your .env POSTGRES_PASSWORD
-sudo -u postgres psql -c "ALTER USER postgres PASSWORD '<your POSTGRES_PASSWORD>';"
-```
-</details>
-
-<details>
-<summary>Manual SoftHSM2 token initialisation</summary>
-
-```bash
+cd ~/pki
 source /opt/pki/.env
-
-sudo -u pki softhsm2-util \
-  --init-token \
-  --free \
-  --label "$SOFTHSM_TOKEN_LABEL" \
-  --so-pin  "$SOFTHSM_SO_PIN" \
-  --pin     "$SOFTHSM_USER_PIN"
-
-# Verify: should show Token Label: PkiCA, Initialized: yes
-sudo -u pki softhsm2-util --show-slots
-```
-</details>
-
-> **Note:** If you ever re-initialise the SoftHSM2 token, all keys stored in it are
-> permanently destroyed. Back up `/var/lib/softhsm/tokens/` regularly.
-
----
-
-## 7. Build Releases
-
-Run on your **build machine** (not the server), or in CI. The build machine needs
-Erlang/OTP and Elixir installed (same version as the server).
-
-```bash
-# On build machine — from repo root
-# Source .env so signing salts are baked into the release at compile time
-source .env
-
 bash deploy/build.sh
 ```
 
-This produces tarballs in `deploy/releases/`:
+**First build takes ~10 minutes** — Rust NIFs (liboqs, SoftHSM2 Rustler) compile
+from source. Subsequent builds use the cached deps and take ~2 minutes.
+
+Output tarballs in `deploy/releases/`:
+
 ```
-deploy/releases/
-├── pki_engines-0.2.0.tar.gz
-├── pki_portals-0.2.0.tar.gz
-└── pki_audit-0.2.0.tar.gz
+pki_platform-<vsn>.tar.gz       Platform admin portal + tenant lifecycle
+pki_engines-<vsn>.tar.gz        Audit trail receiver + platform bootstrap
+pki_tenant_node-<vsn>.tar.gz    Per-tenant CA/RA/Validation (deployed on-demand)
+pki_audit-<vsn>.tar.gz          Lightweight audit trail service
+pki_replica-<vsn>.tar.gz        Multi-host warm standby (optional)
 ```
 
-### Copy tarballs to server
+### Alternatively: build on a separate machine
+
+If you prefer not to build on the server:
 
 ```bash
-# From build machine
-scp deploy/releases/*.tar.gz deploy@217.15.161.93:~/pki/deploy/releases/
+# On build machine — same OS/Erlang version as the server
+source /path/to/.env && bash deploy/build.sh
+scp deploy/releases/*.tar.gz deploy@<VPS_IP>:~/pki/deploy/releases/
 ```
 
 ---
 
-## 8. Deploy Releases
+## 6. Deploy
 
-Run on the server as root.
+### First-time setup (recommended)
 
-### First-time deployment (recommended)
-
-`setup` creates databases, initialises SoftHSM2, deploys all releases, runs
-migrations, and starts Caddy — one command:
+One command — creates the database, initialises SoftHSM2, deploys all releases,
+and starts Caddy:
 
 ```bash
 cd ~/pki
 sudo bash deploy/deploy.sh setup
 ```
 
-### Subsequent deployments
+Expected output:
+
+```
+[deploy] === First-run setup ===
+[deploy] Checking PostgreSQL max_connections... ✓ max_connections = 500
+[deploy] Ensuring PostgreSQL databases exist...
+[deploy]   ✓ pki_platform exists
+[deploy] Initialising SoftHSM2 token...
+[deploy]   ✓ Token initialised
+[deploy] Deploying engines ...
+[deploy]   ✓ pki-engines is running
+[deploy] Deploying platform ...
+[deploy]   ✓ pki-platform is running
+[deploy] Deploying audit ...
+[deploy]   ✓ pki-audit is running
+[deploy] Starting Caddy...
+[deploy]   ✓ Caddy is running
+[deploy] === Setup complete ===
+```
+
+### Subsequent deployments / upgrades
 
 ```bash
-cd ~/pki
-sudo bash deploy/deploy.sh          # deploy all (creates DBs if missing, restarts Caddy)
-sudo bash deploy/deploy.sh engines   # deploy only engines
-sudo bash deploy/deploy.sh portals   # deploy only portals
+sudo bash deploy/deploy.sh            # redeploy all three services
+sudo bash deploy/deploy.sh platform   # platform only
+sudo bash deploy/deploy.sh engines    # engines only
+sudo bash deploy/deploy.sh audit      # audit only
+sudo bash deploy/deploy.sh migrate    # run DB migrations only
 ```
 
-Expected output:
-```
-[deploy] Ensuring PostgreSQL databases exist...
-[deploy]   ✓ pki_ca_engine exists
-[deploy]   ✓ pki_ra_engine exists
-[deploy]   ✓ pki_validation exists
-[deploy]   ✓ pki_audit_trail exists
-[deploy]   ✓ pki_platform exists
-[deploy] Deploying engines from pki_engines-0.2.0.tar.gz...
-[deploy]   Extracted to /opt/pki/releases/engines
-[deploy]   Running migrations for engines...
-[deploy]   Started pki-engines
-[deploy]   ✓ pki-engines is running
-[deploy] Deploying portals from pki_portals-0.2.0.tar.gz...
-[deploy]   Started pki-portals
-[deploy]   ✓ pki-portals is running
-[deploy] Deploying audit from pki_audit-0.2.0.tar.gz...
-[deploy]   Started pki-audit
-[deploy]   ✓ pki-audit is running
-[deploy] Starting Caddy (TLS termination)...
-[deploy]   ✓ Caddy is running
-[deploy] All services deployed.
+### Rollback
+
+```bash
+sudo bash deploy/deploy.sh rollback platform
 ```
 
 ---
 
-## 9. Service Startup Order
+## 7. Service Startup Order
 
-After deployment, all services are enabled and started automatically by systemd.
-On server reboot, systemd starts everything in dependency order:
+systemd handles dependency ordering on reboot:
 
 ```
-postgresql       (system)
-  └── pki-engines    (After=postgresql — runs CA/RA/Validation APIs + migrations)
-  └── pki-portals    (After=postgresql — runs CA/RA/Platform portals in direct mode)
-  └── pki-audit      (After=postgresql — lightweight audit trail service)
-caddy                (TLS termination in front of portals)
+postgresql
+  └── pki-engines    (Requires=postgresql)
+  └── pki-audit      (Requires=postgresql)
+  └── pki-platform   (After=postgresql, pki-engines)
+        └── pki-tenant@<id>  (Wants=pki-platform — survives platform restart)
+caddy
 ```
 
-Check everything is running:
+Check all services:
+
 ```bash
 systemctl status 'pki-*' caddy postgresql
+sudo bash deploy/deploy.sh status
 ```
 
 ---
 
-## 10. Verify Deployment
+## 8. Verify Deployment
 
-### 10.1 Service health checks
+### Service health
 
 ```bash
-# CA Engine API
-curl -s http://localhost:4001/health
-# Expected: {"status":"ok"}
+# Platform admin portal
+curl -s http://localhost:4006/health
+# Expected: {"status":"ok"} or HTTP 200
 
-# RA Engine API
-curl -s http://localhost:4003/health
-# Expected: {"status":"ok"}
-
-# Validation Service
-curl -s http://localhost:4005/health
-# Expected: {"status":"ok"}
-
-# CA Portal (through Caddy)
-curl -sI https://ca.straptrust.com
-# Expected: HTTP/2 200
-
-# RA Portal
-curl -sI https://ra.straptrust.com
-# Expected: HTTP/2 200
-
-# Platform Admin Portal
+# Platform admin portal via Caddy (TLS)
 curl -sI https://admin.straptrust.com
 # Expected: HTTP/2 200
 ```
 
-### 10.2 TLS certificates
+### TLS certificates
 
 ```bash
-# Check Caddy issued Let's Encrypt certificates
-echo | openssl s_client -connect ca.straptrust.com:443 2>/dev/null \
+echo | openssl s_client -connect admin.straptrust.com:443 2>/dev/null \
   | openssl x509 -noout -issuer -subject -dates
+# Issuer should be Let's Encrypt
 ```
 
-### 10.3 CA Engine first-run setup
+### Caddy dynamic routing (after first tenant is provisioned)
 
-The CA Portal will redirect to `/setup` on first access (no users in DB yet):
-
-```
-https://ca.straptrust.com  →  /setup  (first run)
-                            →  /login  (after setup)
+```bash
+# Check Caddy's live config — should show route-<slug> entries
+curl -s http://localhost:2019/config/apps/http/servers/srv0/routes | jq .
 ```
 
-Create the first admin account through the browser, then proceed with:
-1. Configure a keystore (Software or HSM)
-2. Run a key ceremony to generate root keys
-3. Create issuer keys
+### Platform admin first login
 
-### 10.4 RA Portal first-run setup
-
-```
-https://ra.straptrust.com  →  /setup  (first run)
-```
-
-Create the first admin account, then configure cert profiles and service configs.
+Open `https://admin.straptrust.com` and log in with:
+- Username: value of `PLATFORM_ADMIN_USERNAME` in `/opt/pki/.env`
+- Password: printed during `install.sh` (or check `PLATFORM_ADMIN_PASSWORD` in `.env`)
 
 ---
 
-## 11. Operations Reference
+## 9. Provisioning Tenants
 
-### View logs
+Tenants are provisioned through the platform admin portal at
+`https://admin.straptrust.com`. The platform:
+
+1. Allocates a port from the pool (5001–5999)
+2. Starts a `pki_tenant_node` BEAM (registered as `pki_tenant_<slug>@127.0.0.1`)
+3. Creates `/var/lib/pki/mnesia/tenant-<id>/` for Mnesia disc_copies
+4. Calls the Caddy admin API to add routes for:
+   - `<slug>.ca.straptrust.com → localhost:<port>`
+   - `<slug>.ra.straptrust.com → localhost:<port>`
+   - `<slug>.ocsp.straptrust.com → localhost:<port>`
+
+No manual Caddyfile edits are needed — routing is fully automatic.
+
+### Persistent tenant nodes (systemd-managed)
+
+By default, tenant BEAM nodes are spawned by `:peer` from `pki_platform`.
+For tenants that should survive a platform restart, enable their systemd unit:
 
 ```bash
-# Follow logs for a release
-journalctl -u pki-engines -f
+# Enable and start a tenant's BEAM as a standalone systemd service
+sudo systemctl enable --now pki-tenant@<tenant-slug>.service
 
-# Last 100 lines
-journalctl -u pki-engines -n 100
+# Logs
+journalctl -u pki-tenant@acme-corp -f
+
+# Restart
+sudo systemctl restart pki-tenant@acme-corp
+
+# Status of all tenant nodes
+systemctl status 'pki-tenant@*'
+```
+
+### After provisioning — run the key ceremony
+
+Access the tenant's CA portal at `https://<slug>.ca.straptrust.com`:
+
+1. Log in as `ca_admin`
+2. Configure a keystore (SoftHSM2 local or external PKCS#11 HSM)
+3. Run the key ceremony to generate root CA keys
+4. Create issuer keys
+
+---
+
+## 10. Operations Reference
+
+### Logs
+
+```bash
+journalctl -u pki-platform -f
+journalctl -u pki-engines -f
+journalctl -u pki-audit -f
+journalctl -u pki-tenant@acme-corp -f
 
 # All PKI services since last boot
 journalctl -u 'pki-*' -b
 
 # Filter by time
-journalctl -u pki-engines --since "2026-03-29 10:00" --until "2026-03-29 11:00"
+journalctl -u pki-platform --since "2026-05-07 10:00" --until "2026-05-07 11:00"
 ```
 
 ### Service control
 
 ```bash
-# Status
-systemctl status pki-engines
-
-# Restart a service (e.g. after config change)
+systemctl restart pki-platform
 systemctl restart pki-engines
+systemctl restart pki-audit
+systemctl restart pki-tenant@acme-corp
 
-# Stop / Start
-systemctl stop pki-engines
-systemctl start pki-engines
+# Stop without restart
+systemctl stop pki-tenant@acme-corp
 ```
 
-### BEAM remote shell
-
-Connect a live IEx shell to a running BEAM VM — no restart needed:
+### Live IEx shell (no restart required)
 
 ```bash
-# Connect to engines release
+sudo -u pki /opt/pki/releases/platform/bin/pki_platform remote
 sudo -u pki /opt/pki/releases/engines/bin/pki_engines remote
-
-# Now you have a live IEx shell inside the running VM:
-iex> PkiCaEngine.Repo.aggregate(PkiCaEngine.Schema.IssuerKey, :count)
-iex> :observer.start()   # opens GUI process inspector (requires X11 forwarding)
-iex> :erlang.memory()    # memory usage breakdown
-iex> Node.list()         # connected BEAM nodes (if clustering)
-iex> :q                  # disconnect (does NOT stop the service)
+sudo -u pki /opt/pki/releases/audit/bin/pki_audit remote
 ```
 
-> **Important:** Typing `System.halt()` in the remote shell WILL stop the service.
-> Use `:q` or Ctrl+C to disconnect safely.
+> **Warning:** `System.halt()` in the remote shell kills the BEAM process.
+> Use `:q` or `Ctrl+C` to disconnect safely.
 
-### Run migrations manually
+### Useful IEx commands
+
+```elixir
+# Connected tenant nodes
+Node.list()
+
+# BEAM memory breakdown
+:erlang.memory()
+
+# Process count
+:erlang.system_info(:process_count)
+
+# Scheduler utilisation (1-second sample)
+:scheduler.utilization(1000)
+
+# Mnesia info
+:mnesia.system_info(:tables)
+:mnesia.table_info(:issued_certificates, :size)
+
+# Terminal BEAM dashboard (no X11 needed)
+:observer_cli.start()
+```
+
+### Port allocation
 
 ```bash
+# See which tenants have which ports allocated
+sudo -u pki /opt/pki/releases/platform/bin/pki_platform remote
+iex> PkiPlatformEngine.PortAllocator.list_assignments()
+```
+
+### Check Caddy live routes
+
+```bash
+curl -s http://localhost:2019/config/apps/http/servers/srv0/routes | jq '[.[] | {"id": .["@id"], "hosts": .match[0].host, "upstream": .handle[0].upstreams[0].dial}]'
+```
+
+### Database
+
+```bash
+# Connect to PostgreSQL
+sudo -u postgres psql pki_platform
+
+# Connection count
+sudo -u postgres psql -c "SELECT count(*), state FROM pg_stat_activity GROUP BY state;"
+
+# Run migrations manually
 sudo bash ~/pki/deploy/deploy.sh migrate
 ```
 
-Or directly via the engines release:
-```bash
-sudo -u pki env $(grep -v '^#' /opt/pki/.env | xargs) \
-  /opt/pki/releases/engines/bin/pki_engines eval \
-  "PkiSystem.Release.migrate()"
-```
-
-### Check BEAM scheduler usage
+### SoftHSM2
 
 ```bash
-# In the remote shell
-iex> :scheduler.utilization(1000)  # sample schedulers for 1 second
-```
-
-Or install `observer_cli` for a terminal-based dashboard:
-```bash
-iex> :observer_cli.start()
-```
-
-### Check process count and memory
-
-```bash
-sudo -u pki /opt/pki/releases/engines/bin/pki_engines remote << 'IEX'
-:erlang.system_info(:process_count) |> IO.inspect(label: "processes")
-:erlang.memory() |> IO.inspect(label: "memory bytes")
-IEX
-```
-
----
-
-## 12. Upgrading
-
-For **zero-downtime upgrades** (building on server):
-
-```bash
-ssh deploy@217.15.161.93
-cd ~/pki
-git pull --recurse-submodules   # sslVerify already disabled per-repo
-source /opt/pki/.env
-bash deploy/build.sh
-sudo bash deploy/deploy.sh  # or: sudo bash deploy/deploy.sh engines
-```
-
-`deploy.sh` will:
-1. Back up the current release to `engines.bak`
-2. Stop the service (graceful OTP shutdown — in-flight requests finish)
-3. Extract the new release
-4. Run any new migrations (engines only)
-5. Start the new version
-6. Report health status
-
-If something goes wrong:
-```bash
-sudo bash ~/pki/deploy/deploy.sh rollback engines
-```
-
-### Hot code upgrades (advanced)
-
-BEAM supports upgrading code **without restarting** the VM, which is valuable for
-the CA Engine because it keeps activated keys in memory. This requires generating
-`appup` files, which is an advanced OTP topic. For most upgrades, the stop/start
-approach above is safe and fast enough.
-
----
-
-## 13. Troubleshooting
-
-### Service fails to start
-
-```bash
-# Check the last 50 log lines
-journalctl -u pki-engines -n 50 --no-pager
-
-# Common causes:
-# 1. .env variable missing or wrong value
-# 2. PostgreSQL not running or wrong DATABASE_URL
-# 3. Port already in use
-# 4. Release binary not executable
-
-# Check port conflicts
-ss -tlnp | grep -E '400[1-6]'
-
-# Check .env is readable by pki user
-sudo -u pki cat /opt/pki/.env | head -5
-```
-
-### Database connection error
-
-```bash
-# Test connection directly
-sudo -u pki psql "ecto://postgres:<pass>@localhost:5432/pki_ca_engine" -c '\l'
-
-# Check PostgreSQL is listening
-systemctl status postgresql
-ss -tlnp | grep 5432
-```
-
-### SoftHSM2 / HSM errors
-
-```bash
-# Check pki user can see the token
+# Check token status
 sudo -u pki softhsm2-util --show-slots
 
 # If token shows "Not initialized":
@@ -661,9 +527,70 @@ sudo -u pki softhsm2-util --init-token --free \
   --label "$SOFTHSM_TOKEN_LABEL" \
   --so-pin "$SOFTHSM_SO_PIN" \
   --pin "$SOFTHSM_USER_PIN"
+```
 
-# Check library path exists
-ls -la /usr/lib/softhsm/libsofthsm2.so
+---
+
+## 11. Upgrading
+
+```bash
+ssh deploy@<VPS_IP>
+cd ~/pki
+
+# Pull latest code
+git pull --recurse-submodules
+
+# Build new releases on the VPS
+source /opt/pki/.env
+bash deploy/build.sh
+
+# Deploy (stops → migrates → starts for each service)
+sudo bash deploy/deploy.sh
+```
+
+`deploy.sh` backs up the current release to `<service>.bak` before swapping,
+so rollback is always available:
+
+```bash
+sudo bash deploy/deploy.sh rollback platform
+sudo bash deploy/deploy.sh rollback engines
+```
+
+**Tenant nodes** are not redeployed by `deploy.sh` — restart them individually
+or let `pki_platform` manage their lifecycle via `:peer`.
+
+```bash
+# After a pki_tenant_node tarball update, replace the release and restart
+sudo bash deploy/deploy.sh tenant  # if deploy.sh supports it, else manual:
+sudo -u pki tar -xzf ~/pki/deploy/releases/pki_tenant_node-<vsn>.tar.gz \
+  -C /opt/pki/releases/tenant
+sudo systemctl restart 'pki-tenant@*'
+```
+
+---
+
+## 12. Troubleshooting
+
+### Service fails to start
+
+```bash
+journalctl -u pki-platform -n 50 --no-pager
+
+# Common causes:
+# 1. .env variable missing or wrong value
+# 2. PostgreSQL not running
+# 3. Port already in use (check with: ss -tlnp | grep 4006)
+# 4. Release binary missing (check: ls /opt/pki/releases/platform/bin/)
+
+sudo -u pki cat /opt/pki/.env | head -5   # check .env readable by pki user
+```
+
+### Database connection error
+
+```bash
+systemctl status postgresql
+ss -tlnp | grep 5432
+sudo -u postgres psql pki_platform -c '\l'
 ```
 
 ### Caddy not issuing TLS certificates
@@ -671,74 +598,113 @@ ls -la /usr/lib/softhsm/libsofthsm2.so
 ```bash
 journalctl -u caddy -n 50
 
-# Common causes:
-# 1. DNS not yet propagated (check: dig +short ca.straptrust.com)
-# 2. Port 80 blocked by firewall
-# 3. CADDY_ACME_EMAIL not in .env (loaded from /opt/pki/.env via EnvironmentFile)
+# Checklist:
+# 1. DNS propagated?  dig +short admin.straptrust.com
+# 2. Port 80 open?    ufw status
+# 3. CADDY_ACME_EMAIL set in /opt/pki/.env?
+# 4. Caddy admin API enabled? (check /etc/caddy/Caddyfile — must not have 'admin off')
 
-# Check firewall
-ufw status
-# Ensure 80 and 443 are ALLOW
-
-# Manual test (Caddy HTTP challenge needs port 80 open)
-curl -v http://ca.straptrust.com/.well-known/acme-challenge/test
+curl -v http://admin.straptrust.com/.well-known/acme-challenge/test
 ```
 
-### High memory usage
+### Caddy admin API unreachable (tenant routes not adding)
 
 ```bash
-# Check per-release memory
-systemctl status 'pki-*' | grep -E 'Memory|pki-'
+curl -s http://localhost:2019/config/ | jq .
+# If this fails, Caddy's admin API is disabled or Caddy is not running.
+# Check /etc/caddy/Caddyfile — must have 'admin localhost:2019' not 'admin off'
+systemctl restart caddy
+```
 
-# If a VM is using too much, reduce pool_size in .env:
-POOL_SIZE=5   # default is 10 DB connections per VM
+### Tenant BEAM not starting
 
-# Then restart that release
-systemctl restart pki-engines
+```bash
+journalctl -u pki-tenant@acme-corp -n 50 --no-pager
+
+# Check if port is in use
+ss -tlnp | grep 500
+
+# Check Mnesia directory exists and is owned by pki
+ls -la /var/lib/pki/mnesia/tenant-<id>
+# If missing: sudo mkdir -p /var/lib/pki/mnesia/tenant-<id> && sudo chown pki:pki /var/lib/pki/mnesia/tenant-<id>
+```
+
+### High memory on a tenant node
+
+```bash
+systemctl status 'pki-tenant@*' | grep Memory
+
+# Connect and inspect
+sudo -u pki /opt/pki/releases/tenant/bin/pki_tenant_node remote
+iex> :erlang.memory()
+iex> :mnesia.table_info(:issued_certificates, :memory)
+```
+
+### OOM killer hit a service
+
+```bash
+journalctl -k | grep -i oom
+dmesg | grep -i "out of memory"
+
+# Check OOMScoreAdjust is applied (lower = more protected):
+cat /proc/$(pgrep -f pki_platform | head -1)/oom_score
+# Should be well below 0 given OOMScoreAdjust=-500 in pki-platform.service
 ```
 
 ### BEAM scheduler saturation
 
 ```bash
-# Check CPU usage per VM (now only 3 VMs)
+# CPU per process
 top -p $(pgrep -d',' beam.smp)
 
-# Tune scheduler limits per release in systemd service files:
-# Edit /etc/systemd/system/pki-engines.service:
-#   Environment=ELIXIR_ERL_OPTIONS=+S 2:2 +SDcpu 2
-# Then: systemctl daemon-reload && systemctl restart pki-engines
+# From IEx
+iex> :scheduler.utilization(1000)
+
+# Reduce dirty-CPU schedulers if PQC NIFs are saturating:
+# Edit /etc/systemd/system/pki-tenant@.service
+# Change: +SDcpu 2:2  →  +SDcpu 1:1
+# Then:
+sudo systemctl daemon-reload
+sudo systemctl restart 'pki-tenant@*'
 ```
 
 ---
 
-## Summary: Full Deployment Checklist
+## Full Deployment Checklist
 
 ```
-── Server prep ──
-[ ] DNS A records created and propagated
-[ ] Create deploy user on VPS (not root!)
-[ ] git clone repo to ~/pki on server
-[ ] sudo bash deploy/secure-vps.sh        ← firewall, SSH hardening, fail2ban
-[ ] Verify SSH works from a second terminal before disconnecting
+── Prerequisites ──────────────────────────────────────────────
+[ ] DNS A records created and propagated (admin.*, *.ca.*, *.ra.*, *.ocsp.*)
+[ ] Create deploy user on VPS (NOT root)
 
-── Install & configure ──
-[ ] sudo bash deploy/install.sh           ← packages, .env with auto-generated secrets
+── Server setup ───────────────────────────────────────────────
+[ ] git clone repo to ~/pki on VPS (with --recurse-submodules)
+[ ] sudo bash deploy/secure-vps.sh        ← firewall, SSH, sysctl, THP
+[ ] Verify SSH still works from a second terminal
+[ ] sudo bash deploy/install.sh           ← all packages, .env generated
 [ ] Save the admin password printed during install
-[ ] (Optional) Set RESEND_API_KEY in /opt/pki/.env
-[ ] (Optional) Change portal hostnames if using staging domains
 
-── Build & deploy ──
-[ ] source /opt/pki/.env && bash deploy/build.sh
-[ ] sudo bash deploy/deploy.sh setup      ← DBs, HSM, deploy, Caddy
+── Configure ──────────────────────────────────────────────────
+[ ] sudo nano /opt/pki/.env
+      PLATFORM_HOST=admin.straptrust.com
+      BASE_DOMAIN=straptrust.com
+      CADDY_ACME_EMAIL=you@example.com
+      RESEND_API_KEY=re_xxxx  (optional)
 
-── Verify ──
-[ ] curl https://ca.straptrust.com/health  → {"status":"ok"}
-[ ] https://ca.straptrust.com/setup  — create first CA admin
-[ ] https://ra.straptrust.com/setup  — create first RA admin
-[ ] https://admin.straptrust.com    — log in as trust_admin
+── Build ──────────────────────────────────────────────────────
+[ ] source /opt/pki/.env && bash deploy/build.sh   ← ~10 min first run
 
-── CA setup ──
-[ ] Configure keystore in CA Portal
-[ ] Run key ceremony
+── Deploy ─────────────────────────────────────────────────────
+[ ] sudo bash deploy/deploy.sh setup
+
+── Verify ─────────────────────────────────────────────────────
+[ ] systemctl status 'pki-*' caddy postgresql   ← all active
+[ ] curl -sI https://admin.straptrust.com       ← HTTP/2 200
+[ ] Log in at https://admin.straptrust.com
+
+── Provision first tenant ─────────────────────────────────────
+[ ] Create tenant via platform admin portal
+[ ] Verify routing: curl -sI https://<slug>.ca.straptrust.com
+[ ] Run key ceremony in CA portal
 [ ] Create issuer keys
 ```
