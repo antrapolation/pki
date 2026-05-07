@@ -188,7 +188,7 @@ ALTER SYSTEM SET work_mem = '16MB';
 ALTER SYSTEM SET maintenance_work_mem = '256MB';
 ALTER SYSTEM SET wal_buffers = '64MB';
 ALTER SYSTEM SET checkpoint_completion_target = 0.9;
-ALTER SYSTEM SET random_page_cost = 1.1;
+ALTER SYSTEM SET random_page_cost = 1.5;
 PGSQL
   PG_NEEDS_RESTART=1
 else
@@ -200,7 +200,7 @@ ALTER SYSTEM SET work_mem = '16MB';
 ALTER SYSTEM SET maintenance_work_mem = '256MB';
 ALTER SYSTEM SET wal_buffers = '64MB';
 ALTER SYSTEM SET checkpoint_completion_target = 0.9;
-ALTER SYSTEM SET random_page_cost = 1.1;
+ALTER SYSTEM SET random_page_cost = 1.5;
 PGSQL
   PG_NEEDS_RESTART=1
   info "  max_connections already ${PG_MAX_CONN} (≥500), memory settings updated"
