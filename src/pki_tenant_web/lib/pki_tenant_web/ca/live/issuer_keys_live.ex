@@ -6,6 +6,7 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
   alias PkiCaEngine.{CaInstanceManagement, IssuerKeyManagement, CertificateSigning, KeyActivation, CeremonyOrchestrator}
   alias PkiMnesia.Repo
   alias PkiMnesia.Structs.{ThresholdShare, KeyCeremony}
+  alias PkiTenant.AuditTrail
   import PkiTenantWeb.ErrorHelpers, only: [sanitize_error: 2]
 
   @impl true
@@ -30,7 +31,8 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
        modal_cert_profile: %{validity_days: 3650, is_ca: true},
        modal_result: nil,
        modal_error: nil,
-       modal_busy: false
+       modal_busy: false,
+       key_history_events: []
      )}
   end
 
@@ -238,6 +240,12 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
       _ ->
         {:noreply, put_flash(socket, :error, "Key not found.")}
     end
+  end
+
+  def handle_event("view_key_history", %{"id" => id}, socket) do
+    events = AuditTrail.list_events(metadata: {:issuer_key_id, id})
+    key = Enum.find(socket.assigns.issuer_keys, &(&1.id == id))
+    {:noreply, assign(socket, modal: :key_history, modal_key: key, key_history_events: events)}
   end
 
   def handle_event("close_modal", _params, socket) do
@@ -686,6 +694,15 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
                     >
                       <.icon name="hero-archive-box" class="size-4" />
                     </button>
+                    <%!-- History: status transition audit trail --%>
+                    <button
+                      phx-click="view_key_history"
+                      phx-value-id={k.id}
+                      title="Status History"
+                      class="btn btn-ghost btn-xs text-base-content/40"
+                    >
+                      <.icon name="hero-clock" class="size-4" />
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -960,6 +977,43 @@ defmodule PkiTenantWeb.Ca.IssuerKeysLive do
         </div>
       </div>
     </div>
+
+    <%!-- Key Status History Modal --%>
+    <%= if @modal == :key_history and @modal_key do %>
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div class="bg-base-100 rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto">
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-sm font-semibold text-base-content">Status History — {@modal_key.key_alias}</h3>
+              <button phx-click="close_modal" class="btn btn-ghost btn-sm btn-circle">
+                <.icon name="hero-x-mark" class="size-4" />
+              </button>
+            </div>
+            <%= if Enum.empty?(@key_history_events) do %>
+              <p class="text-sm text-base-content/50 text-center py-6">No status events recorded for this key.</p>
+            <% else %>
+              <ol class="relative border-l border-base-300 ml-3 space-y-4">
+                <%= for event <- @key_history_events do %>
+                  <li class="ml-4">
+                    <div class="absolute -left-1.5 mt-1.5 size-3 rounded-full border border-base-100 bg-base-300"></div>
+                    <div class="flex items-baseline gap-2 flex-wrap">
+                      <span class="text-xs font-mono font-medium text-base-content">{event.action}</span>
+                      <span class="text-xs text-base-content/40">
+                        <.local_time dt={event.timestamp} />
+                      </span>
+                    </div>
+                    <p :if={event.actor} class="text-xs text-base-content/50 mt-0.5">by {event.actor}</p>
+                  </li>
+                <% end %>
+              </ol>
+            <% end %>
+            <div class="mt-6 flex justify-end">
+              <button phx-click="close_modal" class="btn btn-ghost btn-sm">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    <% end %>
     """
   end
 end

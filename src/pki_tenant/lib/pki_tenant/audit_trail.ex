@@ -136,6 +136,13 @@ defmodule PkiTenant.AuditTrail do
             acc
         end
 
+      {:metadata, nil}, acc -> acc
+      {:metadata, {key, value}}, acc ->
+        Enum.filter(acc, fn e ->
+          Map.get(e.metadata || %{}, key) == value or
+            Map.get(e.metadata || %{}, to_string(key)) == value
+        end)
+
       _, acc -> acc
     end)
   end
